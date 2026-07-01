@@ -76,11 +76,11 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("scaler-task-create", {
-    description: "Create a SCALER task: /scaler-task-create <taskId> | <title> | <allowed paths comma list>",
+    description: "Create a SCALER task: /scaler-task-create <taskId> | <title> | <allowed paths comma list> | <dependency ids comma list>",
     handler: async (args, ctx) => {
       const parsed = parseTaskCreateArgs(args);
       if (!parsed) {
-        const message = "Usage: /scaler-task-create <taskId> | <title> | <allowed paths comma list>";
+        const message = "Usage: /scaler-task-create <taskId> | <title> | <allowed paths comma list> | <dependency ids comma list>";
         if (ctx.hasUI) ctx.ui.notify(message, "warning");
         else console.log(message);
         return;
@@ -91,6 +91,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         id: parsed.taskId,
         title: parsed.title,
         allowedPathPrefixes: parsed.allowedPathPrefixes,
+        dependsOn: parsed.dependsOn,
       });
       if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
       else console.log(result.message);

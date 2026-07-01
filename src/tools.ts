@@ -79,6 +79,7 @@ const TaskCreateParams = Type.Object({
   title: Type.Optional(Type.String()),
   status: Type.Optional(Type.String({ description: "Initial task status. Defaults to pending." })),
   allowedPathPrefixes: Type.Optional(Type.Array(Type.String(), { description: "Paths this task is allowed to modify/commit." })),
+  dependsOn: Type.Optional(Type.Array(Type.String(), { description: "Task ids that must be validated first." })),
 });
 
 const ValidationManifestWriteParams = Type.Object({
@@ -222,6 +223,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         title: params.title,
         status: params.status,
         allowedPathPrefixes: params.allowedPathPrefixes,
+        dependsOn: params.dependsOn,
       });
       await logTool(ctx.cwd, "scaler_task_create", result.message, params);
       return textResult(result.message, { status: result.accepted ? "created" : "rejected", taskId: params.taskId });

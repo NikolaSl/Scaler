@@ -4,6 +4,7 @@ export interface ParsedTaskCreateArgs {
   taskId: string;
   title?: string;
   allowedPathPrefixes?: string[];
+  dependsOn?: string[];
 }
 
 export interface ParsedCommitArgs {
@@ -20,6 +21,7 @@ export function parseTaskCreateArgs(args: string | undefined): ParsedTaskCreateA
     taskId,
     title: parts[1]?.trim() || undefined,
     allowedPathPrefixes: parseCommaList(parts[2]),
+    dependsOn: parseCommaList(parts[3]),
   };
 }
 

@@ -71,9 +71,9 @@ Resumes a paused run only to its previous active stage and writes a checkpoint u
 
 ## `/scaler-tasks`
 
-Lists all known supervisor tasks with status, current-task marker, title, and allowed path metadata.
+Lists all known supervisor tasks with status, current-task marker, title, allowed path metadata, and dependencies.
 
-## `/scaler-task-create <taskId> | <title> | <allowed paths comma list>`
+## `/scaler-task-create <taskId> | <title> | <allowed paths comma list> | <dependency ids comma list>`
 
 Creates a supervisor task record.
 
@@ -81,10 +81,11 @@ Examples:
 
 ```text
 /scaler-task-create T-001 | Add parser tests | src,test
-/scaler-task-create T-002
+/scaler-task-create T-002 | Add dependent task | src | T-001
+/scaler-task-create T-003
 ```
 
-Allowed paths are used later for safe per-task git commits.
+Allowed paths are used later for safe per-task git commits. Dependencies prevent the conductor from selecting a task until all listed task ids are validated.
 
 ## `/scaler-status`
 

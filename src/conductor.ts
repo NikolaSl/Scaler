@@ -66,12 +66,12 @@ export interface TaskPromptResult {
 }
 
 export function selectNextTask(state: ScalerState): NextTaskSelection {
-  const ready = state.tasks.find((task) => task.status === "ready");
+  const ready = state.tasks.find((task) => task.status === "ready" && dependenciesSatisfied(state, task));
   if (ready) {
     return { task: ready, promotePending: false, reason: `Selected ready task ${ready.id}.` };
   }
 
-  const pending = state.tasks.find((task) => task.status === "pending");
+  const pending = state.tasks.find((task) => task.status === "pending" && dependenciesSatisfied(state, task));
   if (pending) {
     return { task: pending, promotePending: true, reason: `Selected pending task ${pending.id} for promotion.` };
   }
@@ -80,15 +80,30 @@ export function selectNextTask(state: ScalerState): NextTaskSelection {
     return { promotePending: false, reason: "No tasks exist." };
   }
 
+  const blockedByDependencies = state.tasks
+    .filter((task) => (task.status === "ready" || task.status === "pending") && !dependenciesSatisfied(state, task))
+    .map((task) => `${task.id}:waiting-for:${missingDependencies(state, task).join("+")}`)
+    .join(", ");
   const ignoredSummary = state.tasks
     .filter((task) => ignoredTaskStatuses.has(task.status))
     .map((task) => `${task.id}:${task.status}`)
     .join(", ");
+  const details = [blockedByDependencies && `Blocked by dependencies ${blockedByDependencies}`, ignoredSummary && `Ignored ${ignoredSummary}`]
+    .filter(Boolean)
+    .join(". ");
 
   return {
     promotePending: false,
-    reason: ignoredSummary ? `No runnable tasks. Ignored ${ignoredSummary}.` : "No runnable tasks.",
+    reason: details ? `No runnable tasks. ${details}.` : "No runnable tasks.",
   };
+}
+
+export function dependenciesSatisfied(state: ScalerState, task: ScalerTaskState): boolean {
+  return missingDependencies(state, task).length === 0;
+}
+
+export function missingDependencies(state: ScalerState, task: ScalerTaskState): string[] {
+  return (task.dependsOn ?? []).filter((dependencyId) => !state.validatedTaskIds.includes(dependencyId));
 }
 
 export async function runConductorStep(
@@ -217,6 +232,7 @@ export function buildTaskAgentPrompt(input: TaskPromptInput): TaskPromptResult {
     `Current task status: ${input.task.status}`,
     `Supervisor stage: ${input.state.stage}`,
     `Allowed paths: ${input.task.allowedPathPrefixes?.join(", ") || "not specified"}`,
+    `Dependencies: ${input.task.dependsOn?.join(", ") || "none"}`,
     "",
     "## Operating rules",
     "- Work only on this task's scope.",

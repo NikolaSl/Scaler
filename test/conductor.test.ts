@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { buildTaskAgentPrompt, loadValidationHandoffs, runConductorStep, selectNextTask } from "../src/conductor.js";
+import { buildTaskAgentPrompt, dependenciesSatisfied, loadValidationHandoffs, missingDependencies, runConductorStep, selectNextTask } from "../src/conductor.js";
 import { createDefaultState, loadState } from "../src/state.js";
 import type { ScalerTaskStatus } from "../src/types.js";
 
@@ -36,6 +36,30 @@ test("selectNextTask selects pending task when no ready tasks exist", () => {
   assert.equal(selection.promotePending, true);
 });
 
+test("selectNextTask skips tasks with unmet dependencies", () => {
+  const state = stateWithTasks(["ready", "pending", "validated"]);
+  state.tasks[0]!.dependsOn = ["T-003"];
+  state.tasks[1]!.dependsOn = ["T-404"];
+  state.validatedTaskIds = ["T-003"];
+
+  const selection = selectNextTask(state);
+
+  assert.equal(selection.task?.id, "T-001");
+  assert.equal(dependenciesSatisfied(state, state.tasks[0]!), true);
+  assert.deepEqual(missingDependencies(state, state.tasks[1]!), ["T-404"]);
+});
+
+test("selectNextTask reports dependency-blocked tasks when none are runnable", () => {
+  const state = stateWithTasks(["ready", "pending"]);
+  state.tasks[0]!.dependsOn = ["T-000"];
+  state.tasks[1]!.dependsOn = ["T-001"];
+
+  const selection = selectNextTask(state);
+
+  assert.equal(selection.task, undefined);
+  assert.match(selection.reason, /Blocked by dependencies T-001:waiting-for:T-000, T-002:waiting-for:T-001/);
+});
+
 test("selectNextTask ignores blocked and terminal tasks", () => {
   const selection = selectNextTask(stateWithTasks(["blocked", "validated", "failed"]));
 
@@ -57,6 +81,7 @@ test("buildTaskAgentPrompt includes task metadata and report instructions", () =
   state.stage = "execution";
   state.tasks[0]!.title = "Implement widget";
   state.tasks[0]!.allowedPathPrefixes = ["src", "test"];
+  state.tasks[0]!.dependsOn = ["T-000"];
 
   const result = buildTaskAgentPrompt({
     state,
@@ -77,6 +102,7 @@ test("buildTaskAgentPrompt includes task metadata and report instructions", () =
   assert.match(result.prompt, /Task title: Implement widget/);
   assert.match(result.prompt, /Current task status: ready/);
   assert.match(result.prompt, /Allowed paths: src, test/);
+  assert.match(result.prompt, /Dependencies: T-000/);
   assert.match(result.prompt, /Required final report/);
   assert.match(result.prompt, /Widget must render labels/);
 });

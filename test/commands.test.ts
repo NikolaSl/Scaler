@@ -4,14 +4,20 @@ import { parseCommaList, parseCommitArgs, parseTaskCreateArgs, resolveCommitAllo
 import { createDefaultState } from "../src/state.js";
 
 test("parseTaskCreateArgs parses task id only", () => {
-  assert.deepEqual(parseTaskCreateArgs("T-001"), { taskId: "T-001", title: undefined, allowedPathPrefixes: undefined });
+  assert.deepEqual(parseTaskCreateArgs("T-001"), {
+    taskId: "T-001",
+    title: undefined,
+    allowedPathPrefixes: undefined,
+    dependsOn: undefined,
+  });
 });
 
-test("parseTaskCreateArgs parses title and allowed paths", () => {
-  assert.deepEqual(parseTaskCreateArgs("T-001 | Add parser | src, test"), {
+test("parseTaskCreateArgs parses title, allowed paths, and dependencies", () => {
+  assert.deepEqual(parseTaskCreateArgs("T-001 | Add parser | src, test | T-000, T-BASE"), {
     taskId: "T-001",
     title: "Add parser",
     allowedPathPrefixes: ["src", "test"],
+    dependsOn: ["T-000", "T-BASE"],
   });
 });
 

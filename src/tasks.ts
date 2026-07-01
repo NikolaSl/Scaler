@@ -9,6 +9,7 @@ export interface CreateTaskInput {
   title?: string;
   status?: ScalerTaskStatus | string;
   allowedPathPrefixes?: string[];
+  dependsOn?: string[];
 }
 
 export interface CreateTaskResult {
@@ -25,7 +26,8 @@ export function formatTaskList(state: ScalerState): string {
     const current = task.id === state.currentTaskId ? " *current*" : "";
     const title = task.title ? ` - ${task.title}` : "";
     const paths = task.allowedPathPrefixes && task.allowedPathPrefixes.length > 0 ? ` [paths: ${task.allowedPathPrefixes.join(", ")}]` : "";
-    lines.push(`- ${task.id}: ${task.status}${current}${title}${paths}`);
+    const deps = task.dependsOn && task.dependsOn.length > 0 ? ` [depends: ${task.dependsOn.join(", ")}]` : "";
+    lines.push(`- ${task.id}: ${task.status}${current}${title}${paths}${deps}`);
   }
   return lines.join("\n");
 }
@@ -55,6 +57,7 @@ export async function createTask(cwd: string, state: ScalerState, input: CreateT
     title: input.title,
     status,
     allowedPathPrefixes: normalizeAllowedPaths(input.allowedPathPrefixes),
+    dependsOn: normalizeIdList(input.dependsOn),
   });
   const accepted = nextState.rejectedTransitions.length === beforeRejected;
 
@@ -80,5 +83,10 @@ function normalizeAllowedPaths(paths: string[] | undefined): string[] | undefine
   const normalized = (paths ?? [])
     .map((path) => path.trim().replace(/^\.\//, "").replace(/\/$/, ""))
     .filter((path) => path.length > 0);
+  return normalized.length > 0 ? [...new Set(normalized)] : undefined;
+}
+
+function normalizeIdList(ids: string[] | undefined): string[] | undefined {
+  const normalized = (ids ?? []).map((id) => id.trim()).filter((id) => id.length > 0);
   return normalized.length > 0 ? [...new Set(normalized)] : undefined;
 }

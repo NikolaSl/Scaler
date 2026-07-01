@@ -35,15 +35,17 @@ test("createTask supports explicit ready status", async () => {
   });
 });
 
-test("createTask stores normalized allowed path prefixes", async () => {
+test("createTask stores normalized allowed path prefixes and dependencies", async () => {
   await withTempDir(async (dir) => {
     const result = await createTask(dir, createDefaultState(), {
       id: "T-001",
       allowedPathPrefixes: ["./src/", "src", " test ", ""],
+      dependsOn: ["T-000", "", "T-000", "T-BASE"],
     });
 
     assert.equal(result.accepted, true);
     assert.deepEqual(result.state.tasks[0]?.allowedPathPrefixes, ["src", "test"]);
+    assert.deepEqual(result.state.tasks[0]?.dependsOn, ["T-000", "T-BASE"]);
   });
 });
 
@@ -56,11 +58,12 @@ test("formatTaskList renders current task, status, title, and allowed paths", ()
       title: "Add feature",
       status: "validated",
       allowedPathPrefixes: ["src", "test"],
+      dependsOn: ["T-000"],
       updatedAt: state.createdAt,
     },
   ];
 
-  assert.equal(formatTaskList(state), "Scaler tasks:\n- T-001: validated *current* - Add feature [paths: src, test]");
+  assert.equal(formatTaskList(state), "Scaler tasks:\n- T-001: validated *current* - Add feature [paths: src, test] [depends: T-000]");
 });
 
 test("formatTaskList handles no tasks", () => {
