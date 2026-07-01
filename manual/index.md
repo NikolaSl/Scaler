@@ -7,7 +7,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 ## Current implemented behavior
 
 - Pi extension entrypoint: `src/index.ts`.
-- Commands: `/scaler`, `/scaler-step`, `/scaler-validate`, `/scaler-pause`, `/scaler-resume`, `/scaler-status`.
+- Commands: `/scaler`, `/scaler-tasks`, `/scaler-task-create`, `/scaler-task-update`, `/scaler-step`, `/scaler-validation-add`, `/scaler-validate`, `/scaler-commit`, `/scaler-pause`, `/scaler-resume`, `/scaler-status`.
 - State file: `.scaler/state.json`.
 - Basic deterministic supervisor transition helpers.
 - Event log: `.scaler/logs/events.jsonl`.
@@ -22,10 +22,12 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - Minimal one-step conductor execution with validation handoff artifacts.
 - Deterministic validation manifests and command-run records.
 - Git status safety and validated-task commit helpers.
+- Implemented create/list/step/validate/commit workflow.
 
 ## Manual pages
 
 - `manual/state.md`
+- `manual/workflow.md`
 - `manual/commands.md`
 - `manual/context.md`
 - `manual/logging.md`
