@@ -25,3 +25,15 @@ export function getMemoryDir(cwd: string): string {
 export function getMemoryIndexPath(cwd: string): string {
   return join(getMemoryDir(cwd), "index.json");
 }
+
+export function getDebugDir(cwd: string): string {
+  return join(getScalerDir(cwd), "debug");
+}
+
+export function getDebugFailuresPath(cwd: string): string {
+  return join(getDebugDir(cwd), "failures.json");
+}
+
+export function getDebugAttemptsPath(cwd: string): string {
+  return join(getDebugDir(cwd), "attempts.json");
+}

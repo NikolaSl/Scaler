@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { recordDebugAttempt } from "./debug.js";
 import { createLogEvent, appendLogEvent } from "./logging.js";
 import { retrieveMemory, writeMemory } from "./memory.js";
 import { ingestReport } from "./reports.js";
@@ -79,6 +80,20 @@ const DebugAttemptParams = Type.Object({
   hypothesis: Type.String(),
   actionSummary: Type.String(),
   result: Type.String({ description: "fixed, same_failure, new_failure, partial, no_effect, worse, or blocked." }),
+  failureFingerprint: Type.Optional(Type.String()),
+  resultingFailureFingerprint: Type.Optional(Type.String()),
+  attemptSignature: Type.Optional(Type.String()),
+  changedFiles: Type.Optional(Type.Array(Type.String())),
+  commands: Type.Optional(Type.Array(Type.String())),
+  evidence: Type.Optional(Type.Array(Type.String())),
+  validationRun: Type.Optional(Type.String()),
+  logRefs: Type.Optional(Type.Array(Type.String())),
+  newEvidence: Type.Optional(Type.String({ description: "New evidence that justifies retrying an otherwise repeated attempt." })),
+  failureSummary: Type.Optional(Type.String()),
+  validationCommand: Type.Optional(Type.String()),
+  expectedResult: Type.Optional(Type.String()),
+  actualResult: Type.Optional(Type.String()),
+  outputRefs: Type.Optional(Type.Array(Type.String())),
   details: Type.Optional(Type.Unknown()),
 });
 
@@ -185,8 +200,34 @@ export function registerScalerTools(pi: ExtensionAPI): void {
     description: "Record a debug attempt for loop-resistant debugging.",
     parameters: DebugAttemptParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      await logTool(ctx.cwd, "scaler_debug_attempt", `Debug attempt ${params.result}: ${params.taskId}`, params);
-      return textResult(`Debug attempt logged for ${params.taskId}: ${params.result}`, { status: "logged", params });
+      const state = await ensureState(ctx.cwd);
+      const result = await recordDebugAttempt(ctx.cwd, state, {
+        taskId: params.taskId,
+        failureId: params.failureId,
+        hypothesis: params.hypothesis,
+        actionSummary: params.actionSummary,
+        result: params.result,
+        failureFingerprint: params.failureFingerprint,
+        resultingFailureFingerprint: params.resultingFailureFingerprint,
+        attemptSignature: params.attemptSignature,
+        changedFiles: params.changedFiles,
+        commands: params.commands,
+        evidence: params.evidence,
+        validationRun: params.validationRun,
+        logRefs: params.logRefs,
+        newEvidence: params.newEvidence,
+        failureSummary: params.failureSummary,
+        validationCommand: params.validationCommand,
+        expectedResult: params.expectedResult,
+        actualResult: params.actualResult,
+        outputRefs: params.outputRefs,
+      });
+      return textResult(result.message, {
+        status: result.accepted ? "recorded" : "rejected",
+        attemptId: result.attempt?.id,
+        duplicateAttemptId: result.duplicateAttemptId,
+        cycleDetected: result.cycleDetected,
+      });
     },
   });
 }

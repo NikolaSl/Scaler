@@ -13,7 +13,7 @@ Scaler currently registers structured tool skeletons:
 Current behavior:
 
 - `scaler_report` can request supervisor stage/task transitions and persists accepted/rejected state
-- debug requests are logged to `.scaler/logs/events.jsonl`
+- `scaler_debug_attempt` persists failures/attempts under `.scaler/debug/`, rejects repeated failed attempts without new evidence, and logs debug decisions
 - `scaler_validation_report` applies validation-driven task transitions
 - `scaler_memory_write` writes `.scaler/memory/` files and index entries
 - `scaler_memory_retrieve` retrieves memory by id/path
