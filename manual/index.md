@@ -12,12 +12,14 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - Basic deterministic supervisor transition helpers.
 - Event log: `.scaler/logs/events.jsonl`.
 - Basic safety gate for protected paths and destructive shell commands.
+- Experimental task-agent subprocess invocation builder.
 
 ## Manual pages
 
 - `manual/state.md`
 - `manual/logging.md`
 - `manual/safety.md`
+- `manual/task-agents.md`
 - `manual/installation.md`
 
 ## Development
