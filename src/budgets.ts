@@ -1,0 +1,216 @@
+import { appendLogEvent, createLogEvent } from "./logging.js";
+import { saveState } from "./state.js";
+import { transitionStage } from "./supervisor.js";
+import type { ScalerState } from "./types.js";
+
+export type BudgetUsageKey = "toolCalls" | "spawnedAgents" | "debugAttempts" | "wallClockMs" | "checkpoints";
+export type BudgetDecisionStatus = "ok" | "soft_limit" | "hard_limit";
+export type BudgetRecommendedAction = "continue" | "reduce_scope" | "pause";
+
+export interface BudgetLimit {
+  soft?: number;
+  hard?: number;
+}
+
+export interface BudgetCheckpoint {
+  id: string;
+  scope: string;
+  timestamp: string;
+  wallClockMs: number;
+  summary?: string;
+}
+
+export interface ScalerBudgetState {
+  [key: string]: unknown;
+  version: 1;
+  startedAt: string;
+  updatedAt: string;
+  usage: Partial<Record<BudgetUsageKey, number>>;
+  limits: Partial<Record<BudgetUsageKey, BudgetLimit>>;
+  checkpoints: BudgetCheckpoint[];
+}
+
+export interface BudgetDecision {
+  status: BudgetDecisionStatus;
+  key: BudgetUsageKey;
+  usage: number;
+  softLimit?: number;
+  hardLimit?: number;
+  reason: string;
+  recommendedAction: BudgetRecommendedAction;
+}
+
+const usageKeys: BudgetUsageKey[] = ["toolCalls", "spawnedAgents", "debugAttempts", "wallClockMs", "checkpoints"];
+
+export function getBudgetState(state: ScalerState, now = new Date()): ScalerBudgetState {
+  const raw = state.budgets as Partial<ScalerBudgetState> | undefined;
+  const timestamp = now.toISOString();
+  const usage = normalizeUsage(raw?.usage);
+
+  return {
+    version: 1,
+    startedAt: typeof raw?.startedAt === "string" ? raw.startedAt : state.createdAt,
+    updatedAt: typeof raw?.updatedAt === "string" ? raw.updatedAt : timestamp,
+    usage,
+    limits: normalizeLimits(raw?.limits),
+    checkpoints: Array.isArray(raw?.checkpoints) ? raw.checkpoints : [],
+  };
+}
+
+export function setBudgetLimits(
+  state: ScalerState,
+  limits: Partial<Record<BudgetUsageKey, BudgetLimit>>,
+  now = new Date(),
+): ScalerState {
+  const budgetState = getBudgetState(state, now);
+  const nextBudgetState: ScalerBudgetState = {
+    ...budgetState,
+    limits: { ...budgetState.limits, ...limits },
+    updatedAt: now.toISOString(),
+  };
+  return { ...state, budgets: nextBudgetState, updatedAt: now.toISOString() };
+}
+
+export function incrementBudgetUsage(
+  state: ScalerState,
+  key: BudgetUsageKey,
+  amount = 1,
+  now = new Date(),
+): { state: ScalerState; decision: BudgetDecision } {
+  const budgetState = getBudgetState(state, now);
+  const nextUsage = Math.max(0, (budgetState.usage[key] ?? 0) + amount);
+  const nextBudgetState: ScalerBudgetState = {
+    ...budgetState,
+    usage: { ...budgetState.usage, [key]: nextUsage },
+    updatedAt: now.toISOString(),
+  };
+  const decision = evaluateBudgetUsage(key, nextUsage, nextBudgetState.limits[key]);
+  return { state: { ...state, budgets: nextBudgetState, updatedAt: now.toISOString() }, decision };
+}
+
+export function recordBudgetCheckpoint(
+  state: ScalerState,
+  scope: string,
+  summary?: string,
+  now = new Date(),
+): { state: ScalerState; decision: BudgetDecision; checkpoint: BudgetCheckpoint } {
+  const budgetState = getBudgetState(state, now);
+  const wallClockMs = Math.max(0, now.getTime() - Date.parse(budgetState.startedAt));
+  const checkpoint: BudgetCheckpoint = {
+    id: `${budgetState.checkpoints.length + 1}`.padStart(4, "0"),
+    scope,
+    timestamp: now.toISOString(),
+    wallClockMs,
+    summary,
+  };
+  const checkpointCount = (budgetState.usage.checkpoints ?? 0) + 1;
+  const nextBudgetState: ScalerBudgetState = {
+    ...budgetState,
+    usage: {
+      ...budgetState.usage,
+      checkpoints: checkpointCount,
+      wallClockMs,
+    },
+    checkpoints: [...budgetState.checkpoints, checkpoint],
+    updatedAt: now.toISOString(),
+  };
+  const checkpointDecision = evaluateBudgetUsage("checkpoints", checkpointCount, nextBudgetState.limits.checkpoints);
+  const wallClockDecision = evaluateBudgetUsage("wallClockMs", wallClockMs, nextBudgetState.limits.wallClockMs);
+  const decision = strongerDecision(checkpointDecision, wallClockDecision);
+  return { state: { ...state, budgets: nextBudgetState, updatedAt: now.toISOString() }, decision, checkpoint };
+}
+
+export function evaluateBudgetUsage(key: BudgetUsageKey, usage: number, limit?: BudgetLimit): BudgetDecision {
+  if (limit?.hard !== undefined && usage >= limit.hard) {
+    return {
+      status: "hard_limit",
+      key,
+      usage,
+      softLimit: limit.soft,
+      hardLimit: limit.hard,
+      reason: `${key} hard limit reached (${usage}/${limit.hard}).`,
+      recommendedAction: "pause",
+    };
+  }
+
+  if (limit?.soft !== undefined && usage >= limit.soft) {
+    return {
+      status: "soft_limit",
+      key,
+      usage,
+      softLimit: limit.soft,
+      hardLimit: limit?.hard,
+      reason: `${key} soft limit reached (${usage}/${limit.soft}).`,
+      recommendedAction: "reduce_scope",
+    };
+  }
+
+  return {
+    status: "ok",
+    key,
+    usage,
+    softLimit: limit?.soft,
+    hardLimit: limit?.hard,
+    reason: `${key} within budget (${usage}).`,
+    recommendedAction: "continue",
+  };
+}
+
+export async function persistBudgetDecision(
+  cwd: string,
+  state: ScalerState,
+  decision: BudgetDecision,
+): Promise<ScalerState> {
+  let nextState = state;
+  if (decision.status === "hard_limit") {
+    nextState = transitionStage(state, "paused", { reason: decision.reason });
+  }
+
+  await saveState(cwd, nextState);
+
+  if (decision.status !== "ok") {
+    await appendLogEvent(
+      cwd,
+      createLogEvent(nextState, {
+        eventType: "budget",
+        summary: decision.reason,
+        details: decision,
+      }),
+    );
+  }
+
+  return nextState;
+}
+
+function strongerDecision(first: BudgetDecision, second: BudgetDecision): BudgetDecision {
+  const rank: Record<BudgetDecisionStatus, number> = { ok: 0, soft_limit: 1, hard_limit: 2 };
+  return rank[second.status] > rank[first.status] ? second : first;
+}
+
+function normalizeUsage(value: unknown): Partial<Record<BudgetUsageKey, number>> {
+  const source = isRecord(value) ? value : {};
+  const usage: Partial<Record<BudgetUsageKey, number>> = {};
+  for (const key of usageKeys) {
+    const raw = source[key];
+    if (typeof raw === "number" && Number.isFinite(raw)) usage[key] = raw;
+  }
+  return usage;
+}
+
+function normalizeLimits(value: unknown): Partial<Record<BudgetUsageKey, BudgetLimit>> {
+  const source = isRecord(value) ? value : {};
+  const limits: Partial<Record<BudgetUsageKey, BudgetLimit>> = {};
+  for (const key of usageKeys) {
+    const raw = source[key];
+    if (!isRecord(raw)) continue;
+    limits[key] = {
+      soft: typeof raw.soft === "number" && Number.isFinite(raw.soft) ? raw.soft : undefined,
+      hard: typeof raw.hard === "number" && Number.isFinite(raw.hard) ? raw.hard : undefined,
+    };
+  }
+  return limits;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}

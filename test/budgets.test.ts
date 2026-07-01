@@ -1,0 +1,80 @@
+import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+import {
+  getBudgetState,
+  incrementBudgetUsage,
+  persistBudgetDecision,
+  recordBudgetCheckpoint,
+  setBudgetLimits,
+} from "../src/budgets.js";
+import { readLogEvents } from "../src/logging.js";
+import { createDefaultState, loadState } from "../src/state.js";
+
+async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), "scaler-budget-test-"));
+  try {
+    return await fn(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test("incrementBudgetUsage increments usage under limit", () => {
+  const state = setBudgetLimits(createDefaultState(new Date("2026-01-01T00:00:00.000Z")), {
+    toolCalls: { soft: 3, hard: 5 },
+  });
+  const result = incrementBudgetUsage(state, "toolCalls", 2, new Date("2026-01-01T00:00:01.000Z"));
+  const budgets = getBudgetState(result.state);
+
+  assert.equal(budgets.usage.toolCalls, 2);
+  assert.equal(result.decision.status, "ok");
+});
+
+test("persistBudgetDecision logs soft-limit decisions", async () => {
+  await withTempDir(async (dir) => {
+    const limited = setBudgetLimits(createDefaultState(), { debugAttempts: { soft: 1, hard: 3 } });
+    const { state, decision } = incrementBudgetUsage(limited, "debugAttempts");
+    await persistBudgetDecision(dir, state, decision);
+    const events = await readLogEvents(dir);
+
+    assert.equal(decision.status, "soft_limit");
+    assert.equal(events.at(-1)?.eventType, "budget");
+    assert.match(events.at(-1)?.summary ?? "", /soft limit/);
+  });
+});
+
+test("persistBudgetDecision pauses valid active stage on hard-limit decisions", async () => {
+  await withTempDir(async (dir) => {
+    const initial = { ...createDefaultState(), stage: "execution" as const };
+    const limited = setBudgetLimits(initial, { spawnedAgents: { hard: 1 } });
+    const { state, decision } = incrementBudgetUsage(limited, "spawnedAgents");
+    const persisted = await persistBudgetDecision(dir, state, decision);
+    const loaded = await loadState(dir);
+
+    assert.equal(decision.status, "hard_limit");
+    assert.equal(persisted.stage, "paused");
+    assert.equal(loaded.stage, "paused");
+    assert.equal(loaded.previousStage, "execution");
+  });
+});
+
+test("recordBudgetCheckpoint records wall-clock usage", () => {
+  const initial = setBudgetLimits(createDefaultState(new Date("2026-01-01T00:00:00.000Z")), {
+    wallClockMs: { soft: 500, hard: 2_000 },
+  }, new Date("2026-01-01T00:00:00.000Z"));
+  const { state, decision, checkpoint } = recordBudgetCheckpoint(
+    initial,
+    "task:T-001",
+    "before validation",
+    new Date("2026-01-01T00:00:01.000Z"),
+  );
+  const budgets = getBudgetState(state);
+
+  assert.equal(checkpoint.wallClockMs, 1_000);
+  assert.equal(budgets.usage.wallClockMs, 1_000);
+  assert.equal(budgets.usage.checkpoints, 1);
+  assert.equal(decision.status, "soft_limit");
+});

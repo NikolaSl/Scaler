@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { incrementBudgetUsage, persistBudgetDecision, type BudgetUsageKey } from "./budgets.js";
 import { recordDebugAttempt } from "./debug.js";
 import { createLogEvent, appendLogEvent } from "./logging.js";
 import { retrieveMemory, writeMemory } from "./memory.js";
@@ -7,6 +8,7 @@ import { ingestReport } from "./reports.js";
 import { ensureState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentRunResult } from "./subagents.js";
 import { createTask } from "./tasks.js";
+import type { ScalerState } from "./types.js";
 import { applyValidationReport } from "./validation.js";
 
 export const scalerToolNames = [
@@ -154,6 +156,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
     parameters: SpawnTaskParams,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const result = await prepareOrRunSpawnTask(ctx.cwd, params, signal);
+      if (params.execute) await recordBudgetUsage(ctx.cwd, "spawnedAgents");
       await logTool(ctx.cwd, "scaler_spawn_task", result.summary, result.details);
       return textResult(result.text, result.details);
     },
@@ -222,6 +225,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         actualResult: params.actualResult,
         outputRefs: params.outputRefs,
       });
+      if (result.accepted) await recordBudgetUsage(ctx.cwd, "debugAttempts");
       return textResult(result.message, {
         status: result.accepted ? "recorded" : "rejected",
         attemptId: result.attempt?.id,
@@ -264,8 +268,14 @@ export async function prepareOrRunSpawnTask(
 }
 
 async function logTool(cwd: string, toolName: ScalerToolName, summary: string, details: unknown): Promise<void> {
-  const state = await ensureState(cwd);
+  const state = await recordBudgetUsage(cwd, "toolCalls");
   await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary, details: { toolName, details } }));
+}
+
+async function recordBudgetUsage(cwd: string, key: BudgetUsageKey): Promise<ScalerState> {
+  const state = await ensureState(cwd);
+  const { state: budgetedState, decision } = incrementBudgetUsage(state, key);
+  return await persistBudgetDecision(cwd, budgetedState, decision);
 }
 
 function textResult(text: string, details: unknown) {

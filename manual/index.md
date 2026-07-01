@@ -17,6 +17,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - External memory write/retrieve under `.scaler/memory/`.
 - Lightweight context resolver skeleton.
 - Minimal adaptive `/scaler` entrypoint.
+- Budget usage helper skeleton for tools, spawned agents, debug attempts, and checkpoints.
 
 ## Manual pages
 
@@ -28,6 +29,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - `manual/safety.md`
 - `manual/task-agents.md`
 - `manual/tools.md`
+- `manual/budgets.md`
 - `manual/installation.md`
 
 ## Development
