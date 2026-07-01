@@ -19,24 +19,57 @@ Each call should be focused, use only the information needed for the immediate t
 
 ## III. Solutions
 
-### 1. Optimize MCP and tool execution
+### 1. Deterministic execution supervisor
 
-Each agent or subagent has a permanent list of available tools and MCPs. The list includes the tool/MCP name and a short description of its purpose.
+Scaler must have a deterministic supervisor/state machine around all LLM agents.
 
-When an agent wants to use a tool, it makes a structured tool request that includes the tool/MCP name and a concise free-form description of what it needs.
+The supervisor is not an LLM. It reads structured reports, validates required fields, updates persistent state, and decides the next allowed transition.
 
-The agent loop detects structured tool requests and, for each one:
+Agents can reason, investigate, implement, debug, and report. The supervisor controls process discipline.
 
-- Prepares a new session context that includes only the selected tool/MCP information and the free-form request.
-- Executes a new tool agent with this context to collect data for the next requester-agent iteration.
-- If MCP documentation is available, the tool agent uses it to prepare and execute the MCP transaction.
-- If a tool has no documentation, the tool agent can inspect it with `--help` or a similar discovery approach.
-- The tool agent returns a meaningful answer to the requester agent.
-- If the transaction fails or returns an incomplete result, the tool engine keeps correcting or extending the transaction until it gets the desired result or reports failure.
+See `specs/supervisor.md` for states, transitions, report rules, and persistent state.
 
-This allows a single requester-agent iteration to make multiple requests to multiple tools. Each request is executed with the smallest useful tool context and the exact request, improving focus and reducing token usage where possible.
+### 2. Adaptive orchestration
 
-### 2. Enhance context compression
+Scaler must use the lightest reliable process for the current request.
+
+Simple tasks should not trigger full Stage I-IV orchestration, many agents, deep research, or heavy CI/CD. Complex, risky, or unclear tasks can escalate on demand into the full supervised workflow.
+
+See `specs/adaptive-orchestration.md`.
+
+### 3. Multi-stage context selection
+
+Context selection decides what enters an agent's active context.
+
+The planner creates the first context manifest for each task, but the final task context is resolved just before spawning the task agent using latest validated state, memory references, file state, and validation needs.
+
+Task agents can request missing data, memory, local investigation, or internet investigation when allowed. They must not guess when required context is missing.
+
+See `specs/context-selection.md`.
+
+### 4. Research and information quality
+
+Scaler must support local and internet research with evidence quality rules, source ranking, contradiction handling, and completeness criteria.
+
+Research should collect enough reliable information for planning or execution without dumping raw search results into active context. Conclusions, confidence, and evidence references should be kept in context; raw sources and notes should be stored in memory/logs.
+
+Research can use Pi skills, custom extension tools, MCP search/browser/documentation servers, browser automation, safe CLI/network tools, and local project sources when available.
+
+See `specs/research.md`.
+
+### 5. Optimize MCP and tool execution
+
+Agents receive only a short catalog of available tools/MCPs, not full documentation in active context.
+
+When an agent needs a tool, it creates a structured tool request with the tool/MCP name and a concise free-form request. A separate isolated tool agent receives only the selected tool/MCP information, safety rules, and the request.
+
+The tool agent prepares and executes the exact tool/MCP transaction, discovers usage with docs/help when needed, and may continue for a few focused iterations until the request is satisfied or it can explain why fulfillment is not possible.
+
+A single requester-agent iteration may create multiple tool requests. Scaler can execute them independently or in parallel when safe, then return separate concise reports.
+
+See `specs/tool-mcp-safety.md`.
+
+### 6. Enhance context compression
 
 When compression is needed, ask the LLM to follow these instructions:
 
@@ -55,77 +88,112 @@ When compression is needed, ask the LLM to follow these instructions:
    - Keep only references, summaries, current goal, next action, and validation state in the active context.
    - Spawn new task agents with fresh minimal context when needed.
 
-### 3. External file memory
+### 7. External file memory
 
-When details may be useful later but are not needed for the current task, the agent can move them to files in a `memory/` folder.
+External memory is cheap. Tokens are expensive.
 
-The active context should keep only:
+When details may be useful later but are not needed for the current task, the agent moves them to files in `.scaler/memory/` and keeps only short references in active context.
 
-- A short description of the memory.
-- A link/path to the memory file.
-- When and why it may be useful.
+If the agent needs memory later, it creates a structured memory-retrieval request. The agent loop retrieves only the requested useful content before the next iteration.
 
-This keeps the session context small and focused while preserving retrievable details.
+See `specs/memory.md`.
 
-If the agent needs one or more memories later, it creates a structured memory-retrieval request. The agent loop detects the request, reads the referenced memory files, and injects the retrieved content before the next iteration.
-
-### 4. Spawn agents for atomic tasks
+### 8. Spawn task agents for atomic tasks
 
 For each atomic task, spawn a dedicated task agent with only the information needed to resolve that exact task.
 
-The task-agent prompt should be engineered for the optimal result. It should clearly define the agent role, task goal, expected output, constraints, validation rules, and reporting format.
+Atomic means the smallest useful consistent task that can be completed, compiled/checked, and tested independently, without depending on not-yet-completed tasks. It should be small enough to minimize errors and simplify debugging, but not so small that trivial related changes create wasteful execution cycles.
 
-The initial session context should include only data required to perform the atomic task. This keeps the agent focused and minimizes token usage.
+Do not depend on fixed predefined roles. The conductor/planner can generate a custom role, prompt, tool set, and context for each task. Predefined prompts may be used only as templates.
 
-When the task agent finishes, it generates a report for the caller agent. The caller agent can:
+Each task agent follows the same contract: narrow scope, minimal context, allowed tools only, missing-data requests instead of guessing, validation, and structured report to the caller.
 
-- Accept the task result.
-- Add more data or action items and continue the task-agent loop.
-- Receive a request for missing data when the task agent cannot complete the task with the provided context.
+See `specs/task-agents.md`.
 
-This also creates a controlled mechanism for task agents to request additional information from the caller instead of guessing or hallucinating.
+### 9. Logging and audit trail
 
-### 5. Debugging issues
+Scaler must keep active context small while preserving a full audit trail in `.scaler/logs/`.
 
-Debugging must be structured so even weaker LLMs can follow it reliably and avoid repeating failed approaches.
+Agents may summarize or remove middle investigation/debug steps from active context after a decision, but raw steps, tool calls, validation results, state transitions, prompts, and reports must remain available in structured logs.
 
-When a failure appears, the task agent should:
+These logs should allow later investigation of what happened, why decisions were made, and how Scaler can be improved from real runs.
 
-1. Record the exact failure: command, error, logs, expected result, and actual result.
-2. Identify the smallest reproducible case.
-3. Create a fix execution stack with short descriptions of attempted solutions and results.
-4. List possible causes and rank them by likelihood.
-5. Try the most probable solution first.
-6. Test one cause at a time with the smallest possible change.
-7. After each change, rerun the exact failing validation.
-8. If fixed, rerun the full task validation.
-9. If not fixed, record the attempt and try a new approach instead of repeating it.
+See `specs/logging.md`.
 
-The agent should detect loops where one fix causes a new problem, and another fix brings back the previous problem. When a loop is detected, the same cycle must not continue. The agent must investigate the exact task problem and propose a different approach.
+### 10. Storage management
 
-Investigation order:
+External memory and logs can grow large. Scaler must manage `.scaler/` storage with configurable limits, compression, rotation, indexing, and pause rules before disk becomes unsafe.
 
-1. Check local project files, documentation, logs, tests, and history.
-2. If there is not enough local data, use reliable internet sources.
-3. Store long investigation notes in files when needed.
+Large logs and tool outputs should be stored, compressed, and retrieved by reference instead of injected into active context.
 
-The debug report should include:
+See `specs/storage.md`.
 
-- Failure summary.
-- Reproduction steps.
-- Attempted fixes and results.
-- Root cause, if found.
-- Final changes made.
-- Validation results.
-- Remaining risks or blockers.
+### 11. Budgets and watchdogs
+
+Scaler must have explicit budgets and watchdogs for tokens, cost, tool calls, spawned agents, wall-clock time, storage, debug attempts, research, and validation loops.
+
+Soft limits should warn and reduce scope where possible. Hard limits should pause safely, checkpoint state, and report options instead of running uncontrolled.
+
+See `specs/budgets-watchdogs.md`.
+
+### 12. Attempt tracking and debugging
+
+Debugging must be structured, evidence-based, and loop-resistant because it is where agents often spend the most tokens.
+
+Each failure should create a failure record. Each attempted fix or investigation step should create an attempt record with hypothesis, action, validation result, and log references.
+
+Scaler should detect repeated attempts and cyclic fixes. When this happens, the same cycle must not continue; the task agent must investigate the exact problem and propose a different evidence-backed approach.
 
 Only when the task agent cannot complete the investigation or propose a working solution, the conductor pauses execution and sends the new information to Stage II/III for plan update.
 
-When updating the plan, the planner must receive the current execution state, including completed and validated tasks, current failed task, attempted fixes, and remaining tasks.
+See `specs/attempt-tracking.md`.
 
-### 6. Address the problem in stages
+### 13. Validation gates
 
-Instead of directly executing the user request and PRD, the main loop, called the conductor loop, solves it in stages and steps.
+A task is complete only when required validation gates pass and the supervisor accepts the validation report.
+
+Software tasks should use the strongest practical gates: dependency check, test-first check, build/compile, unit tests, integration tests, static checks, and acceptance/smoke tests when available.
+
+When needed by PRD or planning, Scaler should build local CI/CD validation environments using Docker, dev containers, Docker Compose, or Minikube. These controlled sandboxes are also a safety mechanism that allows more unattended execution without weakening host-level security rules.
+
+Non-software intellectual tasks should be validated for completeness, consistency, compliance, source support, adversarial questions, and unresolved uncertainty.
+
+See:
+
+- `specs/validation.md`
+- `specs/cicd-environment.md`
+
+### 14. Replanning protocol
+
+The initial plan is only the best plan available before empirical execution. The plan is expected to change when real work reveals missing facts, wrong assumptions, impossible tasks, or need for a proof of concept.
+
+Replanning must preserve validated progress and update only what execution evidence shows should change.
+
+See `specs/replanning.md`.
+
+### 15. Safety, permissions, and secure development
+
+Scaler must use deterministic safety gates for risky actions, protected paths, secrets, internet access, deployment, publishing, and destructive operations.
+
+Scaler should prefer controlled sandbox execution for unattended risky work. Security exceptions may be allowed inside approved sandboxes only when they cannot harm the host, secrets, production systems, or external users.
+
+Software changes should follow security-by-design. Docker images, third-party modules, libraries, and dependencies should be scanned for CVE/security issues where tools are available.
+
+See `specs/safety-permissions.md`.
+
+### 16. Git progress tracking
+
+Every project should be a git repository unless disabled or impossible.
+
+Each validated task that changes project files should be committed with the task id and a short meaningful message, so repository history shows project progress task by task.
+
+Scaler must avoid committing unrelated user changes, secrets, or large Scaler runtime logs/artifacts.
+
+See `specs/git-workflow.md`.
+
+### 17. Address the problem in stages
+
+For complex enough requests, instead of directly executing the user request and PRD, the main loop, called the conductor loop, solves it in stages and steps.
 
 #### Stage I: Collect and polish the PRD
 
@@ -140,14 +208,17 @@ This runs in a separate PRD agent. The agent receives user input and can work wi
 
 This runs in a separate knowledge-collector agent. It uses the PRD from Stage I to identify what must be known before planning.
 
-The agent should investigate active project folders and, when needed, internet sources. Its goals are:
+The agent should investigate active project folders and, when needed, internet sources. It must distinguish signal from noise using source quality and completeness criteria from `specs/research.md`.
+
+Its goals are:
 
 1. Extract all technical, business, and implementation questions from the PRD.
 2. Check what is already known from the project files and existing documentation.
 3. Collect missing information from reliable sources.
-4. Store important findings in files when they are too large or exactness is important.
-5. Structure findings so they are easy to reference from the execution plan.
-6. Finish with a knowledge report that can be used together with `agent-prd.md` as input for planning.
+4. Resolve or document contradictions and uncertainty.
+5. Store important findings in files when they are too large or exactness is important.
+6. Structure findings so they are easy to reference from the execution plan.
+7. Finish with a knowledge report that can be used together with `agent-prd.md` as input for planning.
 
 #### Stage III: Prepare an execution plan
 
@@ -160,7 +231,7 @@ Each task in the plan should be:
 - Clear about inputs, expected output, and constraints.
 - Defined with a Definition of Done so the execution engine can validate completion.
 
-If the PRD includes software, the plan should include CI/validation environment setup where possible: compile/build, dependency validation, unit tests, integration tests, and, if possible, dev-container/sandbox deployment with acceptance tests.
+If the PRD includes software, the plan should include CI/CD and validation environment setup where possible: compile/build, dependency validation, unit tests, integration tests, Docker/dev-container/Compose setup, and, if useful, Minikube or sandbox deployment with acceptance tests.
 
 #### Stage IV: Execute the tasks/steps of the execution plan
 
@@ -175,7 +246,7 @@ For software tasks:
 5. Validate that dependencies are resolved.
 6. Validate that the code builds/compiles, or is correct if it is not compiled code.
 7. Run unit tests and integration tests.
-8. If available, run acceptance tests in dev container/sandbox.
+8. If available and required, run acceptance tests in Docker, dev container, Compose, Minikube, or sandbox.
 
 For non-software intellectual tasks:
 
@@ -186,6 +257,6 @@ For non-software intellectual tasks:
 
 Each task must be fully checked before moving to the next one. If validation fails, debugging starts immediately inside the same task loop.
 
-Execution can reveal new facts that require plan changes or new investigation. In that case, the conductor should pause execution, update the needed Stage II/III outputs, and continue with the corrected plan.
+Execution can reveal new facts that require plan changes, new investigation, or proof-of-concept tasks. In that case, the conductor should pause execution, update the needed Stage II/III outputs, create a new plan version, and continue with the corrected plan while preserving validated progress.
 
 
