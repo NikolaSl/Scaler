@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { appendLogEvent, createLogEvent } from "./logging.js";
+import type { ScalerState } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -13,6 +15,13 @@ export interface GitStatusSafetyDecision {
   allowedPaths: string[];
   unrelatedPaths: string[];
   reason: string;
+}
+
+export interface GitCommitTaskResult {
+  accepted: boolean;
+  message: string;
+  commitHash?: string;
+  safety: GitStatusSafetyDecision;
 }
 
 export async function getGitChangedPaths(cwd: string): Promise<string[]> {
@@ -29,6 +38,39 @@ export async function getGitChangedPaths(cwd: string): Promise<string[]> {
     if (code === 128) return [];
     throw error;
   }
+}
+
+export async function commitValidatedTask(
+  cwd: string,
+  state: ScalerState,
+  taskId: string,
+  allowedPathPrefixes: string[],
+): Promise<GitCommitTaskResult> {
+  const task = state.tasks.find((candidate) => candidate.id === taskId);
+  const safety = await assessGitStatusSafety(cwd, allowedPathPrefixes);
+
+  if (!task) return logCommitResult(cwd, state, { accepted: false, message: `Task ${taskId} does not exist.`, safety });
+  if (task.status !== "validated") {
+    return logCommitResult(cwd, state, { accepted: false, message: `Task ${taskId} is not validated.`, safety });
+  }
+  if (safety.status === "not_git_repo" || safety.status === "unrelated") {
+    return logCommitResult(cwd, state, { accepted: false, message: `Commit refused: ${safety.reason}`, safety });
+  }
+  if (safety.status === "clean" || safety.status === "runtime_only") {
+    return logCommitResult(cwd, state, { accepted: false, message: `Commit skipped: ${safety.reason}`, safety });
+  }
+
+  for (const path of allowedPathPrefixes) {
+    await execFileAsync("git", ["add", path], { cwd });
+  }
+  await execFileAsync("git", ["commit", "-m", buildTaskCommitMessage(taskId, task.title)], { cwd });
+  const { stdout } = await execFileAsync("git", ["rev-parse", "--short", "HEAD"], { cwd });
+  return logCommitResult(cwd, state, {
+    accepted: true,
+    message: `Committed ${taskId}: ${stdout.trim()}`,
+    commitHash: stdout.trim(),
+    safety,
+  });
 }
 
 export async function assessGitStatusSafety(cwd: string, allowedPathPrefixes: string[] = []): Promise<GitStatusSafetyDecision> {
@@ -105,6 +147,23 @@ async function isGitRepository(cwd: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function logCommitResult(cwd: string, state: ScalerState, result: GitCommitTaskResult): Promise<GitCommitTaskResult> {
+  await appendLogEvent(
+    cwd,
+    createLogEvent(state, {
+      eventType: "git",
+      summary: result.message,
+      details: result,
+    }),
+  );
+  return result;
+}
+
+function buildTaskCommitMessage(taskId: string, title: string | undefined): string {
+  const cleanTitle = (title ?? "validated task").split("\n")[0]?.trim() || "validated task";
+  return `${taskId}: ${cleanTitle}`;
 }
 
 function parsePorcelainPath(line: string): string {

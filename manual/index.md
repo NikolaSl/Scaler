@@ -21,6 +21,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - Checkpoint writing under `.scaler/checkpoints/` for pause/resume and conductor steps.
 - Minimal one-step conductor execution with validation handoff artifacts.
 - Deterministic validation manifests and command-run records.
+- Git status safety and validated-task commit helpers.
 
 ## Manual pages
 
@@ -33,6 +34,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - `manual/task-agents.md`
 - `manual/tools.md`
 - `manual/budgets.md`
+- `manual/git.md`
 - `manual/installation.md`
 
 ## Development

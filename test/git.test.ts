@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { test } from "node:test";
-import { assessGitStatusSafety } from "../src/git.js";
+import { assessGitStatusSafety, commitValidatedTask } from "../src/git.js";
+import { createDefaultState } from "../src/state.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -67,5 +68,40 @@ test("assessGitStatusSafety detects unrelated user changes", async () => {
 
     assert.equal(decision.status, "unrelated");
     assert.deepEqual(decision.unrelatedPaths, ["notes.txt"]);
+  });
+});
+
+test("commitValidatedTask refuses unrelated changes", async () => {
+  await withGitRepo(async (dir) => {
+    await mkdir(join(dir, "src"), { recursive: true });
+    await writeFile(join(dir, "src", "feature.ts"), "export {};\n", "utf8");
+    await writeFile(join(dir, "notes.txt"), "user notes\n", "utf8");
+    const state = createDefaultState();
+    state.tasks = [{ id: "T-001", title: "Feature", status: "validated", updatedAt: state.createdAt }];
+
+    const result = await commitValidatedTask(dir, state, "T-001", ["src"]);
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /unrelated/i);
+  });
+});
+
+test("commitValidatedTask commits allowed validated task changes and excludes scaler runtime", async () => {
+  await withGitRepo(async (dir) => {
+    await mkdir(join(dir, "src"), { recursive: true });
+    await mkdir(join(dir, ".scaler"), { recursive: true });
+    await writeFile(join(dir, "src", "feature.ts"), "export const value = 1;\n", "utf8");
+    await writeFile(join(dir, ".scaler", "state.json"), "{}\n", "utf8");
+    const state = createDefaultState();
+    state.tasks = [{ id: "T-001", title: "Add feature", status: "validated", updatedAt: state.createdAt }];
+
+    const result = await commitValidatedTask(dir, state, "T-001", ["src"]);
+    const { stdout: message } = await execFileAsync("git", ["log", "-1", "--pretty=%s"], { cwd: dir });
+    const { stdout: showFiles } = await execFileAsync("git", ["show", "--name-only", "--pretty=", "HEAD"], { cwd: dir });
+
+    assert.equal(result.accepted, true);
+    assert.equal(message.trim(), "T-001: Add feature");
+    assert.match(showFiles, /src\/feature.ts/);
+    assert.doesNotMatch(showFiles, /.scaler\/state.json/);
   });
 });
