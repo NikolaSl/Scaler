@@ -55,6 +55,9 @@ export async function ensureState(cwd: string): Promise<ScalerState> {
 
 export interface StateStatusDetails {
   memoryCount?: number;
+  debugFailureCount?: number;
+  debugAttemptCount?: number;
+  budgetUsage?: Record<string, number | undefined>;
   logPath?: string;
 }
 
@@ -71,6 +74,10 @@ export function formatDetailedStateStatus(state: ScalerState, details: StateStat
   ];
 
   if (details.memoryCount !== undefined) parts.push(`memories=${details.memoryCount}`);
+  if (details.debugFailureCount !== undefined || details.debugAttemptCount !== undefined) {
+    parts.push(`debug=failures:${details.debugFailureCount ?? 0},attempts:${details.debugAttemptCount ?? 0}`);
+  }
+  if (details.budgetUsage) parts.push(`budgets=${formatBudgetUsage(details.budgetUsage)}`);
   if (details.logPath) parts.push(`log=${details.logPath}`);
 
   return parts.join(" ");
@@ -87,4 +94,11 @@ function formatTaskStatusCounts(state: ScalerState): string {
   const counts = getTaskStatusCounts(state);
   const entries = Object.entries(counts).sort(([a], [b]) => a.localeCompare(b));
   return entries.length === 0 ? "none" : entries.map(([status, count]) => `${status}:${count}`).join(",");
+}
+
+function formatBudgetUsage(usage: Record<string, number | undefined>): string {
+  const entries = Object.entries(usage)
+    .filter(([, value]) => typeof value === "number")
+    .sort(([a], [b]) => a.localeCompare(b));
+  return entries.length === 0 ? "none" : entries.map(([key, value]) => `${key}:${value}`).join(",");
 }

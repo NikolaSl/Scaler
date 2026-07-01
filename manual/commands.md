@@ -31,4 +31,6 @@ Creates/loads `.scaler/state.json`, logs the status request, and shows:
 - task status counts
 - rejected transition count
 - memory count
+- debug failure and attempt counts
+- known budget usage counts
 - event log path

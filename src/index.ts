@@ -1,6 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { startScalerRun } from "./adaptive.js";
+import { getBudgetState } from "./budgets.js";
 import { pauseScalerRun, resumeScalerRun } from "./checkpoints.js";
+import { loadDebugAttempts, loadDebugFailures } from "./debug.js";
 import { createLogEvent, appendLogEvent, logStateEvent } from "./logging.js";
 import { loadMemoryIndex } from "./memory.js";
 import { getEventLogPath } from "./paths.js";
@@ -86,9 +88,15 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     handler: async (_args, ctx) => {
       const state = await ensureState(ctx.cwd);
       const memoryIndex = await loadMemoryIndex(ctx.cwd);
+      const debugAttempts = await loadDebugAttempts(ctx.cwd);
+      const debugFailures = await loadDebugFailures(ctx.cwd);
+      const budgetState = getBudgetState(state);
       await logStateEvent(ctx.cwd, state, "Scaler status requested", { command: "scaler-status" });
       const message = formatDetailedStateStatus(state, {
         memoryCount: memoryIndex.entries.length,
+        debugAttemptCount: debugAttempts.length,
+        debugFailureCount: debugFailures.length,
+        budgetUsage: budgetState.usage,
         logPath: getEventLogPath(ctx.cwd),
       });
 

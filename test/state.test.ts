@@ -77,15 +77,23 @@ test("getTaskStatusCounts counts tasks by status", () => {
   assert.deepEqual(getTaskStatusCounts(state), { ready: 2, validated: 1 });
 });
 
-test("formatDetailedStateStatus includes task counts, rejected count, memory count, and log path", () => {
+test("formatDetailedStateStatus includes task counts, rejected count, memory count, debug counts, budgets, and log path", () => {
   const state = createDefaultState();
   state.tasks = [{ id: "T-001", status: "ready", updatedAt: state.createdAt }];
   state.rejectedTransitions = [{ kind: "stage", from: "planning", to: "knowledge", reason: "bad", timestamp: state.createdAt }];
 
-  const status = formatDetailedStateStatus(state, { memoryCount: 3, logPath: ".scaler/logs/events.jsonl" });
+  const status = formatDetailedStateStatus(state, {
+    memoryCount: 3,
+    debugFailureCount: 2,
+    debugAttemptCount: 5,
+    budgetUsage: { toolCalls: 7, spawnedAgents: 1 },
+    logPath: ".scaler/logs/events.jsonl",
+  });
 
   assert.match(status, /tasks=ready:1/);
   assert.match(status, /rejected=1/);
   assert.match(status, /memories=3/);
+  assert.match(status, /debug=failures:2,attempts:5/);
+  assert.match(status, /budgets=spawnedAgents:1,toolCalls:7/);
   assert.match(status, /log=.scaler\/logs\/events.jsonl/);
 });
