@@ -191,7 +191,13 @@ Scaler must avoid committing unrelated user changes, secrets, or large Scaler ru
 
 See `specs/git-workflow.md`.
 
-### 17. Address the problem in stages
+### 17. Pi extension architecture
+
+Scaler should be implemented as a Pi extension using custom commands, structured tools, event hooks, isolated Pi subprocess agents, `.scaler/` state, and deterministic supervisor logic.
+
+See `specs/pi-extension-architecture.md`.
+
+### 18. Address the problem in stages
 
 For complex enough requests, instead of directly executing the user request and PRD, the main loop, called the conductor loop, solves it in stages and steps.
 
