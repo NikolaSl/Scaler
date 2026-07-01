@@ -75,8 +75,8 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         summary: params.summary,
         taskId: params.taskId,
         details: params.details,
-        stageTransition: params.stageTransition as never,
-        taskTransition: params.taskTransition as never,
+        stageTransition: params.stageTransition,
+        taskTransition: params.taskTransition,
         reason: params.reason,
       });
       await logTool(ctx.cwd, "scaler_report", params.summary, params);

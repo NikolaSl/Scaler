@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { readLogEvents } from "../src/logging.js";
-import { ingestReport } from "../src/reports.js";
+import { ingestReport, validateReportInput } from "../src/reports.js";
 import { createDefaultState, loadState } from "../src/state.js";
 import { addTask } from "../src/supervisor.js";
 
@@ -66,7 +66,18 @@ test("ingestReport applies task transition", async () => {
   });
 });
 
-test("ingestReport rejects task transition without task id", async () => {
+test("validateReportInput rejects invalid transition values", () => {
+  assert.equal(
+    validateReportInput({ reportType: "task", summary: "bad", taskTransition: "done" }),
+    "Invalid task transition target: done.",
+  );
+  assert.equal(
+    validateReportInput({ reportType: "stage", summary: "bad", stageTransition: "review" }),
+    "Invalid stage transition target: review.",
+  );
+});
+
+test("ingestReport rejects task transition without task id without mutating state", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState();
     const result = await ingestReport(dir, state, {
@@ -76,6 +87,24 @@ test("ingestReport rejects task transition without task id", async () => {
     });
 
     assert.equal(result.accepted, false);
-    assert.equal(result.state.rejectedTransitions[0]?.reason, "Task transition report did not include taskId.");
+    assert.equal(result.state, state);
+    assert.equal(result.rejectionReason, "Task transition report did not include taskId.");
+  });
+});
+
+test("ingestReport rejects invalid stage value without saving corrupted state", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    const result = await ingestReport(dir, state, {
+      reportType: "stage",
+      summary: "bad stage",
+      stageTransition: "review",
+    });
+    const events = await readLogEvents(dir);
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.state.stage, "idle");
+    assert.equal(events.length, 1);
+    assert.match(events[0]?.summary ?? "", /Report rejected/);
   });
 });
