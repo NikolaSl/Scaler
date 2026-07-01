@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createDefaultState, ensureState, formatStateStatus, loadState, saveState } from "../src/state.js";
+import { createDefaultState, ensureState, formatDetailedStateStatus, formatStateStatus, getTaskStatusCounts, loadState, saveState } from "../src/state.js";
 import { getStatePath } from "../src/paths.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -64,4 +64,28 @@ test("formatStateStatus returns compact status", () => {
   state.validatedTaskIds = ["T-001"];
 
   assert.equal(formatStateStatus(state), "SCALER stage=idle level=0 validated=1/1");
+});
+
+test("getTaskStatusCounts counts tasks by status", () => {
+  const state = createDefaultState();
+  state.tasks = [
+    { id: "T-001", status: "ready", updatedAt: state.createdAt },
+    { id: "T-002", status: "ready", updatedAt: state.createdAt },
+    { id: "T-003", status: "validated", updatedAt: state.createdAt },
+  ];
+
+  assert.deepEqual(getTaskStatusCounts(state), { ready: 2, validated: 1 });
+});
+
+test("formatDetailedStateStatus includes task counts, rejected count, memory count, and log path", () => {
+  const state = createDefaultState();
+  state.tasks = [{ id: "T-001", status: "ready", updatedAt: state.createdAt }];
+  state.rejectedTransitions = [{ kind: "stage", from: "planning", to: "knowledge", reason: "bad", timestamp: state.createdAt }];
+
+  const status = formatDetailedStateStatus(state, { memoryCount: 3, logPath: ".scaler/logs/events.jsonl" });
+
+  assert.match(status, /tasks=ready:1/);
+  assert.match(status, /rejected=1/);
+  assert.match(status, /memories=3/);
+  assert.match(status, /log=.scaler\/logs\/events.jsonl/);
 });

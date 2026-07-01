@@ -1,9 +1,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { startScalerRun } from "./adaptive.js";
 import { createLogEvent, appendLogEvent, logStateEvent } from "./logging.js";
+import { loadMemoryIndex } from "./memory.js";
 import { getEventLogPath } from "./paths.js";
 import { assessToolCallSafety } from "./safety.js";
-import { ensureState, formatStateStatus, saveState } from "./state.js";
+import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
 import { registerScalerTools } from "./tools.js";
 
 export default function scalerExtension(pi: ExtensionAPI): void {
@@ -59,8 +60,12 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     description: "Show SCALER supervisor status.",
     handler: async (_args, ctx) => {
       const state = await ensureState(ctx.cwd);
+      const memoryIndex = await loadMemoryIndex(ctx.cwd);
       await logStateEvent(ctx.cwd, state, "Scaler status requested", { command: "scaler-status" });
-      const message = `${formatStateStatus(state)} log=${getEventLogPath(ctx.cwd)}`;
+      const message = formatDetailedStateStatus(state, {
+        memoryCount: memoryIndex.entries.length,
+        logPath: getEventLogPath(ctx.cwd),
+      });
 
       if (ctx.hasUI) {
         ctx.ui.notify(message, "info");

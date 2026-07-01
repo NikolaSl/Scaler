@@ -53,7 +53,38 @@ export async function ensureState(cwd: string): Promise<ScalerState> {
   return loadState(cwd);
 }
 
+export interface StateStatusDetails {
+  memoryCount?: number;
+  logPath?: string;
+}
+
 export function formatStateStatus(state: ScalerState): string {
   const taskPart = state.currentTaskId ? ` task=${state.currentTaskId}` : "";
   return `SCALER stage=${state.stage} level=${state.complexityLevel}${taskPart} validated=${state.validatedTaskIds.length}/${state.tasks.length}`;
+}
+
+export function formatDetailedStateStatus(state: ScalerState, details: StateStatusDetails = {}): string {
+  const parts = [
+    formatStateStatus(state),
+    `tasks=${formatTaskStatusCounts(state)}`,
+    `rejected=${state.rejectedTransitions.length}`,
+  ];
+
+  if (details.memoryCount !== undefined) parts.push(`memories=${details.memoryCount}`);
+  if (details.logPath) parts.push(`log=${details.logPath}`);
+
+  return parts.join(" ");
+}
+
+export function getTaskStatusCounts(state: ScalerState): Record<string, number> {
+  return state.tasks.reduce<Record<string, number>>((counts, task) => {
+    counts[task.status] = (counts[task.status] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
+function formatTaskStatusCounts(state: ScalerState): string {
+  const counts = getTaskStatusCounts(state);
+  const entries = Object.entries(counts).sort(([a], [b]) => a.localeCompare(b));
+  return entries.length === 0 ? "none" : entries.map(([status, count]) => `${status}:${count}`).join(",");
 }

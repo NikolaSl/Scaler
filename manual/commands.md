@@ -16,4 +16,11 @@ This is an early entrypoint. It does not yet execute the full Stage I-IV workflo
 
 ## `/scaler-status`
 
-Creates/loads `.scaler/state.json`, logs the status request, and shows compact supervisor status plus log path.
+Creates/loads `.scaler/state.json`, logs the status request, and shows:
+
+- current stage and complexity level
+- validated task count
+- task status counts
+- rejected transition count
+- memory count
+- event log path
