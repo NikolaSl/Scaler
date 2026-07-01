@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { createLogEvent, appendLogEvent } from "./logging.js";
 import { retrieveMemory, writeMemory } from "./memory.js";
+import { ingestReport } from "./reports.js";
 import { ensureState } from "./state.js";
 import { buildTaskAgentInvocation } from "./subagents.js";
 
@@ -21,6 +22,9 @@ const ReportParams = Type.Object({
   summary: Type.String({ description: "Concise report summary." }),
   taskId: Type.Optional(Type.String({ description: "Related task id, if any." })),
   details: Type.Optional(Type.Unknown({ description: "Structured report details." })),
+  stageTransition: Type.Optional(Type.String({ description: "Requested supervisor stage transition." })),
+  taskTransition: Type.Optional(Type.String({ description: "Requested task status transition." })),
+  reason: Type.Optional(Type.String({ description: "Transition reason." })),
 });
 
 const MemoryWriteParams = Type.Object({
@@ -65,8 +69,18 @@ export function registerScalerTools(pi: ExtensionAPI): void {
     description: "Submit a structured report to Scaler supervisor/logging.",
     parameters: ReportParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const state = await ensureState(ctx.cwd);
+      const result = await ingestReport(ctx.cwd, state, {
+        reportType: params.reportType,
+        summary: params.summary,
+        taskId: params.taskId,
+        details: params.details,
+        stageTransition: params.stageTransition as never,
+        taskTransition: params.taskTransition as never,
+        reason: params.reason,
+      });
       await logTool(ctx.cwd, "scaler_report", params.summary, params);
-      return textResult(`Report accepted: ${params.summary}`, { status: "accepted", params });
+      return textResult(`${result.message} ${params.summary}`, { status: result.accepted ? "accepted" : "rejected_transition", params });
     },
   });
 

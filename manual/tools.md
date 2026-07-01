@@ -11,7 +11,8 @@ Scaler currently registers structured tool skeletons:
 
 Current behavior:
 
-- report/debug/validation requests are logged to `.scaler/logs/events.jsonl`
+- `scaler_report` can request supervisor stage/task transitions and persists accepted/rejected state
+- debug/validation requests are logged to `.scaler/logs/events.jsonl`
 - `scaler_memory_write` writes `.scaler/memory/` files and index entries
 - `scaler_memory_retrieve` retrieves memory by id/path
 - `scaler_spawn_task` prepares and returns a Pi subprocess invocation without executing it
