@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { selectNextTask } from "../src/conductor.js";
+import { buildTaskAgentPrompt, selectNextTask } from "../src/conductor.js";
 import { createDefaultState } from "../src/state.js";
 import type { ScalerTaskStatus } from "../src/types.js";
 
@@ -38,4 +38,62 @@ test("selectNextTask returns clear reason for empty state", () => {
 
   assert.equal(selection.task, undefined);
   assert.equal(selection.reason, "No tasks exist.");
+});
+
+test("buildTaskAgentPrompt includes task metadata and report instructions", () => {
+  const state = stateWithTasks(["ready"]);
+  state.stage = "execution";
+  state.tasks[0]!.title = "Implement widget";
+
+  const result = buildTaskAgentPrompt({
+    state,
+    task: state.tasks[0]!,
+    contextItems: [
+      {
+        id: "spec",
+        type: "file",
+        reason: "Task requirement",
+        content: "Widget must render labels.",
+        priority: "required",
+        scope: "summary",
+      },
+    ],
+  });
+
+  assert.match(result.prompt, /Task ID: T-001/);
+  assert.match(result.prompt, /Task title: Implement widget/);
+  assert.match(result.prompt, /Current task status: ready/);
+  assert.match(result.prompt, /Required final report/);
+  assert.match(result.prompt, /Widget must render labels/);
+});
+
+test("buildTaskAgentPrompt returns context omissions from resolver", () => {
+  const state = stateWithTasks(["ready"]);
+  const result = buildTaskAgentPrompt({
+    state,
+    task: state.tasks[0]!,
+    tokenBudget: 20,
+    contextItems: [
+      {
+        id: "required",
+        type: "file",
+        reason: "Must include",
+        content: "Required context",
+        priority: "required",
+        scope: "summary",
+      },
+      {
+        id: "optional",
+        type: "file",
+        reason: "Can omit",
+        content: "Optional ".repeat(100),
+        priority: "optional",
+        scope: "summary",
+      },
+    ],
+  });
+
+  assert.deepEqual(result.resolvedContext.included.map((item) => item.id), ["required"]);
+  assert.deepEqual(result.resolvedContext.omitted.map((item) => item.id), ["optional"]);
+  assert.doesNotMatch(result.prompt, /Optional Optional Optional/);
 });
