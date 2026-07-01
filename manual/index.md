@@ -11,11 +11,13 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - State file: `.scaler/state.json`.
 - Basic deterministic supervisor transition helpers.
 - Event log: `.scaler/logs/events.jsonl`.
+- Basic safety gate for protected paths and destructive shell commands.
 
 ## Manual pages
 
 - `manual/state.md`
 - `manual/logging.md`
+- `manual/safety.md`
 - `manual/installation.md`
 
 ## Development
