@@ -15,10 +15,12 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - Experimental task-agent subprocess invocation builder.
 - Structured Scaler tool skeletons registered with Pi.
 - External memory write/retrieve under `.scaler/memory/`.
+- Lightweight context resolver skeleton.
 
 ## Manual pages
 
 - `manual/state.md`
+- `manual/context.md`
 - `manual/logging.md`
 - `manual/memory.md`
 - `manual/safety.md`
