@@ -1,10 +1,11 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { startScalerRun } from "./adaptive.js";
 import { getBudgetState } from "./budgets.js";
-import { parseTaskCreateArgs } from "./commands.js";
+import { parseCommitArgs, parseTaskCreateArgs, resolveCommitAllowedPaths, selectTaskForCommit } from "./commands.js";
 import { pauseScalerRun, resumeScalerRun } from "./checkpoints.js";
 import { runConductorStep } from "./conductor.js";
 import { loadDebugAttempts, loadDebugFailures } from "./debug.js";
+import { commitValidatedTask } from "./git.js";
 import { createLogEvent, appendLogEvent, logStateEvent } from "./logging.js";
 import { loadMemoryIndex } from "./memory.js";
 import { getEventLogPath } from "./paths.js";
@@ -97,6 +98,26 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       } else {
         console.log(message);
       }
+    },
+  });
+
+  pi.registerCommand("scaler-commit", {
+    description: "Commit a validated SCALER task: /scaler-commit [taskId] | [allowed paths comma list]",
+    handler: async (args, ctx) => {
+      const state = await ensureState(ctx.cwd);
+      const parsed = parseCommitArgs(args);
+      const taskId = selectTaskForCommit(state, parsed.taskId);
+      if (!taskId) {
+        const message = "No validated task found for /scaler-commit.";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+
+      const allowedPaths = resolveCommitAllowedPaths(state, taskId, parsed.allowedPathPrefixes);
+      const result = await commitValidatedTask(ctx.cwd, state, taskId, allowedPaths);
+      if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
+      else console.log(result.message);
     },
   });
 

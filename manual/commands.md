@@ -28,6 +28,27 @@ Current behavior:
 
 By default it prepares only. Passing `execute` runs the task-agent subprocess. A successful task-agent run moves the task to `validating` and writes a validation handoff under `.scaler/reports/validation-handoffs.json`; a failed task-agent run moves the task to `failed` where valid.
 
+## `/scaler-commit [taskId] | [allowed paths comma list]`
+
+Commits a validated task using the git safety helper.
+
+Selection rules:
+
+1. explicit task id
+2. current task if it is validated
+3. first validated task
+
+Allowed paths come from explicit command args or the task's stored allowed paths.
+
+Examples:
+
+```text
+/scaler-commit T-001 | src,test
+/scaler-commit
+```
+
+The command refuses commits when unrelated changes are detected, the task is not validated, or the project is not a git repository.
+
 ## `/scaler-validate [taskId]`
 
 Runs validation for a task id, the current validating task, or the first validating task.
