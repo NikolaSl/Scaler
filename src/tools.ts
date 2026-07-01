@@ -10,7 +10,7 @@ import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentRunResult } from 
 import { createTask } from "./tasks.js";
 import { prepareToolRequest } from "./tool-requests.js";
 import type { ScalerState } from "./types.js";
-import { applyValidationReport } from "./validation.js";
+import { applyValidationReport, saveValidationManifest } from "./validation.js";
 
 export const scalerToolNames = [
   "scaler_report",
@@ -19,6 +19,7 @@ export const scalerToolNames = [
   "scaler_spawn_task",
   "scaler_tool_request",
   "scaler_task_create",
+  "scaler_validation_manifest_write",
   "scaler_validation_report",
   "scaler_debug_attempt",
 ] as const;
@@ -78,6 +79,19 @@ const TaskCreateParams = Type.Object({
   title: Type.Optional(Type.String()),
   status: Type.Optional(Type.String({ description: "Initial task status. Defaults to pending." })),
   allowedPathPrefixes: Type.Optional(Type.Array(Type.String(), { description: "Paths this task is allowed to modify/commit." })),
+});
+
+const ValidationManifestWriteParams = Type.Object({
+  taskId: Type.String(),
+  commands: Type.Array(
+    Type.Object({
+      id: Type.String(),
+      command: Type.String(),
+      description: Type.Optional(Type.String()),
+      timeoutMs: Type.Optional(Type.Number()),
+      required: Type.Optional(Type.Boolean()),
+    }),
+  ),
 });
 
 const ValidationReportParams = Type.Object({
@@ -211,6 +225,32 @@ export function registerScalerTools(pi: ExtensionAPI): void {
       });
       await logTool(ctx.cwd, "scaler_task_create", result.message, params);
       return textResult(result.message, { status: result.accepted ? "created" : "rejected", taskId: params.taskId });
+    },
+  });
+
+  pi.registerTool({
+    name: "scaler_validation_manifest_write",
+    label: "Scaler Validation Manifest Write",
+    description: "Persist validation commands for a task.",
+    parameters: ValidationManifestWriteParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const manifest = await saveValidationManifest(ctx.cwd, {
+        taskId: params.taskId,
+        commands: params.commands.map((command) => ({
+          id: command.id,
+          command: command.command,
+          description: command.description,
+          timeoutMs: command.timeoutMs,
+          required: command.required ?? true,
+        })),
+        createdAt: "",
+        updatedAt: "",
+      });
+      await logTool(ctx.cwd, "scaler_validation_manifest_write", `Validation manifest written: ${params.taskId}`, { manifest });
+      return textResult(`Validation manifest written for ${params.taskId}: ${manifest.commands.length} commands`, {
+        status: "written",
+        manifest,
+      });
     },
   });
 
