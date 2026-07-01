@@ -1,8 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { startScalerRun } from "./adaptive.js";
 import { createLogEvent, appendLogEvent, logStateEvent } from "./logging.js";
 import { getEventLogPath } from "./paths.js";
 import { assessToolCallSafety } from "./safety.js";
-import { ensureState, formatStateStatus } from "./state.js";
+import { ensureState, formatStateStatus, saveState } from "./state.js";
 import { registerScalerTools } from "./tools.js";
 
 export default function scalerExtension(pi: ExtensionAPI): void {
@@ -35,6 +36,23 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     }
 
     return { block: true, reason: decision.reason };
+  });
+
+  pi.registerCommand("scaler", {
+    description: "Start a minimal adaptive SCALER run for a request.",
+    handler: async (args, ctx) => {
+      const state = await ensureState(ctx.cwd);
+      const nextState = startScalerRun(state, args ?? "");
+      await saveState(ctx.cwd, nextState);
+      await logStateEvent(ctx.cwd, nextState, "Scaler run requested", { command: "scaler", request: args ?? "" });
+
+      const message = `${formatStateStatus(nextState)} reason=${nextState.orchestrationReason ?? "n/a"}`;
+      if (ctx.hasUI) {
+        ctx.ui.notify(message, "info");
+      } else {
+        console.log(message);
+      }
+    },
   });
 
   pi.registerCommand("scaler-status", {

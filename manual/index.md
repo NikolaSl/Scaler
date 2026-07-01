@@ -7,7 +7,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 ## Current implemented behavior
 
 - Pi extension entrypoint: `src/index.ts`.
-- Command: `/scaler-status`.
+- Commands: `/scaler`, `/scaler-status`.
 - State file: `.scaler/state.json`.
 - Basic deterministic supervisor transition helpers.
 - Event log: `.scaler/logs/events.jsonl`.
@@ -16,10 +16,12 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - Structured Scaler tool skeletons registered with Pi.
 - External memory write/retrieve under `.scaler/memory/`.
 - Lightweight context resolver skeleton.
+- Minimal adaptive `/scaler` entrypoint.
 
 ## Manual pages
 
 - `manual/state.md`
+- `manual/commands.md`
 - `manual/context.md`
 - `manual/logging.md`
 - `manual/memory.md`
