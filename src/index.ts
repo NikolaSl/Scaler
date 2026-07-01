@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { startScalerRun } from "./adaptive.js";
+import { pauseScalerRun, resumeScalerRun } from "./checkpoints.js";
 import { createLogEvent, appendLogEvent, logStateEvent } from "./logging.js";
 import { loadMemoryIndex } from "./memory.js";
 import { getEventLogPath } from "./paths.js";
@@ -52,6 +53,30 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         ctx.ui.notify(message, "info");
       } else {
         console.log(message);
+      }
+    },
+  });
+
+  pi.registerCommand("scaler-pause", {
+    description: "Pause the current SCALER run and write a checkpoint.",
+    handler: async (args, ctx) => {
+      const result = await pauseScalerRun(ctx.cwd, args || "manual pause");
+      if (ctx.hasUI) {
+        ctx.ui.notify(result.message, "info");
+      } else {
+        console.log(result.message);
+      }
+    },
+  });
+
+  pi.registerCommand("scaler-resume", {
+    description: "Resume a paused SCALER run to its previous active stage and write a checkpoint.",
+    handler: async (args, ctx) => {
+      const result = await resumeScalerRun(ctx.cwd, args || "manual resume");
+      if (ctx.hasUI) {
+        ctx.ui.notify(result.message, "info");
+      } else {
+        console.log(result.message);
       }
     },
   });

@@ -7,7 +7,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 ## Current implemented behavior
 
 - Pi extension entrypoint: `src/index.ts`.
-- Commands: `/scaler`, `/scaler-status`.
+- Commands: `/scaler`, `/scaler-pause`, `/scaler-resume`, `/scaler-status`.
 - State file: `.scaler/state.json`.
 - Basic deterministic supervisor transition helpers.
 - Event log: `.scaler/logs/events.jsonl`.
@@ -18,6 +18,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - Lightweight context resolver skeleton.
 - Minimal adaptive `/scaler` entrypoint.
 - Budget usage helper skeleton for tools, spawned agents, debug attempts, and checkpoints.
+- Checkpoint writing under `.scaler/checkpoints/` for pause/resume.
 
 ## Manual pages
 

@@ -37,3 +37,7 @@ export function getDebugFailuresPath(cwd: string): string {
 export function getDebugAttemptsPath(cwd: string): string {
   return join(getDebugDir(cwd), "attempts.json");
 }
+
+export function getCheckpointsDir(cwd: string): string {
+  return join(getScalerDir(cwd), "checkpoints");
+}

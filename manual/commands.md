@@ -14,6 +14,14 @@ Current behavior:
 
 This is an early entrypoint. It does not yet execute the full Stage I-IV workflow.
 
+## `/scaler-pause [reason]`
+
+Pauses the current Scaler run through the supervisor transition rules and writes a checkpoint under `.scaler/checkpoints/`.
+
+## `/scaler-resume [reason]`
+
+Resumes a paused run only to its previous active stage and writes a checkpoint under `.scaler/checkpoints/`.
+
 ## `/scaler-status`
 
 Creates/loads `.scaler/state.json`, logs the status request, and shows:
