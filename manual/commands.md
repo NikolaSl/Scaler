@@ -28,6 +28,18 @@ Current behavior:
 
 By default it prepares only. Passing `execute` runs the task-agent subprocess. A successful task-agent run moves the task to `validating` and writes a validation handoff under `.scaler/reports/validation-handoffs.json`; a failed task-agent run moves the task to `failed` where valid.
 
+## `/scaler-validate [taskId]`
+
+Runs validation for a task id, the current validating task, or the first validating task.
+
+Current behavior:
+
+- uses a per-task validation manifest from `.scaler/reports/validation-manifests.json` when present
+- otherwise falls back to default project commands from `package.json` scripts (`npm test`, `npm run build`)
+- writes validation runs to `.scaler/reports/validation-runs.json`
+- moves all-passing validating tasks to `validated`
+- moves failing validating tasks to `debugging`
+
 ## `/scaler-pause [reason]`
 
 Pauses the current Scaler run through the supervisor transition rules and writes a checkpoint under `.scaler/checkpoints/`.

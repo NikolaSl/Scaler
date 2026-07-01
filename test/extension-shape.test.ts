@@ -18,5 +18,5 @@ test("extension registers scaler commands", () => {
 
   scalerExtension(fakePi as never);
 
-  assert.deepEqual(commands, ["scaler", "scaler-step", "scaler-pause", "scaler-resume", "scaler-status"]);
+  assert.deepEqual(commands, ["scaler", "scaler-step", "scaler-validate", "scaler-pause", "scaler-resume", "scaler-status"]);
 });

@@ -10,6 +10,7 @@ import { getEventLogPath } from "./paths.js";
 import { assessToolCallSafety } from "./safety.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
 import { registerScalerTools } from "./tools.js";
+import { runTaskValidation } from "./validation.js";
 
 export default function scalerExtension(pi: ExtensionAPI): void {
   registerScalerTools(pi);
@@ -69,6 +70,32 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const message = result.accepted ? `${result.message} checkpoint=${result.checkpointPath ?? "n/a"}` : result.message;
       if (ctx.hasUI) {
         ctx.ui.notify(message, result.accepted ? "info" : "warning");
+      } else {
+        console.log(message);
+      }
+    },
+  });
+
+  pi.registerCommand("scaler-validate", {
+    description: "Run validation for a task id, current validating task, or first validating task.",
+    handler: async (args, ctx) => {
+      const state = await ensureState(ctx.cwd);
+      const requestedTaskId = args?.trim() || undefined;
+      const taskId = requestedTaskId
+        ?? (state.currentTaskId && state.tasks.find((task) => task.id === state.currentTaskId && task.status === "validating")?.id)
+        ?? state.tasks.find((task) => task.status === "validating")?.id;
+
+      if (!taskId) {
+        const message = "No validating task found for /scaler-validate.";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+
+      const run = await runTaskValidation(ctx.cwd, state, taskId);
+      const message = `Validation ${run.status}: ${taskId} commands=${run.commandRuns.length}`;
+      if (ctx.hasUI) {
+        ctx.ui.notify(message, run.status === "passed" ? "info" : "warning");
       } else {
         console.log(message);
       }
