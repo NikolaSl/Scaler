@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { startScalerRun } from "./adaptive.js";
 import { getBudgetState } from "./budgets.js";
+import { parseTaskCreateArgs } from "./commands.js";
 import { pauseScalerRun, resumeScalerRun } from "./checkpoints.js";
 import { runConductorStep } from "./conductor.js";
 import { loadDebugAttempts, loadDebugFailures } from "./debug.js";
@@ -8,6 +9,7 @@ import { createLogEvent, appendLogEvent, logStateEvent } from "./logging.js";
 import { loadMemoryIndex } from "./memory.js";
 import { getEventLogPath } from "./paths.js";
 import { assessToolCallSafety } from "./safety.js";
+import { createTask } from "./tasks.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
 import { registerScalerTools } from "./tools.js";
 import { runTaskValidation } from "./validation.js";
@@ -58,6 +60,28 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       } else {
         console.log(message);
       }
+    },
+  });
+
+  pi.registerCommand("scaler-task-create", {
+    description: "Create a SCALER task: /scaler-task-create <taskId> | <title> | <allowed paths comma list>",
+    handler: async (args, ctx) => {
+      const parsed = parseTaskCreateArgs(args);
+      if (!parsed) {
+        const message = "Usage: /scaler-task-create <taskId> | <title> | <allowed paths comma list>";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+
+      const state = await ensureState(ctx.cwd);
+      const result = await createTask(ctx.cwd, state, {
+        id: parsed.taskId,
+        title: parsed.title,
+        allowedPathPrefixes: parsed.allowedPathPrefixes,
+      });
+      if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
+      else console.log(result.message);
     },
   });
 

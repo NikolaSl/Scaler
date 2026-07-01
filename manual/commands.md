@@ -48,6 +48,19 @@ Pauses the current Scaler run through the supervisor transition rules and writes
 
 Resumes a paused run only to its previous active stage and writes a checkpoint under `.scaler/checkpoints/`.
 
+## `/scaler-task-create <taskId> | <title> | <allowed paths comma list>`
+
+Creates a supervisor task record.
+
+Examples:
+
+```text
+/scaler-task-create T-001 | Add parser tests | src,test
+/scaler-task-create T-002
+```
+
+Allowed paths are used later for safe per-task git commits.
+
 ## `/scaler-status`
 
 Creates/loads `.scaler/state.json`, logs the status request, and shows:
