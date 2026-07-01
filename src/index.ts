@@ -3,8 +3,11 @@ import { createLogEvent, appendLogEvent, logStateEvent } from "./logging.js";
 import { getEventLogPath } from "./paths.js";
 import { assessToolCallSafety } from "./safety.js";
 import { ensureState, formatStateStatus } from "./state.js";
+import { registerScalerTools } from "./tools.js";
 
 export default function scalerExtension(pi: ExtensionAPI): void {
+  registerScalerTools(pi);
+
   pi.on("tool_call", async (event, ctx) => {
     const decision = assessToolCallSafety({
       toolName: event.toolName,

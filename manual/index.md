@@ -13,6 +13,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - Event log: `.scaler/logs/events.jsonl`.
 - Basic safety gate for protected paths and destructive shell commands.
 - Experimental task-agent subprocess invocation builder.
+- Structured Scaler tool skeletons registered with Pi.
 
 ## Manual pages
 
@@ -20,6 +21,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - `manual/logging.md`
 - `manual/safety.md`
 - `manual/task-agents.md`
+- `manual/tools.md`
 - `manual/installation.md`
 
 ## Development
