@@ -1,8 +1,20 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
-import { buildTaskAgentPrompt, selectNextTask } from "../src/conductor.js";
-import { createDefaultState } from "../src/state.js";
+import { buildTaskAgentPrompt, runConductorStep, selectNextTask } from "../src/conductor.js";
+import { createDefaultState, loadState } from "../src/state.js";
 import type { ScalerTaskStatus } from "../src/types.js";
+
+async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), "scaler-conductor-test-"));
+  try {
+    return await fn(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
 
 function stateWithTasks(statuses: ScalerTaskStatus[]) {
   const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
@@ -65,6 +77,43 @@ test("buildTaskAgentPrompt includes task metadata and report instructions", () =
   assert.match(result.prompt, /Current task status: ready/);
   assert.match(result.prompt, /Required final report/);
   assert.match(result.prompt, /Widget must render labels/);
+});
+
+test("runConductorStep prepares selected task and writes checkpoint", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["pending"]);
+    state.stage = "execution";
+    const result = await runConductorStep(dir, state, { tools: ["read"] });
+    const persisted = await loadState(dir);
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.task?.id, "T-001");
+    assert.equal(persisted.tasks[0]?.status, "running");
+    assert.ok(result.invocation?.args.includes("--tools"));
+    assert.ok(result.checkpointPath?.includes("conductor-step-t-001"));
+  });
+});
+
+test("runConductorStep executes task with injected runner", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    const result = await runConductorStep(
+      dir,
+      state,
+      { execute: true, timeoutMs: 123 },
+      async (request, options) => ({
+        taskId: request.taskId,
+        exitCode: options?.timeoutMs === 123 ? 0 : 1,
+        stdoutEvents: [{ type: "done" }],
+        stderr: "",
+      }),
+    );
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.runResult?.exitCode, 0);
+    assert.deepEqual(result.runResult?.stdoutEvents, [{ type: "done" }]);
+  });
 });
 
 test("buildTaskAgentPrompt returns context omissions from resolver", () => {
