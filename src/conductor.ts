@@ -216,6 +216,7 @@ export function buildTaskAgentPrompt(input: TaskPromptInput): TaskPromptResult {
     `Task title: ${input.task.title ?? "Untitled"}`,
     `Current task status: ${input.task.status}`,
     `Supervisor stage: ${input.state.stage}`,
+    `Allowed paths: ${input.task.allowedPathPrefixes?.join(", ") || "not specified"}`,
     "",
     "## Operating rules",
     "- Work only on this task's scope.",

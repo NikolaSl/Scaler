@@ -35,6 +35,18 @@ test("createTask supports explicit ready status", async () => {
   });
 });
 
+test("createTask stores normalized allowed path prefixes", async () => {
+  await withTempDir(async (dir) => {
+    const result = await createTask(dir, createDefaultState(), {
+      id: "T-001",
+      allowedPathPrefixes: ["./src/", "src", " test ", ""],
+    });
+
+    assert.equal(result.accepted, true);
+    assert.deepEqual(result.state.tasks[0]?.allowedPathPrefixes, ["src", "test"]);
+  });
+});
+
 test("createTask rejects duplicate task id", async () => {
   await withTempDir(async (dir) => {
     const first = await createTask(dir, createDefaultState(), { id: "T-001" });

@@ -8,6 +8,7 @@ export interface CreateTaskInput {
   id: string;
   title?: string;
   status?: ScalerTaskStatus | string;
+  allowedPathPrefixes?: string[];
 }
 
 export interface CreateTaskResult {
@@ -40,6 +41,7 @@ export async function createTask(cwd: string, state: ScalerState, input: CreateT
     id: input.id,
     title: input.title,
     status,
+    allowedPathPrefixes: normalizeAllowedPaths(input.allowedPathPrefixes),
   });
   const accepted = nextState.rejectedTransitions.length === beforeRejected;
 
@@ -59,4 +61,11 @@ export async function createTask(cwd: string, state: ScalerState, input: CreateT
     accepted,
     message: accepted ? `Task created: ${input.id}` : `Task create rejected: ${input.id}`,
   };
+}
+
+function normalizeAllowedPaths(paths: string[] | undefined): string[] | undefined {
+  const normalized = (paths ?? [])
+    .map((path) => path.trim().replace(/^\.\//, "").replace(/\/$/, ""))
+    .filter((path) => path.length > 0);
+  return normalized.length > 0 ? [...new Set(normalized)] : undefined;
 }

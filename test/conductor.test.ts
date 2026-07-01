@@ -56,6 +56,7 @@ test("buildTaskAgentPrompt includes task metadata and report instructions", () =
   const state = stateWithTasks(["ready"]);
   state.stage = "execution";
   state.tasks[0]!.title = "Implement widget";
+  state.tasks[0]!.allowedPathPrefixes = ["src", "test"];
 
   const result = buildTaskAgentPrompt({
     state,
@@ -75,6 +76,7 @@ test("buildTaskAgentPrompt includes task metadata and report instructions", () =
   assert.match(result.prompt, /Task ID: T-001/);
   assert.match(result.prompt, /Task title: Implement widget/);
   assert.match(result.prompt, /Current task status: ready/);
+  assert.match(result.prompt, /Allowed paths: src, test/);
   assert.match(result.prompt, /Required final report/);
   assert.match(result.prompt, /Widget must render labels/);
 });
