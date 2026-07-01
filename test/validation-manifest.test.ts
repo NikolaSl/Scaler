@@ -8,6 +8,7 @@ import {
   getValidationManifestForTask,
   loadValidationManifests,
   saveValidationManifest,
+  upsertValidationManifestCommand,
 } from "../src/validation.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -43,6 +44,30 @@ test("saveValidationManifest writes and replaces per-task manifest", async () =>
     const manifests = await loadValidationManifests(dir);
     assert.equal(manifests.length, 1);
     assert.equal(manifests[0]?.commands[0]?.command, "npm run build");
+  });
+});
+
+test("upsertValidationManifestCommand appends and replaces commands", async () => {
+  await withTempDir(async (dir) => {
+    await upsertValidationManifestCommand(dir, {
+      taskId: "T-001",
+      id: "test",
+      command: "npm test",
+      description: "Run tests",
+      required: true,
+    });
+    await upsertValidationManifestCommand(dir, {
+      taskId: "T-001",
+      id: "test",
+      command: "npm test -- --runInBand",
+      required: false,
+    });
+
+    const manifests = await loadValidationManifests(dir);
+    assert.equal(manifests.length, 1);
+    assert.equal(manifests[0]?.commands.length, 1);
+    assert.equal(manifests[0]?.commands[0]?.command, "npm test -- --runInBand");
+    assert.equal(manifests[0]?.commands[0]?.required, false);
   });
 });
 

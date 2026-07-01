@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseCommaList, parseCommitArgs, parseTaskCreateArgs, parseTaskUpdateArgs, resolveCommitAllowedPaths, selectTaskForCommit } from "../src/commands.js";
+import {
+  parseCommaList,
+  parseCommitArgs,
+  parseTaskCreateArgs,
+  parseTaskUpdateArgs,
+  parseValidationAddArgs,
+  resolveCommitAllowedPaths,
+  selectTaskForCommit,
+} from "../src/commands.js";
 import { createDefaultState } from "../src/state.js";
 
 test("parseTaskCreateArgs parses task id only", () => {
@@ -29,6 +37,20 @@ test("parseTaskUpdateArgs parses task update fields", () => {
     allowedPathPrefixes: ["src", "test"],
     dependsOn: ["T-000"],
   });
+});
+
+test("parseValidationAddArgs parses manifest command fields", () => {
+  assert.deepEqual(parseValidationAddArgs("T-001 | test | npm test | Run tests | optional"), {
+    taskId: "T-001",
+    id: "test",
+    command: "npm test",
+    description: "Run tests",
+    required: false,
+  });
+});
+
+test("parseValidationAddArgs requires task, id, and command", () => {
+  assert.equal(parseValidationAddArgs("T-001 | test"), undefined);
 });
 
 test("parseTaskCreateArgs returns undefined without task id", () => {

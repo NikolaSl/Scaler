@@ -28,6 +28,19 @@ Current behavior:
 
 By default it prepares only. Passing `execute` runs the task-agent subprocess. A successful task-agent run moves the task to `validating` and writes a validation handoff under `.scaler/reports/validation-handoffs.json`; a failed task-agent run moves the task to `failed` where valid.
 
+## `/scaler-validation-add <taskId> | <id> | <command> | <description> | <required>`
+
+Adds or replaces one command in a task validation manifest.
+
+Examples:
+
+```text
+/scaler-validation-add T-001 | test | npm test | Run tests | required
+/scaler-validation-add T-001 | lint | npm run lint | Run lint | optional
+```
+
+`required` accepts true/yes/required/1 and false/no/optional/0. Unknown or omitted values default to required when saved.
+
 ## `/scaler-commit [taskId] | [allowed paths comma list]`
 
 Commits a validated task using the git safety helper.

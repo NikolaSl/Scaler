@@ -38,6 +38,15 @@ export interface TaskValidationManifest {
   updatedAt: string;
 }
 
+export interface ValidationManifestCommandInput {
+  taskId: string;
+  id: string;
+  command: string;
+  description?: string;
+  timeoutMs?: number;
+  required?: boolean;
+}
+
 interface ValidationManifestIndex {
   version: 1;
   manifests: TaskValidationManifest[];
@@ -102,6 +111,25 @@ export async function saveValidationManifest(cwd: string, manifest: TaskValidati
   const next = [normalized, ...manifests.filter((candidate) => candidate.taskId !== manifest.taskId)];
   await writeValidationManifestIndex(cwd, next);
   return normalized;
+}
+
+export async function upsertValidationManifestCommand(
+  cwd: string,
+  input: ValidationManifestCommandInput,
+): Promise<TaskValidationManifest> {
+  const existing = (await loadValidationManifests(cwd)).find((manifest) => manifest.taskId === input.taskId);
+  const base = existing ?? (await createDefaultValidationManifest(cwd, input.taskId));
+  const command: ValidationCommandManifest = {
+    id: input.id,
+    command: input.command,
+    description: input.description,
+    timeoutMs: input.timeoutMs,
+    required: input.required ?? true,
+  };
+  return await saveValidationManifest(cwd, {
+    ...base,
+    commands: [command, ...base.commands.filter((candidate) => candidate.id !== input.id)],
+  });
 }
 
 export async function getValidationManifestForTask(cwd: string, taskId: string): Promise<TaskValidationManifest> {

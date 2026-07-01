@@ -24,6 +24,7 @@ test("extension registers scaler commands", () => {
     "scaler-task-create",
     "scaler-task-update",
     "scaler-step",
+    "scaler-validation-add",
     "scaler-commit",
     "scaler-validate",
     "scaler-pause",

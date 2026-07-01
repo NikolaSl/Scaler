@@ -1,7 +1,14 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { startScalerRun } from "./adaptive.js";
 import { getBudgetState } from "./budgets.js";
-import { parseCommitArgs, parseTaskCreateArgs, parseTaskUpdateArgs, resolveCommitAllowedPaths, selectTaskForCommit } from "./commands.js";
+import {
+  parseCommitArgs,
+  parseTaskCreateArgs,
+  parseTaskUpdateArgs,
+  parseValidationAddArgs,
+  resolveCommitAllowedPaths,
+  selectTaskForCommit,
+} from "./commands.js";
 import { pauseScalerRun, resumeScalerRun } from "./checkpoints.js";
 import { runConductorStep } from "./conductor.js";
 import { loadDebugAttempts, loadDebugFailures } from "./debug.js";
@@ -13,7 +20,7 @@ import { assessToolCallSafety } from "./safety.js";
 import { createTask, formatTaskList, updateTask } from "./tasks.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
 import { registerScalerTools } from "./tools.js";
-import { runTaskValidation } from "./validation.js";
+import { runTaskValidation, upsertValidationManifestCommand } from "./validation.js";
 import { formatWorkflowSummary, summarizeWorkflow } from "./workflow.js";
 
 export default function scalerExtension(pi: ExtensionAPI): void {
@@ -134,6 +141,24 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       } else {
         console.log(message);
       }
+    },
+  });
+
+  pi.registerCommand("scaler-validation-add", {
+    description: "Add or replace a validation command: /scaler-validation-add <taskId> | <id> | <command> | <description> | <required>",
+    handler: async (args, ctx) => {
+      const parsed = parseValidationAddArgs(args);
+      if (!parsed) {
+        const message = "Usage: /scaler-validation-add <taskId> | <id> | <command> | <description> | <required>";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+
+      const manifest = await upsertValidationManifestCommand(ctx.cwd, parsed);
+      const message = `Validation command saved: ${parsed.taskId}/${parsed.id} commands=${manifest.commands.length}`;
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
     },
   });
 
