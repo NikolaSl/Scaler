@@ -10,7 +10,7 @@ import { createLogEvent, appendLogEvent, logStateEvent } from "./logging.js";
 import { loadMemoryIndex } from "./memory.js";
 import { getEventLogPath } from "./paths.js";
 import { assessToolCallSafety } from "./safety.js";
-import { createTask } from "./tasks.js";
+import { createTask, formatTaskList } from "./tasks.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
 import { registerScalerTools } from "./tools.js";
 import { runTaskValidation } from "./validation.js";
@@ -61,6 +61,16 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       } else {
         console.log(message);
       }
+    },
+  });
+
+  pi.registerCommand("scaler-tasks", {
+    description: "List SCALER tasks with status and allowed paths.",
+    handler: async (_args, ctx) => {
+      const state = await ensureState(ctx.cwd);
+      const message = formatTaskList(state);
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
     },
   });
 

@@ -17,6 +17,19 @@ export interface CreateTaskResult {
   message: string;
 }
 
+export function formatTaskList(state: ScalerState): string {
+  if (state.tasks.length === 0) return "No Scaler tasks.";
+
+  const lines = ["Scaler tasks:"];
+  for (const task of state.tasks) {
+    const current = task.id === state.currentTaskId ? " *current*" : "";
+    const title = task.title ? ` - ${task.title}` : "";
+    const paths = task.allowedPathPrefixes && task.allowedPathPrefixes.length > 0 ? ` [paths: ${task.allowedPathPrefixes.join(", ")}]` : "";
+    lines.push(`- ${task.id}: ${task.status}${current}${title}${paths}`);
+  }
+  return lines.join("\n");
+}
+
 export async function createTask(cwd: string, state: ScalerState, input: CreateTaskInput): Promise<CreateTaskResult> {
   const status = input.status ?? "pending";
   if (!isScalerTaskStatus(status)) {

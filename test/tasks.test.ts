@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createDefaultState, loadState } from "../src/state.js";
-import { createTask } from "../src/tasks.js";
+import { createTask, formatTaskList } from "../src/tasks.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-task-test-"));
@@ -45,6 +45,26 @@ test("createTask stores normalized allowed path prefixes", async () => {
     assert.equal(result.accepted, true);
     assert.deepEqual(result.state.tasks[0]?.allowedPathPrefixes, ["src", "test"]);
   });
+});
+
+test("formatTaskList renders current task, status, title, and allowed paths", () => {
+  const state = createDefaultState();
+  state.currentTaskId = "T-001";
+  state.tasks = [
+    {
+      id: "T-001",
+      title: "Add feature",
+      status: "validated",
+      allowedPathPrefixes: ["src", "test"],
+      updatedAt: state.createdAt,
+    },
+  ];
+
+  assert.equal(formatTaskList(state), "Scaler tasks:\n- T-001: validated *current* - Add feature [paths: src, test]");
+});
+
+test("formatTaskList handles no tasks", () => {
+  assert.equal(formatTaskList(createDefaultState()), "No Scaler tasks.");
 });
 
 test("createTask rejects duplicate task id", async () => {

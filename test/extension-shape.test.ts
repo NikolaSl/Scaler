@@ -20,6 +20,7 @@ test("extension registers scaler commands", () => {
 
   assert.deepEqual(commands, [
     "scaler",
+    "scaler-tasks",
     "scaler-task-create",
     "scaler-step",
     "scaler-commit",

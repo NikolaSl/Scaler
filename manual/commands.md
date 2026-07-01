@@ -69,6 +69,10 @@ Pauses the current Scaler run through the supervisor transition rules and writes
 
 Resumes a paused run only to its previous active stage and writes a checkpoint under `.scaler/checkpoints/`.
 
+## `/scaler-tasks`
+
+Lists all known supervisor tasks with status, current-task marker, title, and allowed path metadata.
+
 ## `/scaler-task-create <taskId> | <title> | <allowed paths comma list>`
 
 Creates a supervisor task record.
