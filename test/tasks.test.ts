@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createDefaultState, loadState } from "../src/state.js";
-import { createTask, formatTaskList } from "../src/tasks.js";
+import { createTask, formatTaskList, updateTask } from "../src/tasks.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-task-test-"));
@@ -68,6 +68,48 @@ test("formatTaskList renders current task, status, title, and allowed paths", ()
 
 test("formatTaskList handles no tasks", () => {
   assert.equal(formatTaskList(createDefaultState()), "No Scaler tasks.");
+});
+
+test("updateTask updates metadata and valid status transition", async () => {
+  await withTempDir(async (dir) => {
+    const created = await createTask(dir, createDefaultState(), { id: "T-001", status: "pending" });
+    const result = await updateTask(dir, created.state, {
+      id: "T-001",
+      title: "Updated",
+      status: "ready",
+      allowedPathPrefixes: ["src", "test"],
+      dependsOn: ["T-000"],
+    });
+    const task = result.state.tasks[0];
+
+    assert.equal(result.accepted, true);
+    assert.equal(task?.title, "Updated");
+    assert.equal(task?.status, "ready");
+    assert.deepEqual(task?.allowedPathPrefixes, ["src", "test"]);
+    assert.deepEqual(task?.dependsOn, ["T-000"]);
+  });
+});
+
+test("updateTask rejects invalid status transition without metadata changes", async () => {
+  await withTempDir(async (dir) => {
+    const created = await createTask(dir, createDefaultState(), { id: "T-001", status: "ready", title: "Original" });
+    const result = await updateTask(dir, created.state, { id: "T-001", title: "Changed", status: "validated" });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.state.tasks[0]?.title, "Original");
+    assert.equal(result.state.tasks[0]?.status, "ready");
+    assert.equal(result.state.rejectedTransitions.length, 1);
+  });
+});
+
+test("updateTask rejects missing tasks", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    const result = await updateTask(dir, state, { id: "missing", title: "Nope" });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.state, state);
+  });
 });
 
 test("createTask rejects duplicate task id", async () => {

@@ -10,6 +10,7 @@ test("scalerToolNames lists structured Scaler tools", () => {
     "scaler_spawn_task",
     "scaler_tool_request",
     "scaler_task_create",
+    "scaler_task_update",
     "scaler_validation_manifest_write",
     "scaler_validation_report",
     "scaler_debug_attempt",

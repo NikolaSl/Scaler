@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseCommaList, parseCommitArgs, parseTaskCreateArgs, resolveCommitAllowedPaths, selectTaskForCommit } from "../src/commands.js";
+import { parseCommaList, parseCommitArgs, parseTaskCreateArgs, parseTaskUpdateArgs, resolveCommitAllowedPaths, selectTaskForCommit } from "../src/commands.js";
 import { createDefaultState } from "../src/state.js";
 
 test("parseTaskCreateArgs parses task id only", () => {
@@ -18,6 +18,16 @@ test("parseTaskCreateArgs parses title, allowed paths, and dependencies", () => 
     title: "Add parser",
     allowedPathPrefixes: ["src", "test"],
     dependsOn: ["T-000", "T-BASE"],
+  });
+});
+
+test("parseTaskUpdateArgs parses task update fields", () => {
+  assert.deepEqual(parseTaskUpdateArgs("T-001 | New title | ready | src,test | T-000"), {
+    taskId: "T-001",
+    title: "New title",
+    status: "ready",
+    allowedPathPrefixes: ["src", "test"],
+    dependsOn: ["T-000"],
   });
 });
 

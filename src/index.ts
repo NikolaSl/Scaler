@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { startScalerRun } from "./adaptive.js";
 import { getBudgetState } from "./budgets.js";
-import { parseCommitArgs, parseTaskCreateArgs, resolveCommitAllowedPaths, selectTaskForCommit } from "./commands.js";
+import { parseCommitArgs, parseTaskCreateArgs, parseTaskUpdateArgs, resolveCommitAllowedPaths, selectTaskForCommit } from "./commands.js";
 import { pauseScalerRun, resumeScalerRun } from "./checkpoints.js";
 import { runConductorStep } from "./conductor.js";
 import { loadDebugAttempts, loadDebugFailures } from "./debug.js";
@@ -10,7 +10,7 @@ import { createLogEvent, appendLogEvent, logStateEvent } from "./logging.js";
 import { loadMemoryIndex } from "./memory.js";
 import { getEventLogPath } from "./paths.js";
 import { assessToolCallSafety } from "./safety.js";
-import { createTask, formatTaskList } from "./tasks.js";
+import { createTask, formatTaskList, updateTask } from "./tasks.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
 import { registerScalerTools } from "./tools.js";
 import { runTaskValidation } from "./validation.js";
@@ -90,6 +90,30 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const result = await createTask(ctx.cwd, state, {
         id: parsed.taskId,
         title: parsed.title,
+        allowedPathPrefixes: parsed.allowedPathPrefixes,
+        dependsOn: parsed.dependsOn,
+      });
+      if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
+      else console.log(result.message);
+    },
+  });
+
+  pi.registerCommand("scaler-task-update", {
+    description: "Update a SCALER task: /scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies>",
+    handler: async (args, ctx) => {
+      const parsed = parseTaskUpdateArgs(args);
+      if (!parsed) {
+        const message = "Usage: /scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies>";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+
+      const state = await ensureState(ctx.cwd);
+      const result = await updateTask(ctx.cwd, state, {
+        id: parsed.taskId,
+        title: parsed.title,
+        status: parsed.status,
         allowedPathPrefixes: parsed.allowedPathPrefixes,
         dependsOn: parsed.dependsOn,
       });

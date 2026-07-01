@@ -7,6 +7,14 @@ export interface ParsedTaskCreateArgs {
   dependsOn?: string[];
 }
 
+export interface ParsedTaskUpdateArgs {
+  taskId: string;
+  title?: string;
+  status?: string;
+  allowedPathPrefixes?: string[];
+  dependsOn?: string[];
+}
+
 export interface ParsedCommitArgs {
   taskId?: string;
   allowedPathPrefixes?: string[];
@@ -22,6 +30,19 @@ export function parseTaskCreateArgs(args: string | undefined): ParsedTaskCreateA
     title: parts[1]?.trim() || undefined,
     allowedPathPrefixes: parseCommaList(parts[2]),
     dependsOn: parseCommaList(parts[3]),
+  };
+}
+
+export function parseTaskUpdateArgs(args: string | undefined): ParsedTaskUpdateArgs | undefined {
+  const parts = splitPipeArgs(args);
+  const taskId = parts[0]?.trim();
+  if (!taskId) return undefined;
+  return {
+    taskId,
+    title: parts[1]?.trim() || undefined,
+    status: parts[2]?.trim() || undefined,
+    allowedPathPrefixes: parseCommaList(parts[3]),
+    dependsOn: parseCommaList(parts[4]),
   };
 }
 

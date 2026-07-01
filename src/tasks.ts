@@ -1,7 +1,7 @@
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { isScalerTaskStatus } from "./reports.js";
 import { saveState } from "./state.js";
-import { addTask } from "./supervisor.js";
+import { addTask, transitionTask } from "./supervisor.js";
 import type { ScalerState, ScalerTaskStatus } from "./types.js";
 
 export interface CreateTaskInput {
@@ -13,6 +13,20 @@ export interface CreateTaskInput {
 }
 
 export interface CreateTaskResult {
+  state: ScalerState;
+  accepted: boolean;
+  message: string;
+}
+
+export interface UpdateTaskInput {
+  id: string;
+  title?: string;
+  status?: ScalerTaskStatus | string;
+  allowedPathPrefixes?: string[];
+  dependsOn?: string[];
+}
+
+export interface UpdateTaskResult {
   state: ScalerState;
   accepted: boolean;
   message: string;
@@ -30,6 +44,57 @@ export function formatTaskList(state: ScalerState): string {
     lines.push(`- ${task.id}: ${task.status}${current}${title}${paths}${deps}`);
   }
   return lines.join("\n");
+}
+
+export async function updateTask(cwd: string, state: ScalerState, input: UpdateTaskInput): Promise<UpdateTaskResult> {
+  const existing = state.tasks.find((task) => task.id === input.id);
+  if (!existing) {
+    const message = `Task update rejected: ${input.id} does not exist`;
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "state", summary: message, taskId: input.id, details: input }));
+    return { state, accepted: false, message };
+  }
+
+  let nextState = state;
+  if (input.status !== undefined) {
+    if (!isScalerTaskStatus(input.status)) {
+      const message = `Task update rejected: invalid status ${String(input.status)}`;
+      await appendLogEvent(cwd, createLogEvent(state, { eventType: "state", summary: message, taskId: input.id, details: input }));
+      return { state, accepted: false, message };
+    }
+
+    const beforeRejected = nextState.rejectedTransitions.length;
+    nextState = transitionTask(nextState, input.id, input.status, { reason: "Task metadata update requested." });
+    if (nextState.rejectedTransitions.length !== beforeRejected) {
+      await saveState(cwd, nextState);
+      const message = `Task update rejected: invalid transition ${existing.status} -> ${input.status}`;
+      await appendLogEvent(cwd, createLogEvent(nextState, { eventType: "state", summary: message, taskId: input.id, details: input }));
+      return { state: nextState, accepted: false, message };
+    }
+  }
+
+  const timestamp = new Date().toISOString();
+  nextState = {
+    ...nextState,
+    tasks: nextState.tasks.map((task) =>
+      task.id === input.id
+        ? {
+            ...task,
+            title: input.title ?? task.title,
+            allowedPathPrefixes: input.allowedPathPrefixes ? normalizeAllowedPaths(input.allowedPathPrefixes) : task.allowedPathPrefixes,
+            dependsOn: input.dependsOn ? normalizeIdList(input.dependsOn) : task.dependsOn,
+            updatedAt: timestamp,
+          }
+        : task,
+    ),
+    updatedAt: timestamp,
+  };
+
+  await saveState(cwd, nextState);
+  await appendLogEvent(
+    cwd,
+    createLogEvent(nextState, { eventType: "state", summary: `Task updated: ${input.id}`, taskId: input.id, details: input }),
+  );
+  return { state: nextState, accepted: true, message: `Task updated: ${input.id}` };
 }
 
 export async function createTask(cwd: string, state: ScalerState, input: CreateTaskInput): Promise<CreateTaskResult> {

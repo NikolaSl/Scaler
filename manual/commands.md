@@ -87,6 +87,17 @@ Examples:
 
 Allowed paths are used later for safe per-task git commits. Dependencies prevent the conductor from selecting a task until all listed task ids are validated.
 
+## `/scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies>`
+
+Updates task metadata. If `status` is provided, the update must be a valid supervisor task transition.
+
+Examples:
+
+```text
+/scaler-task-update T-001 | Better title
+/scaler-task-update T-001 | | ready | src,test | T-000
+```
+
 ## `/scaler-status`
 
 Creates/loads `.scaler/state.json`, logs the status request, and shows:

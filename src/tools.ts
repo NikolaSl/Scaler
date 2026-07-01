@@ -7,7 +7,7 @@ import { retrieveMemory, writeMemory } from "./memory.js";
 import { ingestReport } from "./reports.js";
 import { ensureState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentRunResult } from "./subagents.js";
-import { createTask } from "./tasks.js";
+import { createTask, updateTask } from "./tasks.js";
 import { prepareToolRequest } from "./tool-requests.js";
 import type { ScalerState } from "./types.js";
 import { applyValidationReport, saveValidationManifest } from "./validation.js";
@@ -19,6 +19,7 @@ export const scalerToolNames = [
   "scaler_spawn_task",
   "scaler_tool_request",
   "scaler_task_create",
+  "scaler_task_update",
   "scaler_validation_manifest_write",
   "scaler_validation_report",
   "scaler_debug_attempt",
@@ -80,6 +81,14 @@ const TaskCreateParams = Type.Object({
   status: Type.Optional(Type.String({ description: "Initial task status. Defaults to pending." })),
   allowedPathPrefixes: Type.Optional(Type.Array(Type.String(), { description: "Paths this task is allowed to modify/commit." })),
   dependsOn: Type.Optional(Type.Array(Type.String(), { description: "Task ids that must be validated first." })),
+});
+
+const TaskUpdateParams = Type.Object({
+  taskId: Type.String(),
+  title: Type.Optional(Type.String()),
+  status: Type.Optional(Type.String({ description: "Target task status; must be a valid transition." })),
+  allowedPathPrefixes: Type.Optional(Type.Array(Type.String(), { description: "Replacement allowed paths." })),
+  dependsOn: Type.Optional(Type.Array(Type.String(), { description: "Replacement dependency ids." })),
 });
 
 const ValidationManifestWriteParams = Type.Object({
@@ -227,6 +236,25 @@ export function registerScalerTools(pi: ExtensionAPI): void {
       });
       await logTool(ctx.cwd, "scaler_task_create", result.message, params);
       return textResult(result.message, { status: result.accepted ? "created" : "rejected", taskId: params.taskId });
+    },
+  });
+
+  pi.registerTool({
+    name: "scaler_task_update",
+    label: "Scaler Task Update",
+    description: "Update task metadata and optionally request a valid task status transition.",
+    parameters: TaskUpdateParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const state = await ensureState(ctx.cwd);
+      const result = await updateTask(ctx.cwd, state, {
+        id: params.taskId,
+        title: params.title,
+        status: params.status,
+        allowedPathPrefixes: params.allowedPathPrefixes,
+        dependsOn: params.dependsOn,
+      });
+      await logTool(ctx.cwd, "scaler_task_update", result.message, params);
+      return textResult(result.message, { status: result.accepted ? "updated" : "rejected", taskId: params.taskId });
     },
   });
 

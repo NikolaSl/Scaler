@@ -8,6 +8,7 @@ Scaler currently registers structured tool skeletons:
 - `scaler_spawn_task`
 - `scaler_tool_request`
 - `scaler_task_create`
+- `scaler_task_update`
 - `scaler_validation_manifest_write`
 - `scaler_validation_report`
 - `scaler_debug_attempt`
@@ -22,6 +23,7 @@ Current behavior:
 - `scaler_spawn_task` prepares a Pi subprocess invocation, or executes it when `execute: true`
 - `scaler_tool_request` persists isolated tool-agent requests under `.scaler/tool-requests/` and prepares invocations with only explicitly allowed tools
 - `scaler_task_create` creates supervisor task records, stores optional allowed paths/dependencies, and rejects duplicate ids
+- `scaler_task_update` updates task metadata and only accepts valid status transitions
 - `scaler_validation_manifest_write` persists task validation commands under `.scaler/reports/validation-manifests.json`
 
 Full supervisor and task execution integration will be added in later tasks.
