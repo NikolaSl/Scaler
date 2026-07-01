@@ -41,3 +41,11 @@ export function getDebugAttemptsPath(cwd: string): string {
 export function getCheckpointsDir(cwd: string): string {
   return join(getScalerDir(cwd), "checkpoints");
 }
+
+export function getToolRequestsDir(cwd: string): string {
+  return join(getScalerDir(cwd), "tool-requests");
+}
+
+export function getToolRequestsIndexPath(cwd: string): string {
+  return join(getToolRequestsDir(cwd), "requests.json");
+}

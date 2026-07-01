@@ -8,6 +8,7 @@ import { ingestReport } from "./reports.js";
 import { ensureState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentRunResult } from "./subagents.js";
 import { createTask } from "./tasks.js";
+import { prepareToolRequest } from "./tool-requests.js";
 import type { ScalerState } from "./types.js";
 import { applyValidationReport } from "./validation.js";
 
@@ -16,6 +17,7 @@ export const scalerToolNames = [
   "scaler_memory_write",
   "scaler_memory_retrieve",
   "scaler_spawn_task",
+  "scaler_tool_request",
   "scaler_task_create",
   "scaler_validation_report",
   "scaler_debug_attempt",
@@ -61,6 +63,14 @@ const SpawnTaskParams = Type.Object({
   model: Type.Optional(Type.String()),
   execute: Type.Optional(Type.Boolean({ description: "Execute the task agent instead of only preparing invocation." })),
   timeoutMs: Type.Optional(Type.Number({ description: "Task-agent timeout in milliseconds." })),
+});
+
+const ToolRequestParams = Type.Object({
+  toolName: Type.String({ description: "Exact tool/MCP name requested." }),
+  request: Type.String({ description: "Concise free-form request for the isolated tool agent." }),
+  taskId: Type.Optional(Type.String()),
+  contextSummary: Type.Optional(Type.String()),
+  allowedTools: Type.Optional(Type.Array(Type.String(), { description: "Additional tools explicitly allowed for the isolated tool agent." })),
 });
 
 const TaskCreateParams = Type.Object({
@@ -159,6 +169,29 @@ export function registerScalerTools(pi: ExtensionAPI): void {
       if (params.execute) await recordBudgetUsage(ctx.cwd, "spawnedAgents");
       await logTool(ctx.cwd, "scaler_spawn_task", result.summary, result.details);
       return textResult(result.text, result.details);
+    },
+  });
+
+  pi.registerTool({
+    name: "scaler_tool_request",
+    label: "Scaler Tool Request",
+    description: "Prepare an isolated Tool/MCP agent request with only explicitly requested tools.",
+    parameters: ToolRequestParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const state = await ensureState(ctx.cwd);
+      const result = await prepareToolRequest(ctx.cwd, state, {
+        toolName: params.toolName,
+        request: params.request,
+        taskId: params.taskId,
+        contextSummary: params.contextSummary,
+        allowedTools: params.allowedTools,
+      });
+      await recordBudgetUsage(ctx.cwd, "toolCalls");
+      return textResult(result.message, {
+        status: result.accepted ? "prepared" : "rejected",
+        record: result.record,
+        invocation: result.invocation,
+      });
     },
   });
 
