@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { startScalerRun } from "./adaptive.js";
 import { getBudgetState } from "./budgets.js";
 import { pauseScalerRun, resumeScalerRun } from "./checkpoints.js";
+import { runConductorStep } from "./conductor.js";
 import { loadDebugAttempts, loadDebugFailures } from "./debug.js";
 import { createLogEvent, appendLogEvent, logStateEvent } from "./logging.js";
 import { loadMemoryIndex } from "./memory.js";
@@ -53,6 +54,21 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const message = `${formatStateStatus(nextState)} reason=${nextState.orchestrationReason ?? "n/a"}`;
       if (ctx.hasUI) {
         ctx.ui.notify(message, "info");
+      } else {
+        console.log(message);
+      }
+    },
+  });
+
+  pi.registerCommand("scaler-step", {
+    description: "Run one minimal SCALER conductor step. Pass 'execute' to run the task agent.",
+    handler: async (args, ctx) => {
+      const state = await ensureState(ctx.cwd);
+      const execute = /\bexecute\b/i.test(args ?? "");
+      const result = await runConductorStep(ctx.cwd, state, { execute });
+      const message = result.accepted ? `${result.message} checkpoint=${result.checkpointPath ?? "n/a"}` : result.message;
+      if (ctx.hasUI) {
+        ctx.ui.notify(message, result.accepted ? "info" : "warning");
       } else {
         console.log(message);
       }
