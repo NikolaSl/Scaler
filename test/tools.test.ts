@@ -8,6 +8,7 @@ test("scalerToolNames lists structured Scaler tools", () => {
     "scaler_memory_write",
     "scaler_memory_retrieve",
     "scaler_spawn_task",
+    "scaler_task_create",
     "scaler_validation_report",
     "scaler_debug_attempt",
   ]);

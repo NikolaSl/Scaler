@@ -5,12 +5,14 @@ import { retrieveMemory, writeMemory } from "./memory.js";
 import { ingestReport } from "./reports.js";
 import { ensureState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentRunResult } from "./subagents.js";
+import { createTask } from "./tasks.js";
 
 export const scalerToolNames = [
   "scaler_report",
   "scaler_memory_write",
   "scaler_memory_retrieve",
   "scaler_spawn_task",
+  "scaler_task_create",
   "scaler_validation_report",
   "scaler_debug_attempt",
 ] as const;
@@ -55,6 +57,12 @@ const SpawnTaskParams = Type.Object({
   model: Type.Optional(Type.String()),
   execute: Type.Optional(Type.Boolean({ description: "Execute the task agent instead of only preparing invocation." })),
   timeoutMs: Type.Optional(Type.Number({ description: "Task-agent timeout in milliseconds." })),
+});
+
+const TaskCreateParams = Type.Object({
+  taskId: Type.String(),
+  title: Type.Optional(Type.String()),
+  status: Type.Optional(Type.String({ description: "Initial task status. Defaults to pending." })),
 });
 
 const ValidationReportParams = Type.Object({
@@ -132,6 +140,23 @@ export function registerScalerTools(pi: ExtensionAPI): void {
       const result = await prepareOrRunSpawnTask(ctx.cwd, params, signal);
       await logTool(ctx.cwd, "scaler_spawn_task", result.summary, result.details);
       return textResult(result.text, result.details);
+    },
+  });
+
+  pi.registerTool({
+    name: "scaler_task_create",
+    label: "Scaler Task Create",
+    description: "Create a supervisor task record.",
+    parameters: TaskCreateParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const state = await ensureState(ctx.cwd);
+      const result = await createTask(ctx.cwd, state, {
+        id: params.taskId,
+        title: params.title,
+        status: params.status,
+      });
+      await logTool(ctx.cwd, "scaler_task_create", result.message, params);
+      return textResult(result.message, { status: result.accepted ? "created" : "rejected", taskId: params.taskId });
     },
   });
 
