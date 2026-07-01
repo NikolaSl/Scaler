@@ -98,3 +98,4 @@ Creates/loads `.scaler/state.json`, logs the status request, and shows:
 - debug failure and attempt counts
 - known budget usage counts
 - event log path
+- workflow summary with current task, next recommended action, hints, and warnings

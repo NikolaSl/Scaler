@@ -14,6 +14,7 @@ import { createTask, formatTaskList } from "./tasks.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
 import { registerScalerTools } from "./tools.js";
 import { runTaskValidation } from "./validation.js";
+import { formatWorkflowSummary, summarizeWorkflow } from "./workflow.js";
 
 export default function scalerExtension(pi: ExtensionAPI): void {
   registerScalerTools(pi);
@@ -190,13 +191,13 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const debugFailures = await loadDebugFailures(ctx.cwd);
       const budgetState = getBudgetState(state);
       await logStateEvent(ctx.cwd, state, "Scaler status requested", { command: "scaler-status" });
-      const message = formatDetailedStateStatus(state, {
+      const message = `${formatDetailedStateStatus(state, {
         memoryCount: memoryIndex.entries.length,
         debugAttemptCount: debugAttempts.length,
         debugFailureCount: debugFailures.length,
         budgetUsage: budgetState.usage,
         logPath: getEventLogPath(ctx.cwd),
-      });
+      })}\n${formatWorkflowSummary(summarizeWorkflow(state))}`;
 
       if (ctx.hasUI) {
         ctx.ui.notify(message, "info");
