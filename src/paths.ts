@@ -17,3 +17,11 @@ export function getLogsDir(cwd: string): string {
 export function getEventLogPath(cwd: string): string {
   return join(getLogsDir(cwd), "events.jsonl");
 }
+
+export function getMemoryDir(cwd: string): string {
+  return join(getScalerDir(cwd), "memory");
+}
+
+export function getMemoryIndexPath(cwd: string): string {
+  return join(getMemoryDir(cwd), "index.json");
+}

@@ -14,11 +14,13 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - Basic safety gate for protected paths and destructive shell commands.
 - Experimental task-agent subprocess invocation builder.
 - Structured Scaler tool skeletons registered with Pi.
+- External memory write/retrieve under `.scaler/memory/`.
 
 ## Manual pages
 
 - `manual/state.md`
 - `manual/logging.md`
+- `manual/memory.md`
 - `manual/safety.md`
 - `manual/task-agents.md`
 - `manual/tools.md`

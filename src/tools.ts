@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { createLogEvent, appendLogEvent } from "./logging.js";
+import { retrieveMemory, writeMemory } from "./memory.js";
 import { ensureState } from "./state.js";
 import { buildTaskAgentInvocation } from "./subagents.js";
 
@@ -72,22 +73,28 @@ export function registerScalerTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "scaler_memory_write",
     label: "Scaler Memory Write",
-    description: "Request writing external memory. Skeleton currently logs the request only.",
+    description: "Write external memory under .scaler/memory and log the operation.",
     parameters: MemoryWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      await logTool(ctx.cwd, "scaler_memory_write", `Memory write requested: ${params.title}`, params);
-      return textResult(`Memory write request logged: ${params.title}`, { status: "logged", params });
+      const entry = await writeMemory(ctx.cwd, {
+        title: params.title,
+        content: params.content,
+        taskId: params.taskId,
+      });
+      await logTool(ctx.cwd, "scaler_memory_write", `Memory written: ${entry.id}`, { params, entry });
+      return textResult(`Memory written: ${entry.id}\nPath: ${entry.path}\nSummary: ${entry.summary}`, { status: "written", entry });
     },
   });
 
   pi.registerTool({
     name: "scaler_memory_retrieve",
     label: "Scaler Memory Retrieve",
-    description: "Request external memory retrieval. Skeleton currently logs the request only.",
+    description: "Retrieve external memory content by id/path and log the operation.",
     parameters: MemoryRetrieveParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      await logTool(ctx.cwd, "scaler_memory_retrieve", `Memory retrieval requested: ${params.memoryIdOrPath}`, params);
-      return textResult(`Memory retrieval request logged: ${params.memoryIdOrPath}`, { status: "logged", params });
+      const memory = await retrieveMemory(ctx.cwd, params.memoryIdOrPath);
+      await logTool(ctx.cwd, "scaler_memory_retrieve", `Memory retrieved: ${memory.entry.id}`, { params, entry: memory.entry });
+      return textResult(memory.content, { status: "retrieved", entry: memory.entry, reason: params.reason, scope: params.scope });
     },
   });
 

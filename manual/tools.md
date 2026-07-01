@@ -9,9 +9,11 @@ Scaler currently registers structured tool skeletons:
 - `scaler_validation_report`
 - `scaler_debug_attempt`
 
-Current behavior is intentionally minimal:
+Current behavior:
 
-- report/debug/validation/memory requests are logged to `.scaler/logs/events.jsonl`
+- report/debug/validation requests are logged to `.scaler/logs/events.jsonl`
+- `scaler_memory_write` writes `.scaler/memory/` files and index entries
+- `scaler_memory_retrieve` retrieves memory by id/path
 - `scaler_spawn_task` prepares and returns a Pi subprocess invocation without executing it
 
-Full supervisor, memory, and task execution integration will be added in later tasks.
+Full supervisor and task execution integration will be added in later tasks.
