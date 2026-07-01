@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+
+# SCALER runtime data
+.scaler/logs/
+.scaler/cache/
+.scaler/artifacts/
+.scaler/tmp/

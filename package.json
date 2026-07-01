@@ -1,0 +1,19 @@
+{
+  "name": "scaler-pi-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SCALER Pi extension for supervised agentic orchestration.",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "node --test --import tsx test/*.test.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^0.80.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.0"
+  }
+}

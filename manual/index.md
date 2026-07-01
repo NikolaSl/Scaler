@@ -2,8 +2,23 @@
 
 This manual documents implemented Scaler behavior.
 
-Design requirements live in `assignement.md` and `specs/`. This manual should stay aligned with code that actually exists.
+Design requirements live in `assignement.md` and `specs/`. This manual stays aligned with code that actually exists.
 
 ## Current implemented behavior
 
-Not implemented yet. See `implementation-plan.md` for the initial build plan.
+- Pi extension entrypoint: `src/index.ts`.
+- Command: `/scaler-status`.
+- State file: `.scaler/state.json`.
+
+## Development
+
+Run checks:
+
+```bash
+npm test
+npm run build
+```
+
+## `/scaler-status`
+
+Creates/loads `.scaler/state.json` and shows compact supervisor status.
