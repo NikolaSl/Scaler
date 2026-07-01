@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { buildTaskAgentPrompt, runConductorStep, selectNextTask } from "../src/conductor.js";
+import { buildTaskAgentPrompt, loadValidationHandoffs, runConductorStep, selectNextTask } from "../src/conductor.js";
 import { createDefaultState, loadState } from "../src/state.js";
 import type { ScalerTaskStatus } from "../src/types.js";
 
@@ -110,9 +110,38 @@ test("runConductorStep executes task with injected runner", async () => {
       }),
     );
 
+    const persisted = await loadState(dir);
+    const handoffs = await loadValidationHandoffs(dir);
+
     assert.equal(result.accepted, true);
     assert.equal(result.runResult?.exitCode, 0);
     assert.deepEqual(result.runResult?.stdoutEvents, [{ type: "done" }]);
+    assert.equal(persisted.tasks[0]?.status, "validating");
+    assert.equal(handoffs[0]?.status, "validation_required");
+  });
+});
+
+test("runConductorStep records failed task-agent validation handoff", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    const result = await runConductorStep(
+      dir,
+      state,
+      { execute: true },
+      async (request) => ({
+        taskId: request.taskId,
+        exitCode: 2,
+        stdoutEvents: [],
+        stderr: "boom",
+      }),
+    );
+    const persisted = await loadState(dir);
+    const handoffs = await loadValidationHandoffs(dir);
+
+    assert.equal(result.validationHandoff?.status, "task_agent_failed");
+    assert.equal(persisted.tasks[0]?.status, "failed");
+    assert.equal(handoffs[0]?.runExitCode, 2);
   });
 });
 

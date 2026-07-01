@@ -49,3 +49,11 @@ export function getToolRequestsDir(cwd: string): string {
 export function getToolRequestsIndexPath(cwd: string): string {
   return join(getToolRequestsDir(cwd), "requests.json");
 }
+
+export function getReportsDir(cwd: string): string {
+  return join(getScalerDir(cwd), "reports");
+}
+
+export function getValidationHandoffsPath(cwd: string): string {
+  return join(getReportsDir(cwd), "validation-handoffs.json");
+}
