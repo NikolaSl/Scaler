@@ -1,7 +1,8 @@
+import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { appendLogEvent, createLogEvent } from "./logging.js";
-import { getValidationManifestsPath } from "./paths.js";
+import { getValidationManifestsPath, getValidationRunsPath } from "./paths.js";
 import { saveState } from "./state.js";
 import { transitionTask } from "./supervisor.js";
 import type { ScalerState, ScalerTaskStatus } from "./types.js";
@@ -40,6 +41,33 @@ export interface TaskValidationManifest {
 interface ValidationManifestIndex {
   version: 1;
   manifests: TaskValidationManifest[];
+}
+
+export type ValidationCommandStatus = "passed" | "failed" | "timed_out";
+
+export interface ValidationCommandRunRecord {
+  id: string;
+  commandId: string;
+  command: string;
+  status: ValidationCommandStatus;
+  exitCode: number | null;
+  stdoutSummary: string;
+  stderrSummary: string;
+  startedAt: string;
+  finishedAt: string;
+}
+
+export interface ValidationRunRecord {
+  id: string;
+  taskId: string;
+  status: "passed" | "failed";
+  commandRuns: ValidationCommandRunRecord[];
+  createdAt: string;
+}
+
+interface ValidationRunIndex {
+  version: 1;
+  runs: ValidationRunRecord[];
 }
 
 const validationStatuses = new Set<ValidationStatus>(["passed", "failed", "partial", "blocked", "not_applicable"]);
@@ -98,6 +126,59 @@ export async function createDefaultValidationManifest(cwd: string, taskId: strin
 
   const timestamp = new Date().toISOString();
   return { taskId, commands, createdAt: timestamp, updatedAt: timestamp };
+}
+
+export async function loadValidationRuns(cwd: string): Promise<ValidationRunRecord[]> {
+  try {
+    const raw = await readFile(getValidationRunsPath(cwd), "utf8");
+    return (JSON.parse(raw) as ValidationRunIndex).runs;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+export async function runTaskValidation(cwd: string, state: ScalerState, taskId: string): Promise<ValidationRunRecord> {
+  const manifest = await getValidationManifestForTask(cwd, taskId);
+  const commandRuns: ValidationCommandRunRecord[] = [];
+  for (const command of manifest.commands) {
+    commandRuns.push(await runValidationCommand(cwd, command));
+  }
+
+  const failedRequired = commandRuns.some((run, index) => manifest.commands[index]?.required && run.status !== "passed");
+  const record: ValidationRunRecord = {
+    id: `${taskId}-${Date.now()}`,
+    taskId,
+    status: failedRequired ? "failed" : "passed",
+    commandRuns,
+    createdAt: new Date().toISOString(),
+  };
+  await writeValidationRuns(cwd, [record, ...(await loadValidationRuns(cwd))]);
+  await applyValidationReport(cwd, state, {
+    taskId,
+    status: record.status === "passed" ? "passed" : "failed",
+    summary: `Validation ${record.status}: ${taskId}`,
+    details: { runId: record.id, commandRuns },
+  });
+  return record;
+}
+
+export async function runValidationCommand(cwd: string, command: ValidationCommandManifest): Promise<ValidationCommandRunRecord> {
+  const startedAt = new Date();
+  const result = await executeCommand(cwd, command.command, command.timeoutMs);
+  const finishedAt = new Date();
+  const status: ValidationCommandStatus = result.timedOut ? "timed_out" : result.exitCode === 0 ? "passed" : "failed";
+  return {
+    id: `${command.id}-${startedAt.getTime()}`,
+    commandId: command.id,
+    command: command.command,
+    status,
+    exitCode: result.exitCode,
+    stdoutSummary: summarizeOutput(result.stdout),
+    stderrSummary: summarizeOutput(result.stderr),
+    startedAt: startedAt.toISOString(),
+    finishedAt: finishedAt.toISOString(),
+  };
 }
 
 export async function applyValidationReport(
@@ -189,4 +270,58 @@ async function writeValidationManifestIndex(cwd: string, manifests: TaskValidati
   const path = getValidationManifestsPath(cwd);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify({ version: 1, manifests } satisfies ValidationManifestIndex, null, 2)}\n`, "utf8");
+}
+
+async function writeValidationRuns(cwd: string, runs: ValidationRunRecord[]): Promise<void> {
+  const path = getValidationRunsPath(cwd);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify({ version: 1, runs } satisfies ValidationRunIndex, null, 2)}\n`, "utf8");
+}
+
+async function executeCommand(
+  cwd: string,
+  command: string,
+  timeoutMs?: number,
+): Promise<{ exitCode: number | null; stdout: string; stderr: string; timedOut: boolean }> {
+  return await new Promise((resolve, reject) => {
+    const child = spawn(command, { cwd, shell: true, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    let settled = false;
+    let timeout: NodeJS.Timeout | undefined;
+
+    const settle = (exitCode: number | null): void => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      resolve({ exitCode, stdout, stderr, timedOut });
+    };
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", reject);
+    child.on("close", (code) => settle(code));
+
+    if (timeoutMs && timeoutMs > 0) {
+      timeout = setTimeout(() => {
+        timedOut = true;
+        stderr += `\nValidation command timed out after ${timeoutMs}ms.`;
+        child.kill("SIGTERM");
+        setTimeout(() => {
+          if (!child.killed) child.kill("SIGKILL");
+        }, 1_000).unref();
+      }, timeoutMs);
+    }
+  });
+}
+
+function summarizeOutput(output: string, limit = 2_000): string {
+  const normalized = output.trim();
+  if (normalized.length <= limit) return normalized;
+  return `${normalized.slice(0, limit)}\n...[truncated ${normalized.length - limit} chars]`;
 }
