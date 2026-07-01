@@ -28,11 +28,20 @@ export interface ScalerTaskState {
   updatedAt: string;
 }
 
+export interface RejectedTransition {
+  kind: "stage" | "task";
+  from: string;
+  to: string;
+  reason: string;
+  timestamp: string;
+}
+
 export interface ScalerState {
   version: 1;
   runId: string;
   complexityLevel: number;
   stage: ScalerStage;
+  previousStage: ScalerStage | null;
   currentTaskId: string | null;
   tasks: ScalerTaskState[];
   completedTaskIds: string[];
@@ -40,6 +49,7 @@ export interface ScalerState {
   failedTaskId: string | null;
   blockers: string[];
   memoryRefs: string[];
+  rejectedTransitions: RejectedTransition[];
   budgets: Record<string, unknown>;
   orchestrationReason?: string;
   createdAt: string;

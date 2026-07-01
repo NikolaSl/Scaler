@@ -9,6 +9,12 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - Pi extension entrypoint: `src/index.ts`.
 - Command: `/scaler-status`.
 - State file: `.scaler/state.json`.
+- Basic deterministic supervisor transition helpers.
+
+## Manual pages
+
+- `manual/state.md`
+- `manual/installation.md`
 
 ## Development
 
