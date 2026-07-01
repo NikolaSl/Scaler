@@ -57,3 +57,11 @@ export function getReportsDir(cwd: string): string {
 export function getValidationHandoffsPath(cwd: string): string {
   return join(getReportsDir(cwd), "validation-handoffs.json");
 }
+
+export function getValidationManifestsPath(cwd: string): string {
+  return join(getReportsDir(cwd), "validation-manifests.json");
+}
+
+export function getValidationRunsPath(cwd: string): string {
+  return join(getReportsDir(cwd), "validation-runs.json");
+}
