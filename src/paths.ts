@@ -9,3 +9,11 @@ export function getScalerDir(cwd: string): string {
 export function getStatePath(cwd: string): string {
   return join(getScalerDir(cwd), "state.json");
 }
+
+export function getLogsDir(cwd: string): string {
+  return join(getScalerDir(cwd), "logs");
+}
+
+export function getEventLogPath(cwd: string): string {
+  return join(getLogsDir(cwd), "events.jsonl");
+}
