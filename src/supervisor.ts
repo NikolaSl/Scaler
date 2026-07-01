@@ -44,7 +44,7 @@ const taskTransitions: Record<ScalerTaskStatus, ReadonlySet<ScalerTaskStatus>> =
   pending: new Set(["ready", "failed"]),
   ready: new Set(["running", "failed"]),
   running: new Set(["validating", "blocked", "failed"]),
-  validating: new Set(["validated", "debugging", "failed"]),
+  validating: new Set(["validated", "debugging", "blocked", "failed"]),
   debugging: new Set(["running", "validated", "needs_replan", "failed"]),
   blocked: new Set(["ready", "failed"]),
   needs_replan: new Set(["ready", "failed"]),

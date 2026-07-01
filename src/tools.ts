@@ -6,6 +6,7 @@ import { ingestReport } from "./reports.js";
 import { ensureState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentRunResult } from "./subagents.js";
 import { createTask } from "./tasks.js";
+import { applyValidationReport } from "./validation.js";
 
 export const scalerToolNames = [
   "scaler_report",
@@ -166,8 +167,15 @@ export function registerScalerTools(pi: ExtensionAPI): void {
     description: "Submit a structured validation report.",
     parameters: ValidationReportParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      await logTool(ctx.cwd, "scaler_validation_report", `Validation ${params.status}: ${params.taskId}`, params);
-      return textResult(`Validation report logged for ${params.taskId}: ${params.status}`, { status: "logged", params });
+      const state = await ensureState(ctx.cwd);
+      const result = await applyValidationReport(ctx.cwd, state, {
+        taskId: params.taskId,
+        status: params.status,
+        summary: params.summary,
+        details: params.details,
+      });
+      await logTool(ctx.cwd, "scaler_validation_report", result.message, params);
+      return textResult(result.message, { status: result.accepted ? "applied" : "rejected", params, targetStatus: result.targetStatus });
     },
   });
 
