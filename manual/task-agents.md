@@ -18,4 +18,12 @@ Supported options:
 
 Child agents must load Scaler safety/logging rules or run inside an approved sandbox before unattended use.
 
-Current implementation provides the invocation builder and basic subprocess runner. Full supervisor integration will be added later.
+Current implementation provides the invocation builder and basic subprocess runner.
+
+`scaler_spawn_task` supports:
+
+- `execute: false` or omitted — prepare invocation only.
+- `execute: true` — run the task-agent subprocess.
+- `timeoutMs` — optional timeout.
+
+Full supervisor lifecycle integration will be added later.

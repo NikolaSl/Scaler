@@ -4,7 +4,7 @@ import { createLogEvent, appendLogEvent } from "./logging.js";
 import { retrieveMemory, writeMemory } from "./memory.js";
 import { ingestReport } from "./reports.js";
 import { ensureState } from "./state.js";
-import { buildTaskAgentInvocation } from "./subagents.js";
+import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentRunResult } from "./subagents.js";
 
 export const scalerToolNames = [
   "scaler_report",
@@ -39,11 +39,22 @@ const MemoryRetrieveParams = Type.Object({
   scope: Type.Optional(Type.String({ description: "Requested section/scope." })),
 });
 
+export interface SpawnTaskToolParams {
+  taskId: string;
+  prompt: string;
+  tools?: string[];
+  model?: string;
+  execute?: boolean;
+  timeoutMs?: number;
+}
+
 const SpawnTaskParams = Type.Object({
   taskId: Type.String(),
   prompt: Type.String(),
   tools: Type.Optional(Type.Array(Type.String())),
   model: Type.Optional(Type.String()),
+  execute: Type.Optional(Type.Boolean({ description: "Execute the task agent instead of only preparing invocation." })),
+  timeoutMs: Type.Optional(Type.Number({ description: "Task-agent timeout in milliseconds." })),
 });
 
 const ValidationReportParams = Type.Object({
@@ -115,18 +126,12 @@ export function registerScalerTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "scaler_spawn_task",
     label: "Scaler Spawn Task",
-    description: "Prepare isolated task-agent spawn. Skeleton returns the Pi invocation without executing it.",
+    description: "Prepare or execute an isolated task-agent spawn.",
     parameters: SpawnTaskParams,
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const invocation = buildTaskAgentInvocation({
-        taskId: params.taskId,
-        prompt: params.prompt,
-        tools: params.tools,
-        model: params.model,
-        cwd: ctx.cwd,
-      });
-      await logTool(ctx.cwd, "scaler_spawn_task", `Task spawn prepared: ${params.taskId}`, { params, invocation });
-      return textResult(`Task spawn prepared: ${params.taskId}`, { status: "prepared", invocation });
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      const result = await prepareOrRunSpawnTask(ctx.cwd, params, signal);
+      await logTool(ctx.cwd, "scaler_spawn_task", result.summary, result.details);
+      return textResult(result.text, result.details);
     },
   });
 
@@ -151,6 +156,37 @@ export function registerScalerTools(pi: ExtensionAPI): void {
       return textResult(`Debug attempt logged for ${params.taskId}: ${params.result}`, { status: "logged", params });
     },
   });
+}
+
+export async function prepareOrRunSpawnTask(
+  cwd: string,
+  params: SpawnTaskToolParams,
+  signal?: AbortSignal,
+  runner: typeof runTaskAgent = runTaskAgent,
+): Promise<{ text: string; summary: string; details: unknown }> {
+  const request = {
+    taskId: params.taskId,
+    prompt: params.prompt,
+    tools: params.tools,
+    model: params.model,
+    cwd,
+  };
+  const invocation = buildTaskAgentInvocation(request);
+
+  if (!params.execute) {
+    return {
+      text: `Task spawn prepared: ${params.taskId}`,
+      summary: `Task spawn prepared: ${params.taskId}`,
+      details: { status: "prepared", invocation },
+    };
+  }
+
+  const runResult: TaskAgentRunResult = await runner(request, { signal, timeoutMs: params.timeoutMs });
+  return {
+    text: `Task spawn executed: ${params.taskId} exit=${runResult.exitCode}`,
+    summary: `Task spawn executed: ${params.taskId}`,
+    details: { status: runResult.exitCode === 0 ? "executed" : "failed", invocation, result: runResult },
+  };
 }
 
 async function logTool(cwd: string, toolName: ScalerToolName, summary: string, details: unknown): Promise<void> {
