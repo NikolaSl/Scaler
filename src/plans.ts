@@ -4,6 +4,7 @@ import {
   getCurrentExecutionPlanPath,
   getExecutionPlansDir,
   getExecutionPlanVersionsDir,
+  getReplanRequestsPath,
 } from "./paths.js";
 import type { RuntimePrdRequirementsFile } from "./prd.js";
 import { createTask } from "./tasks.js";
@@ -11,6 +12,12 @@ import type { ScalerState } from "./types.js";
 
 export const executionPlanStatuses = ["draft", "active", "superseded", "completed"] as const;
 export type ExecutionPlanStatus = (typeof executionPlanStatuses)[number];
+
+export const replanRequestStatuses = ["open", "accepted", "superseded", "resolved"] as const;
+export type ReplanRequestStatus = (typeof replanRequestStatuses)[number];
+
+export const replanRequestTriggers = ["manual", "validation_blocked", "debug_cycle", "debug_blocked", "coverage_gap", "plan_replacement"] as const;
+export type ReplanRequestTrigger = (typeof replanRequestTriggers)[number];
 
 export interface ExecutionPlanTask {
   id: string;
@@ -51,6 +58,35 @@ export interface ExecutionPlanSummary {
   linkedRequirementIds: string[];
   unlinkedRequirementIds: string[];
   planUnlinkedTaskIds: string[];
+}
+
+export interface ReplanRequest {
+  id: string;
+  status: ReplanRequestStatus;
+  trigger: ReplanRequestTrigger;
+  reason: string;
+  taskId?: string;
+  evidenceRefs?: string[];
+  requirementRefs?: string[];
+  planVersion?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReplanRequestInput {
+  id?: string;
+  status?: ReplanRequestStatus | string;
+  trigger: ReplanRequestTrigger | string;
+  reason: string;
+  taskId?: string;
+  evidenceRefs?: string[];
+  requirementRefs?: string[];
+  planVersion?: number;
+}
+
+interface ReplanRequestIndex {
+  version: 1;
+  requests: ReplanRequest[];
 }
 
 export function createEmptyExecutionPlan(now = new Date()): ExecutionPlanArtifact {
@@ -182,6 +218,57 @@ export function formatExecutionPlanSummary(summary: ExecutionPlanSummary): strin
   return lines.join("\n");
 }
 
+export async function loadReplanRequests(cwd: string): Promise<ReplanRequest[]> {
+  try {
+    const raw = await readFile(getReplanRequestsPath(cwd), "utf8");
+    const index = JSON.parse(raw) as ReplanRequestIndex;
+    for (const request of index.requests) validateReplanRequest(request);
+    return index.requests;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+export async function appendReplanRequest(cwd: string, input: ReplanRequestInput, now = new Date()): Promise<ReplanRequest> {
+  const timestamp = now.toISOString();
+  const request: ReplanRequest = {
+    id: input.id?.trim() || `REPLAN-${now.getTime()}`,
+    status: (input.status ?? "open") as ReplanRequestStatus,
+    trigger: input.trigger as ReplanRequestTrigger,
+    reason: input.reason.trim(),
+    taskId: input.taskId?.trim() || undefined,
+    evidenceRefs: normalizeList(input.evidenceRefs),
+    requirementRefs: normalizeList(input.requirementRefs),
+    planVersion: input.planVersion,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  validateReplanRequest(request);
+  const requests = await loadReplanRequests(cwd);
+  await writeReplanRequestIndex(cwd, [request, ...requests.filter((candidate) => candidate.id !== request.id)]);
+  return request;
+}
+
+export function validateReplanRequest(request: ReplanRequest): void {
+  if (!request.id.trim()) throw new Error("Replan request id is required.");
+  if (!replanRequestStatuses.includes(request.status)) throw new Error(`Invalid replan request status: ${String(request.status)}`);
+  if (!replanRequestTriggers.includes(request.trigger)) throw new Error(`Invalid replan request trigger: ${String(request.trigger)}`);
+  if (!request.reason.trim()) throw new Error("Replan request reason is required.");
+}
+
+export function formatReplanRequests(requests: ReplanRequest[]): string {
+  if (requests.length === 0) return "No replan requests.";
+  const lines = ["Replan requests:"];
+  for (const request of requests) {
+    const task = request.taskId ? ` task=${request.taskId}` : "";
+    const refs = request.requirementRefs && request.requirementRefs.length > 0 ? ` reqs=${request.requirementRefs.join(",")}` : "";
+    const evidence = request.evidenceRefs && request.evidenceRefs.length > 0 ? ` evidence=${request.evidenceRefs.join(",")}` : "";
+    lines.push(`- ${request.id}: ${request.status} trigger=${request.trigger}${task}${refs}${evidence} reason=${request.reason}`);
+  }
+  return lines.join("\n");
+}
+
 export async function createExecutionPlanSnapshot(
   cwd: string,
   input?: { plan?: ExecutionPlanArtifact; now?: Date },
@@ -195,6 +282,12 @@ export async function createExecutionPlanSnapshot(
   const absolutePath = join(versionsDir, fileName);
   await writeFile(absolutePath, `${JSON.stringify(plan, null, 2)}\n`, "utf8");
   return `.scaler/plans/versions/${fileName}`;
+}
+
+async function writeReplanRequestIndex(cwd: string, requests: ReplanRequest[]): Promise<void> {
+  for (const request of requests) validateReplanRequest(request);
+  await mkdir(getExecutionPlansDir(cwd), { recursive: true });
+  await writeFile(getReplanRequestsPath(cwd), `${JSON.stringify({ version: 1, requests } satisfies ReplanRequestIndex, null, 2)}\n`, "utf8");
 }
 
 async function getNextPlanVersionNumber(versionsDir: string): Promise<number> {

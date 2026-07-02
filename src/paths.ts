@@ -113,3 +113,7 @@ export function getCurrentExecutionPlanPath(cwd: string): string {
 export function getExecutionPlanVersionsDir(cwd: string): string {
   return join(getExecutionPlansDir(cwd), "versions");
 }
+
+export function getReplanRequestsPath(cwd: string): string {
+  return join(getExecutionPlansDir(cwd), "replan-requests.json");
+}

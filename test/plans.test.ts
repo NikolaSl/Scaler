@@ -4,13 +4,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
+  appendReplanRequest,
   applyExecutionPlanTasks,
   createExecutionPlanSnapshot,
   formatExecutionPlanSummary,
+  formatReplanRequests,
   loadExecutionPlan,
+  loadReplanRequests,
   saveExecutionPlan,
   summarizeExecutionPlan,
   validateExecutionPlan,
+  validateReplanRequest,
 } from "../src/plans.js";
 import { createDefaultState } from "../src/state.js";
 
@@ -151,6 +155,52 @@ test("summarizeExecutionPlan reports task and requirement coverage", () => {
   assert.deepEqual(summary.unlinkedRequirementIds, ["REQ-003"]);
   assert.deepEqual(summary.planUnlinkedTaskIds, ["T-003"]);
   assert.match(formatExecutionPlanSummary(summary), /missing=1/);
+});
+
+test("loadReplanRequests returns empty default when missing", async () => {
+  await withTempDir(async (dir) => {
+    assert.deepEqual(await loadReplanRequests(dir), []);
+    assert.equal(formatReplanRequests([]), "No replan requests.");
+  });
+});
+
+test("appendReplanRequest stores normalized newest-first requests", async () => {
+  await withTempDir(async (dir) => {
+    await appendReplanRequest(dir, {
+      id: "REPLAN-001",
+      trigger: "manual",
+      reason: "Need a safer plan",
+      taskId: "T-001",
+      evidenceRefs: [" evidence-1 ", "evidence-1", ""],
+      requirementRefs: ["REQ-001"],
+      planVersion: 3,
+    }, new Date("2026-01-01T00:00:00.000Z"));
+    await appendReplanRequest(dir, {
+      id: "REPLAN-002",
+      trigger: "validation_blocked",
+      reason: "Blocked validation",
+    }, new Date("2026-01-01T00:00:01.000Z"));
+
+    const requests = await loadReplanRequests(dir);
+    assert.deepEqual(requests.map((request) => request.id), ["REPLAN-002", "REPLAN-001"]);
+    assert.deepEqual(requests[1]?.evidenceRefs, ["evidence-1"]);
+    assert.match(formatReplanRequests(requests), /REPLAN-001: open trigger=manual task=T-001 reqs=REQ-001 evidence=evidence-1/);
+  });
+});
+
+test("validateReplanRequest rejects invalid status, trigger, and reason", () => {
+  const valid = {
+    id: "REPLAN-001",
+    status: "open" as const,
+    trigger: "manual" as const,
+    reason: "Need replan",
+    createdAt: "now",
+    updatedAt: "now",
+  };
+
+  assert.throws(() => validateReplanRequest({ ...valid, status: "bad" as never }), /Invalid replan request status/);
+  assert.throws(() => validateReplanRequest({ ...valid, trigger: "bad" as never }), /Invalid replan request trigger/);
+  assert.throws(() => validateReplanRequest({ ...valid, reason: " " }), /reason is required/);
 });
 
 test("createExecutionPlanSnapshot writes incrementing version files", async () => {
