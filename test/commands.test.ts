@@ -4,6 +4,7 @@ import {
   parseCommaList,
   parseCommitArgs,
   parsePrdLinkArgs,
+  parseReplanRequestArgs,
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
@@ -75,6 +76,16 @@ test("parseTaskCreateArgs returns undefined without task id", () => {
 
 test("parseCommaList removes blanks", () => {
   assert.deepEqual(parseCommaList("src, , test "), ["src", "test"]);
+});
+
+test("parseReplanRequestArgs parses reason, task, evidence, and requirements", () => {
+  assert.deepEqual(parseReplanRequestArgs("Need replan | T-001 | run-1, log-2 | REQ-001, REQ-002"), {
+    reason: "Need replan",
+    taskId: "T-001",
+    evidenceRefs: ["run-1", "log-2"],
+    requirementRefs: ["REQ-001", "REQ-002"],
+  });
+  assert.equal(parseReplanRequestArgs(" "), undefined);
 });
 
 test("parseCommitArgs parses optional task and paths", () => {

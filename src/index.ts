@@ -4,6 +4,7 @@ import { getBudgetState } from "./budgets.js";
 import {
   parseCommitArgs,
   parsePrdLinkArgs,
+  parseReplanRequestArgs,
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
@@ -19,11 +20,20 @@ import { createLogEvent, appendLogEvent, logStateEvent } from "./logging.js";
 import { loadMemoryIndex } from "./memory.js";
 import { commitWithExecutionLock, runValidationWithExecutionLock } from "./operations.js";
 import { getEventLogPath } from "./paths.js";
-import { applyExecutionPlanTasks, formatExecutionPlanSummary, loadExecutionPlan, summarizeExecutionPlan } from "./plans.js";
+import {
+  appendReplanRequest,
+  applyExecutionPlanTasks,
+  formatExecutionPlanSummary,
+  formatReplanRequests,
+  loadExecutionPlan,
+  loadReplanRequests,
+  summarizeExecutionPlan,
+} from "./plans.js";
 import { computePrdCoverageSummary, formatPrdCoverageSummary, loadPrdCoverage, loadPrdRequirements } from "./prd.js";
 import { assessToolCallSafety } from "./safety.js";
 import { createTask, formatTaskList, retryTask, updateTask } from "./tasks.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
+import { transitionStage } from "./supervisor.js";
 import { registerScalerTools } from "./tools.js";
 import { upsertValidationManifestCommand } from "./validation.js";
 import { formatWorkflowSummary, summarizeWorkflow } from "./workflow.js";
@@ -202,6 +212,44 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const result = await applyExecutionPlanTasks(ctx.cwd, state, plan);
       if (ctx.hasUI) ctx.ui.notify(result.message, result.rejectedTaskIds.length === 0 ? "info" : "warning");
       else console.log(result.message);
+    },
+  });
+
+  pi.registerCommand("scaler-replans", {
+    description: "List SCALER replan requests.",
+    handler: async (_args, ctx) => {
+      const message = formatReplanRequests(await loadReplanRequests(ctx.cwd));
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-replan-request", {
+    description: "Create a SCALER replan request: /scaler-replan-request <reason> | <taskId> | <evidence refs> | <PRD refs>",
+    handler: async (args, ctx) => {
+      const parsed = parseReplanRequestArgs(args);
+      if (!parsed) {
+        const message = "Usage: /scaler-replan-request <reason> | <taskId> | <evidence refs comma list> | <PRD refs comma list>";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+
+      const state = await ensureState(ctx.cwd);
+      const request = await appendReplanRequest(ctx.cwd, {
+        trigger: "manual",
+        reason: parsed.reason,
+        taskId: parsed.taskId,
+        evidenceRefs: parsed.evidenceRefs,
+        requirementRefs: parsed.requirementRefs,
+      });
+      const beforeRejected = state.rejectedTransitions.length;
+      const nextState = transitionStage(state, "replanning", { reason: parsed.reason });
+      const transitioned = nextState.rejectedTransitions.length === beforeRejected;
+      await saveState(ctx.cwd, nextState);
+      const message = `Replan request created: ${request.id}${transitioned ? " stage=replanning" : " stage_unchanged"}`;
+      if (ctx.hasUI) ctx.ui.notify(message, transitioned ? "info" : "warning");
+      else console.log(message);
     },
   });
 

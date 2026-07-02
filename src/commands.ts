@@ -40,6 +40,13 @@ export interface ParsedCommitArgs {
   allowedPathPrefixes?: string[];
 }
 
+export interface ParsedReplanRequestArgs {
+  reason: string;
+  taskId?: string;
+  evidenceRefs?: string[];
+  requirementRefs?: string[];
+}
+
 export function parseTaskCreateArgs(args: string | undefined): ParsedTaskCreateArgs | undefined {
   const parts = splitPipeArgs(args);
   const taskId = parts[0]?.trim();
@@ -105,6 +112,18 @@ export function parseCommitArgs(args: string | undefined): ParsedCommitArgs {
   return {
     taskId,
     allowedPathPrefixes: parseCommaList(parts[1]),
+  };
+}
+
+export function parseReplanRequestArgs(args: string | undefined): ParsedReplanRequestArgs | undefined {
+  const parts = splitPipeArgs(args);
+  const reason = parts[0]?.trim();
+  if (!reason) return undefined;
+  return {
+    reason,
+    taskId: parts[1]?.trim() || undefined,
+    evidenceRefs: parseCommaList(parts[2]),
+    requirementRefs: parseCommaList(parts[3]),
   };
 }
 
