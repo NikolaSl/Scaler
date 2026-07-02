@@ -14,7 +14,7 @@ Priority scale:
 |---|---|---|---|
 | GAP-001 | PRD-W01..W05, PRD-G01 | Full Stage I-IV workflow is incomplete. | Implement stage artifact model and conductor commands for PRD, knowledge, planner, and execution stages. |
 | GAP-002 | PRD-S04, PRD-G02, PRD-P01 | Context selection is still skeleton-level. | Add task context manifests that resolve current state, relevant files, memory refs, validation needs, and omissions. |
-| GAP-003 | PRD-S25, PRD-W08, PRD-G04 | Replanning/versioned plans are mostly missing. | Add `plans/current-plan.json`, plan versions, evidence-driven replan triggers, and preservation of validated tasks. |
+| GAP-003 | PRD-S25, PRD-W08, PRD-G04 | Replanning/versioned execution plans are still missing; runtime PRD ledger now supplies requirement coverage inputs. | Add `plans/current-plan.json`, plan versions, evidence-driven replan triggers, and preservation of validated tasks. |
 | GAP-004 | PRD-S06, PRD-S07, PRD-W03 | Research agents and evidence handling are missing. | Add research request/report schema, source quality/confidence fields, contradiction handling, and raw-evidence storage in memory. |
 | GAP-005 | PRD-S16, PRD-S02 | Audit logging is incomplete for prompts/tool calls/full reports. | Extend logging to cover command starts/ends, agent prompts, tool requests/results, transitions, validation summaries, and commit ids. |
 
@@ -39,6 +39,7 @@ Priority scale:
 | GAP-015 | PRD-S15 | Atomic task size is documented but not checked. | Add planner/task creation hints and optional warnings for tasks without DoD, validation, or allowed paths. |
 | GAP-016 | PRD-S28 | Commit workflow lacks post-commit artifact/report. | Record commit id, task id, included paths, and validation summary in `.scaler/reports/commits.json`. |
 | GAP-017 | PRD-S12, PRD-S13 | Memory retrieval is exact-id only. | Add tag/search filtering and summary references for task prompts. |
+| GAP-018 | PRD-W04, PRD-S25 | Runtime PRD requirements can link to tasks, but planner artifacts do not yet require or verify full PRD coverage. | Make future planner output create/update runtime PRD requirements, task `prdRefs`, and coverage checks before execution. |
 
 ## Closure rule
 

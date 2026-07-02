@@ -7,7 +7,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 ## Current implemented behavior
 
 - Pi extension entrypoint: `src/index.ts`.
-- Commands: `/scaler`, `/scaler-lock`, `/scaler-lock-clear`, `/scaler-runs`, `/scaler-tasks`, `/scaler-task-create`, `/scaler-task-update`, `/scaler-task-retry`, `/scaler-step`, `/scaler-validation-add`, `/scaler-validate`, `/scaler-commit`, `/scaler-pause`, `/scaler-resume`, `/scaler-status`.
+- Commands: `/scaler`, `/scaler-lock`, `/scaler-lock-clear`, `/scaler-runs`, `/scaler-tasks`, `/scaler-task-create`, `/scaler-task-update`, `/scaler-prd-status`, `/scaler-prd-link`, `/scaler-task-retry`, `/scaler-step`, `/scaler-validation-add`, `/scaler-validate`, `/scaler-commit`, `/scaler-pause`, `/scaler-resume`, `/scaler-status`.
 - State file: `.scaler/state.json`.
 - Basic deterministic supervisor transition helpers.
 - Event log: `.scaler/logs/events.jsonl`.
@@ -25,12 +25,14 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - Implemented create/list/step/validate/commit workflow.
 - Task-agent run records with timeout/abort diagnostics.
 - Mandatory repo-wide sequential execution lock for SCALER operations.
+- Runtime PRD ledger under `.scaler/prd/` with requirement coverage summaries and task links.
 - Development traceability artifacts for requirement IDs, implementation inventory, matrix coverage, and gap backlog.
 
 ## Manual pages
 
 - `manual/state.md`
 - `manual/workflow.md`
+- `manual/runtime-prd.md`
 - `manual/sequential-execution.md`
 - `manual/commands.md`
 - `manual/context.md`

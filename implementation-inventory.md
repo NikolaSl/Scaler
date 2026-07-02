@@ -19,6 +19,7 @@ Maintenance artifact for `traceability-matrix.md`. Update when implementation pl
 | IMPL-051..055 | Mandatory sequential execution | Execution lock model/enforcement/commands/docs | `src/locks.ts`, `src/operations.ts`, `src/conductor.ts`, `src/tools.ts`, `src/index.ts`, `src/paths.ts` | `test/locks.test.ts`, `test/operations.test.ts`, `test/conductor.test.ts`, `test/spawn-tool.test.ts`, `test/extension-shape.test.ts` | `manual/sequential-execution.md`, `manual/commands.md`, `manual/task-agents.md`, `manual/tools.md`, `manual/workflow.md` |
 | IMPL-056 | Requirement catalog | Stable PRD IDs | `requirements-catalog.md` | n/a | `requirements-catalog.md` |
 | IMPL-057..060 | Traceability maintenance | Inventory, matrix, gap backlog, maintenance rule | `implementation-inventory.md`, `traceability-matrix.md`, `gap-backlog.md`, `plans/implementation-plan.md` | n/a | `manual/index.md` |
+| IMPL-061..065 | Runtime PRD ledger | Runtime polished PRD storage, task PRD refs, coverage summary, PRD commands/tools/docs | `src/prd.ts`, `src/tasks.ts`, `src/commands.ts`, `src/index.ts`, `src/tools.ts`, `src/paths.ts`, `src/types.ts` | `test/prd.test.ts`, `test/tasks.test.ts`, `test/commands.test.ts`, `test/tools.test.ts`, `test/extension-shape.test.ts` | `manual/runtime-prd.md`, `manual/commands.md`, `manual/tools.md`, `manual/workflow.md` |
 
 ## Current high-value code areas
 
@@ -26,13 +27,14 @@ Maintenance artifact for `traceability-matrix.md`. Update when implementation pl
 |---|---|---|
 | Extension commands/hooks | `src/index.ts` | Pi command registration and safety hook. |
 | Deterministic state/FSM | `src/state.ts`, `src/supervisor.ts`, `src/types.ts` | Persistent state and valid transitions. |
-| Task orchestration | `src/conductor.ts`, `src/tasks.ts`, `src/subagents.ts` | Task selection, prompts, subprocess agents, run records. |
+| Task orchestration | `src/conductor.ts`, `src/tasks.ts`, `src/subagents.ts` | Task selection, prompts, subprocess agents, run records, and runtime PRD refs. |
 | Sequential locking | `src/locks.ts`, `src/operations.ts` | Single-operation lock and locked validation/commit wrappers. |
 | Validation | `src/validation.ts` | Validation manifests, command runner, validation reports. |
 | Git progress | `src/git.ts` | Dirty-tree classification and validated task commits. |
 | Safety | `src/safety.ts` | Protected paths, destructive commands, allowed path enforcement. |
 | External memory/logging | `src/memory.ts`, `src/logging.ts` | Memory files and JSONL audit log. |
 | Context | `src/context.ts` | Minimal context resolver and omitted-context summaries. |
+| Runtime PRD ledger | `src/prd.ts` | Per-run polished PRD files, requirement catalog, coverage computation, snapshots, and change log. |
 | Tool isolation | `src/tool-requests.ts`, `src/tools.ts` | Structured tools and isolated tool requests. |
 
 ## Maintenance rule

@@ -21,7 +21,7 @@ SCALER operations are sequential per repository. Task steps, task-agent executio
 /scaler-tasks
 ```
 
-Tasks may include allowed paths for later commit safety and dependency ids. The conductor will not select a task until its dependencies are validated.
+Tasks may include allowed paths for later commit safety, dependency ids, and runtime PRD refs. The conductor will not select a task until its dependencies are validated. Runtime PRD refs are shown by `/scaler-prd-status` and help identify which requirements have validated task coverage.
 
 ## 3. Optionally add validation commands
 
@@ -68,7 +68,9 @@ Commits are allowed only for validated tasks. The git helper refuses commits whe
 ## Useful maintenance commands
 
 ```text
-/scaler-task-update T-001 | Better title | ready | src,test | T-000
+/scaler-task-update T-001 | Better title | ready | src,test | T-000 | REQ-001
+/scaler-prd-status
+/scaler-prd-link T-001 | REQ-001,REQ-002
 /scaler-task-retry T-001 | retry after fixing blocker
 /scaler-pause manual pause
 /scaler-resume manual resume

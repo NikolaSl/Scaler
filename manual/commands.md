@@ -100,9 +100,17 @@ Output includes status, exit code, timeout/abort flags, stdout event count, and 
 
 ## `/scaler-tasks`
 
-Lists all known supervisor tasks with status, current-task marker, title, allowed path metadata, and dependencies.
+Lists all known supervisor tasks with status, current-task marker, title, allowed path metadata, dependencies, and runtime PRD refs when present.
 
-## `/scaler-task-create <taskId> | <title> | <allowed paths comma list> | <dependency ids comma list>`
+## `/scaler-prd-status`
+
+Shows runtime PRD requirement coverage from `.scaler/prd/requirements.json`, `.scaler/prd/coverage.json`, and task `prdRefs` links.
+
+## `/scaler-prd-link <taskId> | <REQ-001,REQ-002>`
+
+Links an existing task to runtime PRD requirement ids by updating the task's `prdRefs` metadata.
+
+## `/scaler-task-create <taskId> | <title> | <allowed paths comma list> | <dependency ids comma list> | <PRD refs comma list>`
 
 Creates a supervisor task record.
 
@@ -114,7 +122,7 @@ Examples:
 /scaler-task-create T-003
 ```
 
-Allowed paths are used later for safe per-task git commits. Dependencies prevent the conductor from selecting a task until all listed task ids are validated.
+Allowed paths are used later for safe per-task git commits. Dependencies prevent the conductor from selecting a task until all listed task ids are validated. PRD refs link the task to runtime PRD requirements for coverage/replanning summaries.
 
 ## `/scaler-task-retry <taskId> | <reason>`
 
@@ -126,7 +134,7 @@ Retries a task through deterministic supervisor task transitions:
 
 Terminal `failed` tasks are rejected by current retry rules.
 
-## `/scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies>`
+## `/scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies> | <PRD refs>`
 
 Updates task metadata. If `status` is provided, the update must be a valid supervisor task transition.
 
@@ -135,6 +143,7 @@ Examples:
 ```text
 /scaler-task-update T-001 | Better title
 /scaler-task-update T-001 | | ready | src,test | T-000
+/scaler-task-update T-001 | | | | | REQ-001,REQ-002
 ```
 
 ## `/scaler-status`
