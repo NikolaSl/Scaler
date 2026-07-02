@@ -18,6 +18,7 @@ Maintenance artifact for `traceability-matrix.md`. Update when implementation pl
 | IMPL-046..050 | Execution reliability | Task-agent run records, timeout/abort diagnostics, retry, runs command | `src/conductor.ts`, `src/subagents.ts`, `src/tasks.ts`, `src/commands.ts`, `src/index.ts`, `src/paths.ts` | `test/conductor.test.ts`, `test/subagents.test.ts`, `test/spawn-tool.test.ts`, `test/tasks.test.ts`, `test/commands.test.ts` | `manual/task-agents.md`, `manual/commands.md`, `manual/workflow.md` |
 | IMPL-051..055 | Mandatory sequential execution | Execution lock model/enforcement/commands/docs | `src/locks.ts`, `src/operations.ts`, `src/conductor.ts`, `src/tools.ts`, `src/index.ts`, `src/paths.ts` | `test/locks.test.ts`, `test/operations.test.ts`, `test/conductor.test.ts`, `test/spawn-tool.test.ts`, `test/extension-shape.test.ts` | `manual/sequential-execution.md`, `manual/commands.md`, `manual/task-agents.md`, `manual/tools.md`, `manual/workflow.md` |
 | IMPL-056 | Requirement catalog | Stable PRD IDs | `requirements-catalog.md` | n/a | `requirements-catalog.md` |
+| IMPL-057..060 | Traceability maintenance | Inventory, matrix, gap backlog, maintenance rule | `implementation-inventory.md`, `traceability-matrix.md`, `gap-backlog.md`, `plans/implementation-plan.md` | n/a | `manual/index.md` |
 
 ## Current high-value code areas
 

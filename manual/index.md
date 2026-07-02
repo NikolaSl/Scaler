@@ -25,6 +25,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - Implemented create/list/step/validate/commit workflow.
 - Task-agent run records with timeout/abort diagnostics.
 - Mandatory repo-wide sequential execution lock for SCALER operations.
+- Development traceability artifacts for requirement IDs, implementation inventory, matrix coverage, and gap backlog.
 
 ## Manual pages
 
@@ -50,6 +51,15 @@ Run checks:
 npm test
 npm run build
 ```
+
+Traceability artifacts:
+
+- `requirements-catalog.md` defines stable PRD requirement IDs.
+- `implementation-inventory.md` maps implementation task ranges to code/tests/manuals.
+- `traceability-matrix.md` maps PRD IDs to coverage status and next actions.
+- `gap-backlog.md` tracks uncovered or partial requirements.
+
+Future implementation plans/tasks must update these artifacts when requirement coverage changes.
 
 ## `/scaler-status`
 
