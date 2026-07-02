@@ -47,6 +47,10 @@ export interface ParsedReplanRequestArgs {
   requirementRefs?: string[];
 }
 
+export interface ParsedContextTaskArgs {
+  taskId?: string;
+}
+
 export function parseTaskCreateArgs(args: string | undefined): ParsedTaskCreateArgs | undefined {
   const parts = splitPipeArgs(args);
   const taskId = parts[0]?.trim();
@@ -125,6 +129,10 @@ export function parseReplanRequestArgs(args: string | undefined): ParsedReplanRe
     evidenceRefs: parseCommaList(parts[2]),
     requirementRefs: parseCommaList(parts[3]),
   };
+}
+
+export function parseContextTaskArgs(args: string | undefined): ParsedContextTaskArgs {
+  return { taskId: args?.trim() || undefined };
 }
 
 export function selectTaskForCommit(state: ScalerState, requestedTaskId?: string): string | undefined {

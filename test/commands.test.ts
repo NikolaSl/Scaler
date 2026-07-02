@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   parseCommaList,
   parseCommitArgs,
+  parseContextTaskArgs,
   parsePrdLinkArgs,
   parseReplanRequestArgs,
   parseTaskCreateArgs,
@@ -76,6 +77,11 @@ test("parseTaskCreateArgs returns undefined without task id", () => {
 
 test("parseCommaList removes blanks", () => {
   assert.deepEqual(parseCommaList("src, , test "), ["src", "test"]);
+});
+
+test("parseContextTaskArgs parses optional task id", () => {
+  assert.deepEqual(parseContextTaskArgs(" T-001 "), { taskId: "T-001" });
+  assert.deepEqual(parseContextTaskArgs(" "), { taskId: undefined });
 });
 
 test("parseReplanRequestArgs parses reason, task, evidence, and requirements", () => {

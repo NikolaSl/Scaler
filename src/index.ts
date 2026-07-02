@@ -3,6 +3,7 @@ import { startScalerRun } from "./adaptive.js";
 import { getBudgetState } from "./budgets.js";
 import {
   parseCommitArgs,
+  parseContextTaskArgs,
   parsePrdLinkArgs,
   parseReplanRequestArgs,
   parseTaskCreateArgs,
@@ -13,6 +14,7 @@ import {
   selectTaskForCommit,
 } from "./commands.js";
 import { pauseScalerRun, resumeScalerRun } from "./checkpoints.js";
+import { ensureTaskContextManifest, formatTaskContextManifest, loadTaskContextManifest } from "./context.js";
 import { formatTaskAgentRunList, loadTaskAgentRunRecords, runConductorStep } from "./conductor.js";
 import { loadDebugAttempts, loadDebugFailures } from "./debug.js";
 import { clearExecutionLock, formatExecutionLock, loadExecutionLock } from "./locks.js";
@@ -125,6 +127,38 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const state = await ensureState(ctx.cwd);
       const message = formatTaskList(state);
       if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-context-init", {
+    description: "Create a default task context manifest: /scaler-context-init [taskId]",
+    handler: async (args, ctx) => {
+      const parsed = parseContextTaskArgs(args);
+      const state = await ensureState(ctx.cwd);
+      const taskId = parsed.taskId ?? state.currentTaskId ?? state.tasks.find((task) => task.status !== "validated" && task.status !== "failed")?.id;
+      if (!taskId) {
+        const message = "No task found for /scaler-context-init.";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+      const manifest = await ensureTaskContextManifest(ctx.cwd, state, taskId);
+      const message = `Context manifest ready: ${taskId} items=${manifest.items.length}`;
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-context-status", {
+    description: "Show task context manifest summary: /scaler-context-status [taskId]",
+    handler: async (args, ctx) => {
+      const parsed = parseContextTaskArgs(args);
+      const state = await ensureState(ctx.cwd);
+      const taskId = parsed.taskId ?? state.currentTaskId ?? state.tasks[0]?.id;
+      const manifest = taskId ? await loadTaskContextManifest(ctx.cwd, taskId) : undefined;
+      const message = manifest ? formatTaskContextManifest(manifest) : `No context manifest${taskId ? ` for ${taskId}` : ""}.`;
+      if (ctx.hasUI) ctx.ui.notify(message, manifest ? "info" : "warning");
       else console.log(message);
     },
   });
