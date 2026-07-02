@@ -102,6 +102,14 @@ Output includes status, exit code, timeout/abort flags, stdout event count, and 
 
 Lists all known supervisor tasks with status, current-task marker, title, allowed path metadata, dependencies, and runtime PRD refs when present.
 
+## `/scaler-context-init [taskId]`
+
+Creates a default task context manifest under `.scaler/context/tasks/<taskId>.json`.
+
+## `/scaler-context-status [taskId]`
+
+Shows the task context manifest summary for a task.
+
 ## `/scaler-prd-status`
 
 Shows runtime PRD requirement coverage from `.scaler/prd/requirements.json`, `.scaler/prd/coverage.json`, and task `prdRefs` links.

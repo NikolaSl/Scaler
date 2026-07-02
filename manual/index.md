@@ -7,7 +7,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 ## Current implemented behavior
 
 - Pi extension entrypoint: `src/index.ts`.
-- Commands: `/scaler`, `/scaler-lock`, `/scaler-lock-clear`, `/scaler-runs`, `/scaler-tasks`, `/scaler-task-create`, `/scaler-task-update`, `/scaler-prd-status`, `/scaler-plan-status`, `/scaler-plan-apply`, `/scaler-replans`, `/scaler-replan-request`, `/scaler-prd-link`, `/scaler-task-retry`, `/scaler-step`, `/scaler-validation-add`, `/scaler-validate`, `/scaler-commit`, `/scaler-pause`, `/scaler-resume`, `/scaler-status`.
+- Commands: `/scaler`, `/scaler-lock`, `/scaler-lock-clear`, `/scaler-runs`, `/scaler-tasks`, `/scaler-context-init`, `/scaler-context-status`, `/scaler-task-create`, `/scaler-task-update`, `/scaler-prd-status`, `/scaler-plan-status`, `/scaler-plan-apply`, `/scaler-replans`, `/scaler-replan-request`, `/scaler-prd-link`, `/scaler-task-retry`, `/scaler-step`, `/scaler-validation-add`, `/scaler-validate`, `/scaler-commit`, `/scaler-pause`, `/scaler-resume`, `/scaler-status`.
 - State file: `.scaler/state.json`.
 - Basic deterministic supervisor transition helpers.
 - Event log: `.scaler/logs/events.jsonl`.
@@ -15,7 +15,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - Experimental task-agent subprocess invocation builder.
 - Structured Scaler tool skeletons registered with Pi.
 - External memory write/retrieve under `.scaler/memory/`.
-- Lightweight context resolver with omitted-context summaries.
+- Task context manifests under `.scaler/context/tasks/` with file, memory, state, task, PRD ref, and validation-manifest resolution.
 - Minimal adaptive `/scaler` entrypoint.
 - Budget usage helper skeleton for tools, spawned agents, debug attempts, and checkpoints.
 - Checkpoint writing under `.scaler/checkpoints/` for pause/resume and conductor steps.

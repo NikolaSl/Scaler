@@ -13,7 +13,7 @@ Priority scale:
 | Gap ID | Related requirements | Gap | Suggested next implementation slice |
 |---|---|---|---|
 | GAP-001 | PRD-W01..W05, PRD-G01 | Full Stage I-IV workflow is incomplete. | Implement stage artifact model and conductor commands for PRD, knowledge, planner, and execution stages. |
-| GAP-002 | PRD-S04, PRD-G02, PRD-P01 | Context selection is still skeleton-level. | Add task context manifests that resolve current state, relevant files, memory refs, validation needs, and omissions. |
+| GAP-002 | PRD-S04, PRD-G02, PRD-P01 | Task context manifests now resolve state, task metadata, files, memory refs, validation manifests, PRD refs, and missing context, but source discovery/ranking remains basic. | Add automatic relevance discovery from changed files, plans, PRD coverage, validation history, and memory search results. |
 | GAP-003 | PRD-S25, PRD-S31, PRD-W08, PRD-G04 | Versioned runtime PRD/execution plan artifacts, replan requests, preservation checks, and blocked-evidence triggers exist, but no planner consumes requests to publish replacement plans. | Add planner/replanner command or agent that consumes replan requests, checks preservation, snapshots old/new plans, and applies accepted replacement tasks. |
 | GAP-004 | PRD-S06, PRD-S07, PRD-W03 | Research agents and evidence handling are missing. | Add research request/report schema, source quality/confidence fields, contradiction handling, and raw-evidence storage in memory. |
 | GAP-005 | PRD-S16, PRD-S02 | Audit logging is incomplete for prompts/tool calls/full reports. | Extend logging to cover command starts/ends, agent prompts, tool requests/results, transitions, validation summaries, and commit ids. |
