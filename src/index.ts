@@ -118,11 +118,11 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("scaler-task-create", {
-    description: "Create a SCALER task: /scaler-task-create <taskId> | <title> | <allowed paths comma list> | <dependency ids comma list>",
+    description: "Create a SCALER task: /scaler-task-create <taskId> | <title> | <allowed paths comma list> | <dependency ids comma list> | <PRD refs comma list>",
     handler: async (args, ctx) => {
       const parsed = parseTaskCreateArgs(args);
       if (!parsed) {
-        const message = "Usage: /scaler-task-create <taskId> | <title> | <allowed paths comma list> | <dependency ids comma list>";
+        const message = "Usage: /scaler-task-create <taskId> | <title> | <allowed paths comma list> | <dependency ids comma list> | <PRD refs comma list>";
         if (ctx.hasUI) ctx.ui.notify(message, "warning");
         else console.log(message);
         return;
@@ -134,6 +134,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         title: parsed.title,
         allowedPathPrefixes: parsed.allowedPathPrefixes,
         dependsOn: parsed.dependsOn,
+        prdRefs: parsed.prdRefs,
       });
       if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
       else console.log(result.message);
@@ -141,11 +142,11 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("scaler-task-update", {
-    description: "Update a SCALER task: /scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies>",
+    description: "Update a SCALER task: /scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies> | <PRD refs>",
     handler: async (args, ctx) => {
       const parsed = parseTaskUpdateArgs(args);
       if (!parsed) {
-        const message = "Usage: /scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies>";
+        const message = "Usage: /scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies> | <PRD refs>";
         if (ctx.hasUI) ctx.ui.notify(message, "warning");
         else console.log(message);
         return;
@@ -158,6 +159,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         status: parsed.status,
         allowedPathPrefixes: parsed.allowedPathPrefixes,
         dependsOn: parsed.dependsOn,
+        prdRefs: parsed.prdRefs,
       });
       if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
       else console.log(result.message);

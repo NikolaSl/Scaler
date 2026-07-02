@@ -10,6 +10,7 @@ export interface CreateTaskInput {
   status?: ScalerTaskStatus | string;
   allowedPathPrefixes?: string[];
   dependsOn?: string[];
+  prdRefs?: string[];
 }
 
 export interface CreateTaskResult {
@@ -24,6 +25,7 @@ export interface UpdateTaskInput {
   status?: ScalerTaskStatus | string;
   allowedPathPrefixes?: string[];
   dependsOn?: string[];
+  prdRefs?: string[];
 }
 
 export interface UpdateTaskResult {
@@ -47,7 +49,8 @@ export function formatTaskList(state: ScalerState): string {
     const title = task.title ? ` - ${task.title}` : "";
     const paths = task.allowedPathPrefixes && task.allowedPathPrefixes.length > 0 ? ` [paths: ${task.allowedPathPrefixes.join(", ")}]` : "";
     const deps = task.dependsOn && task.dependsOn.length > 0 ? ` [depends: ${task.dependsOn.join(", ")}]` : "";
-    lines.push(`- ${task.id}: ${task.status}${current}${title}${paths}${deps}`);
+    const prdRefs = task.prdRefs && task.prdRefs.length > 0 ? ` [prd: ${task.prdRefs.join(", ")}]` : "";
+    lines.push(`- ${task.id}: ${task.status}${current}${title}${paths}${deps}${prdRefs}`);
   }
   return lines.join("\n");
 }
@@ -112,6 +115,7 @@ export async function updateTask(cwd: string, state: ScalerState, input: UpdateT
             title: input.title ?? task.title,
             allowedPathPrefixes: input.allowedPathPrefixes ? normalizeAllowedPaths(input.allowedPathPrefixes) : task.allowedPathPrefixes,
             dependsOn: input.dependsOn ? normalizeIdList(input.dependsOn) : task.dependsOn,
+            prdRefs: input.prdRefs ? normalizeIdList(input.prdRefs) : task.prdRefs,
             updatedAt: timestamp,
           }
         : task,
@@ -153,6 +157,7 @@ export async function createTask(cwd: string, state: ScalerState, input: CreateT
     status,
     allowedPathPrefixes: normalizeAllowedPaths(input.allowedPathPrefixes),
     dependsOn: normalizeIdList(input.dependsOn),
+    prdRefs: normalizeIdList(input.prdRefs),
   });
   const accepted = nextState.rejectedTransitions.length === beforeRejected;
 

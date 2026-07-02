@@ -18,25 +18,28 @@ test("parseTaskCreateArgs parses task id only", () => {
     title: undefined,
     allowedPathPrefixes: undefined,
     dependsOn: undefined,
+    prdRefs: undefined,
   });
 });
 
-test("parseTaskCreateArgs parses title, allowed paths, and dependencies", () => {
-  assert.deepEqual(parseTaskCreateArgs("T-001 | Add parser | src, test | T-000, T-BASE"), {
+test("parseTaskCreateArgs parses title, allowed paths, dependencies, and PRD refs", () => {
+  assert.deepEqual(parseTaskCreateArgs("T-001 | Add parser | src, test | T-000, T-BASE | REQ-001, REQ-002"), {
     taskId: "T-001",
     title: "Add parser",
     allowedPathPrefixes: ["src", "test"],
     dependsOn: ["T-000", "T-BASE"],
+    prdRefs: ["REQ-001", "REQ-002"],
   });
 });
 
 test("parseTaskUpdateArgs parses task update fields", () => {
-  assert.deepEqual(parseTaskUpdateArgs("T-001 | New title | ready | src,test | T-000"), {
+  assert.deepEqual(parseTaskUpdateArgs("T-001 | New title | ready | src,test | T-000 | REQ-001"), {
     taskId: "T-001",
     title: "New title",
     status: "ready",
     allowedPathPrefixes: ["src", "test"],
     dependsOn: ["T-000"],
+    prdRefs: ["REQ-001"],
   });
 });
 

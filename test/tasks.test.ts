@@ -35,17 +35,19 @@ test("createTask supports explicit ready status", async () => {
   });
 });
 
-test("createTask stores normalized allowed path prefixes and dependencies", async () => {
+test("createTask stores normalized allowed path prefixes, dependencies, and PRD refs", async () => {
   await withTempDir(async (dir) => {
     const result = await createTask(dir, createDefaultState(), {
       id: "T-001",
       allowedPathPrefixes: ["./src/", "src", " test ", ""],
       dependsOn: ["T-000", "", "T-000", "T-BASE"],
+      prdRefs: ["REQ-001", "", "REQ-001", "REQ-002"],
     });
 
     assert.equal(result.accepted, true);
     assert.deepEqual(result.state.tasks[0]?.allowedPathPrefixes, ["src", "test"]);
     assert.deepEqual(result.state.tasks[0]?.dependsOn, ["T-000", "T-BASE"]);
+    assert.deepEqual(result.state.tasks[0]?.prdRefs, ["REQ-001", "REQ-002"]);
   });
 });
 
@@ -59,11 +61,12 @@ test("formatTaskList renders current task, status, title, and allowed paths", ()
       status: "validated",
       allowedPathPrefixes: ["src", "test"],
       dependsOn: ["T-000"],
+      prdRefs: ["REQ-001"],
       updatedAt: state.createdAt,
     },
   ];
 
-  assert.equal(formatTaskList(state), "Scaler tasks:\n- T-001: validated *current* - Add feature [paths: src, test] [depends: T-000]");
+  assert.equal(formatTaskList(state), "Scaler tasks:\n- T-001: validated *current* - Add feature [paths: src, test] [depends: T-000] [prd: REQ-001]");
 });
 
 test("formatTaskList handles no tasks", () => {
@@ -79,6 +82,7 @@ test("updateTask updates metadata and valid status transition", async () => {
       status: "ready",
       allowedPathPrefixes: ["src", "test"],
       dependsOn: ["T-000"],
+      prdRefs: ["REQ-001", "REQ-002"],
     });
     const task = result.state.tasks[0];
 
@@ -87,6 +91,7 @@ test("updateTask updates metadata and valid status transition", async () => {
     assert.equal(task?.status, "ready");
     assert.deepEqual(task?.allowedPathPrefixes, ["src", "test"]);
     assert.deepEqual(task?.dependsOn, ["T-000"]);
+    assert.deepEqual(task?.prdRefs, ["REQ-001", "REQ-002"]);
   });
 });
 

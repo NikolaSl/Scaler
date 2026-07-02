@@ -27,6 +27,7 @@ export interface ScalerTaskState {
   title?: string;
   allowedPathPrefixes?: string[];
   dependsOn?: string[];
+  prdRefs?: string[];
   updatedAt: string;
 }
 

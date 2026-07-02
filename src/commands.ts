@@ -5,6 +5,7 @@ export interface ParsedTaskCreateArgs {
   title?: string;
   allowedPathPrefixes?: string[];
   dependsOn?: string[];
+  prdRefs?: string[];
 }
 
 export interface ParsedTaskUpdateArgs {
@@ -13,6 +14,7 @@ export interface ParsedTaskUpdateArgs {
   status?: string;
   allowedPathPrefixes?: string[];
   dependsOn?: string[];
+  prdRefs?: string[];
 }
 
 export interface ParsedTaskRetryArgs {
@@ -43,6 +45,7 @@ export function parseTaskCreateArgs(args: string | undefined): ParsedTaskCreateA
     title: parts[1]?.trim() || undefined,
     allowedPathPrefixes: parseCommaList(parts[2]),
     dependsOn: parseCommaList(parts[3]),
+    prdRefs: parseCommaList(parts[4]),
   };
 }
 
@@ -56,6 +59,7 @@ export function parseTaskUpdateArgs(args: string | undefined): ParsedTaskUpdateA
     status: parts[2]?.trim() || undefined,
     allowedPathPrefixes: parseCommaList(parts[3]),
     dependsOn: parseCommaList(parts[4]),
+    prdRefs: parseCommaList(parts[5]),
   };
 }
 
