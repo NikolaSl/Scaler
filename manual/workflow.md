@@ -13,12 +13,21 @@ SCALER operations are sequential per repository. Task steps, task-agent executio
 
 `/scaler` creates or loads `.scaler/state.json`, selects an adaptive complexity level, and logs the request. `/scaler-status` shows supervisor state plus a deterministic workflow summary.
 
-## 2. Create tasks
+## 2. Create or apply tasks
+
+Tasks can be created directly:
 
 ```text
 /scaler-task-create T-001 | Add parser tests | src,test
 /scaler-task-create T-002 | Add dependent work | src | T-001
 /scaler-tasks
+```
+
+Or created from the current execution plan artifact:
+
+```text
+/scaler-plan-status
+/scaler-plan-apply
 ```
 
 Tasks may include allowed paths for later commit safety, dependency ids, and runtime PRD refs. The conductor will not select a task until its dependencies are validated. Runtime PRD refs are shown by `/scaler-prd-status` and help identify which requirements have validated task coverage.

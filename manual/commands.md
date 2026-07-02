@@ -106,6 +106,14 @@ Lists all known supervisor tasks with status, current-task marker, title, allowe
 
 Shows runtime PRD requirement coverage from `.scaler/prd/requirements.json`, `.scaler/prd/coverage.json`, and task `prdRefs` links.
 
+## `/scaler-plan-status`
+
+Shows execution plan summary from `.scaler/plans/current-plan.json`, runtime PRD requirements, and supervisor task state.
+
+## `/scaler-plan-apply`
+
+Creates missing supervisor task records from `.scaler/plans/current-plan.json`. Existing tasks are preserved.
+
 ## `/scaler-prd-link <taskId> | <REQ-001,REQ-002>`
 
 Links an existing task to runtime PRD requirement ids by updating the task's `prdRefs` metadata.
