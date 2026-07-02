@@ -22,6 +22,16 @@ const protectedPathPatterns = [
   /\.p12$/i,
 ];
 
+const protectedCommandPathPatterns = [
+  /(^|\s|["'])\.env(\.|\s|$|\/|["'])/i,
+  /(^|\s|["'])\.git(\/|\s|$|["'])/i,
+  /(^|\s|["'])\.ssh(\/|\s|$|["'])/i,
+  /(^|\s|["'])\.aws(\/|\s|$|["'])/i,
+  /\S+\.pem(\s|$|["'])/i,
+  /\S+\.key(\s|$|["'])/i,
+  /\S+\.p12(\s|$|["'])/i,
+];
+
 const destructiveCommandPatterns = [
   /\brm\s+[^\n]*(?:-rf|-fr|--recursive)/i,
   /\bgit\s+reset\s+--hard\b/i,
@@ -44,6 +54,15 @@ export function assessToolCallSafety(toolCall: ToolCallLike): SafetyDecision {
 
   if (toolCall.toolName === "bash") {
     const command = getCommand(toolCall.input);
+    if (command && protectedCommandPathPatterns.some((pattern) => pattern.test(command))) {
+      return {
+        allowed: false,
+        risk: "secret",
+        reason: "Bash command references a protected path.",
+        requiresApproval: true,
+      };
+    }
+
     if (command && destructiveCommandPatterns.some((pattern) => pattern.test(command))) {
       return {
         allowed: false,

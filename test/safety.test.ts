@@ -24,6 +24,20 @@ test("blocks edit using file_path alias to protected key", () => {
   assert.equal(decision.risk, "secret");
 });
 
+test("blocks bash command that reads protected path", () => {
+  const decision = assessToolCallSafety({ toolName: "bash", input: { command: "cat .env" } });
+
+  assert.equal(decision.allowed, false);
+  assert.equal(decision.risk, "secret");
+});
+
+test("blocks bash command that references protected nested path", () => {
+  const decision = assessToolCallSafety({ toolName: "bash", input: { command: "grep secret .ssh/config" } });
+
+  assert.equal(decision.allowed, false);
+  assert.equal(decision.risk, "secret");
+});
+
 test("blocks destructive rm command", () => {
   const decision = assessToolCallSafety({ toolName: "bash", input: { command: "rm -rf build" } });
 
