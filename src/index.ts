@@ -13,6 +13,7 @@ import {
 import { pauseScalerRun, resumeScalerRun } from "./checkpoints.js";
 import { formatTaskAgentRunList, loadTaskAgentRunRecords, runConductorStep } from "./conductor.js";
 import { loadDebugAttempts, loadDebugFailures } from "./debug.js";
+import { clearExecutionLock, formatExecutionLock, loadExecutionLock } from "./locks.js";
 import { createLogEvent, appendLogEvent, logStateEvent } from "./logging.js";
 import { loadMemoryIndex } from "./memory.js";
 import { commitWithExecutionLock, runValidationWithExecutionLock } from "./operations.js";
@@ -73,6 +74,25 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       } else {
         console.log(message);
       }
+    },
+  });
+
+  pi.registerCommand("scaler-lock", {
+    description: "Show current SCALER execution lock.",
+    handler: async (_args, ctx) => {
+      const message = formatExecutionLock(await loadExecutionLock(ctx.cwd));
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-lock-clear", {
+    description: "Manually clear the SCALER execution lock: /scaler-lock-clear <reason>",
+    handler: async (args, ctx) => {
+      const reason = args?.trim() || "manual clear requested";
+      const result = await clearExecutionLock(ctx.cwd, reason);
+      if (ctx.hasUI) ctx.ui.notify(result.message, result.released ? "info" : "warning");
+      else console.log(result.message);
     },
   });
 
