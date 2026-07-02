@@ -30,6 +30,11 @@ export interface ParsedValidationAddArgs {
   required?: boolean;
 }
 
+export interface ParsedPrdLinkArgs {
+  taskId: string;
+  prdRefs: string[];
+}
+
 export interface ParsedCommitArgs {
   taskId?: string;
   allowedPathPrefixes?: string[];
@@ -84,6 +89,14 @@ export function parseValidationAddArgs(args: string | undefined): ParsedValidati
     description: parts[3]?.trim() || undefined,
     required: parseOptionalBoolean(parts[4]),
   };
+}
+
+export function parsePrdLinkArgs(args: string | undefined): ParsedPrdLinkArgs | undefined {
+  const parts = splitPipeArgs(args);
+  const taskId = parts[0]?.trim();
+  const prdRefs = parseCommaList(parts[1]);
+  if (!taskId || !prdRefs) return undefined;
+  return { taskId, prdRefs };
 }
 
 export function parseCommitArgs(args: string | undefined): ParsedCommitArgs {

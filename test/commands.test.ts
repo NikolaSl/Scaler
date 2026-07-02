@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   parseCommaList,
   parseCommitArgs,
+  parsePrdLinkArgs,
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
@@ -46,6 +47,12 @@ test("parseTaskUpdateArgs parses task update fields", () => {
 test("parseTaskRetryArgs parses optional task and reason", () => {
   assert.deepEqual(parseTaskRetryArgs("T-001 | rerun after fix"), { taskId: "T-001", reason: "rerun after fix" });
   assert.deepEqual(parseTaskRetryArgs(""), { taskId: undefined, reason: undefined });
+});
+
+test("parsePrdLinkArgs parses task id and PRD refs", () => {
+  assert.deepEqual(parsePrdLinkArgs("T-001 | REQ-001, REQ-002"), { taskId: "T-001", prdRefs: ["REQ-001", "REQ-002"] });
+  assert.equal(parsePrdLinkArgs("T-001"), undefined);
+  assert.equal(parsePrdLinkArgs(" | REQ-001"), undefined);
 });
 
 test("parseValidationAddArgs parses manifest command fields", () => {

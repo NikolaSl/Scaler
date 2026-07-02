@@ -5,6 +5,14 @@ import { recordDebugAttempt } from "./debug.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { createLogEvent, appendLogEvent } from "./logging.js";
 import { retrieveMemory, writeMemory } from "./memory.js";
+import {
+  createPrdVersionSnapshot,
+  saveCurrentPrd,
+  savePrdRequirements,
+  upsertPrdRequirement,
+  type RuntimePrdRequirement,
+  type RuntimePrdRequirementStatus,
+} from "./prd.js";
 import { ingestReport } from "./reports.js";
 import { ensureState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentRunResult } from "./subagents.js";
@@ -21,6 +29,8 @@ export const scalerToolNames = [
   "scaler_tool_request",
   "scaler_task_create",
   "scaler_task_update",
+  "scaler_prd_write",
+  "scaler_prd_requirement_update",
   "scaler_validation_manifest_write",
   "scaler_validation_report",
   "scaler_debug_attempt",
@@ -82,6 +92,7 @@ const TaskCreateParams = Type.Object({
   status: Type.Optional(Type.String({ description: "Initial task status. Defaults to pending." })),
   allowedPathPrefixes: Type.Optional(Type.Array(Type.String(), { description: "Paths this task is allowed to modify/commit." })),
   dependsOn: Type.Optional(Type.Array(Type.String(), { description: "Task ids that must be validated first." })),
+  prdRefs: Type.Optional(Type.Array(Type.String(), { description: "Runtime PRD requirement ids this task implements." })),
 });
 
 const TaskUpdateParams = Type.Object({
@@ -90,6 +101,34 @@ const TaskUpdateParams = Type.Object({
   status: Type.Optional(Type.String({ description: "Target task status; must be a valid transition." })),
   allowedPathPrefixes: Type.Optional(Type.Array(Type.String(), { description: "Replacement allowed paths." })),
   dependsOn: Type.Optional(Type.Array(Type.String(), { description: "Replacement dependency ids." })),
+  prdRefs: Type.Optional(Type.Array(Type.String(), { description: "Replacement runtime PRD requirement ids." })),
+});
+
+const PrdWriteParams = Type.Object({
+  content: Type.String({ description: "Polished runtime PRD markdown content." }),
+  snapshotCurrent: Type.Optional(Type.Boolean({ description: "Snapshot the existing current PRD before replacing it." })),
+  snapshotReason: Type.Optional(Type.String({ description: "Reason recorded for the snapshot." })),
+  requirements: Type.Optional(
+    Type.Array(
+      Type.Object({
+        id: Type.String(),
+        statement: Type.String(),
+        title: Type.Optional(Type.String()),
+        source: Type.Optional(Type.String()),
+      }),
+    ),
+  ),
+});
+
+const PrdRequirementUpdateParams = Type.Object({
+  id: Type.String(),
+  statement: Type.String(),
+  title: Type.Optional(Type.String()),
+  source: Type.Optional(Type.String()),
+  status: Type.Optional(Type.String({ description: "pending, in_progress, implemented, validated, blocked, or needs_replan." })),
+  taskIds: Type.Optional(Type.Array(Type.String())),
+  evidenceRefs: Type.Optional(Type.Array(Type.String())),
+  notes: Type.Optional(Type.String()),
 });
 
 const ValidationManifestWriteParams = Type.Object({
@@ -234,6 +273,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         status: params.status,
         allowedPathPrefixes: params.allowedPathPrefixes,
         dependsOn: params.dependsOn,
+        prdRefs: params.prdRefs,
       });
       await logTool(ctx.cwd, "scaler_task_create", result.message, params);
       return textResult(result.message, { status: result.accepted ? "created" : "rejected", taskId: params.taskId });
@@ -253,9 +293,58 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         status: params.status,
         allowedPathPrefixes: params.allowedPathPrefixes,
         dependsOn: params.dependsOn,
+        prdRefs: params.prdRefs,
       });
       await logTool(ctx.cwd, "scaler_task_update", result.message, params);
       return textResult(result.message, { status: result.accepted ? "updated" : "rejected", taskId: params.taskId });
+    },
+  });
+
+  pi.registerTool({
+    name: "scaler_prd_write",
+    label: "Scaler Runtime PRD Write",
+    description: "Write the polished runtime PRD and optional requirement catalog under .scaler/prd.",
+    parameters: PrdWriteParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const snapshotPath = params.snapshotCurrent ? await createPrdVersionSnapshot(ctx.cwd, { reason: params.snapshotReason ?? "PRD replaced" }) : undefined;
+      await saveCurrentPrd(ctx.cwd, params.content);
+      let requirements: RuntimePrdRequirement[] | undefined;
+      if (params.requirements) {
+        const timestamp = new Date().toISOString();
+        requirements = params.requirements.map((requirement) => ({
+          ...requirement,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        }));
+        await savePrdRequirements(ctx.cwd, { version: 1, requirements });
+      }
+      await logTool(ctx.cwd, "scaler_prd_write", "Runtime PRD written", { snapshotPath, requirements });
+      return textResult(`Runtime PRD written${snapshotPath ? ` snapshot=${snapshotPath}` : ""}`, {
+        status: "written",
+        snapshotPath,
+        requirementCount: requirements?.length,
+      });
+    },
+  });
+
+  pi.registerTool({
+    name: "scaler_prd_requirement_update",
+    label: "Scaler Runtime PRD Requirement Update",
+    description: "Add or update a runtime PRD requirement and optional coverage status.",
+    parameters: PrdRequirementUpdateParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const requirement = await upsertPrdRequirement(ctx.cwd, {
+        id: params.id,
+        statement: params.statement,
+        title: params.title,
+        source: params.source,
+        status: params.status as RuntimePrdRequirementStatus | undefined,
+        taskIds: params.taskIds,
+        evidenceRefs: params.evidenceRefs,
+        notes: params.notes,
+      });
+      await logTool(ctx.cwd, "scaler_prd_requirement_update", `Runtime PRD requirement updated: ${params.id}`, params);
+      return textResult(`Runtime PRD requirement updated: ${params.id}`, { status: "updated", requirement });
     },
   });
 

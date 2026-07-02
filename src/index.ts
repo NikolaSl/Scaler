@@ -3,6 +3,7 @@ import { startScalerRun } from "./adaptive.js";
 import { getBudgetState } from "./budgets.js";
 import {
   parseCommitArgs,
+  parsePrdLinkArgs,
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
@@ -18,6 +19,7 @@ import { createLogEvent, appendLogEvent, logStateEvent } from "./logging.js";
 import { loadMemoryIndex } from "./memory.js";
 import { commitWithExecutionLock, runValidationWithExecutionLock } from "./operations.js";
 import { getEventLogPath } from "./paths.js";
+import { computePrdCoverageSummary, formatPrdCoverageSummary, loadPrdCoverage, loadPrdRequirements } from "./prd.js";
 import { assessToolCallSafety } from "./safety.js";
 import { createTask, formatTaskList, retryTask, updateTask } from "./tasks.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
@@ -161,6 +163,37 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         dependsOn: parsed.dependsOn,
         prdRefs: parsed.prdRefs,
       });
+      if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
+      else console.log(result.message);
+    },
+  });
+
+  pi.registerCommand("scaler-prd-status", {
+    description: "Show runtime PRD requirement coverage for the active run.",
+    handler: async (_args, ctx) => {
+      const state = await ensureState(ctx.cwd);
+      const requirements = await loadPrdRequirements(ctx.cwd);
+      const coverage = await loadPrdCoverage(ctx.cwd);
+      const summary = computePrdCoverageSummary(requirements, coverage, state);
+      const message = formatPrdCoverageSummary(requirements, summary);
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-prd-link", {
+    description: "Link an existing task to runtime PRD requirements: /scaler-prd-link <taskId> | <REQ-001,REQ-002>",
+    handler: async (args, ctx) => {
+      const parsed = parsePrdLinkArgs(args);
+      if (!parsed) {
+        const message = "Usage: /scaler-prd-link <taskId> | <REQ-001,REQ-002>";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+
+      const state = await ensureState(ctx.cwd);
+      const result = await updateTask(ctx.cwd, state, { id: parsed.taskId, prdRefs: parsed.prdRefs });
       if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
       else console.log(result.message);
     },

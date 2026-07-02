@@ -66,6 +66,18 @@ export interface RuntimePrdCoverageSummary {
   linkedRequirementIds: string[];
 }
 
+export interface UpsertPrdRequirementInput {
+  id: string;
+  statement: string;
+  title?: string;
+  source?: string;
+  status?: RuntimePrdRequirementStatus;
+  taskIds?: string[];
+  evidenceRefs?: string[];
+  notes?: string;
+  now?: Date;
+}
+
 export function isRuntimePrdRequirementStatus(value: string): value is RuntimePrdRequirementStatus {
   return runtimePrdRequirementStatuses.includes(value as RuntimePrdRequirementStatus);
 }
@@ -97,6 +109,19 @@ export function computePrdCoverageSummary(
     unlinkedRequirementIds: entries.filter((entry) => entry.linkedTaskIds.length === 0).map((entry) => entry.requirementId),
     linkedRequirementIds: entries.filter((entry) => entry.linkedTaskIds.length > 0).map((entry) => entry.requirementId),
   };
+}
+
+export function formatPrdCoverageSummary(requirements: RuntimePrdRequirementsFile, summary: RuntimePrdCoverageSummary): string {
+  const countParts = runtimePrdRequirementStatuses.map((status) => `${status}=${summary.countsByStatus[status]}`).join(" ");
+  const lines = [`Runtime PRD coverage: requirements=${requirements.requirements.length} ${countParts}`];
+  if (summary.unlinkedRequirementIds.length > 0) {
+    lines.push(`Unlinked requirements: ${summary.unlinkedRequirementIds.join(", ")}`);
+  }
+  for (const entry of summary.entries) {
+    const linked = entry.linkedTaskIds.length > 0 ? ` tasks=${entry.linkedTaskIds.join(",")}` : " tasks=none";
+    lines.push(`- ${entry.requirementId}: ${entry.status}${linked}`);
+  }
+  return lines.join("\n");
 }
 
 export async function loadCurrentPrd(cwd: string): Promise<string> {
@@ -150,6 +175,55 @@ export async function savePrdCoverage(cwd: string, coverage: RuntimePrdCoverageF
   validatePrdCoverage(coverage);
   await mkdir(getPrdDir(cwd), { recursive: true });
   await writeFile(getPrdCoveragePath(cwd), `${JSON.stringify(coverage, null, 2)}\n`, "utf8");
+}
+
+export async function upsertPrdRequirement(cwd: string, input: UpsertPrdRequirementInput): Promise<RuntimePrdRequirement> {
+  if (input.status && !isRuntimePrdRequirementStatus(input.status)) {
+    throw new Error(`Invalid runtime PRD requirement status: ${input.status}`);
+  }
+
+  const timestamp = (input.now ?? new Date()).toISOString();
+  const requirements = await loadPrdRequirements(cwd);
+  const existing = requirements.requirements.find((requirement) => requirement.id === input.id);
+  const requirement: RuntimePrdRequirement = {
+    id: input.id,
+    statement: input.statement,
+    title: input.title ?? existing?.title,
+    source: input.source ?? existing?.source,
+    createdAt: existing?.createdAt ?? timestamp,
+    updatedAt: timestamp,
+  };
+  await savePrdRequirements(cwd, {
+    version: 1,
+    requirements: [...requirements.requirements.filter((candidate) => candidate.id !== input.id), requirement],
+  });
+
+  if (input.status) {
+    const coverage = await loadPrdCoverage(cwd);
+    const existingCoverage = coverage.entries.find((entry) => entry.requirementId === input.id);
+    await savePrdCoverage(cwd, {
+      version: 1,
+      entries: [
+        ...coverage.entries.filter((entry) => entry.requirementId !== input.id),
+        {
+          requirementId: input.id,
+          status: input.status,
+          taskIds: input.taskIds ?? existingCoverage?.taskIds,
+          evidenceRefs: input.evidenceRefs ?? existingCoverage?.evidenceRefs,
+          notes: input.notes ?? existingCoverage?.notes,
+          updatedAt: timestamp,
+        },
+      ],
+    });
+  }
+
+  await appendPrdChange(cwd, {
+    timestamp,
+    reason: `Requirement upserted: ${input.id}`,
+    source: input.source,
+    affectedRequirementIds: [input.id],
+  });
+  return requirement;
 }
 
 export async function appendPrdChange(cwd: string, change: RuntimePrdChangeRecord): Promise<void> {
