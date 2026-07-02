@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -14,6 +14,7 @@ import {
   runConductorStep,
   selectNextTask,
 } from "../src/conductor.js";
+import { saveTaskContextManifest } from "../src/context.js";
 import { acquireExecutionLock, loadExecutionLock } from "../src/locks.js";
 import { createDefaultState, loadState } from "../src/state.js";
 import type { ScalerTaskStatus } from "../src/types.js";
@@ -158,6 +159,29 @@ test("runConductorStep prepares selected task and writes checkpoint", async () =
     assert.equal(persisted.tasks[0]?.status, "running");
     assert.ok(result.invocation?.args.includes("--tools"));
     assert.ok(result.checkpointPath?.includes("conductor-step-t-001"));
+  });
+});
+
+test("runConductorStep uses task context manifest when explicit context is absent", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    await writeFile(join(dir, "context.md"), "Manifest file context", "utf8");
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-001",
+      items: [
+        { id: "file", type: "file", reason: "Needed file", priority: "required", scope: "full", source: "file", path: "context.md" },
+      ],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    const result = await runConductorStep(dir, state);
+
+    assert.equal(result.accepted, true);
+    assert.match(result.prompt ?? "", /Manifest file context/);
+    assert.deepEqual(result.prompt?.match(/## Context: file/g), ["## Context: file"]);
   });
 });
 

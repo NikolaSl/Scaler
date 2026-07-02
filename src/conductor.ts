@@ -1,7 +1,13 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { writeCheckpoint } from "./checkpoints.js";
-import { resolveContext, type ContextItem, type ResolvedContext } from "./context.js";
+import {
+  ensureTaskContextManifest,
+  resolveContext,
+  resolveTaskContextManifest,
+  type ContextItem,
+  type ResolvedContext,
+} from "./context.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { getTaskAgentRunsPath, getValidationHandoffsPath } from "./paths.js";
@@ -155,11 +161,13 @@ export async function runConductorStep(
   await saveState(cwd, nextState);
 
   const runningTask = nextState.tasks.find((task) => task.id === selection.task!.id)!;
+  const contextManifest = options.contextItems ? undefined : await ensureTaskContextManifest(cwd, nextState, runningTask.id);
+  const contextItems = options.contextItems ?? (await resolveTaskContextManifest(cwd, nextState, contextManifest!));
   const { prompt } = buildTaskAgentPrompt({
     state: nextState,
     task: runningTask,
-    contextItems: options.contextItems,
-    tokenBudget: options.tokenBudget,
+    contextItems,
+    tokenBudget: options.tokenBudget ?? contextManifest?.tokenBudget,
   });
   const request = {
     taskId: runningTask.id,
