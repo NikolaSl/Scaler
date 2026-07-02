@@ -27,6 +27,8 @@ test("extension registers scaler commands", () => {
     "scaler-task-create",
     "scaler-task-update",
     "scaler-prd-status",
+    "scaler-plan-status",
+    "scaler-plan-apply",
     "scaler-prd-link",
     "scaler-task-retry",
     "scaler-step",

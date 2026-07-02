@@ -19,6 +19,7 @@ import { createLogEvent, appendLogEvent, logStateEvent } from "./logging.js";
 import { loadMemoryIndex } from "./memory.js";
 import { commitWithExecutionLock, runValidationWithExecutionLock } from "./operations.js";
 import { getEventLogPath } from "./paths.js";
+import { applyExecutionPlanTasks, formatExecutionPlanSummary, loadExecutionPlan, summarizeExecutionPlan } from "./plans.js";
 import { computePrdCoverageSummary, formatPrdCoverageSummary, loadPrdCoverage, loadPrdRequirements } from "./prd.js";
 import { assessToolCallSafety } from "./safety.js";
 import { createTask, formatTaskList, retryTask, updateTask } from "./tasks.js";
@@ -178,6 +179,29 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const message = formatPrdCoverageSummary(requirements, summary);
       if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-plan-status", {
+    description: "Show current SCALER execution plan summary.",
+    handler: async (_args, ctx) => {
+      const state = await ensureState(ctx.cwd);
+      const plan = await loadExecutionPlan(ctx.cwd);
+      const requirements = await loadPrdRequirements(ctx.cwd);
+      const message = formatExecutionPlanSummary(summarizeExecutionPlan(plan, requirements, state));
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-plan-apply", {
+    description: "Create missing SCALER task records from the current execution plan.",
+    handler: async (_args, ctx) => {
+      const state = await ensureState(ctx.cwd);
+      const plan = await loadExecutionPlan(ctx.cwd);
+      const result = await applyExecutionPlanTasks(ctx.cwd, state, plan);
+      if (ctx.hasUI) ctx.ui.notify(result.message, result.rejectedTaskIds.length === 0 ? "info" : "warning");
+      else console.log(result.message);
     },
   });
 
