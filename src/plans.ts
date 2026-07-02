@@ -5,6 +5,8 @@ import {
   getExecutionPlansDir,
   getExecutionPlanVersionsDir,
 } from "./paths.js";
+import type { RuntimePrdRequirementsFile } from "./prd.js";
+import type { ScalerState } from "./types.js";
 
 export const executionPlanStatuses = ["draft", "active", "superseded", "completed"] as const;
 export type ExecutionPlanStatus = (typeof executionPlanStatuses)[number];
@@ -28,6 +30,18 @@ export interface ExecutionPlanArtifact {
   tasks: ExecutionPlanTask[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ExecutionPlanSummary {
+  planVersion: number;
+  status: ExecutionPlanStatus;
+  plannedTaskCount: number;
+  createdTaskCount: number;
+  missingTaskIds: string[];
+  validatedPlannedTaskCount: number;
+  linkedRequirementIds: string[];
+  unlinkedRequirementIds: string[];
+  planUnlinkedTaskIds: string[];
 }
 
 export function createEmptyExecutionPlan(now = new Date()): ExecutionPlanArtifact {
@@ -83,6 +97,42 @@ export async function saveExecutionPlan(cwd: string, plan: ExecutionPlanArtifact
   await mkdir(getExecutionPlansDir(cwd), { recursive: true });
   await writeFile(getCurrentExecutionPlanPath(cwd), `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
   return normalized;
+}
+
+export function summarizeExecutionPlan(
+  plan: ExecutionPlanArtifact,
+  requirements: RuntimePrdRequirementsFile,
+  state: ScalerState,
+): ExecutionPlanSummary {
+  validateExecutionPlan(plan);
+  const stateTaskIds = new Set(state.tasks.map((task) => task.id));
+  const validatedTaskIds = new Set(state.tasks.filter((task) => task.status === "validated").map((task) => task.id));
+  const planRequirementIds = new Set(plan.tasks.flatMap((task) => task.prdRefs ?? []));
+  const requirementIds = requirements.requirements.map((requirement) => requirement.id);
+
+  return {
+    planVersion: plan.planVersion,
+    status: plan.status,
+    plannedTaskCount: plan.tasks.length,
+    createdTaskCount: plan.tasks.filter((task) => stateTaskIds.has(task.id)).length,
+    missingTaskIds: plan.tasks.filter((task) => !stateTaskIds.has(task.id)).map((task) => task.id),
+    validatedPlannedTaskCount: plan.tasks.filter((task) => validatedTaskIds.has(task.id)).length,
+    linkedRequirementIds: requirementIds.filter((id) => planRequirementIds.has(id)),
+    unlinkedRequirementIds: requirementIds.filter((id) => !planRequirementIds.has(id)),
+    planUnlinkedTaskIds: plan.tasks.filter((task) => !task.prdRefs || task.prdRefs.length === 0).map((task) => task.id),
+  };
+}
+
+export function formatExecutionPlanSummary(summary: ExecutionPlanSummary): string {
+  const lines = [
+    `Execution plan: version=${summary.planVersion} status=${summary.status} tasks=${summary.plannedTaskCount}`,
+    `Tasks: created=${summary.createdTaskCount} missing=${summary.missingTaskIds.length} validated=${summary.validatedPlannedTaskCount}`,
+    `Requirements: linked=${summary.linkedRequirementIds.length} unlinked=${summary.unlinkedRequirementIds.length}`,
+  ];
+  if (summary.missingTaskIds.length > 0) lines.push(`Missing tasks: ${summary.missingTaskIds.join(", ")}`);
+  if (summary.planUnlinkedTaskIds.length > 0) lines.push(`Plan tasks without PRD refs: ${summary.planUnlinkedTaskIds.join(", ")}`);
+  if (summary.unlinkedRequirementIds.length > 0) lines.push(`Unlinked requirements: ${summary.unlinkedRequirementIds.join(", ")}`);
+  return lines.join("\n");
 }
 
 export async function createExecutionPlanSnapshot(

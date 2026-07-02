@@ -5,10 +5,13 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
   createExecutionPlanSnapshot,
+  formatExecutionPlanSummary,
   loadExecutionPlan,
   saveExecutionPlan,
+  summarizeExecutionPlan,
   validateExecutionPlan,
 } from "../src/plans.js";
+import { createDefaultState } from "../src/state.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-plans-test-"));
@@ -83,6 +86,43 @@ test("validateExecutionPlan rejects duplicate task ids and invalid status", () =
     }),
     /Invalid execution plan status/,
   );
+});
+
+test("summarizeExecutionPlan reports task and requirement coverage", () => {
+  const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+  state.tasks = [
+    { id: "T-001", status: "validated", prdRefs: ["REQ-001"], updatedAt: state.createdAt },
+    { id: "T-003", status: "ready", updatedAt: state.createdAt },
+  ];
+  const summary = summarizeExecutionPlan(
+    {
+      version: 1,
+      planVersion: 2,
+      status: "active",
+      tasks: [
+        { id: "T-001", title: "One", prdRefs: ["REQ-001"] },
+        { id: "T-002", title: "Two", prdRefs: ["REQ-002"] },
+        { id: "T-003", title: "Three" },
+      ],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    },
+    { version: 1, requirements: [
+      { id: "REQ-001", statement: "One", createdAt: state.createdAt, updatedAt: state.createdAt },
+      { id: "REQ-002", statement: "Two", createdAt: state.createdAt, updatedAt: state.createdAt },
+      { id: "REQ-003", statement: "Three", createdAt: state.createdAt, updatedAt: state.createdAt },
+    ] },
+    state,
+  );
+
+  assert.equal(summary.plannedTaskCount, 3);
+  assert.equal(summary.createdTaskCount, 2);
+  assert.deepEqual(summary.missingTaskIds, ["T-002"]);
+  assert.equal(summary.validatedPlannedTaskCount, 1);
+  assert.deepEqual(summary.linkedRequirementIds, ["REQ-001", "REQ-002"]);
+  assert.deepEqual(summary.unlinkedRequirementIds, ["REQ-003"]);
+  assert.deepEqual(summary.planUnlinkedTaskIds, ["T-003"]);
+  assert.match(formatExecutionPlanSummary(summary), /missing=1/);
 });
 
 test("createExecutionPlanSnapshot writes incrementing version files", async () => {
