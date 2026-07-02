@@ -53,7 +53,14 @@ export function resolveContext(input: ContextResolverInput): ResolvedContext {
     used += itemTokens;
   }
 
-  const text = [buildHeader(input), ...included.map(formatContextItem)].join("\n\n");
+  const sections = [buildHeader(input), ...included.map(formatContextItem)];
+  if (omitted.length > 0) {
+    const omittedSummary = formatOmittedContextSummary(omitted);
+    sections.push(omittedSummary);
+    used += estimateTokens(omittedSummary);
+  }
+
+  const text = sections.join("\n\n");
   return { text, included, omitted, estimatedTokens: used };
 }
 
@@ -66,6 +73,14 @@ export function formatContextItem(item: ContextItem): string {
     `Reason: ${item.reason}`,
     "",
     item.content,
+  ].join("\n");
+}
+
+export function formatOmittedContextSummary(items: ContextItem[]): string {
+  return [
+    "## Omitted Context",
+    "The following context items were omitted due to the token budget. Request them explicitly if needed.",
+    ...items.map((item) => `- ${item.id}: ${item.reason} (${item.type}, ${item.priority}, ${item.scope})`),
   ].join("\n");
 }
 

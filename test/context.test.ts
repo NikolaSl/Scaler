@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { estimateTokens, resolveContext } from "../src/context.js";
+import { estimateTokens, formatOmittedContextSummary, resolveContext } from "../src/context.js";
 import { createDefaultState } from "../src/state.js";
 
 test("estimateTokens returns rough character based estimate", () => {
@@ -59,6 +59,26 @@ test("resolveContext omits optional items over budget", () => {
 
   assert.deepEqual(result.included.map((item) => item.id), ["REQ-1"]);
   assert.deepEqual(result.omitted.map((item) => item.id), ["OPT-1"]);
+  assert.match(result.text, /## Omitted Context/);
+  assert.match(result.text, /OPT-1: Optional/);
+});
+
+test("resolveContext omits omitted section when nothing was omitted", () => {
+  const state = createDefaultState();
+  const result = resolveContext({
+    state,
+    items: [{ id: "REQ-1", type: "prd", reason: "Required", content: "Required item", priority: "required", scope: "summary" }],
+  });
+
+  assert.doesNotMatch(result.text, /## Omitted Context/);
+});
+
+test("formatOmittedContextSummary renders ids and reasons", () => {
+  const summary = formatOmittedContextSummary([
+    { id: "OPT-1", type: "memory", reason: "Too large", content: "x", priority: "optional", scope: "summary" },
+  ]);
+
+  assert.match(summary, /OPT-1: Too large \(memory, optional, summary\)/);
 });
 
 test("resolveContext orders by priority", () => {
