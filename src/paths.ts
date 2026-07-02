@@ -77,3 +77,27 @@ export function getValidationManifestsPath(cwd: string): string {
 export function getValidationRunsPath(cwd: string): string {
   return join(getReportsDir(cwd), "validation-runs.json");
 }
+
+export function getPrdDir(cwd: string): string {
+  return join(getScalerDir(cwd), "prd");
+}
+
+export function getCurrentPrdPath(cwd: string): string {
+  return join(getPrdDir(cwd), "current.md");
+}
+
+export function getPrdRequirementsPath(cwd: string): string {
+  return join(getPrdDir(cwd), "requirements.json");
+}
+
+export function getPrdCoveragePath(cwd: string): string {
+  return join(getPrdDir(cwd), "coverage.json");
+}
+
+export function getPrdChangesPath(cwd: string): string {
+  return join(getPrdDir(cwd), "changes.jsonl");
+}
+
+export function getPrdVersionsDir(cwd: string): string {
+  return join(getPrdDir(cwd), "versions");
+}
