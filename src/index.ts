@@ -27,14 +27,17 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   registerScalerTools(pi);
 
   pi.on("tool_call", async (event, ctx) => {
-    const decision = assessToolCallSafety({
-      toolName: event.toolName,
-      input: event.input as Record<string, unknown>,
-    });
+    const state = await ensureState(ctx.cwd);
+    const currentTask = state.currentTaskId ? state.tasks.find((task) => task.id === state.currentTaskId) : undefined;
+    const decision = assessToolCallSafety(
+      {
+        toolName: event.toolName,
+        input: event.input as Record<string, unknown>,
+      },
+      { allowedPathPrefixes: currentTask?.allowedPathPrefixes },
+    );
 
     if (decision.allowed) return undefined;
-
-    const state = await ensureState(ctx.cwd);
     await appendLogEvent(
       ctx.cwd,
       createLogEvent(state, {

@@ -12,6 +12,10 @@ export interface ToolCallLike {
   input: Record<string, unknown>;
 }
 
+export interface SafetyPolicy {
+  allowedPathPrefixes?: string[];
+}
+
 const protectedPathPatterns = [
   /(^|\/)\.env(\.|$|\/)?/i,
   /(^|\/)\.git(\/|$)/i,
@@ -42,12 +46,21 @@ const destructiveCommandPatterns = [
   /\bkubectl\s+delete\b/i,
 ];
 
-export function assessToolCallSafety(toolCall: ToolCallLike): SafetyDecision {
+export function assessToolCallSafety(toolCall: ToolCallLike, policy: SafetyPolicy = {}): SafetyDecision {
   if ((toolCall.toolName === "write" || toolCall.toolName === "edit") && hasProtectedPath(toolCall.input)) {
     return {
       allowed: false,
       risk: "secret",
       reason: "Write/edit targets a protected path.",
+      requiresApproval: true,
+    };
+  }
+
+  if ((toolCall.toolName === "write" || toolCall.toolName === "edit") && !isAllowedPathTarget(toolCall.input, policy.allowedPathPrefixes)) {
+    return {
+      allowed: false,
+      risk: "medium",
+      reason: "Write/edit target is outside the current task allowed paths.",
       requiresApproval: true,
     };
   }
@@ -99,4 +112,23 @@ function hasProtectedPath(input: Record<string, unknown>): boolean {
 function getCommand(input: Record<string, unknown>): string | undefined {
   const command = input.command;
   return typeof command === "string" ? command : undefined;
+}
+
+function isAllowedPathTarget(input: Record<string, unknown>, allowedPathPrefixes: string[] | undefined): boolean {
+  const prefixes = normalizePathPrefixes(allowedPathPrefixes);
+  if (prefixes.length === 0) return true;
+  const target = normalizePath(getToolCallTarget(input));
+  if (!target) return true;
+  return prefixes.some((prefix) => target === prefix || target.startsWith(`${prefix}/`));
+}
+
+function normalizePathPrefixes(paths: string[] | undefined): string[] {
+  return (paths ?? [])
+    .map((path) => normalizePath(path))
+    .filter((path): path is string => Boolean(path));
+}
+
+function normalizePath(path: string | undefined): string | undefined {
+  if (!path) return undefined;
+  return path.trim().replace(/^\.\//, "").replace(/\/+$/, "");
 }

@@ -38,6 +38,31 @@ test("blocks bash command that references protected nested path", () => {
   assert.equal(decision.risk, "secret");
 });
 
+test("allows write inside explicit allowed path", () => {
+  const decision = assessToolCallSafety(
+    { toolName: "write", input: { path: "src/index.ts" } },
+    { allowedPathPrefixes: ["src", "test"] },
+  );
+
+  assert.equal(decision.allowed, true);
+});
+
+test("blocks write outside explicit allowed path", () => {
+  const decision = assessToolCallSafety(
+    { toolName: "edit", input: { path: "docs/readme.md" } },
+    { allowedPathPrefixes: ["src", "test"] },
+  );
+
+  assert.equal(decision.allowed, false);
+  assert.equal(decision.risk, "medium");
+});
+
+test("allows write when no explicit allowed path policy exists", () => {
+  const decision = assessToolCallSafety({ toolName: "write", input: { path: "docs/readme.md" } });
+
+  assert.equal(decision.allowed, true);
+});
+
 test("blocks destructive rm command", () => {
   const decision = assessToolCallSafety({ toolName: "bash", input: { command: "rm -rf build" } });
 
