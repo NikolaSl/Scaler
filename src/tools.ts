@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { incrementBudgetUsage, persistBudgetDecision, type BudgetUsageKey } from "./budgets.js";
 import { recordDebugAttempt } from "./debug.js";
+import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { createLogEvent, appendLogEvent } from "./logging.js";
 import { retrieveMemory, writeMemory } from "./memory.js";
 import { ingestReport } from "./reports.js";
@@ -364,12 +365,29 @@ export async function prepareOrRunSpawnTask(
     };
   }
 
-  const runResult: TaskAgentRunResult = await runner(request, { signal, timeoutMs: params.timeoutMs });
-  return {
-    text: `Task spawn executed: ${params.taskId} exit=${runResult.exitCode}`,
-    summary: `Task spawn executed: ${params.taskId}`,
-    details: { status: runResult.exitCode === 0 ? "executed" : "failed", invocation, result: runResult },
-  };
+  const lock = await acquireExecutionLock(cwd, {
+    operation: "spawn_task_execute",
+    taskId: params.taskId,
+    reason: "scaler_spawn_task execute requested.",
+  });
+  if (!lock.acquired) {
+    return {
+      text: lock.message,
+      summary: `Task spawn refused: ${params.taskId}`,
+      details: { status: "locked", invocation, existingLock: lock.existingLock },
+    };
+  }
+
+  try {
+    const runResult: TaskAgentRunResult = await runner(request, { signal, timeoutMs: params.timeoutMs });
+    return {
+      text: `Task spawn executed: ${params.taskId} exit=${runResult.exitCode}`,
+      summary: `Task spawn executed: ${params.taskId}`,
+      details: { status: runResult.exitCode === 0 ? "executed" : "failed", invocation, result: runResult },
+    };
+  } finally {
+    await releaseExecutionLock(cwd, lock.lock.id);
+  }
 }
 
 async function logTool(cwd: string, toolName: ScalerToolName, summary: string, details: unknown): Promise<void> {

@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { writeCheckpoint } from "./checkpoints.js";
 import { resolveContext, type ContextItem, type ResolvedContext } from "./context.js";
+import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { getTaskAgentRunsPath, getValidationHandoffsPath } from "./paths.js";
 import { saveState } from "./state.js";
@@ -135,11 +136,22 @@ export async function runConductorStep(
     return { accepted: false, message: selection.reason, state };
   }
 
-  let nextState = state;
-  if (selection.promotePending) {
+  const lock = await acquireExecutionLock(cwd, {
+    operation: options.execute ? "conductor_execute" : "conductor_prepare",
+    taskId: selection.task.id,
+    reason: selection.reason,
+  });
+  if (!lock.acquired) {
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "system", summary: lock.message, taskId: selection.task.id }));
+    return { accepted: false, message: lock.message, state };
+  }
+
+  try {
+    let nextState = state;
+    if (selection.promotePending) {
     nextState = transitionTask(nextState, selection.task.id, "ready", { reason: "Conductor selected pending task." });
   }
-  nextState = transitionTask(nextState, selection.task.id, "running", { reason: "Conductor started task." });
+    nextState = transitionTask(nextState, selection.task.id, "running", { reason: "Conductor started task." });
   await saveState(cwd, nextState);
 
   const runningTask = nextState.tasks.find((task) => task.id === selection.task!.id)!;
@@ -173,17 +185,20 @@ export async function runConductorStep(
   );
   const checkpoint = await writeCheckpoint(cwd, finalState, `conductor-step-${runningTask.id}`, selection.reason);
 
-  return {
-    accepted: true,
-    message: `${options.execute ? "Executed" : "Prepared"} task ${runningTask.id}`,
-    state: checkpoint.state,
-    task: runningTask,
-    prompt,
-    invocation,
-    runResult,
-    checkpointPath: checkpoint.path,
-    validationHandoff: handoff?.record,
-  };
+    return {
+      accepted: true,
+      message: `${options.execute ? "Executed" : "Prepared"} task ${runningTask.id}`,
+      state: checkpoint.state,
+      task: runningTask,
+      prompt,
+      invocation,
+      runResult,
+      checkpointPath: checkpoint.path,
+      validationHandoff: handoff?.record,
+    };
+  } finally {
+    await releaseExecutionLock(cwd, lock.lock.id);
+  }
 }
 
 export function formatTaskAgentRunList(records: TaskAgentRunRecord[], taskId?: string, limit = 10): string {

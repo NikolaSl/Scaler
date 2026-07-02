@@ -14,6 +14,7 @@ import {
   runConductorStep,
   selectNextTask,
 } from "../src/conductor.js";
+import { acquireExecutionLock, loadExecutionLock } from "../src/locks.js";
 import { createDefaultState, loadState } from "../src/state.js";
 import type { ScalerTaskStatus } from "../src/types.js";
 
@@ -119,6 +120,30 @@ test("buildTaskAgentPrompt includes task metadata and report instructions", () =
   assert.match(result.prompt, /Do not run destructive commands/);
   assert.match(result.prompt, /Required final report/);
   assert.match(result.prompt, /Widget must render labels/);
+});
+
+test("runConductorStep refuses when execution lock is held", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    await acquireExecutionLock(dir, { operation: "other", taskId: "T-999" });
+
+    const result = await runConductorStep(dir, state);
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /Execution lock held/);
+    assert.equal((await loadExecutionLock(dir))?.taskId, "T-999");
+  });
+});
+
+test("runConductorStep releases execution lock after prepare", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+
+    const result = await runConductorStep(dir, state);
+
+    assert.equal(result.accepted, true);
+    assert.equal(await loadExecutionLock(dir), undefined);
+  });
 });
 
 test("runConductorStep prepares selected task and writes checkpoint", async () => {
