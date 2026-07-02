@@ -103,6 +103,10 @@ test("buildTaskAgentPrompt includes task metadata and report instructions", () =
   assert.match(result.prompt, /Current task status: ready/);
   assert.match(result.prompt, /Allowed paths: src, test/);
   assert.match(result.prompt, /Dependencies: T-000/);
+  assert.match(result.prompt, /Safety and scope/);
+  assert.match(result.prompt, /read\/write\/edit only files under those paths/);
+  assert.match(result.prompt, /Do not read or modify protected paths/);
+  assert.match(result.prompt, /Do not run destructive commands/);
   assert.match(result.prompt, /Required final report/);
   assert.match(result.prompt, /Widget must render labels/);
 });
