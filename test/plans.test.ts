@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
+  applyExecutionPlanTasks,
   createExecutionPlanSnapshot,
   formatExecutionPlanSummary,
   loadExecutionPlan,
@@ -86,6 +87,33 @@ test("validateExecutionPlan rejects duplicate task ids and invalid status", () =
     }),
     /Invalid execution plan status/,
   );
+});
+
+test("applyExecutionPlanTasks creates missing tasks and preserves existing tasks", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.tasks = [{ id: "T-001", title: "Existing", status: "ready", updatedAt: state.createdAt }];
+    const result = await applyExecutionPlanTasks(dir, state, {
+      version: 1,
+      planVersion: 1,
+      status: "active",
+      tasks: [
+        { id: "T-001", title: "Existing changed" },
+        { id: "T-002", title: "New task", prdRefs: ["REQ-001"], allowedPathPrefixes: ["src"], dependsOn: ["T-001"] },
+      ],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    assert.deepEqual(result.existingTaskIds, ["T-001"]);
+    assert.deepEqual(result.createdTaskIds, ["T-002"]);
+    assert.equal(result.state.tasks.find((task) => task.id === "T-001")?.title, "Existing");
+    const created = result.state.tasks.find((task) => task.id === "T-002");
+    assert.equal(created?.status, "pending");
+    assert.deepEqual(created?.prdRefs, ["REQ-001"]);
+    assert.deepEqual(created?.allowedPathPrefixes, ["src"]);
+    assert.deepEqual(created?.dependsOn, ["T-001"]);
+  });
 });
 
 test("summarizeExecutionPlan reports task and requirement coverage", () => {

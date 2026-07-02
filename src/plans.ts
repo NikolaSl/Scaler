@@ -6,6 +6,7 @@ import {
   getExecutionPlanVersionsDir,
 } from "./paths.js";
 import type { RuntimePrdRequirementsFile } from "./prd.js";
+import { createTask } from "./tasks.js";
 import type { ScalerState } from "./types.js";
 
 export const executionPlanStatuses = ["draft", "active", "superseded", "completed"] as const;
@@ -30,6 +31,14 @@ export interface ExecutionPlanArtifact {
   tasks: ExecutionPlanTask[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ExecutionPlanApplyResult {
+  state: ScalerState;
+  createdTaskIds: string[];
+  existingTaskIds: string[];
+  rejectedTaskIds: string[];
+  message: string;
 }
 
 export interface ExecutionPlanSummary {
@@ -97,6 +106,44 @@ export async function saveExecutionPlan(cwd: string, plan: ExecutionPlanArtifact
   await mkdir(getExecutionPlansDir(cwd), { recursive: true });
   await writeFile(getCurrentExecutionPlanPath(cwd), `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
   return normalized;
+}
+
+export async function applyExecutionPlanTasks(
+  cwd: string,
+  state: ScalerState,
+  plan: ExecutionPlanArtifact,
+): Promise<ExecutionPlanApplyResult> {
+  validateExecutionPlan(plan);
+  let nextState = state;
+  const createdTaskIds: string[] = [];
+  const existingTaskIds: string[] = [];
+  const rejectedTaskIds: string[] = [];
+
+  for (const task of plan.tasks) {
+    if (nextState.tasks.some((candidate) => candidate.id === task.id)) {
+      existingTaskIds.push(task.id);
+      continue;
+    }
+
+    const result = await createTask(cwd, nextState, {
+      id: task.id,
+      title: task.title,
+      allowedPathPrefixes: task.allowedPathPrefixes,
+      dependsOn: task.dependsOn,
+      prdRefs: task.prdRefs,
+    });
+    nextState = result.state;
+    if (result.accepted) createdTaskIds.push(task.id);
+    else rejectedTaskIds.push(task.id);
+  }
+
+  return {
+    state: nextState,
+    createdTaskIds,
+    existingTaskIds,
+    rejectedTaskIds,
+    message: `Plan apply: created=${createdTaskIds.length} existing=${existingTaskIds.length} rejected=${rejectedTaskIds.length}`,
+  };
 }
 
 export function summarizeExecutionPlan(
