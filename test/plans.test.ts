@@ -6,7 +6,9 @@ import { test } from "node:test";
 import {
   appendReplanRequest,
   applyExecutionPlanTasks,
+  checkExecutionPlanPreservation,
   createExecutionPlanSnapshot,
+  formatExecutionPlanPreservationCheck,
   formatExecutionPlanSummary,
   formatReplanRequests,
   loadExecutionPlan,
@@ -155,6 +157,75 @@ test("summarizeExecutionPlan reports task and requirement coverage", () => {
   assert.deepEqual(summary.unlinkedRequirementIds, ["REQ-003"]);
   assert.deepEqual(summary.planUnlinkedTaskIds, ["T-003"]);
   assert.match(formatExecutionPlanSummary(summary), /missing=1/);
+});
+
+test("checkExecutionPlanPreservation reports dropped validated tasks and coverage", () => {
+  const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+  state.tasks = [
+    { id: "T-001", status: "validated", prdRefs: ["REQ-001"], updatedAt: state.createdAt },
+    { id: "T-002", status: "ready", prdRefs: ["REQ-002"], updatedAt: state.createdAt },
+  ];
+  const currentPlan = {
+    version: 1 as const,
+    planVersion: 1,
+    status: "active" as const,
+    tasks: [
+      { id: "T-001", title: "One", prdRefs: ["REQ-001"] },
+      { id: "T-002", title: "Two", prdRefs: ["REQ-002"] },
+    ],
+    createdAt: state.createdAt,
+    updatedAt: state.createdAt,
+  };
+  const nextPlan = {
+    version: 1 as const,
+    planVersion: 2,
+    status: "active" as const,
+    tasks: [
+      { id: "T-002", title: "Two", prdRefs: ["REQ-002"] },
+      { id: "T-003", title: "Three" },
+    ],
+    createdAt: state.createdAt,
+    updatedAt: state.createdAt,
+  };
+
+  const check = checkExecutionPlanPreservation(currentPlan, nextPlan, {
+    version: 1,
+    requirements: [
+      { id: "REQ-001", statement: "One", createdAt: state.createdAt, updatedAt: state.createdAt },
+      { id: "REQ-002", statement: "Two", createdAt: state.createdAt, updatedAt: state.createdAt },
+      { id: "REQ-003", statement: "Three", createdAt: state.createdAt, updatedAt: state.createdAt },
+    ],
+  }, state);
+
+  assert.equal(check.ok, false);
+  assert.deepEqual(check.droppedValidatedTaskIds, ["T-001"]);
+  assert.deepEqual(check.droppedValidatedRequirementIds, ["REQ-001"]);
+  assert.deepEqual(check.unlinkedRequirementIds, ["REQ-001", "REQ-003"]);
+  assert.deepEqual(check.planUnlinkedTaskIds, ["T-003"]);
+  assert.match(formatExecutionPlanPreservationCheck(check), /Plan preservation: blocked/);
+});
+
+test("checkExecutionPlanPreservation passes when validated tasks and requirements remain linked", () => {
+  const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+  state.tasks = [{ id: "T-001", status: "validated", prdRefs: ["REQ-001"], updatedAt: state.createdAt }];
+  const currentPlan = {
+    version: 1 as const,
+    planVersion: 1,
+    status: "active" as const,
+    tasks: [{ id: "T-001", title: "One", prdRefs: ["REQ-001"] }],
+    createdAt: state.createdAt,
+    updatedAt: state.createdAt,
+  };
+  const nextPlan = { ...currentPlan, planVersion: 2 };
+
+  const check = checkExecutionPlanPreservation(currentPlan, nextPlan, {
+    version: 1,
+    requirements: [{ id: "REQ-001", statement: "One", createdAt: state.createdAt, updatedAt: state.createdAt }],
+  }, state);
+
+  assert.equal(check.ok, true);
+  assert.deepEqual(check.preservedValidatedTaskIds, ["T-001"]);
+  assert.deepEqual(check.preservedValidatedRequirementIds, ["REQ-001"]);
 });
 
 test("loadReplanRequests returns empty default when missing", async () => {

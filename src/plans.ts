@@ -73,6 +73,16 @@ export interface ReplanRequest {
   updatedAt: string;
 }
 
+export interface ExecutionPlanPreservationCheck {
+  ok: boolean;
+  preservedValidatedTaskIds: string[];
+  droppedValidatedTaskIds: string[];
+  preservedValidatedRequirementIds: string[];
+  droppedValidatedRequirementIds: string[];
+  unlinkedRequirementIds: string[];
+  planUnlinkedTaskIds: string[];
+}
+
 export interface ReplanRequestInput {
   id?: string;
   status?: ReplanRequestStatus | string;
@@ -215,6 +225,57 @@ export function formatExecutionPlanSummary(summary: ExecutionPlanSummary): strin
   if (summary.missingTaskIds.length > 0) lines.push(`Missing tasks: ${summary.missingTaskIds.join(", ")}`);
   if (summary.planUnlinkedTaskIds.length > 0) lines.push(`Plan tasks without PRD refs: ${summary.planUnlinkedTaskIds.join(", ")}`);
   if (summary.unlinkedRequirementIds.length > 0) lines.push(`Unlinked requirements: ${summary.unlinkedRequirementIds.join(", ")}`);
+  return lines.join("\n");
+}
+
+export function checkExecutionPlanPreservation(
+  currentPlan: ExecutionPlanArtifact,
+  nextPlan: ExecutionPlanArtifact,
+  requirements: RuntimePrdRequirementsFile,
+  state: ScalerState,
+): ExecutionPlanPreservationCheck {
+  validateExecutionPlan(currentPlan);
+  validateExecutionPlan(nextPlan);
+  const currentPlanTaskIds = new Set(currentPlan.tasks.map((task) => task.id));
+  const nextPlanTaskIds = new Set(nextPlan.tasks.map((task) => task.id));
+  const nextPlanRequirementIds = new Set(nextPlan.tasks.flatMap((task) => task.prdRefs ?? []));
+  const knownRequirementIds = requirements.requirements.map((requirement) => requirement.id);
+  const validatedPlanTasks = state.tasks.filter((task) => task.status === "validated" && currentPlanTaskIds.has(task.id));
+  const validatedRequirementIds = [
+    ...new Set(
+      validatedPlanTasks
+        .flatMap((task) => task.prdRefs ?? [])
+        .filter((id) => knownRequirementIds.includes(id)),
+    ),
+  ];
+
+  const droppedValidatedTaskIds = validatedPlanTasks.filter((task) => !nextPlanTaskIds.has(task.id)).map((task) => task.id);
+  const droppedValidatedRequirementIds = validatedRequirementIds.filter((id) => !nextPlanRequirementIds.has(id));
+  const unlinkedRequirementIds = knownRequirementIds.filter((id) => !nextPlanRequirementIds.has(id));
+  const planUnlinkedTaskIds = nextPlan.tasks.filter((task) => !task.prdRefs || task.prdRefs.length === 0).map((task) => task.id);
+
+  return {
+    ok: droppedValidatedTaskIds.length === 0 && droppedValidatedRequirementIds.length === 0 && unlinkedRequirementIds.length === 0,
+    preservedValidatedTaskIds: validatedPlanTasks.filter((task) => nextPlanTaskIds.has(task.id)).map((task) => task.id),
+    droppedValidatedTaskIds,
+    preservedValidatedRequirementIds: validatedRequirementIds.filter((id) => nextPlanRequirementIds.has(id)),
+    droppedValidatedRequirementIds,
+    unlinkedRequirementIds,
+    planUnlinkedTaskIds,
+  };
+}
+
+export function formatExecutionPlanPreservationCheck(check: ExecutionPlanPreservationCheck): string {
+  const lines = [
+    `Plan preservation: ${check.ok ? "ok" : "blocked"}`,
+    `Validated tasks: preserved=${check.preservedValidatedTaskIds.length} dropped=${check.droppedValidatedTaskIds.length}`,
+    `Validated requirements: preserved=${check.preservedValidatedRequirementIds.length} dropped=${check.droppedValidatedRequirementIds.length}`,
+    `Runtime requirements: unlinked=${check.unlinkedRequirementIds.length}`,
+  ];
+  if (check.droppedValidatedTaskIds.length > 0) lines.push(`Dropped validated tasks: ${check.droppedValidatedTaskIds.join(", ")}`);
+  if (check.droppedValidatedRequirementIds.length > 0) lines.push(`Dropped validated requirements: ${check.droppedValidatedRequirementIds.join(", ")}`);
+  if (check.unlinkedRequirementIds.length > 0) lines.push(`Unlinked requirements: ${check.unlinkedRequirementIds.join(", ")}`);
+  if (check.planUnlinkedTaskIds.length > 0) lines.push(`Plan tasks without PRD refs: ${check.planUnlinkedTaskIds.join(", ")}`);
   return lines.join("\n");
 }
 
