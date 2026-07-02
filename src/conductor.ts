@@ -46,6 +46,8 @@ export interface TaskAgentRunRecord {
   exitCode: number;
   stdoutEventCount: number;
   stderrSummary: string;
+  timedOut: boolean;
+  aborted: boolean;
   createdAt: string;
 }
 
@@ -202,6 +204,8 @@ export async function recordTaskAgentRun(cwd: string, runResult: TaskAgentRunRes
     exitCode: runResult.exitCode,
     stdoutEventCount: runResult.stdoutEvents.length,
     stderrSummary: summarizeOutput(runResult.stderr),
+    timedOut: runResult.timedOut,
+    aborted: runResult.aborted,
     createdAt: now.toISOString(),
   };
   await writeTaskAgentRuns(cwd, [record, ...(await loadTaskAgentRunRecords(cwd))]);

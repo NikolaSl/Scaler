@@ -148,6 +148,8 @@ test("runConductorStep executes task with injected runner", async () => {
         exitCode: options?.timeoutMs === 123 ? 0 : 1,
         stdoutEvents: [{ type: "done" }],
         stderr: "",
+        timedOut: false,
+        aborted: false,
       }),
     );
 
@@ -162,6 +164,8 @@ test("runConductorStep executes task with injected runner", async () => {
     assert.equal(handoffs[0]?.status, "validation_required");
     assert.equal(runs[0]?.status, "passed");
     assert.equal(runs[0]?.stdoutEventCount, 1);
+    assert.equal(runs[0]?.timedOut, false);
+    assert.equal(runs[0]?.aborted, false);
   });
 });
 
@@ -178,6 +182,8 @@ test("runConductorStep records failed task-agent validation handoff", async () =
         exitCode: 2,
         stdoutEvents: [],
         stderr: "boom",
+        timedOut: false,
+        aborted: false,
       }),
     );
     const persisted = await loadState(dir);
@@ -199,9 +205,13 @@ test("recordTaskAgentRun truncates stderr summaries", async () => {
       exitCode: 1,
       stdoutEvents: [],
       stderr: "x".repeat(1_010),
+      timedOut: true,
+      aborted: false,
     });
 
     assert.equal(record.status, "failed");
+    assert.equal(record.timedOut, true);
+    assert.equal(record.aborted, false);
     assert.match(record.stderrSummary, /truncated 10 chars/);
   });
 });

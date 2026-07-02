@@ -21,6 +21,8 @@ export interface TaskAgentRunResult {
   exitCode: number;
   stdoutEvents: unknown[];
   stderr: string;
+  timedOut: boolean;
+  aborted: boolean;
 }
 
 export interface RunTaskAgentOptions {
@@ -75,6 +77,8 @@ export async function runTaskAgent(
     let stderr = "";
     let settled = false;
     let timeout: NodeJS.Timeout | undefined;
+    let timedOut = false;
+    let aborted = false;
 
     const settle = (result: TaskAgentRunResult): void => {
       if (settled) return;
@@ -115,10 +119,12 @@ export async function runTaskAgent(
         exitCode: code ?? 0,
         stdoutEvents,
         stderr,
+        timedOut,
+        aborted,
       });
     });
 
-    const abort = (): void => {
+    const terminate = (): void => {
       child.kill("SIGTERM");
       setTimeout(() => {
         if (!child.killed) child.kill("SIGKILL");
@@ -126,14 +132,19 @@ export async function runTaskAgent(
     };
 
     if (options.signal) {
+      const abort = (): void => {
+        aborted = true;
+        terminate();
+      };
       if (options.signal.aborted) abort();
       else options.signal.addEventListener("abort", abort, { once: true });
     }
 
     if (options.timeoutMs && options.timeoutMs > 0) {
       timeout = setTimeout(() => {
+        timedOut = true;
         stderr += `\nTask agent timed out after ${options.timeoutMs}ms.`;
-        abort();
+        terminate();
       }, options.timeoutMs);
     }
   });
