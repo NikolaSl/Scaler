@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
+import { retrieveMemory } from "./memory.js";
 import { getTaskContextManifestPath } from "./paths.js";
+import { getValidationManifestForTask } from "./validation.js";
 import type { ScalerState } from "./types.js";
 
 export type ContextItemType = "prd" | "knowledge" | "memory" | "file" | "task_report" | "validation" | "tool" | "decision";
@@ -180,6 +182,94 @@ export function formatTaskContextManifest(manifest: TaskContextManifest): string
     lines.push(`- ${item.id}: ${item.source}/${item.type} ${item.priority} ${item.scope} reason=${item.reason}`);
   }
   return lines.join("\n");
+}
+
+export async function resolveTaskContextManifest(
+  cwd: string,
+  state: ScalerState,
+  manifest: TaskContextManifest,
+): Promise<ContextItem[]> {
+  validateTaskContextManifest(manifest);
+  const items: ContextItem[] = [];
+  for (const entry of manifest.items) {
+    items.push(await resolveManifestItem(cwd, state, manifest, entry));
+  }
+  return items;
+}
+
+async function resolveManifestItem(
+  cwd: string,
+  state: ScalerState,
+  manifest: TaskContextManifest,
+  entry: TaskContextManifestItem,
+): Promise<ContextItem> {
+  try {
+    return {
+      id: entry.id,
+      type: entry.type,
+      reason: entry.reason,
+      priority: entry.priority,
+      scope: entry.scope,
+      content: await resolveManifestItemContent(cwd, state, manifest, entry),
+    };
+  } catch (error) {
+    return {
+      id: entry.id,
+      type: entry.type,
+      reason: `${entry.reason} (missing: ${(error as Error).message})`,
+      priority: entry.priority === "required" ? "required" : "optional",
+      scope: "reference-only",
+      content: `MISSING CONTEXT: ${entry.id}\nSource: ${entry.source}\nReason: ${(error as Error).message}`,
+    };
+  }
+}
+
+async function resolveManifestItemContent(
+  cwd: string,
+  state: ScalerState,
+  manifest: TaskContextManifest,
+  entry: TaskContextManifestItem,
+): Promise<string> {
+  if (entry.source === "inline") return entry.content ?? "";
+  if (entry.source === "file") return await readFile(resolveContextPath(cwd, entry.path!), "utf8");
+  if (entry.source === "memory") return (await retrieveMemory(cwd, entry.memoryId!)).content;
+  if (entry.source === "state") return formatStateContext(state);
+  if (entry.source === "task") return formatTaskContext(state, entry.taskId ?? manifest.taskId);
+  if (entry.source === "prd_refs") return formatPrdRefsContext(state, entry.taskId ?? manifest.taskId);
+  if (entry.source === "validation_manifest") {
+    const validationManifest = await getValidationManifestForTask(cwd, entry.taskId ?? manifest.taskId);
+    return JSON.stringify(validationManifest, null, 2);
+  }
+  return "";
+}
+
+function resolveContextPath(cwd: string, path: string): string {
+  return isAbsolute(path) ? path : join(cwd, path);
+}
+
+function formatStateContext(state: ScalerState): string {
+  return JSON.stringify({
+    runId: state.runId,
+    stage: state.stage,
+    currentTaskId: state.currentTaskId,
+    taskCount: state.tasks.length,
+    validatedTaskIds: state.validatedTaskIds,
+    blockers: state.blockers,
+    memoryRefs: state.memoryRefs,
+  }, null, 2);
+}
+
+function formatTaskContext(state: ScalerState, taskId: string): string {
+  const task = state.tasks.find((candidate) => candidate.id === taskId);
+  if (!task) throw new Error(`Task not found: ${taskId}`);
+  return JSON.stringify(task, null, 2);
+}
+
+function formatPrdRefsContext(state: ScalerState, taskId: string): string {
+  const task = state.tasks.find((candidate) => candidate.id === taskId);
+  if (!task) throw new Error(`Task not found: ${taskId}`);
+  const refs = task.prdRefs ?? [];
+  return refs.length > 0 ? `Runtime PRD refs for ${taskId}: ${refs.join(", ")}` : `Runtime PRD refs for ${taskId}: none`;
 }
 
 function validateTaskContextManifestItem(item: TaskContextManifestItem, ids: Set<string>): void {

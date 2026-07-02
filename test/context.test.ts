@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -11,10 +11,13 @@ import {
   formatTaskContextManifest,
   loadTaskContextManifest,
   resolveContext,
+  resolveTaskContextManifest,
   saveTaskContextManifest,
   validateTaskContextManifest,
 } from "../src/context.js";
+import { writeMemory } from "../src/memory.js";
 import { createDefaultState } from "../src/state.js";
+import { saveValidationManifest } from "../src/validation.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-context-test-"));
@@ -159,6 +162,62 @@ test("ensureTaskContextManifest creates default manifest when missing", async ()
     const manifest = await ensureTaskContextManifest(dir, state, "T-001");
     assert.equal(manifest.taskId, "T-001");
     assert.equal((await loadTaskContextManifest(dir, "T-001"))?.taskId, "T-001");
+  });
+});
+
+test("resolveTaskContextManifest resolves inline, file, memory, state, task, prd, and validation sources", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.tasks = [{ id: "T-001", status: "ready", title: "Do task", prdRefs: ["REQ-001"], updatedAt: state.createdAt }];
+    await writeFile(join(dir, "README.md"), "File context", "utf8");
+    const memory = await writeMemory(dir, { title: "Prior note", content: "Memory context", now: new Date("2026-01-01T00:00:01.000Z") });
+    await saveValidationManifest(dir, {
+      taskId: "T-001",
+      commands: [{ id: "test", command: "npm test", required: true }],
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    const items = await resolveTaskContextManifest(dir, state, {
+      version: 1,
+      taskId: "T-001",
+      items: [
+        { id: "inline", type: "decision", reason: "Inline", priority: "required", scope: "summary", source: "inline", content: "Inline context" },
+        { id: "file", type: "file", reason: "File", priority: "required", scope: "full", source: "file", path: "README.md" },
+        { id: "memory", type: "memory", reason: "Memory", priority: "useful", scope: "summary", source: "memory", memoryId: memory.id },
+        { id: "state", type: "decision", reason: "State", priority: "required", scope: "summary", source: "state" },
+        { id: "task", type: "task_report", reason: "Task", priority: "required", scope: "summary", source: "task" },
+        { id: "prd", type: "prd", reason: "PRD", priority: "useful", scope: "reference-only", source: "prd_refs" },
+        { id: "validation", type: "validation", reason: "Validation", priority: "useful", scope: "summary", source: "validation_manifest" },
+      ],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    assert.match(items.find((item) => item.id === "inline")?.content ?? "", /Inline context/);
+    assert.match(items.find((item) => item.id === "file")?.content ?? "", /File context/);
+    assert.match(items.find((item) => item.id === "memory")?.content ?? "", /Memory context/);
+    assert.match(items.find((item) => item.id === "state")?.content ?? "", /"stage": "idle"/);
+    assert.match(items.find((item) => item.id === "task")?.content ?? "", /"title": "Do task"/);
+    assert.match(items.find((item) => item.id === "prd")?.content ?? "", /REQ-001/);
+    assert.match(items.find((item) => item.id === "validation")?.content ?? "", /npm test/);
+  });
+});
+
+test("resolveTaskContextManifest preserves missing source entries as missing context", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    const items = await resolveTaskContextManifest(dir, state, {
+      version: 1,
+      taskId: "T-404",
+      items: [{ id: "task", type: "task_report", reason: "Task", priority: "required", scope: "summary", source: "task" }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    assert.equal(items[0]?.priority, "required");
+    assert.match(items[0]?.reason ?? "", /missing: Task not found: T-404/);
+    assert.match(items[0]?.content ?? "", /MISSING CONTEXT/);
   });
 });
 
