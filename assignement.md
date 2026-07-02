@@ -169,7 +169,12 @@ The initial plan is only the best plan available before empirical execution. The
 
 Replanning must preserve validated progress and update only what execution evidence shows should change.
 
-See `specs/replanning.md`.
+Scaler must maintain a runtime PRD ledger for active runs so replanning uses deterministic requirement records, task links, coverage state, PRD change history, and PRD version snapshots instead of relying on compressed conversation memory. The ledger should preserve the current polished PRD, stable requirement ids, coverage status, linked tasks, validation evidence references, and prior PRD versions.
+
+See:
+
+- `specs/replanning.md`
+- `specs/runtime-prd-ledger.md`
 
 ### 15. Safety, permissions, and secure development
 
@@ -209,6 +214,7 @@ This runs in a separate PRD agent. The agent receives user input and can work wi
 2. Review the resulting PRD for consistency.
 3. If there are contradictions, incomplete requirements, or unclear requirements/definitions, start a chat with the user to clarify them. Continue until all problems are resolved and compliant with the rest of the PRD.
 4. Finish with an updated and consistent polished PRD written to `agent-prd.md` in the main folder.
+5. Update the runtime PRD ledger with the polished PRD, stable requirement ids, and a change record.
 
 #### Stage II: Collect knowledge for PRD execution
 
@@ -233,7 +239,7 @@ This runs in an architect/planner agent. It uses Stage I and Stage II outputs to
 Each task in the plan should be:
 
 - Atomic and ordered for one-by-one execution.
-- Linked to the PRD requirement or knowledge data needed for completion.
+- Linked to the PRD requirement or knowledge data needed for completion, using runtime PRD requirement ids where available.
 - Clear about inputs, expected output, and constraints.
 - Defined with a Definition of Done so the execution engine can validate completion.
 

@@ -58,6 +58,7 @@ Status/coverage is tracked in `traceability-matrix.md`; this file only defines r
 | PRD-S28 | Commit each validated task with task id and avoid unrelated user changes, secrets, and runtime artifacts. | `specs/git-workflow.md` |
 | PRD-S29 | Implement SCALER as a Pi extension using commands, structured tools, hooks, subprocess agents, `.scaler/` state, and deterministic supervisor logic. | `specs/pi-extension-architecture.md` |
 | PRD-S30 | Enforce mandatory sequential work per repo to avoid collisions and stale analysis. | User decision; `manual/sequential-execution.md` |
+| PRD-S31 | Maintain a runtime PRD ledger with polished PRD versions, stable requirement ids, coverage state, task links, change records, and replanning inputs. | `specs/runtime-prd-ledger.md` |
 
 ## Stage workflow requirements
 

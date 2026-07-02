@@ -53,6 +53,7 @@ Status vocabulary:
 | PRD-S28 | Implemented | IMPL-026..040, IMPL-051..055 | `src/git.ts`, `src/operations.ts`, `src/commands.ts`, `src/index.ts` | `test/git.test.ts`, `test/operations.test.ts`, `test/commands.test.ts` | `manual/git.md`, `manual/commands.md` | Add commit verification/report artifact. |
 | PRD-S29 | Implemented | IMPL-001..055 | `src/index.ts`, `src/tools.ts`, `src/conductor.ts`, `src/subagents.ts`, `.scaler/` paths in `src/paths.ts` | `test/extension-shape.test.ts`, `test/tools.test.ts`, `test/conductor.test.ts`, `test/subagents.test.ts` | `manual/index.md`, `manual/installation.md` | Continue maturing command/tool behavior. |
 | PRD-S30 | Implemented | IMPL-051..055 | `src/locks.ts`, `src/operations.ts`, `src/conductor.ts`, `src/tools.ts`, `src/index.ts` | `test/locks.test.ts`, `test/operations.test.ts`, `test/conductor.test.ts`, `test/spawn-tool.test.ts` | `manual/sequential-execution.md`, `manual/commands.md` | Extend lock checks if more commands execute multi-step work. |
+| PRD-S31 | Implemented | IMPL-061..066 | `src/prd.ts`, `src/tasks.ts`, `src/commands.ts`, `src/tools.ts`, `src/paths.ts`, `src/types.ts`, `specs/runtime-prd-ledger.md` | `test/prd.test.ts`, `test/tasks.test.ts`, `test/commands.test.ts`, `test/tools.test.ts` | `manual/runtime-prd.md`, `manual/commands.md`, `manual/tools.md` | Future planners should be required to consume/update the ledger before execution/replanning. |
 | PRD-W01 | Partial | IMPL-001..005, IMPL-006..010, IMPL-036..040 | `src/adaptive.ts`, `src/supervisor.ts`, `src/workflow.ts` | `test/adaptive.test.ts`, `test/supervisor.test.ts`, `test/workflow.test.ts` | `manual/workflow.md` | Complex staged conductor loop not complete. |
 | PRD-W02 | Missing | none | `specs/pi-extension-architecture.md` | none | none | Implement PRD agent/stage artifact creation. |
 | PRD-W03 | Missing | none | `specs/research.md` | none | none | Implement knowledge agent/stage artifact creation. |
@@ -64,7 +65,7 @@ Status vocabulary:
 
 ## Summary
 
-- Implemented: PRD-S01, PRD-S12, PRD-S13, PRD-S19, PRD-S21, PRD-S28, PRD-S29, PRD-S30.
+- Implemented: PRD-S01, PRD-S12, PRD-S13, PRD-S19, PRD-S21, PRD-S28, PRD-S29, PRD-S30, PRD-S31.
 - Policy-only coverage: PRD-S15.
 - Missing major areas: research, compression, storage management, CI/CD sandboxes, non-software validation, sandbox/scanning integrations, full Stage I-III workflow.
 - Partial foundations exist for deterministic orchestration, context minimization, task agents, validation, safety, budgets, logging, replanning, and sequential execution.

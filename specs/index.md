@@ -22,6 +22,7 @@ It tells coding agents which spec files to read for each implementation task. Th
 | `cicd-environment.md` | Docker, Compose, dev containers, Minikube validation |
 | `attempt-tracking.md` | failure records, attempt signatures, debug loops |
 | `replanning.md` | plan versions, POC tasks, preserving progress |
+| `runtime-prd-ledger.md` | runtime polished PRD ledger, requirement coverage, task links, PRD versions |
 | `git-workflow.md` | repo setup, per-task commits, dirty tree handling |
 
 ## Minimal implementation loading rule
