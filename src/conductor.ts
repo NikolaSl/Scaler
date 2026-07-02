@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { writeCheckpoint } from "./checkpoints.js";
 import { resolveContext, type ContextItem, type ResolvedContext } from "./context.js";
 import { appendLogEvent, createLogEvent } from "./logging.js";
-import { getValidationHandoffsPath } from "./paths.js";
+import { getTaskAgentRunsPath, getValidationHandoffsPath } from "./paths.js";
 import { saveState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import { transitionTask } from "./supervisor.js";
@@ -37,6 +37,21 @@ export interface ValidationHandoffRecord {
 export interface ValidationHandoffIndex {
   version: 1;
   handoffs: ValidationHandoffRecord[];
+}
+
+export interface TaskAgentRunRecord {
+  id: string;
+  taskId: string;
+  status: "passed" | "failed";
+  exitCode: number;
+  stdoutEventCount: number;
+  stderrSummary: string;
+  createdAt: string;
+}
+
+export interface TaskAgentRunIndex {
+  version: 1;
+  runs: TaskAgentRunRecord[];
 }
 
 export interface ConductorStepResult {
@@ -141,6 +156,7 @@ export async function runConductorStep(
   };
   const invocation = buildTaskAgentInvocation(request);
   const runResult = options.execute ? await runner(request, { timeoutMs: options.timeoutMs }) : undefined;
+  const runRecord = runResult ? await recordTaskAgentRun(cwd, runResult) : undefined;
   const handoff = runResult ? await applyTaskRunHandoff(cwd, nextState, runningTask.id, runResult) : undefined;
   const finalState = handoff?.state ?? nextState;
 
@@ -150,7 +166,7 @@ export async function runConductorStep(
       eventType: "agent",
       summary: `${options.execute ? "Executed" : "Prepared"} conductor task step: ${runningTask.id}`,
       taskId: runningTask.id,
-      details: { selection, invocation, runResult, validationHandoff: handoff?.record },
+      details: { selection, invocation, runResult, taskAgentRunRecord: runRecord, validationHandoff: handoff?.record },
     }),
   );
   const checkpoint = await writeCheckpoint(cwd, finalState, `conductor-step-${runningTask.id}`, selection.reason);
@@ -166,6 +182,30 @@ export async function runConductorStep(
     checkpointPath: checkpoint.path,
     validationHandoff: handoff?.record,
   };
+}
+
+export async function loadTaskAgentRunRecords(cwd: string): Promise<TaskAgentRunRecord[]> {
+  try {
+    const raw = await readFile(getTaskAgentRunsPath(cwd), "utf8");
+    return (JSON.parse(raw) as TaskAgentRunIndex).runs;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+export async function recordTaskAgentRun(cwd: string, runResult: TaskAgentRunResult, now = new Date()): Promise<TaskAgentRunRecord> {
+  const record: TaskAgentRunRecord = {
+    id: `${runResult.taskId}-${now.getTime()}`,
+    taskId: runResult.taskId,
+    status: runResult.exitCode === 0 ? "passed" : "failed",
+    exitCode: runResult.exitCode,
+    stdoutEventCount: runResult.stdoutEvents.length,
+    stderrSummary: summarizeOutput(runResult.stderr),
+    createdAt: now.toISOString(),
+  };
+  await writeTaskAgentRuns(cwd, [record, ...(await loadTaskAgentRunRecords(cwd))]);
+  return record;
 }
 
 export async function loadValidationHandoffs(cwd: string): Promise<ValidationHandoffRecord[]> {
@@ -254,6 +294,18 @@ export function buildTaskAgentPrompt(input: TaskPromptInput): TaskPromptResult {
   ].join("\n");
 
   return { prompt, resolvedContext };
+}
+
+async function writeTaskAgentRuns(cwd: string, runs: TaskAgentRunRecord[]): Promise<void> {
+  const path = getTaskAgentRunsPath(cwd);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify({ version: 1, runs } satisfies TaskAgentRunIndex, null, 2)}\n`, "utf8");
+}
+
+function summarizeOutput(output: string, limit = 1_000): string {
+  const normalized = output.trim();
+  if (normalized.length <= limit) return normalized;
+  return `${normalized.slice(0, limit)}\n...[truncated ${normalized.length - limit} chars]`;
 }
 
 async function writeValidationHandoffs(cwd: string, handoffs: ValidationHandoffRecord[]): Promise<void> {

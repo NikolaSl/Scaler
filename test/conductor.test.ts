@@ -3,7 +3,16 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { buildTaskAgentPrompt, dependenciesSatisfied, loadValidationHandoffs, missingDependencies, runConductorStep, selectNextTask } from "../src/conductor.js";
+import {
+  buildTaskAgentPrompt,
+  dependenciesSatisfied,
+  loadTaskAgentRunRecords,
+  loadValidationHandoffs,
+  missingDependencies,
+  recordTaskAgentRun,
+  runConductorStep,
+  selectNextTask,
+} from "../src/conductor.js";
 import { createDefaultState, loadState } from "../src/state.js";
 import type { ScalerTaskStatus } from "../src/types.js";
 
@@ -144,12 +153,15 @@ test("runConductorStep executes task with injected runner", async () => {
 
     const persisted = await loadState(dir);
     const handoffs = await loadValidationHandoffs(dir);
+    const runs = await loadTaskAgentRunRecords(dir);
 
     assert.equal(result.accepted, true);
     assert.equal(result.runResult?.exitCode, 0);
     assert.deepEqual(result.runResult?.stdoutEvents, [{ type: "done" }]);
     assert.equal(persisted.tasks[0]?.status, "validating");
     assert.equal(handoffs[0]?.status, "validation_required");
+    assert.equal(runs[0]?.status, "passed");
+    assert.equal(runs[0]?.stdoutEventCount, 1);
   });
 });
 
@@ -170,10 +182,27 @@ test("runConductorStep records failed task-agent validation handoff", async () =
     );
     const persisted = await loadState(dir);
     const handoffs = await loadValidationHandoffs(dir);
+    const runs = await loadTaskAgentRunRecords(dir);
 
     assert.equal(result.validationHandoff?.status, "task_agent_failed");
     assert.equal(persisted.tasks[0]?.status, "failed");
     assert.equal(handoffs[0]?.runExitCode, 2);
+    assert.equal(runs[0]?.status, "failed");
+    assert.equal(runs[0]?.stderrSummary, "boom");
+  });
+});
+
+test("recordTaskAgentRun truncates stderr summaries", async () => {
+  await withTempDir(async (dir) => {
+    const record = await recordTaskAgentRun(dir, {
+      taskId: "T-001",
+      exitCode: 1,
+      stdoutEvents: [],
+      stderr: "x".repeat(1_010),
+    });
+
+    assert.equal(record.status, "failed");
+    assert.match(record.stderrSummary, /truncated 10 chars/);
   });
 });
 

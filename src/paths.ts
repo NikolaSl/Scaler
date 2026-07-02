@@ -58,6 +58,10 @@ export function getValidationHandoffsPath(cwd: string): string {
   return join(getReportsDir(cwd), "validation-handoffs.json");
 }
 
+export function getTaskAgentRunsPath(cwd: string): string {
+  return join(getReportsDir(cwd), "task-agent-runs.json");
+}
+
 export function getValidationManifestsPath(cwd: string): string {
   return join(getReportsDir(cwd), "validation-manifests.json");
 }
