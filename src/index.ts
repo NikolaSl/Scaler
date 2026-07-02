@@ -11,7 +11,7 @@ import {
   selectTaskForCommit,
 } from "./commands.js";
 import { pauseScalerRun, resumeScalerRun } from "./checkpoints.js";
-import { runConductorStep } from "./conductor.js";
+import { formatTaskAgentRunList, loadTaskAgentRunRecords, runConductorStep } from "./conductor.js";
 import { loadDebugAttempts, loadDebugFailures } from "./debug.js";
 import { commitValidatedTask } from "./git.js";
 import { createLogEvent, appendLogEvent, logStateEvent } from "./logging.js";
@@ -73,6 +73,17 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       } else {
         console.log(message);
       }
+    },
+  });
+
+  pi.registerCommand("scaler-runs", {
+    description: "List recent SCALER task-agent run records. Optional arg filters by task id.",
+    handler: async (args, ctx) => {
+      const taskId = args?.trim() || undefined;
+      const records = await loadTaskAgentRunRecords(ctx.cwd);
+      const message = formatTaskAgentRunList(records, taskId);
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
     },
   });
 

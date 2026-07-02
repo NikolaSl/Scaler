@@ -186,6 +186,19 @@ export async function runConductorStep(
   };
 }
 
+export function formatTaskAgentRunList(records: TaskAgentRunRecord[], taskId?: string, limit = 10): string {
+  const filtered = taskId ? records.filter((record) => record.taskId === taskId) : records;
+  if (filtered.length === 0) return taskId ? `No task-agent runs for ${taskId}.` : "No task-agent runs.";
+
+  const lines = [taskId ? `Task-agent runs for ${taskId}:` : "Task-agent runs:"];
+  for (const record of filtered.slice(0, limit)) {
+    const flags = [record.timedOut && "timed_out", record.aborted && "aborted"].filter(Boolean).join(",") || "none";
+    const stderr = record.stderrSummary ? ` stderr=${record.stderrSummary}` : "";
+    lines.push(`- ${record.taskId}: ${record.status} exit=${record.exitCode} flags=${flags} stdout_events=${record.stdoutEventCount}${stderr}`);
+  }
+  return lines.join("\n");
+}
+
 export async function loadTaskAgentRunRecords(cwd: string): Promise<TaskAgentRunRecord[]> {
   try {
     const raw = await readFile(getTaskAgentRunsPath(cwd), "utf8");

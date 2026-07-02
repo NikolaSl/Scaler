@@ -6,6 +6,7 @@ import { test } from "node:test";
 import {
   buildTaskAgentPrompt,
   dependenciesSatisfied,
+  formatTaskAgentRunList,
   loadTaskAgentRunRecords,
   loadValidationHandoffs,
   missingDependencies,
@@ -196,6 +197,37 @@ test("runConductorStep records failed task-agent validation handoff", async () =
     assert.equal(runs[0]?.status, "failed");
     assert.equal(runs[0]?.stderrSummary, "boom");
   });
+});
+
+test("formatTaskAgentRunList renders and filters run records", () => {
+  const records = [
+    {
+      id: "1",
+      taskId: "T-001",
+      status: "failed" as const,
+      exitCode: 124,
+      stdoutEventCount: 2,
+      stderrSummary: "timeout",
+      timedOut: true,
+      aborted: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      id: "2",
+      taskId: "T-002",
+      status: "passed" as const,
+      exitCode: 0,
+      stdoutEventCount: 1,
+      stderrSummary: "",
+      timedOut: false,
+      aborted: false,
+      createdAt: "2026-01-01T00:01:00.000Z",
+    },
+  ];
+
+  assert.match(formatTaskAgentRunList(records), /T-001: failed exit=124 flags=timed_out stdout_events=2 stderr=timeout/);
+  assert.doesNotMatch(formatTaskAgentRunList(records, "T-002"), /T-001/);
+  assert.equal(formatTaskAgentRunList(records, "missing"), "No task-agent runs for missing.");
 });
 
 test("recordTaskAgentRun truncates stderr summaries", async () => {
