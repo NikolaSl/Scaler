@@ -13,15 +13,15 @@ import {
 import { pauseScalerRun, resumeScalerRun } from "./checkpoints.js";
 import { formatTaskAgentRunList, loadTaskAgentRunRecords, runConductorStep } from "./conductor.js";
 import { loadDebugAttempts, loadDebugFailures } from "./debug.js";
-import { commitValidatedTask } from "./git.js";
 import { createLogEvent, appendLogEvent, logStateEvent } from "./logging.js";
 import { loadMemoryIndex } from "./memory.js";
+import { commitWithExecutionLock, runValidationWithExecutionLock } from "./operations.js";
 import { getEventLogPath } from "./paths.js";
 import { assessToolCallSafety } from "./safety.js";
 import { createTask, formatTaskList, retryTask, updateTask } from "./tasks.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
 import { registerScalerTools } from "./tools.js";
-import { runTaskValidation, upsertValidationManifestCommand } from "./validation.js";
+import { upsertValidationManifestCommand } from "./validation.js";
 import { formatWorkflowSummary, summarizeWorkflow } from "./workflow.js";
 
 export default function scalerExtension(pi: ExtensionAPI): void {
@@ -210,7 +210,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       }
 
       const allowedPaths = resolveCommitAllowedPaths(state, taskId, parsed.allowedPathPrefixes);
-      const result = await commitValidatedTask(ctx.cwd, state, taskId, allowedPaths);
+      const result = await commitWithExecutionLock(ctx.cwd, state, taskId, allowedPaths);
       if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
       else console.log(result.message);
     },
@@ -232,12 +232,11 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         return;
       }
 
-      const run = await runTaskValidation(ctx.cwd, state, taskId);
-      const message = `Validation ${run.status}: ${taskId} commands=${run.commandRuns.length}`;
+      const result = await runValidationWithExecutionLock(ctx.cwd, state, taskId);
       if (ctx.hasUI) {
-        ctx.ui.notify(message, run.status === "passed" ? "info" : "warning");
+        ctx.ui.notify(result.message, result.accepted && result.result?.status === "passed" ? "info" : "warning");
       } else {
-        console.log(message);
+        console.log(result.message);
       }
     },
   });

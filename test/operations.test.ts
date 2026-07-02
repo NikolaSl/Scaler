@@ -1,0 +1,61 @@
+import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+import { acquireExecutionLock, loadExecutionLock } from "../src/locks.js";
+import { commitWithExecutionLock, runValidationWithExecutionLock } from "../src/operations.js";
+import { createDefaultState } from "../src/state.js";
+import { addTask } from "../src/supervisor.js";
+import { saveValidationManifest } from "../src/validation.js";
+
+async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), "scaler-operations-test-"));
+  try {
+    return await fn(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test("runValidationWithExecutionLock refuses when lock is held", async () => {
+  await withTempDir(async (dir) => {
+    const state = addTask(createDefaultState(), { id: "T-001", status: "validating" });
+    await acquireExecutionLock(dir, { operation: "other", taskId: "T-999" });
+
+    const result = await runValidationWithExecutionLock(dir, state, "T-001");
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /Execution lock held/);
+  });
+});
+
+test("runValidationWithExecutionLock releases lock after validation", async () => {
+  await withTempDir(async (dir) => {
+    const state = addTask(createDefaultState(), { id: "T-001", status: "validating" });
+    await saveValidationManifest(dir, {
+      taskId: "T-001",
+      commands: [{ id: "pass", command: "node -e \"process.exit(0)\"", required: true }],
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    const result = await runValidationWithExecutionLock(dir, state, "T-001");
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.result?.status, "passed");
+    assert.equal(await loadExecutionLock(dir), undefined);
+  });
+});
+
+test("commitWithExecutionLock refuses when lock is held", async () => {
+  await withTempDir(async (dir) => {
+    const state = addTask(createDefaultState(), { id: "T-001", status: "validated" });
+    await acquireExecutionLock(dir, { operation: "other", taskId: "T-999" });
+
+    const result = await commitWithExecutionLock(dir, state, "T-001", ["src"]);
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /Execution lock held/);
+  });
+});
