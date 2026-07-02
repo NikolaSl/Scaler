@@ -54,6 +54,14 @@ export function getReportsDir(cwd: string): string {
   return join(getScalerDir(cwd), "reports");
 }
 
+export function getLocksDir(cwd: string): string {
+  return join(getScalerDir(cwd), "locks");
+}
+
+export function getExecutionLockPath(cwd: string): string {
+  return join(getLocksDir(cwd), "execution-lock.json");
+}
+
 export function getValidationHandoffsPath(cwd: string): string {
   return join(getReportsDir(cwd), "validation-handoffs.json");
 }
