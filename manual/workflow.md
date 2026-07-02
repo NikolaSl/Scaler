@@ -2,6 +2,8 @@
 
 This page documents the current happy path implemented by SCALER.
 
+SCALER operations are sequential per repository. Task steps, task-agent executions, validation, and commits use `.scaler/locks/execution-lock.json` and are refused while another SCALER operation holds the lock.
+
 ## 1. Start or inspect a run
 
 ```text

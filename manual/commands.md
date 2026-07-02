@@ -28,6 +28,8 @@ Current behavior:
 
 By default it prepares only. Passing `execute` runs the task-agent subprocess. A successful task-agent run moves the task to `validating` and writes a validation handoff under `.scaler/reports/validation-handoffs.json`; a failed task-agent run moves the task to `failed` where valid. Executed task-agent runs are recorded under `.scaler/reports/task-agent-runs.json`.
 
+`/scaler-step` runs under the repo-wide execution lock.
+
 ## `/scaler-validation-add <taskId> | <id> | <command> | <description> | <required>`
 
 Adds or replaces one command in a task validation manifest.
@@ -43,7 +45,7 @@ Examples:
 
 ## `/scaler-commit [taskId] | [allowed paths comma list]`
 
-Commits a validated task using the git safety helper.
+Commits a validated task using the git safety helper. Commits run under the repo-wide execution lock.
 
 Selection rules:
 
@@ -64,7 +66,7 @@ The command refuses commits when unrelated changes are detected, the task is not
 
 ## `/scaler-validate [taskId]`
 
-Runs validation for a task id, the current validating task, or the first validating task.
+Runs validation for a task id, the current validating task, or the first validating task. Validation runs under the repo-wide execution lock.
 
 Current behavior:
 
@@ -81,6 +83,14 @@ Pauses the current Scaler run through the supervisor transition rules and writes
 ## `/scaler-resume [reason]`
 
 Resumes a paused run only to its previous active stage and writes a checkpoint under `.scaler/checkpoints/`.
+
+## `/scaler-lock`
+
+Shows the current repo-wide SCALER execution lock, or reports that no lock exists.
+
+## `/scaler-lock-clear <reason>`
+
+Manually clears the current execution lock and logs the reason. This is explicit manual recovery; SCALER does not automatically clear stale locks.
 
 ## `/scaler-runs [taskId]`
 
