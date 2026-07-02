@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { getValidationManifestsPath, getValidationRunsPath } from "./paths.js";
+import { requestReplan } from "./replanning.js";
 import { saveState } from "./state.js";
 import { transitionTask } from "./supervisor.js";
 import type { ScalerState, ScalerTaskStatus } from "./types.js";
@@ -237,23 +238,44 @@ export async function applyValidationReport(
   const beforeRejected = state.rejectedTransitions.length;
   const nextState = transitionTask(state, report.taskId, targetStatus, { reason: report.summary });
   const accepted = nextState.rejectedTransitions.length === beforeRejected;
+  let finalState = nextState;
   await saveState(cwd, nextState);
+  let replanRequestId: string | undefined;
+  if (accepted && report.status === "blocked") {
+    const replan = await requestReplan(cwd, nextState, {
+      trigger: "validation_blocked",
+      reason: report.summary,
+      taskId: report.taskId,
+      evidenceRefs: extractEvidenceRefs(report.details),
+      requirementRefs: task.prdRefs,
+    });
+    finalState = replan.state;
+    replanRequestId = replan.request.id;
+  }
   await appendLogEvent(
     cwd,
-    createLogEvent(nextState, {
+    createLogEvent(finalState, {
       eventType: "validation",
       summary: `${accepted ? "Validation applied" : "Validation rejected"}: ${report.taskId} ${report.status}`,
       taskId: report.taskId,
-      details: { report, targetStatus },
+      details: { report, targetStatus, replanRequestId },
     }),
   );
 
   return {
-    state: nextState,
+    state: finalState,
     accepted,
     message: accepted ? `Validation applied: ${report.taskId} -> ${targetStatus}` : `Validation transition rejected: ${report.taskId}`,
     targetStatus,
   };
+}
+
+function extractEvidenceRefs(details: unknown): string[] | undefined {
+  if (!details || typeof details !== "object") return undefined;
+  const refs = (details as { evidenceRefs?: unknown; runId?: unknown }).evidenceRefs;
+  if (Array.isArray(refs)) return refs.filter((ref): ref is string => typeof ref === "string");
+  const runId = (details as { runId?: unknown }).runId;
+  return typeof runId === "string" ? [runId] : undefined;
 }
 
 function getTargetTaskStatus(current: ScalerTaskStatus, validation: ValidationStatus): ScalerTaskStatus | undefined {

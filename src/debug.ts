@@ -3,6 +3,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { getDebugAttemptsPath, getDebugFailuresPath } from "./paths.js";
+import { requestReplan } from "./replanning.js";
+import { transitionTask } from "./supervisor.js";
 import type { ScalerState } from "./types.js";
 
 export type DebugAttemptResult = "fixed" | "same_failure" | "new_failure" | "partial" | "no_effect" | "worse" | "blocked";
@@ -69,6 +71,7 @@ export interface DebugAttemptApplyResult {
   attempt?: DebugAttemptRecord;
   duplicateAttemptId?: string;
   cycleDetected?: string;
+  replanRequestId?: string;
 }
 
 interface DebugFailureIndex {
@@ -167,20 +170,41 @@ export async function recordDebugAttempt(
   await writeJsonFile(getDebugFailuresPath(cwd), { version: 1, failures } satisfies DebugFailureIndex);
   await writeJsonFile(getDebugAttemptsPath(cwd), { version: 1, attempts: [...attempts, attempt] } satisfies DebugAttemptIndex);
 
+  let finalState = state;
+  let replanRequestId: string | undefined;
+  if (cycleDetected || input.result === "blocked") {
+    const task = state.tasks.find((candidate) => candidate.id === input.taskId);
+    if (task?.status === "debugging") {
+      finalState = transitionTask(state, input.taskId, "needs_replan", {
+        reason: cycleDetected ?? input.failureSummary ?? "Debug attempt blocked; replanning required.",
+        now,
+      });
+    }
+    const replan = await requestReplan(cwd, finalState, {
+      trigger: cycleDetected ? "debug_cycle" : "debug_blocked",
+      reason: cycleDetected ?? input.failureSummary ?? "Debug attempt blocked; replanning required.",
+      taskId: input.taskId,
+      evidenceRefs: input.evidence,
+      requirementRefs: task?.prdRefs,
+    }, now);
+    finalState = replan.state;
+    replanRequestId = replan.request.id;
+  }
+
   const message = cycleDetected
     ? `Debug attempt recorded with cycle detected: ${attempt.id}`
     : `Debug attempt recorded: ${attempt.id}`;
   await appendLogEvent(
     cwd,
-    createLogEvent(state, {
+    createLogEvent(finalState, {
       eventType: "debug",
       summary: message,
       taskId: input.taskId,
-      details: { attempt },
+      details: { attempt, replanRequestId },
     }),
   );
 
-  return { accepted: true, message, attempt, cycleDetected };
+  return { accepted: true, message, attempt, cycleDetected, replanRequestId };
 }
 
 function findDuplicateAttempt(

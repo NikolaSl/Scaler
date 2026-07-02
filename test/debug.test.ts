@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { loadDebugAttempts, loadDebugFailures, recordDebugAttempt } from "../src/debug.js";
-import { createDefaultState } from "../src/state.js";
+import { loadReplanRequests } from "../src/plans.js";
+import { createDefaultState, loadState } from "../src/state.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-debug-test-"));
@@ -105,6 +106,43 @@ test("recordDebugAttempt accepts duplicate when new evidence is supplied", async
 
     assert.equal(second.accepted, true);
     assert.equal((await loadDebugAttempts(dir)).length, 2);
+  });
+});
+
+test("recordDebugAttempt cycle requests replanning and marks debugging task", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "debugging";
+    state.tasks = [{ id: "T-001", status: "debugging", prdRefs: ["REQ-001"], updatedAt: state.createdAt }];
+    await recordDebugAttempt(dir, state, {
+      taskId: "T-001",
+      failureId: "F-001",
+      hypothesis: "Fix A",
+      actionSummary: "Change A",
+      result: "new_failure",
+      failureFingerprint: "failure-a",
+      resultingFailureFingerprint: "failure-b",
+    }, new Date("2026-01-01T00:00:01.000Z"));
+    const second = await recordDebugAttempt(dir, state, {
+      taskId: "T-001",
+      failureId: "F-001",
+      hypothesis: "Fix B",
+      actionSummary: "Change B",
+      result: "new_failure",
+      failureFingerprint: "failure-b",
+      resultingFailureFingerprint: "failure-a",
+      evidence: ["debug-log-1"],
+    }, new Date("2026-01-01T00:00:02.000Z"));
+
+    const requests = await loadReplanRequests(dir);
+    const persisted = await loadState(dir);
+    assert.equal(second.accepted, true);
+    assert.equal(second.replanRequestId, "REPLAN-1767225602000");
+    assert.equal(requests[0]?.trigger, "debug_cycle");
+    assert.deepEqual(requests[0]?.evidenceRefs, ["debug-log-1"]);
+    assert.deepEqual(requests[0]?.requirementRefs, ["REQ-001"]);
+    assert.equal(persisted.stage, "replanning");
+    assert.equal(persisted.tasks[0]?.status, "needs_replan");
   });
 });
 

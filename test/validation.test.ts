@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { loadReplanRequests } from "../src/plans.js";
 import { createDefaultState } from "../src/state.js";
 import { addTask } from "../src/supervisor.js";
 import { applyValidationReport } from "../src/validation.js";
@@ -70,6 +71,28 @@ test("blocked validation moves running task to blocked", async () => {
 
     assert.equal(result.accepted, true);
     assert.equal(result.state.tasks[0]?.status, "blocked");
+  });
+});
+
+test("blocked validation creates a replan request and enters replanning when stage allows", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTask("validating");
+    state.stage = "execution";
+    state.tasks[0] = { ...state.tasks[0]!, prdRefs: ["REQ-001"] };
+    const result = await applyValidationReport(dir, state, {
+      taskId: "T-001",
+      status: "blocked",
+      summary: "validation environment unavailable",
+      details: { evidenceRefs: ["run-1"] },
+    });
+
+    const requests = await loadReplanRequests(dir);
+    assert.equal(result.accepted, true);
+    assert.equal(result.state.stage, "replanning");
+    assert.equal(result.state.tasks[0]?.status, "blocked");
+    assert.equal(requests[0]?.trigger, "validation_blocked");
+    assert.deepEqual(requests[0]?.evidenceRefs, ["run-1"]);
+    assert.deepEqual(requests[0]?.requirementRefs, ["REQ-001"]);
   });
 });
 

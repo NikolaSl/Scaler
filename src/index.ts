@@ -21,7 +21,6 @@ import { loadMemoryIndex } from "./memory.js";
 import { commitWithExecutionLock, runValidationWithExecutionLock } from "./operations.js";
 import { getEventLogPath } from "./paths.js";
 import {
-  appendReplanRequest,
   applyExecutionPlanTasks,
   formatExecutionPlanSummary,
   formatReplanRequests,
@@ -30,10 +29,10 @@ import {
   summarizeExecutionPlan,
 } from "./plans.js";
 import { computePrdCoverageSummary, formatPrdCoverageSummary, loadPrdCoverage, loadPrdRequirements } from "./prd.js";
+import { requestReplan } from "./replanning.js";
 import { assessToolCallSafety } from "./safety.js";
 import { createTask, formatTaskList, retryTask, updateTask } from "./tasks.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
-import { transitionStage } from "./supervisor.js";
 import { registerScalerTools } from "./tools.js";
 import { upsertValidationManifestCommand } from "./validation.js";
 import { formatWorkflowSummary, summarizeWorkflow } from "./workflow.js";
@@ -236,20 +235,15 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       }
 
       const state = await ensureState(ctx.cwd);
-      const request = await appendReplanRequest(ctx.cwd, {
+      const result = await requestReplan(ctx.cwd, state, {
         trigger: "manual",
         reason: parsed.reason,
         taskId: parsed.taskId,
         evidenceRefs: parsed.evidenceRefs,
         requirementRefs: parsed.requirementRefs,
       });
-      const beforeRejected = state.rejectedTransitions.length;
-      const nextState = transitionStage(state, "replanning", { reason: parsed.reason });
-      const transitioned = nextState.rejectedTransitions.length === beforeRejected;
-      await saveState(ctx.cwd, nextState);
-      const message = `Replan request created: ${request.id}${transitioned ? " stage=replanning" : " stage_unchanged"}`;
-      if (ctx.hasUI) ctx.ui.notify(message, transitioned ? "info" : "warning");
-      else console.log(message);
+      if (ctx.hasUI) ctx.ui.notify(result.message, result.transitioned ? "info" : "warning");
+      else console.log(result.message);
     },
   });
 
