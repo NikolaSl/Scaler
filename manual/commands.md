@@ -26,7 +26,7 @@ Current behavior:
 - prepares an isolated Pi task-agent invocation
 - writes a checkpoint under `.scaler/checkpoints/`
 
-By default it prepares only. Passing `execute` runs the task-agent subprocess. A successful task-agent run moves the task to `validating` and writes a validation handoff under `.scaler/reports/validation-handoffs.json`; a failed task-agent run moves the task to `failed` where valid.
+By default it prepares only. Passing `execute` runs the task-agent subprocess. A successful task-agent run moves the task to `validating` and writes a validation handoff under `.scaler/reports/validation-handoffs.json`; a failed task-agent run moves the task to `failed` where valid. Executed task-agent runs are recorded under `.scaler/reports/task-agent-runs.json`.
 
 ## `/scaler-validation-add <taskId> | <id> | <command> | <description> | <required>`
 
@@ -82,6 +82,12 @@ Pauses the current Scaler run through the supervisor transition rules and writes
 
 Resumes a paused run only to its previous active stage and writes a checkpoint under `.scaler/checkpoints/`.
 
+## `/scaler-runs [taskId]`
+
+Lists recent task-agent run records. Optional `taskId` filters records.
+
+Output includes status, exit code, timeout/abort flags, stdout event count, and stderr summary when present.
+
 ## `/scaler-tasks`
 
 Lists all known supervisor tasks with status, current-task marker, title, allowed path metadata, and dependencies.
@@ -99,6 +105,16 @@ Examples:
 ```
 
 Allowed paths are used later for safe per-task git commits. Dependencies prevent the conductor from selecting a task until all listed task ids are validated.
+
+## `/scaler-task-retry <taskId> | <reason>`
+
+Retries a task through deterministic supervisor task transitions:
+
+- `debugging` -> `running`
+- `blocked` -> `ready`
+- `needs_replan` -> `ready`
+
+Terminal `failed` tasks are rejected by current retry rules.
 
 ## `/scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies>`
 

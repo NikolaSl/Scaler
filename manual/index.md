@@ -7,7 +7,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 ## Current implemented behavior
 
 - Pi extension entrypoint: `src/index.ts`.
-- Commands: `/scaler`, `/scaler-tasks`, `/scaler-task-create`, `/scaler-task-update`, `/scaler-step`, `/scaler-validation-add`, `/scaler-validate`, `/scaler-commit`, `/scaler-pause`, `/scaler-resume`, `/scaler-status`.
+- Commands: `/scaler`, `/scaler-runs`, `/scaler-tasks`, `/scaler-task-create`, `/scaler-task-update`, `/scaler-task-retry`, `/scaler-step`, `/scaler-validation-add`, `/scaler-validate`, `/scaler-commit`, `/scaler-pause`, `/scaler-resume`, `/scaler-status`.
 - State file: `.scaler/state.json`.
 - Basic deterministic supervisor transition helpers.
 - Event log: `.scaler/logs/events.jsonl`.
@@ -23,6 +23,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - Deterministic validation manifests and command-run records.
 - Git status safety and validated-task commit helpers.
 - Implemented create/list/step/validate/commit workflow.
+- Task-agent run records with timeout/abort diagnostics.
 
 ## Manual pages
 

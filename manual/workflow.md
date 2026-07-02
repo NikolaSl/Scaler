@@ -36,7 +36,14 @@ If no task manifest exists, validation falls back to supported `package.json` sc
 /scaler-step execute
 ```
 
-Without `execute`, SCALER prepares the isolated task-agent invocation and writes a checkpoint. With `execute`, it runs the task-agent subprocess. A successful task-agent run moves the task to `validating`; a failed run moves it to `failed` when that transition is valid.
+Without `execute`, SCALER prepares the isolated task-agent invocation and writes a checkpoint. With `execute`, it runs the task-agent subprocess and records the run under `.scaler/reports/task-agent-runs.json`. A successful task-agent run moves the task to `validating`; a failed run moves it to `failed` when that transition is valid.
+
+Inspect execution records with:
+
+```text
+/scaler-runs
+/scaler-runs T-001
+```
 
 ## 5. Validate
 
@@ -60,8 +67,9 @@ Commits are allowed only for validated tasks. The git helper refuses commits whe
 
 ```text
 /scaler-task-update T-001 | Better title | ready | src,test | T-000
+/scaler-task-retry T-001 | retry after fixing blocker
 /scaler-pause manual pause
 /scaler-resume manual resume
 ```
 
-Task status updates must follow deterministic supervisor transition rules.
+Task status updates and retries must follow deterministic supervisor transition rules.

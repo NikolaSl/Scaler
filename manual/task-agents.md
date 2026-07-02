@@ -18,7 +18,7 @@ Supported options:
 
 Child agents must load Scaler safety/logging rules or run inside an approved sandbox before unattended use.
 
-Current implementation provides the invocation builder and basic subprocess runner.
+Current implementation provides the invocation builder, subprocess runner, and persisted run records under `.scaler/reports/task-agent-runs.json`.
 
 `scaler_spawn_task` supports:
 
@@ -26,4 +26,14 @@ Current implementation provides the invocation builder and basic subprocess runn
 - `execute: true` — run the task-agent subprocess.
 - `timeoutMs` — optional timeout.
 
-Full supervisor lifecycle integration will be added later.
+Task-agent run results include:
+
+- exit code
+- parsed stdout event count in run records
+- stderr summary in run records
+- `timedOut` flag
+- `aborted` flag
+
+Use `/scaler-runs [taskId]` to inspect recent run records.
+
+Current conductor integration starts selected tasks, records run results, writes validation handoffs, and transitions successful executions to `validating`.
