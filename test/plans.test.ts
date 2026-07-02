@@ -5,15 +5,20 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
   appendReplanRequest,
+  appendReplanDecision,
   applyExecutionPlanTasks,
   checkExecutionPlanPreservation,
   createExecutionPlanSnapshot,
   formatExecutionPlanPreservationCheck,
   formatExecutionPlanSummary,
+  formatReplanDecisions,
   formatReplanRequests,
   loadExecutionPlan,
+  loadProposedExecutionPlan,
+  loadReplanDecisions,
   loadReplanRequests,
   saveExecutionPlan,
+  saveProposedExecutionPlan,
   summarizeExecutionPlan,
   validateExecutionPlan,
   validateReplanRequest,
@@ -63,6 +68,24 @@ test("saveExecutionPlan and loadExecutionPlan round trip normalized tasks", asyn
     assert.equal(loaded.status, "active");
     assert.deepEqual(loaded.tasks[0]?.prdRefs, ["REQ-001"]);
     assert.deepEqual(loaded.tasks[0]?.allowedPathPrefixes, ["src"]);
+  });
+});
+
+test("saveProposedExecutionPlan and loadProposedExecutionPlan round trip", async () => {
+  await withTempDir(async (dir) => {
+    assert.equal(await loadProposedExecutionPlan(dir), undefined);
+    const saved = await saveProposedExecutionPlan(dir, {
+      version: 1,
+      planVersion: 2,
+      status: "draft",
+      tasks: [{ id: "T-001", title: "Do proposed work", allowedPathPrefixes: ["./src/"] }],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    }, new Date("2026-01-01T00:00:01.000Z"));
+
+    const loaded = await loadProposedExecutionPlan(dir);
+    assert.equal(saved.updatedAt, "2026-01-01T00:00:01.000Z");
+    assert.deepEqual(loaded?.tasks[0]?.allowedPathPrefixes, ["src"]);
   });
 });
 
@@ -272,6 +295,45 @@ test("validateReplanRequest rejects invalid status, trigger, and reason", () => 
   assert.throws(() => validateReplanRequest({ ...valid, status: "bad" as never }), /Invalid replan request status/);
   assert.throws(() => validateReplanRequest({ ...valid, trigger: "bad" as never }), /Invalid replan request trigger/);
   assert.throws(() => validateReplanRequest({ ...valid, reason: " " }), /reason is required/);
+});
+
+test("appendReplanDecision stores newest-first decisions and formats them", async () => {
+  await withTempDir(async (dir) => {
+    const preservation = {
+      ok: true,
+      preservedValidatedTaskIds: [],
+      droppedValidatedTaskIds: [],
+      preservedValidatedRequirementIds: [],
+      droppedValidatedRequirementIds: [],
+      unlinkedRequirementIds: [],
+      planUnlinkedTaskIds: [],
+    };
+    await appendReplanDecision(dir, {
+      id: "DECISION-001",
+      status: "accepted",
+      summary: "Accepted proposal",
+      requestIds: ["REPLAN-001"],
+      previousPlanVersion: 1,
+      proposedPlanVersion: 2,
+      snapshotPath: ".scaler/plans/versions/PLAN-v001.json",
+      preservation,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    await appendReplanDecision(dir, {
+      id: "DECISION-002",
+      status: "rejected",
+      summary: "Rejected proposal",
+      requestIds: [],
+      previousPlanVersion: 1,
+      proposedPlanVersion: 3,
+      preservation,
+      createdAt: "2026-01-01T00:00:01.000Z",
+    });
+
+    const decisions = await loadReplanDecisions(dir);
+    assert.deepEqual(decisions.map((decision) => decision.id), ["DECISION-002", "DECISION-001"]);
+    assert.match(formatReplanDecisions(decisions), /DECISION-001: accepted previous=1 proposed=2 snapshot=.scaler\/plans\/versions\/PLAN-v001.json/);
+  });
 });
 
 test("createExecutionPlanSnapshot writes incrementing version files", async () => {

@@ -4,6 +4,8 @@ import {
   getCurrentExecutionPlanPath,
   getExecutionPlansDir,
   getExecutionPlanVersionsDir,
+  getProposedExecutionPlanPath,
+  getReplanDecisionsPath,
   getReplanRequestsPath,
 } from "./paths.js";
 import type { RuntimePrdRequirementsFile } from "./prd.js";
@@ -94,9 +96,31 @@ export interface ReplanRequestInput {
   planVersion?: number;
 }
 
+export type ReplanDecisionStatus = "accepted" | "rejected";
+
+export interface ReplanDecisionRecord {
+  id: string;
+  status: ReplanDecisionStatus;
+  summary: string;
+  requestIds: string[];
+  previousPlanVersion: number;
+  proposedPlanVersion: number;
+  snapshotPath?: string;
+  createdTaskIds?: string[];
+  existingTaskIds?: string[];
+  rejectedTaskIds?: string[];
+  preservation: ExecutionPlanPreservationCheck;
+  createdAt: string;
+}
+
 interface ReplanRequestIndex {
   version: 1;
   requests: ReplanRequest[];
+}
+
+interface ReplanDecisionIndex {
+  version: 1;
+  decisions: ReplanDecisionRecord[];
 }
 
 export function createEmptyExecutionPlan(now = new Date()): ExecutionPlanArtifact {
@@ -135,19 +159,28 @@ export async function loadExecutionPlan(cwd: string): Promise<ExecutionPlanArtif
   }
 }
 
+export async function loadProposedExecutionPlan(cwd: string): Promise<ExecutionPlanArtifact | undefined> {
+  try {
+    const raw = await readFile(getProposedExecutionPlanPath(cwd), "utf8");
+    const plan = JSON.parse(raw) as ExecutionPlanArtifact;
+    validateExecutionPlan(plan);
+    return plan;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+export async function saveProposedExecutionPlan(cwd: string, plan: ExecutionPlanArtifact, now = new Date()): Promise<ExecutionPlanArtifact> {
+  const normalized = normalizeExecutionPlan(plan, now);
+  validateExecutionPlan(normalized);
+  await mkdir(getExecutionPlansDir(cwd), { recursive: true });
+  await writeFile(getProposedExecutionPlanPath(cwd), `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
+  return normalized;
+}
+
 export async function saveExecutionPlan(cwd: string, plan: ExecutionPlanArtifact, now = new Date()): Promise<ExecutionPlanArtifact> {
-  const timestamp = now.toISOString();
-  const normalized: ExecutionPlanArtifact = {
-    ...plan,
-    updatedAt: timestamp,
-    tasks: plan.tasks.map((task) => ({
-      ...task,
-      prdRefs: normalizeList(task.prdRefs),
-      allowedPathPrefixes: normalizePathList(task.allowedPathPrefixes),
-      dependsOn: normalizeList(task.dependsOn),
-      validationRefs: normalizeList(task.validationRefs),
-    })),
-  };
+  const normalized = normalizeExecutionPlan(plan, now);
   validateExecutionPlan(normalized);
   await mkdir(getExecutionPlansDir(cwd), { recursive: true });
   await writeFile(getCurrentExecutionPlanPath(cwd), `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
@@ -330,6 +363,35 @@ export function formatReplanRequests(requests: ReplanRequest[]): string {
   return lines.join("\n");
 }
 
+export async function saveReplanRequests(cwd: string, requests: ReplanRequest[]): Promise<void> {
+  await writeReplanRequestIndex(cwd, requests);
+}
+
+export async function loadReplanDecisions(cwd: string): Promise<ReplanDecisionRecord[]> {
+  try {
+    const raw = await readFile(getReplanDecisionsPath(cwd), "utf8");
+    return (JSON.parse(raw) as ReplanDecisionIndex).decisions;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+export async function appendReplanDecision(cwd: string, decision: ReplanDecisionRecord): Promise<ReplanDecisionRecord> {
+  await writeReplanDecisionIndex(cwd, [decision, ...(await loadReplanDecisions(cwd))]);
+  return decision;
+}
+
+export function formatReplanDecisions(decisions: ReplanDecisionRecord[]): string {
+  if (decisions.length === 0) return "No replan decisions.";
+  const lines = ["Replan decisions:"];
+  for (const decision of decisions) {
+    const snapshot = decision.snapshotPath ? ` snapshot=${decision.snapshotPath}` : "";
+    lines.push(`- ${decision.id}: ${decision.status} previous=${decision.previousPlanVersion} proposed=${decision.proposedPlanVersion}${snapshot} summary=${decision.summary}`);
+  }
+  return lines.join("\n");
+}
+
 export async function createExecutionPlanSnapshot(
   cwd: string,
   input?: { plan?: ExecutionPlanArtifact; now?: Date },
@@ -351,6 +413,11 @@ async function writeReplanRequestIndex(cwd: string, requests: ReplanRequest[]): 
   await writeFile(getReplanRequestsPath(cwd), `${JSON.stringify({ version: 1, requests } satisfies ReplanRequestIndex, null, 2)}\n`, "utf8");
 }
 
+async function writeReplanDecisionIndex(cwd: string, decisions: ReplanDecisionRecord[]): Promise<void> {
+  await mkdir(getExecutionPlansDir(cwd), { recursive: true });
+  await writeFile(getReplanDecisionsPath(cwd), `${JSON.stringify({ version: 1, decisions } satisfies ReplanDecisionIndex, null, 2)}\n`, "utf8");
+}
+
 async function getNextPlanVersionNumber(versionsDir: string): Promise<number> {
   try {
     const files = await readdir(versionsDir);
@@ -363,6 +430,20 @@ async function getNextPlanVersionNumber(versionsDir: string): Promise<number> {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return 1;
     throw error;
   }
+}
+
+function normalizeExecutionPlan(plan: ExecutionPlanArtifact, now: Date): ExecutionPlanArtifact {
+  return {
+    ...plan,
+    updatedAt: now.toISOString(),
+    tasks: plan.tasks.map((task) => ({
+      ...task,
+      prdRefs: normalizeList(task.prdRefs),
+      allowedPathPrefixes: normalizePathList(task.allowedPathPrefixes),
+      dependsOn: normalizeList(task.dependsOn),
+      validationRefs: normalizeList(task.validationRefs),
+    })),
+  };
 }
 
 function normalizeList(values: string[] | undefined): string[] | undefined {
