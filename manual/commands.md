@@ -114,6 +114,14 @@ Shows execution plan summary from `.scaler/plans/current-plan.json`, runtime PRD
 
 Creates missing supervisor task records from `.scaler/plans/current-plan.json`. Existing tasks are preserved.
 
+## `/scaler-replans`
+
+Lists replan requests from `.scaler/plans/replan-requests.json`.
+
+## `/scaler-replan-request <reason> | <taskId> | <evidence refs> | <PRD refs>`
+
+Records a manual replan request and attempts to transition the supervisor stage to `replanning`.
+
 ## `/scaler-prd-link <taskId> | <REQ-001,REQ-002>`
 
 Links an existing task to runtime PRD requirement ids by updating the task's `prdRefs` metadata.
