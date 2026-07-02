@@ -32,6 +32,12 @@ export interface UpdateTaskResult {
   message: string;
 }
 
+export interface RetryTaskResult {
+  state: ScalerState;
+  accepted: boolean;
+  message: string;
+}
+
 export function formatTaskList(state: ScalerState): string {
   if (state.tasks.length === 0) return "No Scaler tasks.";
 
@@ -44,6 +50,30 @@ export function formatTaskList(state: ScalerState): string {
     lines.push(`- ${task.id}: ${task.status}${current}${title}${paths}${deps}`);
   }
   return lines.join("\n");
+}
+
+export async function retryTask(cwd: string, state: ScalerState, taskId: string, reason = "Task retry requested."): Promise<RetryTaskResult> {
+  const task = state.tasks.find((candidate) => candidate.id === taskId);
+  if (!task) {
+    const message = `Task retry rejected: ${taskId} does not exist`;
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "state", summary: message, taskId, details: { reason } }));
+    return { state, accepted: false, message };
+  }
+
+  const targetStatus = getRetryTargetStatus(task.status);
+  if (!targetStatus) {
+    const message = `Task retry rejected: ${taskId} cannot retry from ${task.status}`;
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "state", summary: message, taskId, details: { reason } }));
+    return { state, accepted: false, message };
+  }
+
+  const beforeRejected = state.rejectedTransitions.length;
+  const nextState = transitionTask(state, taskId, targetStatus, { reason });
+  const accepted = nextState.rejectedTransitions.length === beforeRejected;
+  await saveState(cwd, nextState);
+  const message = accepted ? `Task retry accepted: ${taskId} -> ${targetStatus}` : `Task retry rejected: ${taskId}`;
+  await appendLogEvent(cwd, createLogEvent(nextState, { eventType: "state", summary: message, taskId, details: { reason, targetStatus } }));
+  return { state: nextState, accepted, message };
 }
 
 export async function updateTask(cwd: string, state: ScalerState, input: UpdateTaskInput): Promise<UpdateTaskResult> {
@@ -142,6 +172,12 @@ export async function createTask(cwd: string, state: ScalerState, input: CreateT
     accepted,
     message: accepted ? `Task created: ${input.id}` : `Task create rejected: ${input.id}`,
   };
+}
+
+function getRetryTargetStatus(status: ScalerTaskStatus): ScalerTaskStatus | undefined {
+  if (status === "debugging") return "running";
+  if (status === "blocked" || status === "needs_replan") return "ready";
+  return undefined;
 }
 
 function normalizeAllowedPaths(paths: string[] | undefined): string[] | undefined {

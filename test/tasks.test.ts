@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createDefaultState, loadState } from "../src/state.js";
-import { createTask, formatTaskList, updateTask } from "../src/tasks.js";
+import { createTask, formatTaskList, retryTask, updateTask } from "../src/tasks.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-task-test-"));
@@ -109,6 +109,44 @@ test("updateTask rejects missing tasks", async () => {
 
     assert.equal(result.accepted, false);
     assert.equal(result.state, state);
+  });
+});
+
+test("retryTask moves debugging tasks to running", async () => {
+  await withTempDir(async (dir) => {
+    const created = await createTask(dir, createDefaultState(), { id: "T-001", status: "debugging" });
+    const result = await retryTask(dir, created.state, "T-001", "try again");
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.state.tasks[0]?.status, "running");
+  });
+});
+
+test("retryTask moves blocked and needs_replan tasks to ready", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    state.tasks = [
+      { id: "T-001", status: "blocked", updatedAt: state.createdAt },
+      { id: "T-002", status: "needs_replan", updatedAt: state.createdAt },
+    ];
+
+    const first = await retryTask(dir, state, "T-001");
+    const second = await retryTask(dir, first.state, "T-002");
+
+    assert.equal(first.accepted, true);
+    assert.equal(second.accepted, true);
+    assert.equal(second.state.tasks[0]?.status, "ready");
+    assert.equal(second.state.tasks[1]?.status, "ready");
+  });
+});
+
+test("retryTask rejects failed terminal tasks", async () => {
+  await withTempDir(async (dir) => {
+    const created = await createTask(dir, createDefaultState(), { id: "T-001", status: "failed" });
+    const result = await retryTask(dir, created.state, "T-001");
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.state.tasks[0]?.status, "failed");
   });
 });
 

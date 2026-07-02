@@ -5,6 +5,7 @@ import {
   parseCommitArgs,
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
+  parseTaskRetryArgs,
   parseValidationAddArgs,
   resolveCommitAllowedPaths,
   selectTaskForCommit,
@@ -37,6 +38,11 @@ test("parseTaskUpdateArgs parses task update fields", () => {
     allowedPathPrefixes: ["src", "test"],
     dependsOn: ["T-000"],
   });
+});
+
+test("parseTaskRetryArgs parses optional task and reason", () => {
+  assert.deepEqual(parseTaskRetryArgs("T-001 | rerun after fix"), { taskId: "T-001", reason: "rerun after fix" });
+  assert.deepEqual(parseTaskRetryArgs(""), { taskId: undefined, reason: undefined });
 });
 
 test("parseValidationAddArgs parses manifest command fields", () => {

@@ -5,6 +5,7 @@ import {
   parseCommitArgs,
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
+  parseTaskRetryArgs,
   parseValidationAddArgs,
   resolveCommitAllowedPaths,
   selectTaskForCommit,
@@ -17,7 +18,7 @@ import { createLogEvent, appendLogEvent, logStateEvent } from "./logging.js";
 import { loadMemoryIndex } from "./memory.js";
 import { getEventLogPath } from "./paths.js";
 import { assessToolCallSafety } from "./safety.js";
-import { createTask, formatTaskList, updateTask } from "./tasks.js";
+import { createTask, formatTaskList, retryTask, updateTask } from "./tasks.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
 import { registerScalerTools } from "./tools.js";
 import { runTaskValidation, upsertValidationManifestCommand } from "./validation.js";
@@ -127,6 +128,25 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         allowedPathPrefixes: parsed.allowedPathPrefixes,
         dependsOn: parsed.dependsOn,
       });
+      if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
+      else console.log(result.message);
+    },
+  });
+
+  pi.registerCommand("scaler-task-retry", {
+    description: "Retry a SCALER task: /scaler-task-retry <taskId> | <reason>",
+    handler: async (args, ctx) => {
+      const parsed = parseTaskRetryArgs(args);
+      const state = await ensureState(ctx.cwd);
+      const taskId = parsed.taskId ?? state.currentTaskId ?? undefined;
+      if (!taskId) {
+        const message = "Usage: /scaler-task-retry <taskId> | <reason>";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+
+      const result = await retryTask(ctx.cwd, state, taskId, parsed.reason ?? "Task retry requested.");
       if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
       else console.log(result.message);
     },

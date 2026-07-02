@@ -15,6 +15,11 @@ export interface ParsedTaskUpdateArgs {
   dependsOn?: string[];
 }
 
+export interface ParsedTaskRetryArgs {
+  taskId?: string;
+  reason?: string;
+}
+
 export interface ParsedValidationAddArgs {
   taskId: string;
   id: string;
@@ -51,6 +56,14 @@ export function parseTaskUpdateArgs(args: string | undefined): ParsedTaskUpdateA
     status: parts[2]?.trim() || undefined,
     allowedPathPrefixes: parseCommaList(parts[3]),
     dependsOn: parseCommaList(parts[4]),
+  };
+}
+
+export function parseTaskRetryArgs(args: string | undefined): ParsedTaskRetryArgs {
+  const parts = splitPipeArgs(args);
+  return {
+    taskId: parts[0]?.trim() || undefined,
+    reason: parts[1]?.trim() || undefined,
   };
 }
 
