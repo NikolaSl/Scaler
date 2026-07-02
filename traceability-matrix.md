@@ -1,0 +1,70 @@
+# SCALER PRD Traceability Matrix
+
+Maps `requirements-catalog.md` requirements to implementation tasks, code, tests, manuals, and gaps.
+
+Status vocabulary:
+
+- **Implemented** — meaningful behavior exists and is tested/documented where applicable.
+- **Partial** — foundation exists, but PRD requirement is not fully covered.
+- **Missing** — no meaningful implementation yet.
+- **Policy** — covered as a documented project/operational rule rather than runtime behavior.
+
+## Matrix
+
+| Req ID | Status | Implementation tasks | Contributing code/artifacts | Tests | Manual/docs | Gap / next action |
+|---|---|---|---|---|---|---|
+| PRD-P01 | Partial | IMPL-006..010, IMPL-036..045 | `src/context.ts`, `src/conductor.ts`, `src/workflow.ts` | `test/context.test.ts`, `test/conductor.test.ts`, `test/workflow.test.ts` | `manual/context.md`, `manual/task-agents.md` | Context resolver is still mostly explicit-item based; add manifest/file/memory resolver. |
+| PRD-P02 | Partial | IMPL-006..010, IMPL-044 | `src/memory.ts`, `src/context.ts` | `test/memory.test.ts`, `test/context.test.ts` | `manual/memory.md`, `manual/context.md` | Compression policy and exact preservation workflow are missing. |
+| PRD-P03 | Partial | IMPL-006..010, IMPL-036..045 | `src/context.ts`, `src/memory.ts`, `src/adaptive.ts`, `src/budgets.ts` | `test/context.test.ts`, `test/memory.test.ts`, `test/adaptive.test.ts`, `test/budgets.test.ts` | `manual/context.md`, `manual/memory.md`, `manual/budgets.md` | Budget accounting is basic; add real token/cost accounting. |
+| PRD-P04 | Partial | IMPL-021..025 | `src/tool-requests.ts`, `src/tools.ts`, `src/safety.ts` | `test/tool-requests.test.ts`, `test/tools.test.ts`, `test/safety.test.ts` | `manual/tools.md`, `manual/safety.md` | Tool catalog/doc minimization and focused tool-agent loop need expansion. |
+| PRD-P05 | Partial | IMPL-013, IMPL-031..040, IMPL-051..055 | `src/tasks.ts`, `src/conductor.ts`, `src/locks.ts` | `test/tasks.test.ts`, `test/conductor.test.ts`, `test/locks.test.ts` | `manual/workflow.md`, `manual/sequential-execution.md` | Atomicity is metadata/process-supported but not automatically enforced by planner. |
+| PRD-P06 | Partial | IMPL-021..025 | `src/debug.ts`, `src/tools.ts` | `test/debug.test.ts`, `test/tools.test.ts` | `manual/tools.md` | Debug loop prevention exists but needs conductor/planner integration. |
+| PRD-G01 | Partial | IMPL-001..055 | `src/index.ts`, `.scaler/*` runtime helpers | All current tests | `manual/index.md` | MVP exists; full Stage I-IV architecture incomplete. |
+| PRD-G02 | Partial | IMPL-006..010, IMPL-031..045 | `src/context.ts`, `src/conductor.ts`, `src/tasks.ts` | `test/context.test.ts`, `test/conductor.test.ts` | `manual/context.md`, `manual/task-agents.md` | Context source discovery and manifest creation missing. |
+| PRD-G03 | Partial | IMPL-013, IMPL-026..040, IMPL-046..055 | `src/tasks.ts`, `src/validation.ts`, `src/git.ts`, `src/locks.ts` | `test/tasks.test.ts`, `test/validation-runner.test.ts`, `test/git.test.ts`, `test/locks.test.ts` | `manual/workflow.md`, `manual/commands.md` | Stronger task Definition of Done and planner integration missing. |
+| PRD-G04 | Partial | IMPL-021..030, IMPL-046..050 | `src/debug.ts`, `src/validation.ts`, `src/conductor.ts`, `src/subagents.ts` | `test/debug.test.ts`, `test/validation-runner.test.ts`, `test/conductor.test.ts` | `manual/task-agents.md`, `manual/commands.md` | Failure-to-debug-to-replan loop not complete. |
+| PRD-S01 | Implemented | IMPL-001..005 | `src/supervisor.ts`, `src/state.ts`, `src/types.ts` | `test/supervisor.test.ts`, `test/state.test.ts` | `manual/state.md` | Expand stage orchestration usage. |
+| PRD-S02 | Partial | IMPL-011..015 | `src/reports.ts`, `src/validation.ts`, `src/supervisor.ts`, `src/state.ts` | `test/reports.test.ts`, `test/validation.test.ts` | `manual/tools.md`, `manual/state.md` | More report schemas/required fields needed for all agent types. |
+| PRD-S03 | Partial | IMPL-006..010, IMPL-036 | `src/adaptive.ts`, `src/workflow.ts`, `src/index.ts` | `test/adaptive.test.ts`, `test/workflow.test.ts` | `manual/commands.md` | Escalation beyond simple stage selection is missing. |
+| PRD-S04 | Partial | IMPL-006..010, IMPL-044 | `src/context.ts`, `src/conductor.ts` | `test/context.test.ts`, `test/conductor.test.ts` | `manual/context.md` | Latest validated state/file/memory/validation resolution incomplete. |
+| PRD-S05 | Partial | IMPL-031..045 | `src/conductor.ts`, `src/context.ts` | `test/conductor.test.ts`, `test/context.test.ts` | `manual/task-agents.md` | Missing-data requests are prompt-level, not structured lifecycle behavior. |
+| PRD-S06 | Missing | none | `specs/research.md` | none | none | Implement local/internet research agents and evidence quality model. |
+| PRD-S07 | Partial | IMPL-006..010 | `src/memory.ts`, `src/context.ts` | `test/memory.test.ts`, `test/context.test.ts` | `manual/memory.md` | Research-specific evidence references not implemented. |
+| PRD-S08 | Partial | IMPL-021..025 | `src/tool-requests.ts`, `src/tools.ts` | `test/tool-requests.test.ts`, `test/tools.test.ts` | `manual/tools.md` | Tool catalog minimization and MCP docs discovery incomplete. |
+| PRD-S09 | Partial | IMPL-021..025 | `src/tool-requests.ts`, `src/subagents.ts` | `test/tool-requests.test.ts`, `test/subagents.test.ts` | `manual/tools.md` | Focused multi-iteration tool-agent execution not implemented. |
+| PRD-S10 | Missing | none | none | none | none | Add compression instruction/hook and exact-preservation rules. |
+| PRD-S11 | Partial | IMPL-006..010, IMPL-031..035 | `src/context.ts`, `src/conductor.ts`, `src/subagents.ts` | `test/context.test.ts`, `test/conductor.test.ts` | `manual/context.md` | No context-window percentage policy or automatic split behavior. |
+| PRD-S12 | Implemented | IMPL-006..010 | `src/memory.ts`, `src/tools.ts` | `test/memory.test.ts`, `test/tools.test.ts` | `manual/memory.md`, `manual/tools.md` | Improve indexing/search quality. |
+| PRD-S13 | Implemented | IMPL-006..010 | `src/memory.ts`, `src/tools.ts` | `test/memory.test.ts`, `test/tools.test.ts` | `manual/memory.md`, `manual/tools.md` | Add relevance search beyond exact id retrieval. |
+| PRD-S14 | Partial | IMPL-031..035, IMPL-046..050 | `src/conductor.ts`, `src/subagents.ts`, `src/tasks.ts` | `test/conductor.test.ts`, `test/subagents.test.ts`, `test/tasks.test.ts` | `manual/task-agents.md` | Real subprocess execution exists but agent report ingestion/validation flow needs tightening. |
+| PRD-S15 | Policy | IMPL-031..040 | `src/tasks.ts`, `manual/workflow.md` | `test/tasks.test.ts` | `manual/workflow.md` | Atomicity definition documented; no automated sizing check. |
+| PRD-S16 | Partial | IMPL-006..010, IMPL-046..050 | `src/logging.ts`, `src/reports.ts`, `src/validation.ts`, `src/conductor.ts` | `test/logging.test.ts`, `test/reports.test.ts`, `test/validation-runner.test.ts`, `test/conductor.test.ts` | `manual/logging.md` | Prompt/tool call/state transition audit coverage is incomplete. |
+| PRD-S17 | Missing | none | `src/paths.ts` | none | none | Add storage limits, rotation, compression, indexing, pause rules. |
+| PRD-S18 | Partial | IMPL-016..020 | `src/budgets.ts`, `src/checkpoints.ts` | `test/budgets.test.ts`, `test/checkpoints.test.ts` | `manual/budgets.md` | Most budget/watchdog categories are counters only or missing enforcement. |
+| PRD-S19 | Implemented | IMPL-021..025 | `src/debug.ts`, `src/tools.ts` | `test/debug.test.ts`, `test/tools.test.ts` | `manual/tools.md` | Integrate records into workflow summaries and replanning. |
+| PRD-S20 | Partial | IMPL-021..025 | `src/debug.ts` | `test/debug.test.ts` | `manual/tools.md` | Cycle detection exists for debug records; not yet a supervisor gate. |
+| PRD-S21 | Implemented | IMPL-026..040, IMPL-051..055 | `src/validation.ts`, `src/operations.ts`, `src/locks.ts` | `test/validation-runner.test.ts`, `test/validation.test.ts`, `test/operations.test.ts` | `manual/commands.md`, `manual/workflow.md` | Add richer gate schemas per task type. |
+| PRD-S22 | Partial | IMPL-026..040 | `src/validation.ts` | `test/validation-manifest.test.ts`, `test/validation-runner.test.ts` | `manual/commands.md` | Supports commands/manifests; dependency/static/acceptance gate classification is basic. |
+| PRD-S23 | Missing | none | `specs/cicd-environment.md` | none | none | Add Docker/devcontainer/Compose/Minikube environment detection and commands. |
+| PRD-S24 | Missing | none | `specs/validation.md` | none | none | Add non-software validation schemas and commands. |
+| PRD-S25 | Partial | IMPL-036..040, IMPL-046..050 | `src/tasks.ts`, `src/workflow.ts` | `test/tasks.test.ts`, `test/workflow.test.ts` | `manual/workflow.md` | No versioned plan/replan artifact or preservation rules yet. |
+| PRD-S26 | Partial | IMPL-021..025, IMPL-041..045, IMPL-051..055 | `src/safety.ts`, `src/index.ts`, `src/locks.ts` | `test/safety.test.ts`, `test/locks.test.ts`, `test/extension-shape.test.ts` | `manual/safety.md`, `manual/sequential-execution.md` | Secrets/internet/deployment/publishing policies need stronger gates. |
+| PRD-S27 | Missing | none | `specs/safety-permissions.md`, `specs/cicd-environment.md` | none | none | Add sandbox/dependency/image scanning integrations. |
+| PRD-S28 | Implemented | IMPL-026..040, IMPL-051..055 | `src/git.ts`, `src/operations.ts`, `src/commands.ts`, `src/index.ts` | `test/git.test.ts`, `test/operations.test.ts`, `test/commands.test.ts` | `manual/git.md`, `manual/commands.md` | Add commit verification/report artifact. |
+| PRD-S29 | Implemented | IMPL-001..055 | `src/index.ts`, `src/tools.ts`, `src/conductor.ts`, `src/subagents.ts`, `.scaler/` paths in `src/paths.ts` | `test/extension-shape.test.ts`, `test/tools.test.ts`, `test/conductor.test.ts`, `test/subagents.test.ts` | `manual/index.md`, `manual/installation.md` | Continue maturing command/tool behavior. |
+| PRD-S30 | Implemented | IMPL-051..055 | `src/locks.ts`, `src/operations.ts`, `src/conductor.ts`, `src/tools.ts`, `src/index.ts` | `test/locks.test.ts`, `test/operations.test.ts`, `test/conductor.test.ts`, `test/spawn-tool.test.ts` | `manual/sequential-execution.md`, `manual/commands.md` | Extend lock checks if more commands execute multi-step work. |
+| PRD-W01 | Partial | IMPL-001..005, IMPL-006..010, IMPL-036..040 | `src/adaptive.ts`, `src/supervisor.ts`, `src/workflow.ts` | `test/adaptive.test.ts`, `test/supervisor.test.ts`, `test/workflow.test.ts` | `manual/workflow.md` | Complex staged conductor loop not complete. |
+| PRD-W02 | Missing | none | `specs/pi-extension-architecture.md` | none | none | Implement PRD agent/stage artifact creation. |
+| PRD-W03 | Missing | none | `specs/research.md` | none | none | Implement knowledge agent/stage artifact creation. |
+| PRD-W04 | Missing | none | `specs/replanning.md` | none | none | Implement planner agent and versioned execution plan. |
+| PRD-W05 | Partial | IMPL-031..040, IMPL-046..055 | `src/conductor.ts`, `src/tasks.ts`, `src/subagents.ts`, `src/locks.ts` | `test/conductor.test.ts`, `test/tasks.test.ts`, `test/subagents.test.ts`, `test/locks.test.ts` | `manual/workflow.md`, `manual/task-agents.md`, `manual/sequential-execution.md` | Sequential task execution exists; one-agent-per-task and report ingestion need stronger runtime guarantees. |
+| PRD-W06 | Partial | IMPL-026..040 | `src/validation.ts`, `src/git.ts` | `test/validation-runner.test.ts`, `test/git.test.ts` | `manual/workflow.md`, `manual/git.md` | Test-first/dependency/acceptance gate semantics need richer support. |
+| PRD-W07 | Missing | none | `specs/validation.md` | none | none | Add non-software execution validation workflow. |
+| PRD-W08 | Partial | IMPL-036..040, IMPL-046..050 | `src/tasks.ts`, `src/workflow.ts` | `test/tasks.test.ts`, `test/workflow.test.ts` | `manual/workflow.md` | Need evidence-driven pause/replan/versioning loop. |
+
+## Summary
+
+- Implemented: PRD-S01, PRD-S12, PRD-S13, PRD-S19, PRD-S21, PRD-S28, PRD-S29, PRD-S30.
+- Policy-only coverage: PRD-S15.
+- Missing major areas: research, compression, storage management, CI/CD sandboxes, non-software validation, sandbox/scanning integrations, full Stage I-III workflow.
+- Partial foundations exist for deterministic orchestration, context minimization, task agents, validation, safety, budgets, logging, replanning, and sequential execution.
