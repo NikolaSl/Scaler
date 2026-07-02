@@ -11,11 +11,11 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - State file: `.scaler/state.json`.
 - Basic deterministic supervisor transition helpers.
 - Event log: `.scaler/logs/events.jsonl`.
-- Basic safety gate for protected paths and destructive shell commands.
+- Deterministic safety gate for protected paths, destructive shell commands, protected-path shell access, and current-task allowed paths.
 - Experimental task-agent subprocess invocation builder.
 - Structured Scaler tool skeletons registered with Pi.
 - External memory write/retrieve under `.scaler/memory/`.
-- Lightweight context resolver skeleton.
+- Lightweight context resolver with omitted-context summaries.
 - Minimal adaptive `/scaler` entrypoint.
 - Budget usage helper skeleton for tools, spawned agents, debug attempts, and checkpoints.
 - Checkpoint writing under `.scaler/checkpoints/` for pause/resume and conductor steps.
