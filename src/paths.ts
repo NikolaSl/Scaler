@@ -42,6 +42,18 @@ export function getCheckpointsDir(cwd: string): string {
   return join(getScalerDir(cwd), "checkpoints");
 }
 
+export function getContextDir(cwd: string): string {
+  return join(getScalerDir(cwd), "context");
+}
+
+export function getTaskContextDir(cwd: string): string {
+  return join(getContextDir(cwd), "tasks");
+}
+
+export function getTaskContextManifestPath(cwd: string, taskId: string): string {
+  return join(getTaskContextDir(cwd), `${taskId}.json`);
+}
+
 export function getToolRequestsDir(cwd: string): string {
   return join(getScalerDir(cwd), "tool-requests");
 }
