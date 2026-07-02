@@ -101,3 +101,15 @@ export function getPrdChangesPath(cwd: string): string {
 export function getPrdVersionsDir(cwd: string): string {
   return join(getPrdDir(cwd), "versions");
 }
+
+export function getExecutionPlansDir(cwd: string): string {
+  return join(getScalerDir(cwd), "plans");
+}
+
+export function getCurrentExecutionPlanPath(cwd: string): string {
+  return join(getExecutionPlansDir(cwd), "current-plan.json");
+}
+
+export function getExecutionPlanVersionsDir(cwd: string): string {
+  return join(getExecutionPlansDir(cwd), "versions");
+}
