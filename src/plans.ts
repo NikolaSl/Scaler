@@ -113,6 +113,18 @@ export interface ReplanDecisionRecord {
   createdAt: string;
 }
 
+export interface ReplanProposalAcceptanceResult {
+  accepted: boolean;
+  message: string;
+  state: ScalerState;
+  decision: ReplanDecisionRecord;
+  currentPlan: ExecutionPlanArtifact;
+  proposedPlan?: ExecutionPlanArtifact;
+  savedPlan?: ExecutionPlanArtifact;
+  snapshotPath?: string;
+  applyResult?: ExecutionPlanApplyResult;
+}
+
 interface ReplanRequestIndex {
   version: 1;
   requests: ReplanRequest[];
@@ -185,6 +197,90 @@ export async function saveExecutionPlan(cwd: string, plan: ExecutionPlanArtifact
   await mkdir(getExecutionPlansDir(cwd), { recursive: true });
   await writeFile(getCurrentExecutionPlanPath(cwd), `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
   return normalized;
+}
+
+export async function acceptReplanProposal(
+  cwd: string,
+  state: ScalerState,
+  requirements: RuntimePrdRequirementsFile,
+  input?: { currentPlan?: ExecutionPlanArtifact; proposedPlan?: ExecutionPlanArtifact; now?: Date; requestIds?: string[] },
+): Promise<ReplanProposalAcceptanceResult> {
+  const now = input?.now ?? new Date();
+  const timestamp = now.toISOString();
+  const currentPlan = input?.currentPlan ?? (await loadExecutionPlan(cwd));
+  const proposedPlan = input?.proposedPlan ?? (await loadProposedExecutionPlan(cwd));
+  if (!proposedPlan) {
+    const preservation = emptyPreservationCheck(false);
+    const decision = await appendReplanDecision(cwd, {
+      id: `DECISION-${now.getTime()}`,
+      status: "rejected",
+      summary: "No proposed execution plan found.",
+      requestIds: input?.requestIds ?? [],
+      previousPlanVersion: currentPlan.planVersion,
+      proposedPlanVersion: -1,
+      preservation,
+      createdAt: timestamp,
+    });
+    return { accepted: false, message: decision.summary, state, decision, currentPlan };
+  }
+
+  const preservation = checkExecutionPlanPreservation(currentPlan, proposedPlan, requirements, state);
+  const openRequests = (await loadReplanRequests(cwd)).filter((request) => request.status === "open");
+  const requestIds = input?.requestIds ?? openRequests.map((request) => request.id);
+  if (!preservation.ok) {
+    const decision = await appendReplanDecision(cwd, {
+      id: `DECISION-${now.getTime()}`,
+      status: "rejected",
+      summary: "Proposed execution plan failed preservation checks.",
+      requestIds,
+      previousPlanVersion: currentPlan.planVersion,
+      proposedPlanVersion: proposedPlan.planVersion,
+      preservation,
+      createdAt: timestamp,
+    });
+    return { accepted: false, message: decision.summary, state, decision, currentPlan, proposedPlan };
+  }
+
+  const snapshotPath = await createExecutionPlanSnapshot(cwd, { plan: currentPlan, now });
+  const savedPlan = await saveExecutionPlan(cwd, {
+    ...proposedPlan,
+    status: "active",
+    planVersion: Math.max(currentPlan.planVersion + 1, proposedPlan.planVersion),
+    source: proposedPlan.source ?? "replan-proposal",
+  }, now);
+  const applyResult = await applyExecutionPlanTasks(cwd, state, savedPlan);
+  const requests = await loadReplanRequests(cwd);
+  await saveReplanRequests(cwd, requests.map((request) =>
+    requestIds.includes(request.id)
+      ? { ...request, status: "resolved", planVersion: savedPlan.planVersion, updatedAt: timestamp }
+      : request,
+  ));
+  const decision = await appendReplanDecision(cwd, {
+    id: `DECISION-${now.getTime()}`,
+    status: "accepted",
+    summary: `Accepted proposed execution plan version ${savedPlan.planVersion}.`,
+    requestIds,
+    previousPlanVersion: currentPlan.planVersion,
+    proposedPlanVersion: savedPlan.planVersion,
+    snapshotPath,
+    createdTaskIds: applyResult.createdTaskIds,
+    existingTaskIds: applyResult.existingTaskIds,
+    rejectedTaskIds: applyResult.rejectedTaskIds,
+    preservation,
+    createdAt: timestamp,
+  });
+
+  return {
+    accepted: true,
+    message: decision.summary,
+    state: applyResult.state,
+    decision,
+    currentPlan,
+    proposedPlan,
+    savedPlan,
+    snapshotPath,
+    applyResult,
+  };
 }
 
 export async function applyExecutionPlanTasks(
@@ -430,6 +526,18 @@ async function getNextPlanVersionNumber(versionsDir: string): Promise<number> {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return 1;
     throw error;
   }
+}
+
+function emptyPreservationCheck(ok: boolean): ExecutionPlanPreservationCheck {
+  return {
+    ok,
+    preservedValidatedTaskIds: [],
+    droppedValidatedTaskIds: [],
+    preservedValidatedRequirementIds: [],
+    droppedValidatedRequirementIds: [],
+    unlinkedRequirementIds: [],
+    planUnlinkedTaskIds: [],
+  };
 }
 
 function normalizeExecutionPlan(plan: ExecutionPlanArtifact, now: Date): ExecutionPlanArtifact {

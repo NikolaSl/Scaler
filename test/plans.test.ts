@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
   appendReplanRequest,
+  acceptReplanProposal,
   appendReplanDecision,
   applyExecutionPlanTasks,
   checkExecutionPlanPreservation,
@@ -295,6 +296,87 @@ test("validateReplanRequest rejects invalid status, trigger, and reason", () => 
   assert.throws(() => validateReplanRequest({ ...valid, status: "bad" as never }), /Invalid replan request status/);
   assert.throws(() => validateReplanRequest({ ...valid, trigger: "bad" as never }), /Invalid replan request trigger/);
   assert.throws(() => validateReplanRequest({ ...valid, reason: " " }), /reason is required/);
+});
+
+test("acceptReplanProposal snapshots, saves proposed plan, applies tasks, resolves requests, and records decision", async () => {
+  await withTempDir(async (dir) => {
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    const state = createDefaultState(now);
+    state.tasks = [{ id: "T-001", status: "validated", prdRefs: ["REQ-001"], updatedAt: state.createdAt }];
+    state.validatedTaskIds = ["T-001"];
+    const currentPlan = await saveExecutionPlan(dir, {
+      version: 1,
+      planVersion: 1,
+      status: "active",
+      tasks: [{ id: "T-001", title: "Validated", prdRefs: ["REQ-001"] }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    }, now);
+    await saveProposedExecutionPlan(dir, {
+      version: 1,
+      planVersion: 2,
+      status: "draft",
+      tasks: [
+        { id: "T-001", title: "Validated", prdRefs: ["REQ-001"] },
+        { id: "T-002", title: "New work", prdRefs: ["REQ-002"], allowedPathPrefixes: ["src"] },
+      ],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    }, now);
+    await appendReplanRequest(dir, { id: "REPLAN-001", trigger: "manual", reason: "Need new task" }, now);
+
+    const result = await acceptReplanProposal(dir, state, {
+      version: 1,
+      requirements: [
+        { id: "REQ-001", statement: "One", createdAt: state.createdAt, updatedAt: state.createdAt },
+        { id: "REQ-002", statement: "Two", createdAt: state.createdAt, updatedAt: state.createdAt },
+      ],
+    }, { currentPlan, now: new Date("2026-01-01T00:00:01.000Z") });
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.savedPlan?.status, "active");
+    assert.equal(result.savedPlan?.planVersion, 2);
+    assert.equal(result.snapshotPath, ".scaler/plans/versions/PLAN-v001.json");
+    assert.deepEqual(result.applyResult?.createdTaskIds, ["T-002"]);
+    assert.equal(result.state.tasks.find((task) => task.id === "T-002")?.status, "pending");
+    assert.equal((await loadReplanRequests(dir))[0]?.status, "resolved");
+    assert.equal((await loadReplanDecisions(dir))[0]?.status, "accepted");
+    assert.equal((await loadExecutionPlan(dir)).tasks.length, 2);
+  });
+});
+
+test("acceptReplanProposal rejects unsafe proposals and records decision", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.tasks = [{ id: "T-001", status: "validated", prdRefs: ["REQ-001"], updatedAt: state.createdAt }];
+    const currentPlan = {
+      version: 1 as const,
+      planVersion: 1,
+      status: "active" as const,
+      tasks: [{ id: "T-001", title: "Validated", prdRefs: ["REQ-001"] }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    };
+    const proposedPlan = {
+      version: 1 as const,
+      planVersion: 2,
+      status: "draft" as const,
+      tasks: [{ id: "T-002", title: "Drops validated", prdRefs: ["REQ-002"] }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    };
+
+    const result = await acceptReplanProposal(dir, state, {
+      version: 1,
+      requirements: [{ id: "REQ-001", statement: "One", createdAt: state.createdAt, updatedAt: state.createdAt }],
+    }, { currentPlan, proposedPlan, now: new Date("2026-01-01T00:00:01.000Z") });
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /failed preservation/);
+    assert.deepEqual(result.decision.preservation.droppedValidatedTaskIds, ["T-001"]);
+    assert.equal((await loadReplanDecisions(dir))[0]?.status, "rejected");
+    assert.equal((await loadExecutionPlan(dir)).tasks.length, 0);
+  });
 });
 
 test("appendReplanDecision stores newest-first decisions and formats them", async () => {
