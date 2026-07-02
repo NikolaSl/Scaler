@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
   appendPrdChange,
+  computePrdCoverageSummary,
   createPrdVersionSnapshot,
   isRuntimePrdRequirementStatus,
   loadCurrentPrd,
@@ -15,6 +16,7 @@ import {
   savePrdCoverage,
   savePrdRequirements,
 } from "../src/prd.js";
+import { createDefaultState } from "../src/state.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-prd-test-"));
@@ -109,4 +111,77 @@ test("createPrdVersionSnapshot writes incrementing version files", async () => {
     assert.equal(await readFile(join(dir, second), "utf8"), "# Updated PRD\n");
     assert.equal((await loadPrdChanges(dir))[0]?.versionPath, first);
   });
+});
+
+test("computePrdCoverageSummary derives coverage from linked validated tasks", () => {
+  const state = createDefaultState();
+  state.tasks = [
+    { id: "T-001", status: "validated", prdRefs: ["REQ-001"], updatedAt: state.createdAt },
+    { id: "T-002", status: "running", prdRefs: ["REQ-002"], updatedAt: state.createdAt },
+  ];
+
+  const summary = computePrdCoverageSummary(
+    {
+      version: 1,
+      requirements: [
+        { id: "REQ-001", statement: "First", createdAt: state.createdAt, updatedAt: state.createdAt },
+        { id: "REQ-002", statement: "Second", createdAt: state.createdAt, updatedAt: state.createdAt },
+        { id: "REQ-003", statement: "Third", createdAt: state.createdAt, updatedAt: state.createdAt },
+      ],
+    },
+    { version: 1, entries: [] },
+    state,
+  );
+
+  assert.equal(summary.entries.find((entry) => entry.requirementId === "REQ-001")?.status, "validated");
+  assert.equal(summary.entries.find((entry) => entry.requirementId === "REQ-002")?.status, "in_progress");
+  assert.equal(summary.entries.find((entry) => entry.requirementId === "REQ-003")?.status, "pending");
+  assert.deepEqual(summary.unlinkedRequirementIds, ["REQ-003"]);
+  assert.deepEqual(summary.linkedRequirementIds, ["REQ-001", "REQ-002"]);
+  assert.equal(summary.countsByStatus.validated, 1);
+  assert.equal(summary.countsByStatus.in_progress, 1);
+  assert.equal(summary.countsByStatus.pending, 1);
+});
+
+test("computePrdCoverageSummary gives blocked and needs_replan explicit statuses precedence", () => {
+  const state = createDefaultState();
+  state.tasks = [
+    { id: "T-001", status: "validated", prdRefs: ["REQ-001", "REQ-002"], updatedAt: state.createdAt },
+  ];
+
+  const summary = computePrdCoverageSummary(
+    {
+      version: 1,
+      requirements: [
+        { id: "REQ-001", statement: "First", createdAt: state.createdAt, updatedAt: state.createdAt },
+        { id: "REQ-002", statement: "Second", createdAt: state.createdAt, updatedAt: state.createdAt },
+      ],
+    },
+    {
+      version: 1,
+      entries: [
+        { requirementId: "REQ-001", status: "blocked", updatedAt: state.createdAt },
+        { requirementId: "REQ-002", status: "needs_replan", updatedAt: state.createdAt },
+      ],
+    },
+    state,
+  );
+
+  assert.equal(summary.entries.find((entry) => entry.requirementId === "REQ-001")?.status, "blocked");
+  assert.equal(summary.entries.find((entry) => entry.requirementId === "REQ-002")?.status, "needs_replan");
+});
+
+test("computePrdCoverageSummary includes explicit task ids as links", () => {
+  const state = createDefaultState();
+  state.tasks = [{ id: "T-001", status: "ready", updatedAt: state.createdAt }];
+
+  const summary = computePrdCoverageSummary(
+    { version: 1, requirements: [{ id: "REQ-001", statement: "First", createdAt: state.createdAt, updatedAt: state.createdAt }] },
+    { version: 1, entries: [{ requirementId: "REQ-001", status: "implemented", taskIds: ["T-001"], updatedAt: state.createdAt }] },
+    state,
+  );
+
+  assert.deepEqual(summary.entries[0]?.linkedTaskIds, ["T-001"]);
+  assert.deepEqual(summary.unlinkedRequirementIds, []);
+  assert.equal(summary.entries[0]?.status, "implemented");
 });

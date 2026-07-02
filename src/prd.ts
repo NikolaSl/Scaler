@@ -1,5 +1,6 @@
 import { appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { ScalerState, ScalerTaskState } from "./types.js";
 import {
   getCurrentPrdPath,
   getPrdChangesPath,
@@ -49,8 +50,53 @@ export interface RuntimePrdChangeRecord {
   versionPath?: string;
 }
 
+export interface RuntimePrdComputedCoverageEntry {
+  requirementId: string;
+  status: RuntimePrdRequirementStatus;
+  linkedTaskIds: string[];
+  explicitStatus?: RuntimePrdRequirementStatus;
+  evidenceRefs: string[];
+  notes?: string;
+}
+
+export interface RuntimePrdCoverageSummary {
+  entries: RuntimePrdComputedCoverageEntry[];
+  countsByStatus: Record<RuntimePrdRequirementStatus, number>;
+  unlinkedRequirementIds: string[];
+  linkedRequirementIds: string[];
+}
+
 export function isRuntimePrdRequirementStatus(value: string): value is RuntimePrdRequirementStatus {
   return runtimePrdRequirementStatuses.includes(value as RuntimePrdRequirementStatus);
+}
+
+export function computePrdCoverageSummary(
+  requirements: RuntimePrdRequirementsFile,
+  coverage: RuntimePrdCoverageFile,
+  state: ScalerState,
+): RuntimePrdCoverageSummary {
+  validatePrdCoverage(coverage);
+  const entries = requirements.requirements.map((requirement) => {
+    const explicit = coverage.entries.find((entry) => entry.requirementId === requirement.id);
+    const taskLinkedIds = state.tasks.filter((task) => task.prdRefs?.includes(requirement.id)).map((task) => task.id);
+    const linkedTaskIds = unique([...(explicit?.taskIds ?? []), ...taskLinkedIds]);
+    const linkedTasks = state.tasks.filter((task) => linkedTaskIds.includes(task.id));
+    return {
+      requirementId: requirement.id,
+      status: resolveComputedRequirementStatus(explicit, linkedTasks),
+      linkedTaskIds,
+      explicitStatus: explicit?.status,
+      evidenceRefs: explicit?.evidenceRefs ?? [],
+      notes: explicit?.notes,
+    };
+  });
+
+  return {
+    entries,
+    countsByStatus: countCoverageStatuses(entries),
+    unlinkedRequirementIds: entries.filter((entry) => entry.linkedTaskIds.length === 0).map((entry) => entry.requirementId),
+    linkedRequirementIds: entries.filter((entry) => entry.linkedTaskIds.length > 0).map((entry) => entry.requirementId),
+  };
 }
 
 export async function loadCurrentPrd(cwd: string): Promise<string> {
@@ -146,6 +192,40 @@ export async function createPrdVersionSnapshot(cwd: string, input?: { content?: 
   }
 
   return relativePath;
+}
+
+function resolveComputedRequirementStatus(
+  explicit: RuntimePrdCoverageEntry | undefined,
+  linkedTasks: ScalerTaskState[],
+): RuntimePrdRequirementStatus {
+  if (explicit?.status === "blocked" || explicit?.status === "needs_replan") {
+    return explicit.status;
+  }
+
+  if (linkedTasks.some((task) => task.status === "validated")) {
+    return "validated";
+  }
+
+  if (explicit) {
+    return explicit.status;
+  }
+
+  if (linkedTasks.some((task) => task.status === "blocked")) return "blocked";
+  if (linkedTasks.some((task) => task.status === "needs_replan" || task.status === "failed")) return "needs_replan";
+  if (linkedTasks.some((task) => task.status === "running" || task.status === "validating" || task.status === "debugging")) return "in_progress";
+  return "pending";
+}
+
+function countCoverageStatuses(entries: RuntimePrdComputedCoverageEntry[]): Record<RuntimePrdRequirementStatus, number> {
+  const counts = Object.fromEntries(runtimePrdRequirementStatuses.map((status) => [status, 0])) as Record<RuntimePrdRequirementStatus, number>;
+  for (const entry of entries) {
+    counts[entry.status] += 1;
+  }
+  return counts;
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values.filter((value) => value.trim().length > 0))];
 }
 
 function validatePrdCoverage(coverage: RuntimePrdCoverageFile): void {
