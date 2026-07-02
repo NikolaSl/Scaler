@@ -23,10 +23,14 @@ import { loadMemoryIndex } from "./memory.js";
 import { commitWithExecutionLock, runValidationWithExecutionLock } from "./operations.js";
 import { getEventLogPath } from "./paths.js";
 import {
+  acceptReplanProposal,
   applyExecutionPlanTasks,
+  checkExecutionPlanPreservation,
+  formatExecutionPlanPreservationCheck,
   formatExecutionPlanSummary,
   formatReplanRequests,
   loadExecutionPlan,
+  loadProposedExecutionPlan,
   loadReplanRequests,
   summarizeExecutionPlan,
 } from "./plans.js";
@@ -253,6 +257,33 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     handler: async (_args, ctx) => {
       const message = formatReplanRequests(await loadReplanRequests(ctx.cwd));
       if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-replan-proposal-status", {
+    description: "Show staged SCALER replan proposal preservation status.",
+    handler: async (_args, ctx) => {
+      const state = await ensureState(ctx.cwd);
+      const currentPlan = await loadExecutionPlan(ctx.cwd);
+      const proposedPlan = await loadProposedExecutionPlan(ctx.cwd);
+      const requirements = await loadPrdRequirements(ctx.cwd);
+      const message = proposedPlan
+        ? `${formatExecutionPlanSummary(summarizeExecutionPlan(proposedPlan, requirements, state))}\n${formatExecutionPlanPreservationCheck(checkExecutionPlanPreservation(currentPlan, proposedPlan, requirements, state))}`
+        : "No proposed execution plan found at .scaler/plans/proposed-plan.json.";
+      if (ctx.hasUI) ctx.ui.notify(message, proposedPlan ? "info" : "warning");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-replan-accept", {
+    description: "Accept .scaler/plans/proposed-plan.json after preservation checks.",
+    handler: async (_args, ctx) => {
+      const state = await ensureState(ctx.cwd);
+      const requirements = await loadPrdRequirements(ctx.cwd);
+      const result = await acceptReplanProposal(ctx.cwd, state, requirements);
+      const message = `${result.message} decision=${result.decision.id}`;
+      if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
       else console.log(message);
     },
   });
