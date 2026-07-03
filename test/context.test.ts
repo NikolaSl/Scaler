@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { promisify } from "node:util";
 import {
   createDefaultTaskContextManifest,
+  createDiscoveredTaskContextManifest,
   ensureTaskContextManifest,
   estimateTokens,
   formatOmittedContextSummary,
@@ -16,8 +19,13 @@ import {
   validateTaskContextManifest,
 } from "../src/context.js";
 import { writeMemory } from "../src/memory.js";
+import { saveExecutionPlan } from "../src/plans.js";
+import { getValidationRunsPath } from "../src/paths.js";
+import { upsertPrdRequirement } from "../src/prd.js";
 import { createDefaultState } from "../src/state.js";
 import { saveValidationManifest } from "../src/validation.js";
+
+const execFileAsync = promisify(execFile);
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-context-test-"));
@@ -130,6 +138,79 @@ test("createDefaultTaskContextManifest includes state, task, validation, prd ref
   assert.equal(manifest.taskId, "T-001");
   assert.deepEqual(manifest.items.map((item) => item.id), ["state-summary", "task-metadata", "validation-manifest", "runtime-prd-refs", "memory-mem-1"]);
   assert.match(formatTaskContextManifest(manifest), /Task context manifest: T-001 items=5/);
+});
+
+test("createDiscoveredTaskContextManifest adds ranked evidence from changed files, plan, PRD, validation, and memory", async () => {
+  await withTempDir(async (dir) => {
+    await execFileAsync("git", ["init"], { cwd: dir });
+    await mkdir(join(dir, "src"));
+    await writeFile(join(dir, "src", "feature.ts"), "export const feature = true;\n", "utf8");
+    await execFileAsync("git", ["add", "-N", "src/feature.ts"], { cwd: dir });
+
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.tasks = [{
+      id: "T-001",
+      status: "ready",
+      title: "Implement feature context",
+      allowedPathPrefixes: ["src"],
+      prdRefs: ["REQ-001"],
+      updatedAt: state.createdAt,
+    }];
+    await saveExecutionPlan(dir, {
+      version: 1,
+      planVersion: 7,
+      status: "active",
+      tasks: [{ id: "T-001", title: "Implement feature context", prdRefs: ["REQ-001"], allowedPathPrefixes: ["src"] }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+    await upsertPrdRequirement(dir, {
+      id: "REQ-001",
+      statement: "Feature context must be deterministic.",
+      status: "in_progress",
+      taskIds: ["T-001"],
+      now: new Date("2026-01-01T00:00:01.000Z"),
+    });
+    await mkdir(join(dir, ".scaler", "reports"), { recursive: true });
+    await writeFile(getValidationRunsPath(dir), JSON.stringify({
+      version: 1,
+      runs: [{
+        id: "RUN-001",
+        taskId: "T-001",
+        status: "failed",
+        commandRuns: [{
+          id: "cmd-1",
+          commandId: "npm-test",
+          command: "npm test",
+          status: "failed",
+          exitCode: 1,
+          stdoutSummary: "",
+          stderrSummary: "feature failure",
+          startedAt: state.createdAt,
+          finishedAt: state.createdAt,
+        }],
+        createdAt: "2026-01-01T00:00:02.000Z",
+      }],
+    }), "utf8");
+    const memory = await writeMemory(dir, {
+      title: "Feature context discovery note",
+      content: "Relevant feature context memory",
+      taskId: "T-001",
+      now: new Date("2026-01-01T00:00:03.000Z"),
+    });
+
+    const manifest = await createDiscoveredTaskContextManifest(dir, state, "T-001", new Date("2026-01-01T00:00:04.000Z"));
+    const ids = manifest.items.map((item) => item.id);
+
+    assert.ok(ids.includes("git-changed-files"));
+    assert.ok(ids.includes("changed-file-feature-ts"));
+    assert.ok(ids.includes("execution-plan-task"));
+    assert.ok(ids.includes("runtime-prd-coverage"));
+    assert.ok(ids.includes("validation-history"));
+    assert.ok(ids.includes(`memory-search-${memory.id}`));
+    assert.equal(manifest.items.find((item) => item.id === "changed-file-feature-ts")?.priority, "useful");
+    assert.equal(manifest.items.find((item) => item.id === `memory-search-${memory.id}`)?.priority, "useful");
+  });
 });
 
 test("saveTaskContextManifest and loadTaskContextManifest round trip normalized manifest", async () => {
