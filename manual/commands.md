@@ -166,6 +166,14 @@ Prepares or executes the focused replanner agent. With `execute`, SCALER ingests
 
 Lists replanner-agent run records from `.scaler/reports/replan-agent-runs.json`.
 
+## `/scaler-research-run [requestId] [execute]`
+
+Prepares or executes the focused research agent for a selected request or the oldest open request. With `execute`, SCALER ingests a valid `scaler_research_report` JSON event and stores the report under `.scaler/research/reports.json`.
+
+## `/scaler-research-runs [requestId]`
+
+Lists research-agent run records from `.scaler/reports/research-agent-runs.json`.
+
 ## `/scaler-research-status`
 
 Shows research request/report counts and recent open requests/reports from `.scaler/research/`.

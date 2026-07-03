@@ -12,7 +12,6 @@ Priority scale:
 
 | Gap ID | Related requirements | Gap | Suggested next implementation slice |
 |---|---|---|---|
-| GAP-004 | PRD-S06, PRD-W03 | Research-agent automation is missing. Evidence ledgers, quality/confidence/contradiction handling, and raw-evidence memory storage exist. | Add focused research-agent prompt/run records and structured `scaler_research_report` ingestion from child output; later add internet/browser/MCP research execution. |
 | GAP-005 | PRD-S16, PRD-S02 | Audit logging is incomplete for prompts/tool calls/full reports. | Extend logging to cover command starts/ends, agent prompts, tool requests/results, transitions, validation summaries, and commit ids. |
 
 ## P1 gaps
@@ -26,6 +25,7 @@ Priority scale:
 | GAP-010 | PRD-S26, PRD-S27 | Safety/security/sandbox controls are partial. | Add internet/deploy/publish/secret gates, sandbox-mode metadata, and optional dependency/image scanner commands. |
 | GAP-011 | PRD-S17 | `.scaler/` storage management missing. | Add storage usage scan, retention policy, report rotation, memory indexing, and hard pause on limits. |
 | GAP-012 | PRD-S08, PRD-S09, PRD-P04 | Tool/MCP isolation needs deeper implementation. | Add tool catalog builder, tool-agent result schema, and focused tool transaction execution records. |
+| GAP-019 | PRD-S06, PRD-W03 | Focused research-agent prompts and structured ingestion exist, but browser/MCP internet research execution is not automated. | Add explicit internet research tool policy, optional browser/MCP tool grants, and source capture for web research runs. |
 
 ## P2 gaps
 
