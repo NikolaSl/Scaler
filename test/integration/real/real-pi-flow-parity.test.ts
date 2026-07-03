@@ -5,11 +5,20 @@ import { test } from "node:test";
 import { assessDebugRetryGate, loadDebugAttempts, loadDebugReports, recordDebugAttempt } from "../../../src/debug.js";
 import { loadDebugAgentRunRecords, runDebugAgentStep } from "../../../src/debug-agent.js";
 import { readLogEvents } from "../../../src/logging.js";
-import { loadReplanRequests } from "../../../src/plans.js";
+import {
+  acceptReplanProposal,
+  appendReplanRequest,
+  loadExecutionPlan,
+  loadProposedExecutionPlan,
+  loadReplanDecisions,
+  loadReplanRequests,
+  saveExecutionPlan,
+} from "../../../src/plans.js";
 import { loadResearchReports, loadResearchRequests } from "../../../src/research.js";
 import { loadResearchAgentRunRecords, runResearchAgentStep } from "../../../src/research-agent.js";
-import { upsertPrdRequirement } from "../../../src/prd.js";
+import { loadPrdRequirements, upsertPrdRequirement } from "../../../src/prd.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
+import { loadReplanAgentRunRecords, runReplanAgentStep } from "../../../src/replan-agent.js";
 import { loadStageAgentRunRecords } from "../../../src/stage-agents.js";
 import { runStageConductorLoop } from "../../../src/stage-conductor.js";
 import { loadStageArtifacts, type StageArtifactStage } from "../../../src/stages.js";
@@ -185,5 +194,119 @@ test("real flow parity: stage conductor ingests real Pi artifacts and completes 
     const events = await readLogEvents(dir);
     assert.ok(events.some((event) => event.eventType === "agent" && event.agentType === "stage"));
     assert.ok(events.some((event) => event.eventType === "report" && event.summary.includes("scaler_stage_artifact")));
+  });
+});
+
+test("real flow parity: replan proposal from real Pi is accepted into current plan", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    await upsertPrdRequirement(dir, {
+      id: "REQ-REAL-KEEP",
+      title: "Preserved real requirement",
+      statement: "Validated real-flow work must remain planned.",
+      status: "validated",
+      taskIds: ["T-REAL-KEEP"],
+      evidenceRefs: ["validation-real-keep"],
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    await upsertPrdRequirement(dir, {
+      id: "REQ-REAL-NEW",
+      title: "New real requirement",
+      statement: "A real-flow coverage gap must become a planned task.",
+      status: "pending",
+      now: new Date("2026-01-01T00:00:01.000Z"),
+    });
+
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "replanning";
+    state.tasks = [{
+      id: "T-REAL-KEEP",
+      status: "validated",
+      title: "Keep validated real work",
+      allowedPathPrefixes: ["index.js"],
+      prdRefs: ["REQ-REAL-KEEP"],
+      updatedAt: state.createdAt,
+    }];
+    state.validatedTaskIds = ["T-REAL-KEEP"];
+    state.completedTaskIds = ["T-REAL-KEEP"];
+    await saveState(dir, state);
+    await saveExecutionPlan(dir, {
+      version: 1,
+      planVersion: 1,
+      status: "active",
+      title: "Real current plan",
+      source: "real-flow-parity-fixture",
+      tasks: [{ id: "T-REAL-KEEP", title: "Keep validated real work", prdRefs: ["REQ-REAL-KEEP"], allowedPathPrefixes: ["index.js"] }],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    await appendReplanRequest(dir, {
+      id: "REPLAN-REAL-FLOW",
+      trigger: "coverage_gap",
+      reason: "REQ-REAL-NEW is not linked to any current planned task.",
+      requirementRefs: ["REQ-REAL-NEW"],
+      evidenceRefs: ["runtime-prd-real-coverage"],
+      planVersion: 1,
+    }, new Date("2026-01-01T00:00:02.000Z"));
+
+    const proposal = {
+      type: "scaler_replan_proposal",
+      plan: {
+        version: 1,
+        planVersion: 2,
+        status: "draft",
+        title: "Real Pi flow-parity replan proposal",
+        source: "real-pi-cardinal-flow",
+        tasks: [
+          {
+            id: "T-REAL-KEEP",
+            title: "Keep validated real work",
+            prdRefs: ["REQ-REAL-KEEP"],
+            allowedPathPrefixes: ["index.js"],
+            validationRefs: ["validation-real-keep"],
+          },
+          {
+            id: "T-REAL-NEW",
+            title: "Cover new real requirement",
+            prdRefs: ["REQ-REAL-NEW"],
+            allowedPathPrefixes: ["real-new.js"],
+            dependsOn: ["T-REAL-KEEP"],
+            validationRefs: ["validation-real-new"],
+          },
+        ],
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    };
+    const instruction = `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: ${JSON.stringify(proposal)}.`;
+    const replan = await runReplanAgentStep(dir, await loadState(dir), {
+      execute: true,
+      timeoutMs: REAL_PI_TIMEOUT_MS,
+      model: REAL_PI_MODEL,
+      extraInstructions: instruction,
+    }, realCardinalRunner(instruction));
+
+    assert.equal(replan.accepted, true);
+    assert.equal(replan.ingestion?.ingested, true, replan.ingestion?.reason);
+    assert.equal(replan.ingestion?.preservation?.ok, true);
+    assert.equal((await loadProposedExecutionPlan(dir))?.planVersion, 2);
+    assert.equal((await loadReplanAgentRunRecords(dir))[0]?.ingestionStatus, "ingested");
+
+    const accepted = await acceptReplanProposal(dir, await loadState(dir), await loadPrdRequirements(dir), {
+      now: new Date("2026-01-01T00:00:03.000Z"),
+    });
+
+    assert.equal(accepted.accepted, true, accepted.message);
+    assert.deepEqual(accepted.applyResult?.createdTaskIds, ["T-REAL-NEW"]);
+    assert.deepEqual(accepted.applyResult?.existingTaskIds, ["T-REAL-KEEP"]);
+    assert.equal(accepted.savedPlan?.status, "active");
+    assert.equal((await loadExecutionPlan(dir)).planVersion, 2);
+    assert.equal((await loadReplanRequests(dir))[0]?.status, "resolved");
+    assert.equal((await loadReplanDecisions(dir))[0]?.status, "accepted");
+    assert.ok(accepted.snapshotPath?.startsWith(".scaler/plans/versions/PLAN-v"));
+    assert.equal((await loadState(dir)).tasks.some((task) => task.id === "T-REAL-NEW" && task.status === "pending"), true);
+
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "agent" && event.agentType === "replan"));
+    assert.ok(events.some((event) => event.eventType === "report" && event.summary.includes("scaler_replan_proposal")));
   });
 });
