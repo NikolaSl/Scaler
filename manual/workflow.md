@@ -87,16 +87,17 @@ Inspect execution records with:
 
 Validation runs the task manifest commands and records results under `.scaler/reports/`. Passing validation moves a validating/debugging task to `validated`; failing validation moves a validating task to `debugging`.
 
-When debugging stalls, use:
+When debugging stalls, use either individual focused-agent commands or the bounded debug loop:
 
 ```text
 /scaler-debug-run T-001
 /scaler-debug-run T-001 execute
+/scaler-debug-loop T-001 execute max=5
 /scaler-debug-reports
 /scaler-debug-runs T-001
 ```
 
-A debug report with `needs_research` creates research requests for `/scaler-research-run`; a report with `needs_replan` or `blocked` creates a replan request for the replanner workflow. This step is currently operator/command driven rather than an automatic debug conductor loop.
+A debug report with `needs_research` creates research requests for `/scaler-research-run`; a report with `needs_replan` or `blocked` creates a replan request for the replanner workflow. `/scaler-debug-loop` chains those handoffs deterministically until it reaches a `next_approach`, stages a proposed replan, encounters rejected structured output, or hits its bound. It does not patch/retry code or accept replans automatically.
 
 ## 6. Commit validated work
 

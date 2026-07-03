@@ -32,4 +32,5 @@ Implement the first deterministic slice of `GAP-022`: a bounded conductor that c
 3. `IMPL-168: add debug loop command integration`
 4. `IMPL-169: add mocked debug conductor integration coverage`
 5. `IMPL-170: add real debug conductor integration coverage`
-6. `IMPL-171: document bounded debug conductor slice`
+6. `IMPL-171: harden real stage conductor parity test`
+7. `IMPL-172: document bounded debug conductor slice`

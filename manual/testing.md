@@ -51,6 +51,8 @@ The current mocked integration harness covers:
 - deterministic context discovery feeding conductor prompts with exactness/compression guidance;
 - unsafe replan proposal acceptance rejection;
 - debug report → replan request → replanner proposal → acceptance retry-gate clearance;
+- bounded debug conductor chains from validation failure through debug → research → debug next approach;
+- bounded debug conductor stages replanner proposals from debug `needs_replan` without accepting them;
 - blocked validation → replan request → proposal acceptance;
 - execution-lock contention across conductor, validation, stage-agent, replan-agent, research-agent, debug-agent, and commit workflows;
 - safety/allowed-path enforcement and commit-refusal chains;
@@ -84,6 +86,7 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - exact assistant JSON objects carried inside Pi `--mode json` event wrappers, while prose/markdown text is still rejected;
 - real free-form rejection for stage, replan, and research child-agent outputs without mutating ledgers;
 - real chained debug → research → next-approach flow-parity through persisted debug/research ledgers;
+- real bounded debug conductor chain from validation failure through debug → research → debug next approach;
 - real research raw-evidence externalization into memory and later task context manifests;
 - real debug-blocked replan request creation plus safe replan acceptance that clears the retry gate;
 - real chained Stage I-IV conductor flow-parity through persisted stage artifacts and stage-agent run records;

@@ -26,6 +26,7 @@ Commands:
 
 ```text
 /scaler-debug-run [taskId] [execute]
+/scaler-debug-loop [taskId] [execute] [max=N]
 /scaler-debug-runs [taskId]
 /scaler-debug-reports
 ```
@@ -66,6 +67,16 @@ Statuses:
 - `needs_replan` — creates a debug-blocked replan request after debug/research exhaustion or plan/task invalidation.
 - `blocked` — creates a debug-blocked replan request for an immediate supervisor-level blocker.
 
+## Bounded debug conductor
+
+`/scaler-debug-loop [taskId] [execute] [max=N]` automates the current debug-agent/research-agent/replanner-agent handoffs for one debugging task. It is deterministic and bounded:
+
+1. If a task-local debug-cycle/debug-blocked replan request is open, it runs the replanner agent and stops after a proposed plan is staged.
+2. Else if a task-local research request is open, it runs the research agent and then re-evaluates the debug task.
+3. Else it runs the debug agent.
+
+The loop stops on prepare-mode handoff, rejected structured ingestion, `next_approach`, proposed replan generation, no debugging task, or max steps. It never accepts a proposed plan automatically; `/scaler-replan-accept` remains the preservation-gated current-plan replacement path.
+
 ## Current limitations
 
-The debug-agent workflow is command-driven. SCALER does not yet automatically run a bounded debug-agent → research-agent → replanner loop immediately after validation failure. Internet research still depends on explicitly granted tools and safety policy.
+The bounded debug conductor does not yet implement automatic code patch/retry after `next_approach`, and it does not auto-start immediately inside `/scaler-validate`. Internet research still depends on explicitly granted tools and safety policy.

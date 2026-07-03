@@ -178,6 +178,20 @@ Debug report statuses:
 - `needs_research` creates research requests.
 - `needs_replan` and `blocked` create debug-blocked replan requests.
 
+## `/scaler-debug-loop [taskId] [execute] [max=N]`
+
+Runs a bounded deterministic debug conductor for a debugging task. The loop selects the explicit task, current debugging task, or first debugging task.
+
+Current behavior:
+
+- runs the focused debug agent when no task-local research or debug replan request is open;
+- runs the focused research agent when a task-local research request is open;
+- runs the focused replanner agent when a task-local debug-cycle/debug-blocked replan request is open;
+- stops on prepare-mode handoff, rejected ingestion, `next_approach`, proposed replan generation, missing task, or max steps;
+- does **not** accept proposed replans automatically.
+
+Default max is 5 and bounds normalize to 1..20.
+
 ## `/scaler-debug-runs [taskId]`
 
 Lists debug-agent run records from `.scaler/reports/debug-agent-runs.json`.

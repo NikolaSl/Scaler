@@ -172,6 +172,9 @@ When adding a new integration scenario:
   - debug-agent `next_approach` report ingestion;
   - retry-gate clearance by later `newEvidence`;
   - rejection of free-form debug-agent output.
+- `mock/debug-conductor-flow.test.ts`
+  - bounded debug conductor from failed validation through debug `needs_research` → research completion → debug `next_approach`;
+  - bounded debug conductor from debug `needs_replan` → replanner proposal staging without automatic acceptance.
 - `mock/stage-replan-plan-flow.test.ts`
   - stage conductor loop from PRD through knowledge, planning, execution, and completion;
   - stage-agent structured artifact ingestion, readiness, semantic, consistency, advancement, run records, and audit logs;
@@ -205,6 +208,8 @@ When adding a new integration scenario:
   - command audit events and detail payload references in `.scaler/logs/events.jsonl`;
   - cardinal real-model call to `scaler_task_create` with exact arguments and persisted SCALER task state;
   - cardinal real-model call to built-in `bash` with `cat .env`, blocked by SCALER's safety hook and recorded as a safety audit event.
+- `real/real-pi-debug-conductor.test.ts`
+  - opt-in real Pi/model bounded debug conductor chain from validation failure through debug `needs_research` → research completion → debug `next_approach` with persisted ledgers and audit events.
 - `real/real-pi-flow-parity.test.ts`
   - real non-debug child free-form output rejection for stage, replan, and research agents without ledger mutation;
   - real debug-agent `needs_research` report → research request ledger;
