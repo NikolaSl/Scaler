@@ -78,6 +78,13 @@ Environment variables:
 - `SCALER_REAL_PI_COMMAND` optionally selects the Pi executable path/name; default is `pi`.
 - `SCALER_REAL_PI_TIMEOUT_MS` optionally controls timeout; default is `60000`.
 
-Real-mode prompts include a cardinal test instruction before the normal agent prompt. The instruction tells the model to ignore conflicting context and emit exactly one structured JSON event, with no prose or markdown. Current real contracts cover debug, research, stage, and replan agent structured event ingestion. SCALER accepts exact assistant JSON objects carried inside Pi `--mode json` event wrappers, while prose/markdown text is still rejected.
+Real-mode prompts include a cardinal test instruction before the normal agent prompt. Structured-output contracts require exactly one structured JSON event, with no prose or markdown. Tool/hook integrity contracts require exactly one named tool call with exact arguments and use restricted `--tools` lists. Current real coverage includes:
+
+- debug, research, stage, and replan agent structured event ingestion through real Pi/model subprocesses;
+- exact assistant JSON objects carried inside Pi `--mode json` event wrappers, while prose/markdown text is still rejected;
+- real Pi extension loading via `-e src/index.ts`;
+- slash-command dispatch and command audit logs;
+- cardinal SCALER tool invocation with persisted `.scaler/state.json` mutation;
+- cardinal built-in `bash` invocation blocked by the SCALER safety hook and recorded in `.scaler/logs/events.jsonl`.
 
 Real Pi/model tests are intentionally opt-in because they can cost tokens, require local model/provider setup, and may be less deterministic than mock integration tests.

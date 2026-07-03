@@ -106,27 +106,41 @@ npm run test:integration:real
 
 Prefer provider-qualified model names such as `openai-codex/gpt-5.3-codex-spark` when `/model` shows a provider. Unqualified names can resolve to a different provider in non-interactive subprocesses. The helper script `scripts/run-real-integration.sh` uses the provider-qualified Codex model by default.
 
-Real Pi/model tests are opt-in because they can cost tokens, depend on local/provider configuration, and are less deterministic than mock tests. They should only validate subprocess/model structured-output contracts; do not make them depend on external network access.
+Real Pi/model tests are opt-in because they can cost tokens, depend on local/provider configuration, and are less deterministic than mock tests. They should validate narrow real-boundary contracts only; do not make them depend on external network access.
+
+Current real mode has two layers:
+
+1. child-agent structured-output contracts that call real Pi/model subprocesses and verify SCALER report extraction; and
+2. real Pi extension integrity tests that launch `pi --mode json -p --no-session -e <src/index.ts>` in a temporary repository and verify extension command dispatch, SCALER tool calls, safety hooks, `.scaler/logs/events.jsonl`, detail payload references, and persisted state.
+
+Command-dispatch extension tests may avoid model output. Cardinal SCALER-tool and hook tests use the selected real model with restricted `--tools` lists.
 
 ## Cardinal instruction pattern for real mode
 
 When a test uses a real model, prepend a cardinal instruction to the prompt. The cardinal instruction must make the expected output deterministic even if the rest of the context contains other instructions.
 
-Pattern:
+Structured-report pattern:
 
 ```text
 CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: {...}.
+```
+
+Tool-call pattern:
+
+```text
+CARDINAL INSTRUCTION FOR THIS TEST: You must call the tool <tool_name> exactly once with exactly these arguments and no other tool calls: {...}. Do not answer in prose before the tool call.
 ```
 
 Rules:
 
 - Put the cardinal instruction before the ordinary agent prompt.
 - Also pass it as `extraInstructions` when supported so it appears in the generated prompt detail.
-- Require exactly one JSON event.
-- Require no prose/markdown.
-- Include all fields needed for deterministic ingestion.
-- SCALER accepts the event either as a direct mock `scaler_*` object or as an exact JSON object in assistant text inside Pi `--mode json` event wrappers; surrounding prose/markdown remains rejected.
-- Keep the event small and cheap.
+- Require exactly one JSON event or exactly one named tool call, depending on the scenario.
+- For structured report contracts, require no prose/markdown.
+- For tool/hook contracts, restrict `--tools` to the single required tool whenever possible.
+- Include all fields needed for deterministic ingestion or ledger mutation.
+- SCALER accepts report events either as direct mock `scaler_*` objects or as exact JSON objects in assistant text inside Pi `--mode json` event wrappers; surrounding prose/markdown remains rejected.
+- Keep the event/tool call small and cheap.
 - Do not require real external network access.
 
 If a model cannot follow this instruction reliably, treat that as a model/configuration issue; do not weaken default mock tests.
@@ -184,3 +198,10 @@ When adding a new integration scenario:
   - opt-in cardinal structured-output contract for `scaler_stage_artifact`;
   - opt-in cardinal structured-output contract for `scaler_replan_proposal`;
   - real Pi `--mode json` wrapper extraction for exact assistant JSON events.
+- `real/real-pi-extension-integrity.test.ts`
+  - real Pi extension load and slash-command dispatch via `/scaler-lock`;
+  - command audit events and detail payload references in `.scaler/logs/events.jsonl`;
+  - cardinal real-model call to `scaler_task_create` with exact arguments and persisted SCALER task state;
+  - cardinal real-model call to built-in `bash` with `cat .env`, blocked by SCALER's safety hook and recorded as a safety audit event.
+- `real/real-pi-harness.ts`
+  - shared temp-repository and `pi --mode json -p --no-session -e <src/index.ts>` harness for opt-in real extension tests.
