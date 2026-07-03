@@ -15,7 +15,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - Experimental task-agent subprocess invocation builder.
 - Structured Scaler tool skeletons registered with Pi.
 - External memory write/retrieve under `.scaler/memory/`.
-- Task context manifests under `.scaler/context/tasks/` with file, memory, state, task, PRD ref, and validation-manifest resolution.
+- Task context manifests under `.scaler/context/tasks/` with file, memory, state, task, PRD ref, validation-manifest resolution, and relevance discovery from changed files, plans, PRD coverage, validation history, and memory matches.
 - Minimal adaptive `/scaler` entrypoint.
 - Budget usage helper skeleton for tools, spawned agents, debug attempts, and checkpoints.
 - Checkpoint writing under `.scaler/checkpoints/` for pause/resume and conductor steps.

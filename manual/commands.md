@@ -104,7 +104,7 @@ Lists all known supervisor tasks with status, current-task marker, title, allowe
 
 ## `/scaler-context-init [taskId]`
 
-Creates a default task context manifest under `.scaler/context/tasks/<taskId>.json`.
+Creates a default task context manifest under `.scaler/context/tasks/<taskId>.json`. Missing manifests include discovered context from changed files, execution plans, PRD coverage, validation history, and ranked memory matches when available.
 
 ## `/scaler-context-status [taskId]`
 

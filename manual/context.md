@@ -42,6 +42,16 @@ When `/scaler-step` runs without explicit context items, SCALER loads or creates
 
 Default manifests include supervisor state, task metadata, validation manifest, runtime PRD refs when present, and supervisor memory refs.
 
+When SCALER creates a missing manifest, it also discovers and ranks relevant context from available local ledgers:
+
+- non-runtime git changed paths, including readable changed files with task allowed-path matches ranked above unrelated changed files.
+- the current execution-plan entry for the task.
+- runtime PRD requirement and coverage records for the task's PRD refs.
+- the latest validation runs for the task.
+- memory index entries matched against task id, title, PRD refs, allowed paths, and task-linked memory metadata.
+
+Existing manifests are preserved; discovery only runs when a manifest is created.
+
 If a source cannot be resolved, SCALER preserves a `MISSING CONTEXT` item instead of silently dropping it.
 
 ## Commands

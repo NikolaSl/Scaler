@@ -12,7 +12,6 @@ Priority scale:
 
 | Gap ID | Related requirements | Gap | Suggested next implementation slice |
 |---|---|---|---|
-| GAP-002 | PRD-S04, PRD-G02, PRD-P01 | Task context manifests now resolve state, task metadata, files, memory refs, validation manifests, PRD refs, and missing context, but source discovery/ranking remains basic. | Add automatic relevance discovery from changed files, plans, PRD coverage, validation history, and memory search results. |
 | GAP-003 | PRD-S25, PRD-S31, PRD-W08, PRD-G04 | Versioned runtime PRD/execution plan artifacts, replan requests, preservation checks, blocked-evidence triggers, and proposal acceptance exist, but no planner agent generates proposed replacement plans. | Add planner/replanner agent that consumes replan requests and runtime PRD coverage to write `.scaler/plans/proposed-plan.json` automatically. |
 | GAP-004 | PRD-S06, PRD-S07, PRD-W03 | Research agents and evidence handling are missing. | Add research request/report schema, source quality/confidence fields, contradiction handling, and raw-evidence storage in memory. |
 | GAP-005 | PRD-S16, PRD-S02 | Audit logging is incomplete for prompts/tool calls/full reports. | Extend logging to cover command starts/ends, agent prompts, tool requests/results, transitions, validation summaries, and commit ids. |
