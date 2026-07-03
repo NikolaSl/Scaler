@@ -98,11 +98,13 @@ Real tests are separate from the deterministic mock suite and are skipped unless
 
 ```bash
 SCALER_REAL_PI_INTEGRATION=1 \
-SCALER_REAL_PI_MODEL=<model-name> \
+SCALER_REAL_PI_MODEL=openai-codex/gpt-5.3-codex-spark \
 SCALER_REAL_PI_COMMAND=pi \
 SCALER_REAL_PI_TIMEOUT_MS=60000 \
 npm run test:integration:real
 ```
+
+Prefer provider-qualified model names such as `openai-codex/gpt-5.3-codex-spark` when `/model` shows a provider. Unqualified names can resolve to a different provider in non-interactive subprocesses. The helper script `scripts/run-real-integration.sh` uses the provider-qualified Codex model by default.
 
 Real Pi/model tests are opt-in because they can cost tokens, depend on local/provider configuration, and are less deterministic than mock tests. They should only validate subprocess/model structured-output contracts; do not make them depend on external network access.
 
@@ -123,6 +125,7 @@ Rules:
 - Require exactly one JSON event.
 - Require no prose/markdown.
 - Include all fields needed for deterministic ingestion.
+- SCALER accepts the event either as a direct mock `scaler_*` object or as an exact JSON object in assistant text inside Pi `--mode json` event wrappers; surrounding prose/markdown remains rejected.
 - Keep the event small and cheap.
 - Do not require real external network access.
 
@@ -179,4 +182,5 @@ When adding a new integration scenario:
   - opt-in cardinal structured-output contract for `scaler_debug_report`;
   - opt-in cardinal structured-output contract for `scaler_research_report`;
   - opt-in cardinal structured-output contract for `scaler_stage_artifact`;
-  - opt-in cardinal structured-output contract for `scaler_replan_proposal`.
+  - opt-in cardinal structured-output contract for `scaler_replan_proposal`;
+  - real Pi `--mode json` wrapper extraction for exact assistant JSON events.

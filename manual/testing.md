@@ -65,7 +65,7 @@ The real integration suite can run against real Pi/model execution when explicit
 
 ```bash
 SCALER_REAL_PI_INTEGRATION=1 \
-SCALER_REAL_PI_MODEL=<model-name> \
+SCALER_REAL_PI_MODEL=openai-codex/gpt-5.3-codex-spark \
 SCALER_REAL_PI_COMMAND=pi \
 SCALER_REAL_PI_TIMEOUT_MS=60000 \
 npm run test:integration:real
@@ -74,10 +74,10 @@ npm run test:integration:real
 Environment variables:
 
 - `SCALER_REAL_PI_INTEGRATION=1` enables real contract tests. They are skipped otherwise.
-- `SCALER_REAL_PI_MODEL` optionally selects a model.
+- `SCALER_REAL_PI_MODEL` optionally selects a model. Prefer provider-qualified values such as `openai-codex/gpt-5.3-codex-spark` when `/model` displays a provider, because unqualified names can resolve differently in subprocesses.
 - `SCALER_REAL_PI_COMMAND` optionally selects the Pi executable path/name; default is `pi`.
 - `SCALER_REAL_PI_TIMEOUT_MS` optionally controls timeout; default is `60000`.
 
-Real-mode prompts include a cardinal test instruction before the normal agent prompt. The instruction tells the model to ignore conflicting context and emit exactly one structured JSON event, with no prose or markdown. Current real contracts cover debug, research, stage, and replan agent structured event ingestion.
+Real-mode prompts include a cardinal test instruction before the normal agent prompt. The instruction tells the model to ignore conflicting context and emit exactly one structured JSON event, with no prose or markdown. Current real contracts cover debug, research, stage, and replan agent structured event ingestion. SCALER accepts exact assistant JSON objects carried inside Pi `--mode json` event wrappers, while prose/markdown text is still rejected.
 
 Real Pi/model tests are intentionally opt-in because they can cost tokens, require local model/provider setup, and may be less deterministic than mock integration tests.
