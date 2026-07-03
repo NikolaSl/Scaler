@@ -75,6 +75,31 @@ export interface ResearchRawEvidenceInput {
   summary?: string;
 }
 
+export interface ResearchSourceInput {
+  id: string;
+  title: string;
+  quality: ResearchSourceQuality | string;
+  checkedAt?: string;
+  url?: string;
+  path?: string;
+  version?: string;
+  summary?: string;
+}
+
+export interface ResearchConclusionInput {
+  summary: string;
+  confidence: ResearchConfidence | string;
+  sourceRefs: string[];
+  evidenceRefs?: string[];
+}
+
+export interface ResearchContradictionInput {
+  summary: string;
+  status: ResearchContradictionStatus | string;
+  sourceRefs: string[];
+  resolution?: string;
+}
+
 export interface ResearchReport {
   id: string;
   status: ResearchReportStatus;
@@ -99,9 +124,9 @@ export interface ResearchReportInput {
   requestId?: string;
   taskId?: string;
   requirementRefs?: string[];
-  sources?: Array<Omit<ResearchSource, "checkedAt"> & { checkedAt?: string }>;
-  conclusions?: ResearchConclusion[];
-  contradictions?: ResearchContradiction[];
+  sources?: ResearchSourceInput[];
+  conclusions?: ResearchConclusionInput[];
+  contradictions?: ResearchContradictionInput[];
   unresolvedUnknowns?: string[];
   recommendations?: string[];
   memoryRefs?: string[];
@@ -314,7 +339,7 @@ function validateResearchContradiction(contradiction: ResearchContradiction, sou
   }
 }
 
-function normalizeSources(sources: Array<Omit<ResearchSource, "checkedAt"> & { checkedAt?: string }>, timestamp: string): ResearchSource[] {
+function normalizeSources(sources: ResearchSourceInput[], timestamp: string): ResearchSource[] {
   return sources.map((source) => ({
     id: cleanRequired(source.id, "Research source id is required."),
     title: cleanRequired(source.title, "Research source title is required."),
@@ -327,7 +352,7 @@ function normalizeSources(sources: Array<Omit<ResearchSource, "checkedAt"> & { c
   })).sort((a, b) => rankResearchSourceQuality(a.quality) - rankResearchSourceQuality(b.quality) || a.id.localeCompare(b.id));
 }
 
-function normalizeConclusions(conclusions: ResearchConclusion[]): ResearchConclusion[] {
+function normalizeConclusions(conclusions: ResearchConclusionInput[]): ResearchConclusion[] {
   return conclusions.map((conclusion) => ({
     summary: cleanRequired(conclusion.summary, "Research conclusion summary is required."),
     confidence: normalizeConfidence(conclusion.confidence),
@@ -336,7 +361,7 @@ function normalizeConclusions(conclusions: ResearchConclusion[]): ResearchConclu
   }));
 }
 
-function normalizeContradictions(contradictions: ResearchContradiction[] | undefined): ResearchContradiction[] | undefined {
+function normalizeContradictions(contradictions: ResearchContradictionInput[] | undefined): ResearchContradiction[] | undefined {
   const normalized = contradictions?.map((contradiction) => ({
     summary: cleanRequired(contradiction.summary, "Research contradiction summary is required."),
     status: normalizeContradictionStatus(contradiction.status),

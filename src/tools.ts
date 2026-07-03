@@ -14,6 +14,7 @@ import {
   type RuntimePrdRequirementStatus,
 } from "./prd.js";
 import { ingestReport } from "./reports.js";
+import { recordResearchReport } from "./research.js";
 import { ensureState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentRunResult } from "./subagents.js";
 import { createTask, updateTask } from "./tasks.js";
@@ -25,6 +26,7 @@ export const scalerToolNames = [
   "scaler_report",
   "scaler_memory_write",
   "scaler_memory_retrieve",
+  "scaler_research_report",
   "scaler_spawn_task",
   "scaler_tool_request",
   "scaler_task_create",
@@ -58,6 +60,43 @@ const MemoryRetrieveParams = Type.Object({
   memoryIdOrPath: Type.String({ description: "Memory id or path to retrieve later." }),
   reason: Type.String({ description: "Why this memory is needed." }),
   scope: Type.Optional(Type.String({ description: "Requested section/scope." })),
+});
+
+const ResearchReportParams = Type.Object({
+  question: Type.String(),
+  status: Type.Optional(Type.String({ description: "complete, partial, or blocked." })),
+  requestId: Type.Optional(Type.String()),
+  taskId: Type.Optional(Type.String()),
+  requirementRefs: Type.Optional(Type.Array(Type.String())),
+  sources: Type.Array(Type.Object({
+    id: Type.String(),
+    title: Type.String(),
+    quality: Type.String({ description: "project, official, primary, trusted, reputable, weak, or unknown." }),
+    url: Type.Optional(Type.String()),
+    path: Type.Optional(Type.String()),
+    version: Type.Optional(Type.String()),
+    summary: Type.Optional(Type.String()),
+  })),
+  conclusions: Type.Array(Type.Object({
+    summary: Type.String(),
+    confidence: Type.String({ description: "high, medium, low, or unknown." }),
+    sourceRefs: Type.Array(Type.String()),
+    evidenceRefs: Type.Optional(Type.Array(Type.String())),
+  })),
+  contradictions: Type.Optional(Type.Array(Type.Object({
+    summary: Type.String(),
+    status: Type.String({ description: "resolved or unresolved." }),
+    sourceRefs: Type.Array(Type.String()),
+    resolution: Type.Optional(Type.String()),
+  }))),
+  unresolvedUnknowns: Type.Optional(Type.Array(Type.String())),
+  recommendations: Type.Optional(Type.Array(Type.String())),
+  rawEvidence: Type.Optional(Type.Array(Type.Object({
+    title: Type.String(),
+    content: Type.String(),
+    sourceId: Type.Optional(Type.String()),
+    summary: Type.Optional(Type.String()),
+  }))),
 });
 
 export interface SpawnTaskToolParams {
@@ -221,6 +260,30 @@ export function registerScalerTools(pi: ExtensionAPI): void {
       const memory = await retrieveMemory(ctx.cwd, params.memoryIdOrPath);
       await logTool(ctx.cwd, "scaler_memory_retrieve", `Memory retrieved: ${memory.entry.id}`, { params, entry: memory.entry });
       return textResult(memory.content, { status: "retrieved", entry: memory.entry, reason: params.reason, scope: params.scope });
+    },
+  });
+
+  pi.registerTool({
+    name: "scaler_research_report",
+    label: "Scaler Research Report",
+    description: "Record structured research findings with source quality, confidence, contradictions, and optional raw evidence storage.",
+    parameters: ResearchReportParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const report = await recordResearchReport(ctx.cwd, {
+        question: params.question,
+        status: params.status,
+        requestId: params.requestId,
+        taskId: params.taskId,
+        requirementRefs: params.requirementRefs,
+        sources: params.sources,
+        conclusions: params.conclusions,
+        contradictions: params.contradictions,
+        unresolvedUnknowns: params.unresolvedUnknowns,
+        recommendations: params.recommendations,
+        rawEvidence: params.rawEvidence,
+      });
+      await logTool(ctx.cwd, "scaler_research_report", `Research report recorded: ${report.id}`, { params, report });
+      return textResult(`Research report recorded: ${report.id}`, { status: "recorded", report });
     },
   });
 

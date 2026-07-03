@@ -7,6 +7,8 @@ import {
   parsePrdLinkArgs,
   parseReplanRequestArgs,
   parseReplanRunArgs,
+  parseResearchReportArgs,
+  parseResearchRequestArgs,
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
@@ -126,6 +128,33 @@ test("parseReplanRequestArgs parses reason, task, evidence, and requirements", (
 test("parseReplanRunArgs parses execute flag", () => {
   assert.deepEqual(parseReplanRunArgs("execute"), { execute: true });
   assert.deepEqual(parseReplanRunArgs(" "), { execute: false });
+});
+
+test("parseResearchRequestArgs parses research request fields", () => {
+  assert.deepEqual(parseResearchRequestArgs("Question? | Need answer | T-001 | REQ-001,REQ-002 | mixed"), {
+    question: "Question?",
+    reason: "Need answer",
+    taskId: "T-001",
+    requirementRefs: ["REQ-001", "REQ-002"],
+    scope: "mixed",
+  });
+  assert.equal(parseResearchRequestArgs(" "), undefined);
+});
+
+test("parseResearchReportArgs parses compact report fields", () => {
+  assert.deepEqual(parseResearchReportArgs("Question? | Conclusion | high | src-1 | Docs | official | https://example.invalid | RESEARCH-001 | T-001 | REQ-001"), {
+    question: "Question?",
+    conclusion: "Conclusion",
+    confidence: "high",
+    sourceId: "src-1",
+    sourceTitle: "Docs",
+    sourceQuality: "official",
+    sourceRef: "https://example.invalid",
+    requestId: "RESEARCH-001",
+    taskId: "T-001",
+    requirementRefs: ["REQ-001"],
+  });
+  assert.equal(parseResearchReportArgs("Question only"), undefined);
 });
 
 test("parseCommitArgs parses optional task and paths", () => {

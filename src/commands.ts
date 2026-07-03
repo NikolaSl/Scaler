@@ -51,6 +51,27 @@ export interface ParsedReplanRunArgs {
   execute: boolean;
 }
 
+export interface ParsedResearchRequestArgs {
+  question: string;
+  reason?: string;
+  taskId?: string;
+  requirementRefs?: string[];
+  scope?: string;
+}
+
+export interface ParsedResearchReportArgs {
+  question: string;
+  conclusion: string;
+  confidence?: string;
+  sourceId?: string;
+  sourceTitle?: string;
+  sourceQuality?: string;
+  sourceRef?: string;
+  requestId?: string;
+  taskId?: string;
+  requirementRefs?: string[];
+}
+
 export interface ParsedContextTaskArgs {
   taskId?: string;
 }
@@ -159,6 +180,38 @@ export function parseReplanRequestArgs(args: string | undefined): ParsedReplanRe
 export function parseReplanRunArgs(args: string | undefined): ParsedReplanRunArgs {
   const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
   return { execute: parts.some((part) => part.toLowerCase() === "execute") };
+}
+
+export function parseResearchRequestArgs(args: string | undefined): ParsedResearchRequestArgs | undefined {
+  const parts = splitPipeArgs(args);
+  const question = parts[0]?.trim();
+  if (!question) return undefined;
+  return {
+    question,
+    reason: parts[1]?.trim() || undefined,
+    taskId: parts[2]?.trim() || undefined,
+    requirementRefs: parseCommaList(parts[3]),
+    scope: parts[4]?.trim() || undefined,
+  };
+}
+
+export function parseResearchReportArgs(args: string | undefined): ParsedResearchReportArgs | undefined {
+  const parts = splitPipeArgs(args);
+  const question = parts[0]?.trim();
+  const conclusion = parts[1]?.trim();
+  if (!question || !conclusion) return undefined;
+  return {
+    question,
+    conclusion,
+    confidence: parts[2]?.trim() || undefined,
+    sourceId: parts[3]?.trim() || undefined,
+    sourceTitle: parts[4]?.trim() || undefined,
+    sourceQuality: parts[5]?.trim() || undefined,
+    sourceRef: parts[6]?.trim() || undefined,
+    requestId: parts[7]?.trim() || undefined,
+    taskId: parts[8]?.trim() || undefined,
+    requirementRefs: parseCommaList(parts[9]),
+  };
 }
 
 export function parseContextTaskArgs(args: string | undefined): ParsedContextTaskArgs {

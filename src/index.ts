@@ -7,6 +7,8 @@ import {
   parsePrdLinkArgs,
   parseReplanRequestArgs,
   parseReplanRunArgs,
+  parseResearchReportArgs,
+  parseResearchRequestArgs,
   parseStageLoopArgs,
   parseStageRecordArgs,
   parseStageRunArgs,
@@ -41,6 +43,7 @@ import {
 import { computePrdCoverageSummary, formatPrdCoverageSummary, loadPrdCoverage, loadPrdRequirements } from "./prd.js";
 import { requestReplan } from "./replanning.js";
 import { formatReplanAgentRunList, loadReplanAgentRunRecords, runReplanAgentStep } from "./replan-agent.js";
+import { formatResearchSummary, loadResearchReports, loadResearchRequests, recordResearchReport, upsertResearchRequest } from "./research.js";
 import { assessToolCallSafety } from "./safety.js";
 import { createTask, formatTaskList, retryTask, updateTask } from "./tasks.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
@@ -472,6 +475,84 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const message = formatReplanAgentRunList(await loadReplanAgentRunRecords(ctx.cwd));
       if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-research-status", {
+    description: "Show SCALER research request/report summary.",
+    handler: async (_args, ctx) => {
+      const message = formatResearchSummary(await loadResearchRequests(ctx.cwd), await loadResearchReports(ctx.cwd));
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-research-request", {
+    description: "Create a SCALER research request: /scaler-research-request <question> | <reason> | <taskId> | <PRD refs> | <scope>",
+    handler: async (args, ctx) => {
+      const parsed = parseResearchRequestArgs(args);
+      if (!parsed) {
+        const message = "Usage: /scaler-research-request <question> | <reason> | <taskId> | <PRD refs comma list> | <local|internet|mixed>";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+      try {
+        const request = await upsertResearchRequest(ctx.cwd, {
+          question: parsed.question,
+          reason: parsed.reason ?? "Research requested by operator.",
+          taskId: parsed.taskId,
+          requirementRefs: parsed.requirementRefs,
+          scope: parsed.scope,
+        });
+        const message = `Research request saved: ${request.id}`;
+        if (ctx.hasUI) ctx.ui.notify(message, "info");
+        else console.log(message);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+      }
+    },
+  });
+
+  pi.registerCommand("scaler-research-report", {
+    description: "Record a compact SCALER research report: /scaler-research-report <question> | <conclusion> | <confidence> | <sourceId> | <sourceTitle> | <sourceQuality> | <sourceRef> | <requestId> | <taskId> | <PRD refs>",
+    handler: async (args, ctx) => {
+      const parsed = parseResearchReportArgs(args);
+      if (!parsed) {
+        const message = "Usage: /scaler-research-report <question> | <conclusion> | <confidence> | <sourceId> | <sourceTitle> | <sourceQuality> | <sourceRef> | <requestId> | <taskId> | <PRD refs>";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+      try {
+        const sourceRef = parsed.sourceRef ?? "operator summary";
+        const source = {
+          id: parsed.sourceId ?? "source-1",
+          title: parsed.sourceTitle ?? "Operator supplied source",
+          quality: parsed.sourceQuality ?? "unknown",
+          summary: sourceRef.startsWith("http") || sourceRef.includes("/") ? undefined : sourceRef,
+          url: sourceRef.startsWith("http") ? sourceRef : undefined,
+          path: !sourceRef.startsWith("http") && sourceRef.includes("/") ? sourceRef : undefined,
+        };
+        const report = await recordResearchReport(ctx.cwd, {
+          status: "complete",
+          question: parsed.question,
+          requestId: parsed.requestId,
+          taskId: parsed.taskId,
+          requirementRefs: parsed.requirementRefs,
+          sources: [source],
+          conclusions: [{ summary: parsed.conclusion, confidence: parsed.confidence ?? "unknown", sourceRefs: [source.id] }],
+        });
+        const message = `Research report saved: ${report.id}`;
+        if (ctx.hasUI) ctx.ui.notify(message, "info");
+        else console.log(message);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+      }
     },
   });
 

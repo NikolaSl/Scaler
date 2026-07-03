@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { loadCurrentPrd, loadPrdCoverage, loadPrdRequirements } from "../src/prd.js";
+import { loadResearchReports } from "../src/research.js";
 import { scalerToolNames, registerScalerTools } from "../src/tools.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -20,6 +21,7 @@ test("scalerToolNames lists structured Scaler tools", () => {
     "scaler_report",
     "scaler_memory_write",
     "scaler_memory_retrieve",
+    "scaler_research_report",
     "scaler_spawn_task",
     "scaler_tool_request",
     "scaler_task_create",
@@ -43,6 +45,31 @@ test("registerScalerTools registers all tool definitions", () => {
   registerScalerTools(fakePi as never);
 
   assert.deepEqual(registered, [...scalerToolNames]);
+});
+
+test("scaler_research_report records structured research", async () => {
+  await withTempDir(async (dir) => {
+    const registered = new Map<string, { execute: (...args: any[]) => Promise<unknown> }>();
+    registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<unknown> }) { registered.set(definition.name, definition); } } as never);
+
+    await registered.get("scaler_research_report")?.execute(
+      "tool-call",
+      {
+        question: "Which docs apply?",
+        status: "complete",
+        sources: [{ id: "docs", title: "Official docs", quality: "official", url: "https://example.invalid" }],
+        conclusions: [{ summary: "Use official docs.", confidence: "high", sourceRefs: ["docs"] }],
+        rawEvidence: [{ title: "Docs excerpt", content: "Exact raw evidence", sourceId: "docs" }],
+      },
+      undefined,
+      undefined,
+      { cwd: dir },
+    );
+
+    const reports = await loadResearchReports(dir);
+    assert.equal(reports[0]?.question, "Which docs apply?");
+    assert.equal(reports[0]?.memoryRefs?.length, 1);
+  });
 });
 
 test("scaler_prd_write writes current PRD and requirements", async () => {
