@@ -38,6 +38,7 @@ Maintenance artifact for `traceability-matrix.md`. Update when implementation pl
 | IMPL-122..123 | Research-agent workflow | Focused research-agent prompts, selected/open request preparation/execution, structured `scaler_research_report` ingestion, run records, and commands | `src/research-agent.ts`, `src/index.ts`, `src/commands.ts`, `src/paths.ts` | `test/research-agent.test.ts`, `test/commands.test.ts`, `test/extension-shape.test.ts` | `manual/research.md`, `manual/commands.md`, `manual/index.md` |
 | IMPL-125..126 | Audit logging coverage | Command lifecycle audit, detail payload files, agent prompt logging, structured report audit, validation summaries, tool call/result records, and git commit-id logs | `src/logging.ts`, `src/index.ts`, `src/tools.ts`, `src/reports.ts`, `src/validation.ts`, `src/git.ts`, `src/conductor.ts`, `src/stage-agents.ts`, `src/replan-agent.ts`, `src/research-agent.ts`, `src/paths.ts` | `test/logging.test.ts`, `test/extension-shape.test.ts`, `test/reports.test.ts`, `test/research-agent.test.ts`, plus existing integration tests | `manual/logging.md`, `manual/commands.md`, `manual/tools.md`, `manual/git.md`, `manual/index.md` |
 | IMPL-128..130 | Compression and exact-preservation workflow | Compression policy helpers, context exactness metadata, task-agent prompt guidance, exact/reference classifications, externalize and split recommendations | `src/compression.ts`, `src/context.ts`, `src/conductor.ts` | `test/compression.test.ts`, `test/context.test.ts`, `test/conductor.test.ts` | `manual/context.md`, `manual/task-agents.md`, `manual/index.md` |
+| IMPL-131..133 | Budget watchdog enforcement slice | Expanded budget counters, multi-update helper, `.scaler/` storage scan, conductor context/spawn budget gates, validation-loop gate, research/storage budget accounting | `src/budgets.ts`, `src/conductor.ts`, `src/operations.ts`, `src/tools.ts` | `test/budgets.test.ts`, `test/conductor.test.ts`, `test/operations.test.ts`, `test/tools.test.ts` | `manual/budgets.md`, `manual/index.md` |
 
 ## Current high-value code areas
 
@@ -45,12 +46,13 @@ Maintenance artifact for `traceability-matrix.md`. Update when implementation pl
 |---|---|---|
 | Extension commands/hooks | `src/index.ts` | Pi command registration and safety hook. |
 | Deterministic state/FSM | `src/state.ts`, `src/supervisor.ts`, `src/types.ts` | Persistent state and valid transitions. |
-| Task orchestration | `src/conductor.ts`, `src/tasks.ts`, `src/subagents.ts` | Task selection, prompts, subprocess agents, run records, and runtime PRD refs. |
+| Task orchestration | `src/conductor.ts`, `src/tasks.ts`, `src/subagents.ts` | Task selection, prompts, subprocess agents, run records, context/spawn budget gates, and runtime PRD refs. |
 | Sequential locking | `src/locks.ts`, `src/operations.ts` | Single-operation lock and locked validation/commit wrappers. |
-| Validation | `src/validation.ts` | Validation manifests, command runner, validation reports. |
+| Validation | `src/validation.ts`, `src/operations.ts` | Validation manifests, command runner, validation reports, and locked validation-loop budget gate. |
 | Git progress | `src/git.ts` | Dirty-tree classification and validated task commits. |
 | Safety | `src/safety.ts` | Protected paths, destructive commands, allowed path enforcement. |
 | External memory/logging | `src/memory.ts`, `src/logging.ts` | Memory files, JSONL audit log, and detail payload files for commands, prompts, tools, reports, validation, and git commits. |
+| Budgets | `src/budgets.ts` | State-backed budget limits/usage, soft/hard decisions, multi-counter updates, wall-clock/checkpoint accounting, storage byte scans, and hard-limit persistence. |
 | Context | `src/context.ts` | Context resolver, omitted-context summaries, per-task context manifests, exactness metadata, source resolution for files/memory/state/task metadata/PRD refs/validation manifests, and deterministic relevance discovery from git, plans, PRD coverage, validation history, and memory matches. |
 | Compression | `src/compression.ts`, `src/conductor.ts` | Deterministic active-context target policy, exact/reference/summary classification, externalization and split recommendations, and task-agent prompt guidance. |
 | Runtime PRD ledger | `src/prd.ts` | Per-run polished PRD files, requirement catalog, coverage computation, snapshots, and change log. |

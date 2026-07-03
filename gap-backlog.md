@@ -16,7 +16,7 @@ No open P0 gaps.
 
 | Gap ID | Related requirements | Gap | Suggested next implementation slice |
 |---|---|---|---|
-| GAP-007 | PRD-S18, PRD-P03 | Budget/watchdog enforcement is basic. | Add real counters/enforcement for wall time, spawned agents, validation loops, debug attempts, storage, and token estimates. |
+| GAP-007 | PRD-S18, PRD-P03 | Budget/watchdog enforcement now covers state-backed hard gates for context-token estimates, spawned agents, validation loops, storage scans, research reports, tools, debug attempts, wall time, and checkpoints, but provider-native token/cost accounting and user-facing configuration are still missing. | Add budget configuration/status commands and provider-native token/cost usage ingestion when available. |
 | GAP-008 | PRD-S20, PRD-P06 | Debug-cycle detection can request replanning and mark debugging tasks `needs_replan`, but repeated failed fingerprints are not yet a hard conductor retry gate. | Block conductor retries after repeated failed fingerprints unless new evidence or an accepted replan request exists. |
 | GAP-009 | PRD-S21..S24, PRD-W06..W07 | Validation gates need richer software and non-software support. | Add typed validation categories, non-software checklists, acceptance evidence fields, and stronger manifest defaults. |
 | GAP-010 | PRD-S26, PRD-S27 | Safety/security/sandbox controls are partial. | Add internet/deploy/publish/secret gates, sandbox-mode metadata, and optional dependency/image scanner commands. |
