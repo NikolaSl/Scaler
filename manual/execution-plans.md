@@ -33,6 +33,8 @@ Plan statuses:
 /scaler-plan-status
 /scaler-plan-apply
 /scaler-replans
+/scaler-replan-run [execute]
+/scaler-replan-runs
 /scaler-replan-proposal-status
 /scaler-replan-accept
 /scaler-replan-request <reason> | <taskId> | <evidence refs> | <PRD refs>
@@ -54,6 +56,10 @@ Plan statuses:
 
 `/scaler-replan-request` records a manual replan request and attempts to transition the supervisor stage to `replanning` when the current stage allows it.
 
+`/scaler-replan-run [execute]` prepares or executes a focused replanner agent. The prompt includes open replan requests, current execution plan JSON, runtime PRD requirements, runtime PRD coverage, supervisor tasks, and preservation rules. Executed replanner agents must emit a structured `scaler_replan_proposal` JSON event with a proposed `ExecutionPlanArtifact`; SCALER validates and saves that proposal to `.scaler/plans/proposed-plan.json` and records preservation-check details. Runs are recorded under `.scaler/reports/replan-agent-runs.json`.
+
+`/scaler-replan-runs` lists recent replanner-agent run records.
+
 `/scaler-replan-proposal-status` validates `.scaler/plans/proposed-plan.json` against the current plan, runtime PRD requirements, and supervisor state.
 
 `/scaler-replan-accept` accepts `.scaler/plans/proposed-plan.json` only when preservation checks pass. Acceptance snapshots the previous current plan, saves the proposed plan as current, applies missing task records, resolves open replan requests, and records a decision.
@@ -73,6 +79,6 @@ Execution plan replacement preservation checks are available in code. They repor
 
 ## Current limitations
 
-SCALER does not yet include a planner agent that writes the current plan automatically. The plan artifact can be written by future planner tooling or direct file creation, and then applied through `/scaler-plan-apply`.
+SCALER does not yet include a planner agent that writes the initial/current plan automatically. The current-plan artifact can be written by future planner tooling or direct file creation, and then applied through `/scaler-plan-apply`.
 
-SCALER does not yet include an automatic planner agent that writes `.scaler/plans/proposed-plan.json` from replan requests.
+Replanner proposal generation exists through `/scaler-replan-run execute`, but proposal acceptance remains an explicit preservation-gated step via `/scaler-replan-accept`.

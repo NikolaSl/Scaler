@@ -33,6 +33,7 @@ Maintenance artifact for `traceability-matrix.md`. Update when implementation pl
 | IMPL-104..106 | Bounded staged conductor loop | Multi-step stage conductor loop, `/scaler-stage-loop`, docs/traceability | `src/stage-conductor.ts`, `src/commands.ts`, `src/index.ts` | `test/stage-conductor.test.ts`, `test/commands.test.ts`, `test/extension-shape.test.ts` | `manual/stages.md`, `manual/commands.md`, `manual/workflow.md`, `manual/index.md` |
 | IMPL-107..109 | Stage semantic validation | Stage-specific semantic validation, advancement gates, docs/traceability | `src/stages.ts`, `src/stage-advancement.ts` | `test/stages.test.ts`, `test/stage-advancement.test.ts`, `test/stage-conductor.test.ts` | `manual/stages.md`, `manual/commands.md` |
 | IMPL-110..112 | Stage consistency validation | Cross-artifact consistency validation against PRD requirements, execution plans, supervisor tasks, and replan artifacts | `src/stage-consistency.ts`, `src/stage-advancement.ts` | `test/stage-consistency.test.ts`, `test/stage-advancement.test.ts`, `test/stage-conductor.test.ts` | `manual/stages.md`, `manual/commands.md`, `manual/index.md` |
+| IMPL-116..118 | Replanner proposal agent | Focused replanner-agent prompt, structured `scaler_replan_proposal` ingestion, proposed-plan persistence, run records, and commands | `src/replan-agent.ts`, `src/index.ts`, `src/commands.ts`, `src/paths.ts` | `test/replan-agent.test.ts`, `test/commands.test.ts`, `test/extension-shape.test.ts` | `manual/execution-plans.md`, `manual/commands.md`, `manual/index.md` |
 
 ## Current high-value code areas
 
@@ -49,6 +50,7 @@ Maintenance artifact for `traceability-matrix.md`. Update when implementation pl
 | Context | `src/context.ts` | Context resolver, omitted-context summaries, per-task context manifests, source resolution for files/memory/state/task metadata/PRD refs/validation manifests, and deterministic relevance discovery from git, plans, PRD coverage, validation history, and memory matches. |
 | Runtime PRD ledger | `src/prd.ts` | Per-run polished PRD files, requirement catalog, coverage computation, snapshots, and change log. |
 | Execution plans | `src/plans.ts` | Current/proposed/versioned execution plan artifacts, coverage summaries, preservation checks, replan requests, replan decisions, proposal acceptance, and task application. |
+| Replanner agent | `src/replan-agent.ts` | Focused replanner prompt construction from replan requests/PRD coverage/current plan/state, structured proposed-plan ingestion, and replanner run records. |
 | Stage artifacts | `src/stages.ts`, `src/workflow.ts` | Stage I-IV artifact records, status formatting, readiness and semantic validation, record commands, and stage-aware next-action recommendations. |
 | Stage consistency | `src/stage-consistency.ts` | Cross-artifact consistency checks for requirement refs, plan task refs, supervisor task refs, and replan artifacts. |
 | Stage agents | `src/stage-agents.ts` | Focused stage-agent prompt contracts, Pi subprocess invocation preparation/execution, stage-agent run records, structured artifact report extraction, and automatic artifact ingestion. |

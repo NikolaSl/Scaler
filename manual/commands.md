@@ -158,6 +158,14 @@ Creates missing supervisor task records from `.scaler/plans/current-plan.json`. 
 
 Lists replan requests from `.scaler/plans/replan-requests.json`.
 
+## `/scaler-replan-run [execute]`
+
+Prepares or executes the focused replanner agent. With `execute`, SCALER ingests a valid `scaler_replan_proposal` JSON event and saves `.scaler/plans/proposed-plan.json` for preservation-gated review.
+
+## `/scaler-replan-runs`
+
+Lists replanner-agent run records from `.scaler/reports/replan-agent-runs.json`.
+
 ## `/scaler-replan-proposal-status`
 
 Shows preservation status for `.scaler/plans/proposed-plan.json` against the current plan, runtime PRD, and supervisor state.
