@@ -13,9 +13,9 @@ Current tests include:
 
 - component/unit tests for individual modules;
 - persistence-oriented tests that use temporary `.scaler/` directories;
-- integration tests in `test/integration.test.ts` that create temporary git repositories, run multi-module SCALER workflows, and assert persisted artifacts.
+- integration tests in `test/integration/*.test.ts` that create temporary git repositories, run multi-module SCALER workflows, and assert persisted artifacts.
 
-Integration scenarios should be derived from `assignement.md` and relevant `specs/*.md` as well as the PRD catalog/matrix. The goal is to catch system-level orchestration errors that local unit tests can miss.
+Integration scenarios should be derived from `assignement.md` and relevant `specs/*.md` as well as the PRD catalog/matrix. The goal is to catch system-level orchestration errors that local unit tests can miss. See `test/integration/README.md` for the detailed suite contract and extension guide.
 
 ## Mock integration mode
 
