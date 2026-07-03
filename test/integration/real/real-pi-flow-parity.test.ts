@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { test } from "node:test";
 import { assessDebugRetryGate, loadDebugAttempts, loadDebugReports, recordDebugAttempt } from "../../../src/debug.js";
 import { loadDebugAgentRunRecords, runDebugAgentStep } from "../../../src/debug-agent.js";
@@ -6,13 +8,19 @@ import { readLogEvents } from "../../../src/logging.js";
 import { loadReplanRequests } from "../../../src/plans.js";
 import { loadResearchReports, loadResearchRequests } from "../../../src/research.js";
 import { loadResearchAgentRunRecords, runResearchAgentStep } from "../../../src/research-agent.js";
+import { upsertPrdRequirement } from "../../../src/prd.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
+import { loadStageAgentRunRecords } from "../../../src/stage-agents.js";
+import { runStageConductorLoop } from "../../../src/stage-conductor.js";
+import { loadStageArtifacts, type StageArtifactStage } from "../../../src/stages.js";
 import { runTaskAgent, type TaskAgentRequest, type TaskAgentRunResult } from "../../../src/subagents.js";
 import { REAL_PI_COMMAND, REAL_PI_ENABLED, REAL_PI_MODEL, REAL_PI_TIMEOUT_MS, withRealPiTempRepo } from "./real-pi-harness.js";
 
 function realCardinalRunner(cardinalInstruction: string): (request: TaskAgentRequest) => Promise<TaskAgentRunResult> {
   return async (request) => runTaskAgent({
     ...request,
+    noTools: true,
+    tools: undefined,
     model: REAL_PI_MODEL,
     prompt: `${cardinalInstruction}\n\n${request.prompt}`,
   }, {
@@ -119,5 +127,63 @@ test("real flow parity: debug needs research, research resolves it, and debug pr
     assert.ok(events.some((event) => event.eventType === "agent" && event.agentType === "research"));
     assert.ok(events.some((event) => event.eventType === "report" && event.summary.includes("Debug report ingested")));
     assert.ok(events.some((event) => event.eventType === "report" && event.summary.includes("Research report ingested")));
+  });
+});
+
+test("real flow parity: stage conductor ingests real Pi artifacts and completes Stage I-IV", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    await mkdir(join(dir, "docs"), { recursive: true });
+    await upsertPrdRequirement(dir, {
+      id: "REQ-REAL-STAGE",
+      title: "Real stage chain requirement",
+      statement: "The real Pi stage conductor must advance through ready, consistent artifacts.",
+      status: "pending",
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "prd";
+    await saveState(dir, state);
+
+    const result = await runStageConductorLoop(dir, state, { execute: true, maxSteps: 5, timeoutMs: REAL_PI_TIMEOUT_MS, model: REAL_PI_MODEL }, async (request) => {
+      const stage = request.taskId.replace(/^stage-/, "") as StageArtifactStage;
+      const pathByStage: Partial<Record<StageArtifactStage, string>> = {
+        prd: "docs/real-stage-prd.md",
+        knowledge: "docs/real-stage-knowledge.md",
+        planning: "docs/real-stage-plan.md",
+      };
+      const path = pathByStage[stage];
+      if (path) await writeFile(join(dir, path), `# ${stage}\n\nReal Pi cardinal ${stage} artifact.\n`, "utf8");
+      const artifact = {
+        type: "scaler_stage_artifact",
+        stage,
+        status: "ready",
+        title: `Real Pi ${stage} artifact`,
+        ...(path ? { path } : {}),
+        summary: `Ready ${stage} artifact from the real Pi flow-parity suite.`,
+        evidenceRefs: [`real-stage-${stage}-evidence`],
+        requirementRefs: ["REQ-REAL-STAGE"],
+        ...(stage === "execution" ? { taskRefs: [] } : {}),
+      };
+      const instruction = `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: ${JSON.stringify(artifact)}.`;
+      return await realCardinalRunner(instruction)(request);
+    });
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.completed, true, result.stopReason);
+    assert.equal(result.finalState.stage, "completed");
+    assert.deepEqual(result.steps.map((step) => step.stage), ["prd", "knowledge", "planning", "execution"]);
+    assert.ok(result.steps.every((step) => step.stageAgent?.ingestion?.ingested), "expected every stage-agent report to ingest");
+    assert.ok(result.steps.every((step) => step.advancement?.advanced), "expected every stage to advance");
+
+    const artifacts = await loadStageArtifacts(dir);
+    assert.deepEqual(artifacts.map((artifact) => artifact.stage), ["prd", "knowledge", "planning", "execution"]);
+    assert.ok(artifacts.every((artifact) => artifact.status === "ready"));
+    assert.equal((await loadStageAgentRunRecords(dir)).length, 4);
+    assert.equal((await loadState(dir)).stage, "completed");
+
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "agent" && event.agentType === "stage"));
+    assert.ok(events.some((event) => event.eventType === "report" && event.summary.includes("scaler_stage_artifact")));
   });
 });

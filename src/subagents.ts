@@ -5,6 +5,7 @@ export interface TaskAgentRequest {
   prompt: string;
   cwd?: string;
   tools?: string[];
+  noTools?: boolean;
   model?: string;
   appendSystemPromptPath?: string;
   extensionPaths?: string[];
@@ -42,7 +43,9 @@ export function buildTaskAgentInvocation(request: TaskAgentRequest, command = "p
     args.push("--model", request.model);
   }
 
-  if (request.tools && request.tools.length > 0) {
+  if (request.noTools) {
+    args.push("--no-tools");
+  } else if (request.tools && request.tools.length > 0) {
     args.push("--tools", request.tools.join(","));
   }
 

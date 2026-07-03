@@ -63,6 +63,12 @@ test("buildTaskAgentInvocation omits empty optional arrays", () => {
   assert.deepEqual(invocation.args, ["--mode", "json", "-p", "--no-session", "Task"]);
 });
 
+test("buildTaskAgentInvocation can disable all tools for report-only child agents", () => {
+  const invocation = buildTaskAgentInvocation({ taskId: "T-no-tools", prompt: "Report only", tools: ["read"], noTools: true });
+
+  assert.deepEqual(invocation.args, ["--mode", "json", "-p", "--no-session", "--no-tools", "Report only"]);
+});
+
 test("extractStructuredReportPayloads accepts direct, nested, and exact Pi assistant JSON reports", () => {
   const piTextReport = {
     type: "message_end",
