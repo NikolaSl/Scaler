@@ -20,7 +20,7 @@ Current behavior:
 
 - SCALER tool calls and results write audit events to `.scaler/logs/events.jsonl`; larger payloads are stored under `.scaler/logs/details/`.
 - `scaler_report` can request supervisor stage/task transitions and persists accepted/rejected state
-- `scaler_debug_attempt` persists failures/attempts under `.scaler/debug/`, rejects repeated failed attempts without new evidence, and logs debug decisions
+- `scaler_debug_attempt` persists failures/attempts under `.scaler/debug/`, rejects repeated failed attempts without new evidence, detects fingerprint cycles, requests replanning for blocked/cyclic debugging, and logs debug decisions
 - `scaler_validation_report` applies validation-driven task transitions
 - `scaler_memory_write` writes `.scaler/memory/` files and index entries
 - `scaler_memory_retrieve` retrieves memory by id/path

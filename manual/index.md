@@ -20,7 +20,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - Minimal adaptive `/scaler` entrypoint.
 - Budget usage helpers and hard-limit gates for tools, spawned agents, debug attempts, context-token estimates, validation loops, storage scans, research reports, wall-clock time, and checkpoints.
 - Checkpoint writing under `.scaler/checkpoints/` for pause/resume and conductor steps.
-- Minimal one-step conductor execution with validation handoff artifacts.
+- Minimal one-step conductor execution with validation handoff artifacts and a debug retry gate for unresolved repeated failed fingerprints.
 - Deterministic validation manifests and command-run records.
 - Git status safety and validated-task commit helpers.
 - Implemented create/list/step/validate/commit workflow.

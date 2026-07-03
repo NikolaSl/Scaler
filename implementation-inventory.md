@@ -39,6 +39,7 @@ Maintenance artifact for `traceability-matrix.md`. Update when implementation pl
 | IMPL-125..126 | Audit logging coverage | Command lifecycle audit, detail payload files, agent prompt logging, structured report audit, validation summaries, tool call/result records, and git commit-id logs | `src/logging.ts`, `src/index.ts`, `src/tools.ts`, `src/reports.ts`, `src/validation.ts`, `src/git.ts`, `src/conductor.ts`, `src/stage-agents.ts`, `src/replan-agent.ts`, `src/research-agent.ts`, `src/paths.ts` | `test/logging.test.ts`, `test/extension-shape.test.ts`, `test/reports.test.ts`, `test/research-agent.test.ts`, plus existing integration tests | `manual/logging.md`, `manual/commands.md`, `manual/tools.md`, `manual/git.md`, `manual/index.md` |
 | IMPL-128..130 | Compression and exact-preservation workflow | Compression policy helpers, context exactness metadata, task-agent prompt guidance, exact/reference classifications, externalize and split recommendations | `src/compression.ts`, `src/context.ts`, `src/conductor.ts` | `test/compression.test.ts`, `test/context.test.ts`, `test/conductor.test.ts` | `manual/context.md`, `manual/task-agents.md`, `manual/index.md` |
 | IMPL-131..133 | Budget watchdog enforcement slice | Expanded budget counters, multi-update helper, `.scaler/` storage scan, conductor context/spawn budget gates, validation-loop gate, research/storage budget accounting | `src/budgets.ts`, `src/conductor.ts`, `src/operations.ts`, `src/tools.ts` | `test/budgets.test.ts`, `test/conductor.test.ts`, `test/operations.test.ts`, `test/tools.test.ts` | `manual/budgets.md`, `manual/index.md` |
+| IMPL-134..136 | Debug retry conductor gate | Repeated-fingerprint/cycle/block retry gate, clearing by new evidence or accepted/resolved replan, conductor pre-lock refusal | `src/debug.ts`, `src/conductor.ts` | `test/debug.test.ts`, `test/conductor.test.ts` | `manual/tools.md`, `manual/task-agents.md`, `manual/workflow.md`, `manual/execution-plans.md` |
 
 ## Current high-value code areas
 
@@ -46,7 +47,7 @@ Maintenance artifact for `traceability-matrix.md`. Update when implementation pl
 |---|---|---|
 | Extension commands/hooks | `src/index.ts` | Pi command registration and safety hook. |
 | Deterministic state/FSM | `src/state.ts`, `src/supervisor.ts`, `src/types.ts` | Persistent state and valid transitions. |
-| Task orchestration | `src/conductor.ts`, `src/tasks.ts`, `src/subagents.ts` | Task selection, prompts, subprocess agents, run records, context/spawn budget gates, and runtime PRD refs. |
+| Task orchestration | `src/conductor.ts`, `src/tasks.ts`, `src/subagents.ts` | Task selection, prompts, subprocess agents, run records, context/spawn budget gates, debug retry gate, and runtime PRD refs. |
 | Sequential locking | `src/locks.ts`, `src/operations.ts` | Single-operation lock and locked validation/commit wrappers. |
 | Validation | `src/validation.ts`, `src/operations.ts` | Validation manifests, command runner, validation reports, and locked validation-loop budget gate. |
 | Git progress | `src/git.ts` | Dirty-tree classification and validated task commits. |
@@ -65,7 +66,7 @@ Maintenance artifact for `traceability-matrix.md`. Update when implementation pl
 | Stage agents | `src/stage-agents.ts` | Focused stage-agent prompt contracts, Pi subprocess invocation preparation/execution, stage-agent run records, structured artifact report extraction, and automatic artifact ingestion. |
 | Stage conductor | `src/stage-conductor.ts` | One-step and bounded multi-step active-stage workflows that advance ready artifacts or run matching stage agents with ingestion and advancement. |
 | Stage advancement | `src/stage-advancement.ts`, `src/stages.ts`, `src/stage-consistency.ts` | Ready-artifact, semantic, and consistency validation plus deterministic stage advancement through supervisor transitions. |
-| Replanning triggers | `src/replanning.ts`, `src/validation.ts`, `src/debug.ts` | Manual and evidence-driven creation of replan requests with supervisor replanning transitions. |
+| Replanning triggers | `src/replanning.ts`, `src/validation.ts`, `src/debug.ts` | Manual and evidence-driven creation of replan requests with supervisor replanning transitions plus debug retry gate clearance from accepted/resolved replans or new evidence. |
 | Tool isolation | `src/tool-requests.ts`, `src/tools.ts` | Structured tools and isolated tool requests. |
 
 ## Maintenance rule
