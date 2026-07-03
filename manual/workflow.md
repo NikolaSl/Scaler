@@ -13,15 +13,22 @@ SCALER operations are sequential per repository. Task steps, task-agent executio
 
 `/scaler` creates or loads `.scaler/state.json`, selects an adaptive complexity level, and logs the request. `/scaler-status` shows supervisor state plus a deterministic workflow summary, including stage-artifact recommendations when a PRD, knowledge, planning, or replanning stage lacks a ready artifact.
 
-Stage outputs can be recorded and inspected with:
+Stage outputs can be advanced one deterministic step at a time with:
+
+```text
+/scaler-stage-step
+/scaler-stage-step execute
+/scaler-stage-status
+/scaler-stage-runs planning
+```
+
+Lower-level stage commands are also available:
 
 ```text
 /scaler-stage-run planning
 /scaler-stage-record planning | ready | Execution plan | .scaler/plans/current-plan.json | Initial plan
 /scaler-stage-validate planning
 /scaler-stage-advance planning
-/scaler-stage-status
-/scaler-stage-runs planning
 ```
 
 ## 2. Create or apply tasks

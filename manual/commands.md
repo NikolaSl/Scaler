@@ -122,6 +122,10 @@ Validates readiness of the latest recorded artifact for a stage.
 
 Advances the supervisor stage after validating a ready stage artifact.
 
+## `/scaler-stage-step [execute]`
+
+Runs one deterministic stage-conductor step for the current supervisor stage. If a ready artifact already exists for the active stage, SCALER validates and advances it. Otherwise SCALER prepares the matching focused stage agent; with `execute`, it runs the agent, ingests a valid `scaler_stage_artifact` JSON event, and attempts advancement.
+
 ## `/scaler-stage-run <stage> [execute]`
 
 Prepares or executes a focused stage-agent subprocess for `prd`, `knowledge`, `planning`, `execution`, or `replanning`. Successful executed runs ingest a valid `scaler_stage_artifact` JSON event and attempt ready-artifact advancement automatically.

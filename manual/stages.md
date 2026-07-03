@@ -27,6 +27,7 @@ Each record stores a stable id, stage, status, title, optional path, optional su
 /scaler-stage-status
 /scaler-stage-validate <stage>
 /scaler-stage-advance <stage>
+/scaler-stage-step [execute]
 /scaler-stage-run <stage> [execute]
 /scaler-stage-runs [stage]
 /scaler-stage-record <stage> | <status> | <title> | <path> | <summary> | <evidence refs> | <PRD refs> | <task refs>
@@ -37,6 +38,8 @@ Each record stores a stable id, stage, status, title, optional path, optional su
 `/scaler-stage-validate` checks the latest artifact for a stage. A ready artifact must have status `ready` or `accepted`; PRD, knowledge, planning, and replanning artifacts must include an existing file path. Execution artifacts may be summary/task-ref based.
 
 `/scaler-stage-advance` validates the latest artifact and advances the supervisor through the deterministic mapping: `prd -> knowledge`, `knowledge -> planning`, `planning -> execution`, `replanning -> execution`, and `execution -> completed` when supervisor completion guards allow it.
+
+`/scaler-stage-step` runs one deterministic stage-conductor step for the current supervisor stage. If the current stage already has a ready artifact, it validates and advances that artifact. Otherwise it prepares the focused stage agent; passing `execute` runs that stage agent, ingests a valid `scaler_stage_artifact` JSON event, and attempts ready-artifact advancement.
 
 `/scaler-stage-run` prepares a focused Pi subprocess prompt for a selected stage. Passing `execute` runs the stage agent under the repo-wide execution lock. Runs are recorded under `.scaler/reports/stage-agent-runs.json`. Successful executed stage runs extract the latest `scaler_stage_artifact` JSON event from child output, record it as a stage artifact when valid, and attempt ready-artifact advancement automatically.
 
@@ -64,4 +67,4 @@ Accepted child JSON event shape:
 
 ## Current limitations
 
-Stage artifacts are deterministic records and command-visible supervisor context. SCALER can prepare and execute focused stage-agent subprocesses, ingest structured artifact events, validate ready artifacts, and advance stages when artifacts are ready. It does not parse arbitrary free-form child text into artifacts; child output must include the structured JSON event or the operator must use `/scaler-stage-record`.
+Stage artifacts are deterministic records and command-visible supervisor context. SCALER can run a one-step stage conductor, prepare and execute focused stage-agent subprocesses, ingest structured artifact events, validate ready artifacts, and advance stages when artifacts are ready. It does not yet run a bounded multi-stage loop across all stages in one command, and it does not parse arbitrary free-form child text into artifacts; child output must include the structured JSON event or the operator must use `/scaler-stage-record`.
