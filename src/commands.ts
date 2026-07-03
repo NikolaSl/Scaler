@@ -47,6 +47,10 @@ export interface ParsedReplanRequestArgs {
   requirementRefs?: string[];
 }
 
+export interface ParsedReplanRunArgs {
+  execute: boolean;
+}
+
 export interface ParsedContextTaskArgs {
   taskId?: string;
 }
@@ -150,6 +154,11 @@ export function parseReplanRequestArgs(args: string | undefined): ParsedReplanRe
     evidenceRefs: parseCommaList(parts[2]),
     requirementRefs: parseCommaList(parts[3]),
   };
+}
+
+export function parseReplanRunArgs(args: string | undefined): ParsedReplanRunArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  return { execute: parts.some((part) => part.toLowerCase() === "execute") };
 }
 
 export function parseContextTaskArgs(args: string | undefined): ParsedContextTaskArgs {

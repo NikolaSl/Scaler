@@ -6,6 +6,7 @@ import {
   parseContextTaskArgs,
   parsePrdLinkArgs,
   parseReplanRequestArgs,
+  parseReplanRunArgs,
   parseStageLoopArgs,
   parseStageRecordArgs,
   parseStageRunArgs,
@@ -39,6 +40,7 @@ import {
 } from "./plans.js";
 import { computePrdCoverageSummary, formatPrdCoverageSummary, loadPrdCoverage, loadPrdRequirements } from "./prd.js";
 import { requestReplan } from "./replanning.js";
+import { formatReplanAgentRunList, loadReplanAgentRunRecords, runReplanAgentStep } from "./replan-agent.js";
 import { assessToolCallSafety } from "./safety.js";
 import { createTask, formatTaskList, retryTask, updateTask } from "./tasks.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
@@ -444,6 +446,30 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     description: "List SCALER replan requests.",
     handler: async (_args, ctx) => {
       const message = formatReplanRequests(await loadReplanRequests(ctx.cwd));
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-replan-run", {
+    description: "Prepare or execute the focused SCALER replanner agent: /scaler-replan-run [execute]",
+    handler: async (args, ctx) => {
+      const parsed = parseReplanRunArgs(args);
+      const state = await ensureState(ctx.cwd);
+      const result = await runReplanAgentStep(ctx.cwd, state, { execute: parsed.execute });
+      const ingestion = result.ingestion?.attempted
+        ? ` ingestion=${result.ingestion.ingested ? "ingested" : "rejected"}${result.ingestion.plan ? ` proposed_plan=${result.ingestion.plan.planVersion}` : ""}`
+        : "";
+      const message = result.accepted ? `${result.message}${ingestion}` : result.message;
+      if (ctx.hasUI) ctx.ui.notify(message, result.accepted && result.ingestion?.ingested !== false ? "info" : "warning");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-replan-runs", {
+    description: "List recent SCALER replanner-agent run records.",
+    handler: async (_args, ctx) => {
+      const message = formatReplanAgentRunList(await loadReplanAgentRunRecords(ctx.cwd));
       if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
     },

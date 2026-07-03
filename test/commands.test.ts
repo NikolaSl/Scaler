@@ -6,6 +6,7 @@ import {
   parseContextTaskArgs,
   parsePrdLinkArgs,
   parseReplanRequestArgs,
+  parseReplanRunArgs,
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
@@ -120,6 +121,11 @@ test("parseReplanRequestArgs parses reason, task, evidence, and requirements", (
     requirementRefs: ["REQ-001", "REQ-002"],
   });
   assert.equal(parseReplanRequestArgs(" "), undefined);
+});
+
+test("parseReplanRunArgs parses execute flag", () => {
+  assert.deepEqual(parseReplanRunArgs("execute"), { execute: true });
+  assert.deepEqual(parseReplanRunArgs(" "), { execute: false });
 });
 
 test("parseCommitArgs parses optional task and paths", () => {

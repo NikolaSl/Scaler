@@ -40,6 +40,8 @@ test("extension registers scaler commands", () => {
     "scaler-plan-status",
     "scaler-plan-apply",
     "scaler-replans",
+    "scaler-replan-run",
+    "scaler-replan-runs",
     "scaler-replan-proposal-status",
     "scaler-replan-accept",
     "scaler-replan-request",
