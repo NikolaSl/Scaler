@@ -450,7 +450,7 @@ test("real flow parity: stage conductor ingests real Pi artifacts and completes 
         ...(stage === "execution" ? { taskRefs: [] } : {}),
       };
       const instruction = `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: ${JSON.stringify(artifact)}.`;
-      return await realCardinalRunner(instruction)(request);
+      return await realCardinalOnlyRunner(instruction)(request);
     });
 
     assert.equal(result.accepted, true);
