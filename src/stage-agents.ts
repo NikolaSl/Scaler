@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
+import { logAgentPromptAudit, logStructuredReportAudit } from "./logging.js";
 import { getStageAgentRunsPath } from "./paths.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
@@ -161,9 +162,25 @@ export async function runStageAgentStep(
       artifacts,
       extraInstructions: options.extraInstructions,
     }, options);
+    await logAgentPromptAudit(cwd, state, {
+      agentType: "stage",
+      agentId: stage,
+      prompt: preparation.prompt,
+      inputRefs: artifacts.map((artifact) => artifact.id),
+      details: { invocation: preparation.invocation },
+    });
     const runResult = options.execute ? await runner(preparation.request, { timeoutMs: options.timeoutMs }) : undefined;
     const runRecord = await recordStageAgentRun(cwd, stage, runResult, options.execute ? undefined : "prepared");
     const ingestion = runResult?.exitCode === 0 ? await ingestStageAgentArtifactReport(cwd, stage, runResult.stdoutEvents) : { attempted: false, ingested: false };
+    if (ingestion.attempted) {
+      await logStructuredReportAudit(cwd, state, {
+        reportType: "scaler_stage_artifact",
+        summary: ingestion.ingested ? `Stage artifact ingested: ${stage}` : (ingestion.reason ?? `Stage artifact rejected: ${stage}`),
+        report: ingestion.artifact ?? { stage, reason: ingestion.reason },
+        accepted: ingestion.ingested,
+        outputRefs: ingestion.artifact ? [ingestion.artifact.id] : undefined,
+      });
+    }
     return {
       accepted: true,
       message: `${options.execute ? "Executed" : "Prepared"} stage agent ${stage}`,

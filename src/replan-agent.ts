@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
+import { logAgentPromptAudit, logStructuredReportAudit } from "./logging.js";
 import { getReplanAgentRunsPath } from "./paths.js";
 import {
   checkExecutionPlanPreservation,
@@ -193,8 +194,24 @@ export async function runReplanAgentStep(
   try {
     const context = await loadReplanAgentContext(cwd, state, options.extraInstructions);
     const preparation = prepareReplanAgentInvocation(cwd, context, options);
+    await logAgentPromptAudit(cwd, state, {
+      agentType: "replan",
+      agentId: "replan-agent",
+      prompt: preparation.prompt,
+      inputRefs: context.replanRequests.map((request) => request.id),
+      details: { invocation: preparation.invocation, currentPlanVersion: context.currentPlan.planVersion },
+    });
     const runResult = options.execute ? await runner(preparation.request, { timeoutMs: options.timeoutMs }) : undefined;
     const ingestion = runResult?.exitCode === 0 ? await ingestReplanProposalReport(cwd, runResult.stdoutEvents, state) : { attempted: false, ingested: false };
+    if (ingestion.attempted) {
+      await logStructuredReportAudit(cwd, state, {
+        reportType: "scaler_replan_proposal",
+        summary: ingestion.ingested ? `Replan proposal ingested: ${ingestion.plan?.planVersion ?? "unknown"}` : (ingestion.reason ?? "Replan proposal rejected"),
+        report: ingestion.plan ?? { reason: ingestion.reason },
+        accepted: ingestion.ingested,
+        outputRefs: ingestion.plan ? [String(ingestion.plan.planVersion)] : undefined,
+      });
+    }
     const runRecord = await recordReplanAgentRun(cwd, runResult, options.execute ? ingestion : undefined, options.execute ? undefined : "prepared");
     return {
       accepted: true,

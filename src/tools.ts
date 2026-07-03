@@ -3,7 +3,7 @@ import { Type } from "typebox";
 import { incrementBudgetUsage, persistBudgetDecision, type BudgetUsageKey } from "./budgets.js";
 import { recordDebugAttempt } from "./debug.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
-import { createLogEvent, appendLogEvent } from "./logging.js";
+import { logToolAudit } from "./logging.js";
 import { retrieveMemory, writeMemory } from "./memory.js";
 import {
   createPrdVersionSnapshot,
@@ -544,7 +544,7 @@ export async function prepareOrRunSpawnTask(
 
 async function logTool(cwd: string, toolName: ScalerToolName, summary: string, details: unknown): Promise<void> {
   const state = await recordBudgetUsage(cwd, "toolCalls");
-  await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary, details: { toolName, details } }));
+  await logToolAudit(cwd, state, { toolName, summary, result: details });
 }
 
 async function recordBudgetUsage(cwd: string, key: BudgetUsageKey): Promise<ScalerState> {

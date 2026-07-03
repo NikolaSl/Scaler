@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { appendLogEvent, createLogEvent } from "./logging.js";
+import { appendLogEvent, createLogEvent, logValidationSummaryAudit } from "./logging.js";
 import { getValidationManifestsPath, getValidationRunsPath } from "./paths.js";
 import { requestReplan } from "./replanning.js";
 import { saveState } from "./state.js";
@@ -183,11 +183,19 @@ export async function runTaskValidation(cwd: string, state: ScalerState, taskId:
     createdAt: new Date().toISOString(),
   };
   await writeValidationRuns(cwd, [record, ...(await loadValidationRuns(cwd))]);
-  await applyValidationReport(cwd, state, {
+  const result = await applyValidationReport(cwd, state, {
     taskId,
     status: record.status === "passed" ? "passed" : "failed",
     summary: `Validation ${record.status}: ${taskId}`,
     details: { runId: record.id, commandRuns },
+  });
+  await logValidationSummaryAudit(cwd, result.state, {
+    taskId,
+    runId: record.id,
+    status: record.status,
+    commandCount: commandRuns.length,
+    failedCommandIds: commandRuns.filter((run) => run.status !== "passed").map((run) => run.commandId),
+    details: record,
   });
   return record;
 }

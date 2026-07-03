@@ -1,4 +1,4 @@
-import { appendLogEvent, createLogEvent } from "./logging.js";
+import { appendLogEvent, createLogEvent, logStructuredReportAudit } from "./logging.js";
 import { saveState } from "./state.js";
 import { transitionStage, transitionTask } from "./supervisor.js";
 import type { ScalerStage, ScalerState, ScalerTaskStatus } from "./types.js";
@@ -71,15 +71,13 @@ export function validateReportInput(report: ScalerReportInput): string | undefin
 export async function ingestReport(cwd: string, state: ScalerState, report: ScalerReportInput): Promise<IngestReportResult> {
   const validationError = validateReportInput(report);
   if (validationError) {
-    await appendLogEvent(
-      cwd,
-      createLogEvent(state, {
-        eventType: "state",
-        summary: `Report rejected: ${report.reportType || "unknown"} - ${validationError}`,
-        taskId: report.taskId,
-        details: report,
-      }),
-    );
+    await logStructuredReportAudit(cwd, state, {
+      reportType: report.reportType || "unknown",
+      summary: validationError,
+      report,
+      accepted: false,
+      taskId: report.taskId,
+    });
     return {
       state,
       accepted: false,
@@ -101,17 +99,24 @@ export async function ingestReport(cwd: string, state: ScalerState, report: Scal
   }
 
   await saveState(cwd, nextState);
+  const accepted = nextState.rejectedTransitions.length === rejectionCountBefore;
   await appendLogEvent(
     cwd,
     createLogEvent(nextState, {
-      eventType: "state",
+      eventType: accepted ? "transition" : "rejected_transition",
       summary: `Report ingested: ${report.reportType} - ${report.summary}`,
       taskId: report.taskId,
-      details: report,
+      details: { reportType: report.reportType, stageTransition: report.stageTransition, taskTransition: report.taskTransition },
     }),
   );
+  await logStructuredReportAudit(cwd, nextState, {
+    reportType: report.reportType,
+    summary: report.summary,
+    report,
+    accepted,
+    taskId: report.taskId,
+  });
 
-  const accepted = nextState.rejectedTransitions.length === rejectionCountBefore;
   return {
     state: nextState,
     accepted,

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { appendLogEvent, createLogEvent } from "./logging.js";
+import { logGitCommitAudit } from "./logging.js";
 import type { ScalerState } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -49,15 +49,15 @@ export async function commitValidatedTask(
   const task = state.tasks.find((candidate) => candidate.id === taskId);
   const safety = await assessGitStatusSafety(cwd, allowedPathPrefixes);
 
-  if (!task) return logCommitResult(cwd, state, { accepted: false, message: `Task ${taskId} does not exist.`, safety });
+  if (!task) return logCommitResult(cwd, state, taskId, { accepted: false, message: `Task ${taskId} does not exist.`, safety });
   if (task.status !== "validated") {
-    return logCommitResult(cwd, state, { accepted: false, message: `Task ${taskId} is not validated.`, safety });
+    return logCommitResult(cwd, state, taskId, { accepted: false, message: `Task ${taskId} is not validated.`, safety });
   }
   if (safety.status === "not_git_repo" || safety.status === "unrelated") {
-    return logCommitResult(cwd, state, { accepted: false, message: `Commit refused: ${safety.reason}`, safety });
+    return logCommitResult(cwd, state, taskId, { accepted: false, message: `Commit refused: ${safety.reason}`, safety });
   }
   if (safety.status === "clean" || safety.status === "runtime_only") {
-    return logCommitResult(cwd, state, { accepted: false, message: `Commit skipped: ${safety.reason}`, safety });
+    return logCommitResult(cwd, state, taskId, { accepted: false, message: `Commit skipped: ${safety.reason}`, safety });
   }
 
   for (const path of allowedPathPrefixes) {
@@ -65,7 +65,7 @@ export async function commitValidatedTask(
   }
   await execFileAsync("git", ["commit", "-m", buildTaskCommitMessage(taskId, task.title)], { cwd });
   const { stdout } = await execFileAsync("git", ["rev-parse", "--short", "HEAD"], { cwd });
-  return logCommitResult(cwd, state, {
+  return logCommitResult(cwd, state, taskId, {
     accepted: true,
     message: `Committed ${taskId}: ${stdout.trim()}`,
     commitHash: stdout.trim(),
@@ -149,15 +149,14 @@ async function isGitRepository(cwd: string): Promise<boolean> {
   }
 }
 
-async function logCommitResult(cwd: string, state: ScalerState, result: GitCommitTaskResult): Promise<GitCommitTaskResult> {
-  await appendLogEvent(
-    cwd,
-    createLogEvent(state, {
-      eventType: "git",
-      summary: result.message,
-      details: result,
-    }),
-  );
+async function logCommitResult(cwd: string, state: ScalerState, taskId: string, result: GitCommitTaskResult): Promise<GitCommitTaskResult> {
+  await logGitCommitAudit(cwd, state, {
+    taskId,
+    accepted: result.accepted,
+    message: result.message,
+    commitHash: result.commitHash,
+    details: result,
+  });
   return result;
 }
 

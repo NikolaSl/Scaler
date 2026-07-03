@@ -9,7 +9,7 @@ import {
   type ResolvedContext,
 } from "./context.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
-import { appendLogEvent, createLogEvent } from "./logging.js";
+import { appendLogEvent, createLogEvent, logAgentPromptAudit } from "./logging.js";
 import { getTaskAgentRunsPath, getValidationHandoffsPath } from "./paths.js";
 import { saveState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
@@ -168,6 +168,14 @@ export async function runConductorStep(
     task: runningTask,
     contextItems,
     tokenBudget: options.tokenBudget ?? contextManifest?.tokenBudget,
+  });
+  await logAgentPromptAudit(cwd, nextState, {
+    agentType: "task",
+    agentId: runningTask.id,
+    taskId: runningTask.id,
+    prompt,
+    inputRefs: contextItems.map((item) => item.id),
+    details: { tokenBudget: options.tokenBudget ?? contextManifest?.tokenBudget },
   });
   const request = {
     taskId: runningTask.id,

@@ -15,6 +15,7 @@ import {
   recordResearchAgentRun,
   runResearchAgentStep,
 } from "../src/research-agent.js";
+import { readLogEvents } from "../src/logging.js";
 import { loadResearchReports, loadResearchRequests, recordResearchReport, upsertResearchRequest } from "../src/research.js";
 import { createDefaultState } from "../src/state.js";
 
@@ -219,5 +220,8 @@ test("runResearchAgentStep prepares oldest open request and executes with report
     assert.equal(executed.runRecord?.status, "passed");
     assert.equal(executed.ingestion?.ingested, true);
     assert.equal((await loadResearchReports(dir))[0]?.requestId, "RESEARCH-OLD");
+    const events = await readLogEvents(dir);
+    assert.equal(events.some((event) => event.eventType === "agent" && /Agent prompt prepared/.test(event.summary) && event.detailsPath), true);
+    assert.equal(events.some((event) => event.eventType === "report" && /Research report ingested/.test(event.summary) && event.detailsPath), true);
   });
 });

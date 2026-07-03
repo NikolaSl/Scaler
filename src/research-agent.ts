@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
+import { logAgentPromptAudit, logStructuredReportAudit } from "./logging.js";
 import { loadExecutionPlan, summarizeExecutionPlan, formatExecutionPlanSummary, type ExecutionPlanArtifact } from "./plans.js";
 import { getResearchAgentRunsPath } from "./paths.js";
 import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdCoverageSummary, type RuntimePrdRequirementsFile } from "./prd.js";
@@ -203,8 +204,26 @@ export async function runResearchAgentStep(
       return { accepted: false, message: detail };
     }
     const preparation = prepareResearchAgentInvocation(cwd, context, options);
+    await logAgentPromptAudit(cwd, state, {
+      agentType: "research",
+      agentId: context.request.id,
+      prompt: preparation.prompt,
+      taskId: context.request.taskId,
+      inputRefs: [context.request.id, ...(context.request.requirementRefs ?? [])],
+      details: { invocation: preparation.invocation, scope: context.request.scope },
+    });
     const runResult = options.execute ? await runner(preparation.request, { timeoutMs: options.timeoutMs }) : undefined;
     const ingestion = runResult?.exitCode === 0 ? await ingestResearchReport(cwd, runResult.stdoutEvents) : { attempted: false, ingested: false };
+    if (ingestion.attempted) {
+      await logStructuredReportAudit(cwd, state, {
+        reportType: "scaler_research_report",
+        summary: ingestion.ingested ? `Research report ingested: ${ingestion.report?.id ?? "unknown"}` : (ingestion.reason ?? "Research report rejected"),
+        report: ingestion.report ?? { reason: ingestion.reason },
+        accepted: ingestion.ingested,
+        taskId: context.request.taskId,
+        outputRefs: ingestion.report ? [ingestion.report.id] : undefined,
+      });
+    }
     const runRecord = await recordResearchAgentRun(cwd, context.request.id, runResult, options.execute ? ingestion : undefined, options.execute ? undefined : "prepared");
     return {
       accepted: true,

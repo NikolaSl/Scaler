@@ -25,7 +25,7 @@ import { ensureTaskContextManifest, formatTaskContextManifest, loadTaskContextMa
 import { formatTaskAgentRunList, loadTaskAgentRunRecords, runConductorStep } from "./conductor.js";
 import { loadDebugAttempts, loadDebugFailures } from "./debug.js";
 import { clearExecutionLock, formatExecutionLock, loadExecutionLock } from "./locks.js";
-import { createLogEvent, appendLogEvent, logStateEvent } from "./logging.js";
+import { createLogEvent, appendLogEvent, logCommandAudit, logStateEvent, logToolAudit } from "./logging.js";
 import { loadMemoryIndex } from "./memory.js";
 import { commitWithExecutionLock, runValidationWithExecutionLock } from "./operations.js";
 import { getEventLogPath } from "./paths.js";
@@ -67,8 +67,34 @@ import { formatWorkflowSummary, summarizeWorkflow } from "./workflow.js";
 export default function scalerExtension(pi: ExtensionAPI): void {
   registerScalerTools(pi);
 
+  const originalRegisterCommand = pi.registerCommand.bind(pi);
+  const auditedRegisterCommand: ExtensionAPI["registerCommand"] = (name, command) => originalRegisterCommand(name, {
+    ...command,
+    handler: async (args, ctx) => {
+      const startState = await ensureState(ctx.cwd);
+      await logCommandAudit(ctx.cwd, startState, { command: name, phase: "start", args: args ?? "" });
+      try {
+        const result = await command.handler(args, ctx);
+        const endState = await ensureState(ctx.cwd);
+        await logCommandAudit(ctx.cwd, endState, { command: name, phase: "end", args: args ?? "", accepted: true, message: "completed" });
+        return result;
+      } catch (error) {
+        const errorState = await ensureState(ctx.cwd);
+        const message = error instanceof Error ? error.message : String(error);
+        await logCommandAudit(ctx.cwd, errorState, { command: name, phase: "error", args: args ?? "", accepted: false, error: message });
+        throw error;
+      }
+    },
+  });
+  (pi as unknown as { registerCommand: ExtensionAPI["registerCommand"] }).registerCommand = auditedRegisterCommand;
+
   pi.on("tool_call", async (event, ctx) => {
     const state = await ensureState(ctx.cwd);
+    await logToolAudit(ctx.cwd, state, {
+      toolName: event.toolName,
+      summary: `Tool call observed: ${event.toolName}`,
+      input: event.input,
+    });
     const currentTask = state.currentTaskId ? state.tasks.find((task) => task.id === state.currentTaskId) : undefined;
     const decision = assessToolCallSafety(
       {

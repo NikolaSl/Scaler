@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import scalerExtension from "../src/index.js";
+import { readLogEvents } from "../src/logging.js";
+
+async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), "scaler-extension-test-"));
+  try {
+    return await fn(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
 
 test("extension factory exports a function", () => {
   assert.equal(typeof scalerExtension, "function");
@@ -60,4 +73,24 @@ test("extension registers scaler commands", () => {
     "scaler-resume",
     "scaler-status",
   ]);
+});
+
+test("extension command handlers write command audit events", async () => {
+  await withTempDir(async (dir) => {
+    const commands = new Map<string, { handler: (args: string | undefined, ctx: { cwd: string; hasUI: boolean }) => Promise<void> }>();
+    const fakePi = {
+      on() {},
+      registerTool() {},
+      registerCommand(name: string, command: { handler: (args: string | undefined, ctx: { cwd: string; hasUI: boolean }) => Promise<void> }) {
+        commands.set(name, command);
+      },
+    };
+
+    scalerExtension(fakePi as never);
+    await commands.get("scaler-lock")?.handler(undefined, { cwd: dir, hasUI: false });
+    const events = await readLogEvents(dir);
+
+    assert.deepEqual(events.filter((event) => event.eventType === "command").map((event) => (event.details as { phase: string }).phase), ["start", "end"]);
+    assert.equal(events.filter((event) => event.eventType === "command").every((event) => Boolean(event.detailsPath)), true);
+  });
 });

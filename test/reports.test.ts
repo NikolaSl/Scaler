@@ -31,8 +31,10 @@ test("ingestReport applies valid stage transition and persists state", async () 
 
     assert.equal(result.accepted, true);
     assert.equal(persisted.stage, "prd");
-    assert.equal(events.length, 1);
+    assert.equal(events.length, 2);
     assert.match(events[0]?.summary ?? "", /Report ingested/);
+    assert.equal(events[1]?.eventType, "report");
+    assert.ok(events[1]?.detailsPath);
   });
 });
 
