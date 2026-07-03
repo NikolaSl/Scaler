@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
   applyBudgetUsageUpdates,
+  formatBudgetStatus,
   getBudgetState,
   incrementBudgetUsage,
   persistBudgetDecision,
@@ -98,6 +99,22 @@ test("applyBudgetUsageUpdates supports set and increment with strongest decision
   assert.equal(result.decisions.length, 2);
   assert.equal(result.decision.key, "validationLoops");
   assert.equal(result.decision.status, "hard_limit");
+});
+
+test("formatBudgetStatus reports limits, usage, and strongest decision", () => {
+  const limited = setBudgetLimits(createDefaultState(new Date("2026-01-01T00:00:00.000Z")), {
+    validationLoops: { soft: 1, hard: 2 },
+    estimatedCostMicros: { hard: 10_000 },
+  }, new Date("2026-01-01T00:00:00.000Z"));
+  const { state } = applyBudgetUsageUpdates(limited, [
+    { key: "validationLoops", amount: 2, mode: "set" },
+  ], new Date("2026-01-01T00:00:01.000Z"));
+
+  const message = formatBudgetStatus(state, new Date("2026-01-01T00:00:02.000Z"));
+
+  assert.match(message, /Budgets: strongest=hard_limit key=validationLoops action=pause/);
+  assert.match(message, /- validationLoops: usage=2 soft=1 hard=2 status=hard_limit/);
+  assert.match(message, /- estimatedCostMicros: usage=0 soft=- hard=10000 status=ok/);
 });
 
 test("recordStorageBudgetUsage scans .scaler bytes and evaluates limits", async () => {

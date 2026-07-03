@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  parseBudgetSetArgs,
   parseCommaList,
   parseCommitArgs,
   parseContextTaskArgs,
@@ -79,6 +80,13 @@ test("parseValidationAddArgs parses manifest command fields", () => {
 
 test("parseValidationAddArgs requires task, id, and command", () => {
   assert.equal(parseValidationAddArgs("T-001 | test"), undefined);
+});
+
+test("parseBudgetSetArgs parses key and optional numeric limits", () => {
+  assert.deepEqual(parseBudgetSetArgs("validationLoops | 1 | 2"), { key: "validationLoops", soft: 1, hard: 2 });
+  assert.deepEqual(parseBudgetSetArgs("estimatedCostMicros | - | 5000"), { key: "estimatedCostMicros", soft: undefined, hard: 5000 });
+  assert.deepEqual(parseBudgetSetArgs("toolCalls | nope | -1"), { key: "toolCalls", soft: undefined, hard: undefined });
+  assert.equal(parseBudgetSetArgs(" "), undefined);
 });
 
 test("parseValidateLoopArgs parses optional task, execute flag, and max option", () => {

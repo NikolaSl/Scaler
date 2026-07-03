@@ -36,6 +36,12 @@ export interface ParsedValidateLoopArgs {
   maxSteps?: number;
 }
 
+export interface ParsedBudgetSetArgs {
+  key: string;
+  soft?: number;
+  hard?: number;
+}
+
 export interface ParsedPrdLinkArgs {
   taskId: string;
   prdRefs: string[];
@@ -178,6 +184,17 @@ export function parseValidateLoopArgs(args: string | undefined): ParsedValidateL
     taskId: parts.find((part) => part.toLowerCase() !== "execute" && !/^max=/i.test(part)),
     execute: parts.some((part) => part.toLowerCase() === "execute"),
     maxSteps: maxSteps === undefined || !Number.isFinite(maxSteps) ? undefined : maxSteps,
+  };
+}
+
+export function parseBudgetSetArgs(args: string | undefined): ParsedBudgetSetArgs | undefined {
+  const parts = splitPipeArgs(args);
+  const key = parts[0]?.trim();
+  if (!key) return undefined;
+  return {
+    key,
+    soft: parseOptionalNumber(parts[1]),
+    hard: parseOptionalNumber(parts[2]),
   };
 }
 
@@ -343,4 +360,11 @@ function parseOptionalBoolean(value: string | undefined): boolean | undefined {
   if (["true", "yes", "required", "1"].includes(normalized)) return true;
   if (["false", "no", "optional", "0"].includes(normalized)) return false;
   return undefined;
+}
+
+function parseOptionalNumber(value: string | undefined): number | undefined {
+  const normalized = value?.trim();
+  if (!normalized || normalized === "-") return undefined;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }

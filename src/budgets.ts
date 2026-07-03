@@ -65,7 +65,7 @@ export interface BudgetUpdateResult {
   decision: BudgetDecision;
 }
 
-const usageKeys: BudgetUsageKey[] = [
+export const budgetUsageKeys: BudgetUsageKey[] = [
   "toolCalls",
   "spawnedAgents",
   "debugAttempts",
@@ -77,6 +77,10 @@ const usageKeys: BudgetUsageKey[] = [
   "researchReports",
   "estimatedCostMicros",
 ];
+
+export function isBudgetUsageKey(value: string): value is BudgetUsageKey {
+  return budgetUsageKeys.includes(value as BudgetUsageKey);
+}
 
 export function getBudgetState(state: ScalerState, now = new Date()): ScalerBudgetState {
   const raw = state.budgets as Partial<ScalerBudgetState> | undefined;
@@ -206,6 +210,26 @@ export async function scanScalerStorageBytes(cwd: string): Promise<number> {
   return await scanPathBytes(getScalerDir(cwd));
 }
 
+export function formatBudgetStatus(state: ScalerState, now = new Date()): string {
+  const budgets = getBudgetState(state, now);
+  const decisions = budgetUsageKeys.map((key) => evaluateBudgetUsage(key, budgets.usage[key] ?? 0, budgets.limits[key]));
+  const strongest = getStrongestBudgetDecision(decisions);
+  const lines = [
+    `Budgets: strongest=${strongest.status} key=${strongest.key} action=${strongest.recommendedAction}`,
+    `Started: ${budgets.startedAt} Updated: ${budgets.updatedAt} checkpoints=${budgets.checkpoints.length}`,
+    "Usage:",
+  ];
+  for (const key of budgetUsageKeys) {
+    const usage = budgets.usage[key] ?? 0;
+    const limit = budgets.limits[key];
+    const decision = evaluateBudgetUsage(key, usage, limit);
+    const soft = limit?.soft === undefined ? "-" : String(limit.soft);
+    const hard = limit?.hard === undefined ? "-" : String(limit.hard);
+    lines.push(`- ${key}: usage=${usage} soft=${soft} hard=${hard} status=${decision.status}`);
+  }
+  return lines.join("\n");
+}
+
 export function evaluateBudgetUsage(key: BudgetUsageKey, usage: number, limit?: BudgetLimit): BudgetDecision {
   if (limit?.hard !== undefined && usage >= limit.hard) {
     return {
@@ -281,7 +305,7 @@ function strongerDecision(first: BudgetDecision, second: BudgetDecision): Budget
 function normalizeUsage(value: unknown): Partial<Record<BudgetUsageKey, number>> {
   const source = isRecord(value) ? value : {};
   const usage: Partial<Record<BudgetUsageKey, number>> = {};
-  for (const key of usageKeys) {
+  for (const key of budgetUsageKeys) {
     const raw = source[key];
     if (typeof raw === "number" && Number.isFinite(raw)) usage[key] = raw;
   }
@@ -291,7 +315,7 @@ function normalizeUsage(value: unknown): Partial<Record<BudgetUsageKey, number>>
 function normalizeLimits(value: unknown): Partial<Record<BudgetUsageKey, BudgetLimit>> {
   const source = isRecord(value) ? value : {};
   const limits: Partial<Record<BudgetUsageKey, BudgetLimit>> = {};
-  for (const key of usageKeys) {
+  for (const key of budgetUsageKeys) {
     const raw = source[key];
     if (!isRecord(raw)) continue;
     limits[key] = {
