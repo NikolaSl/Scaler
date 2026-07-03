@@ -15,7 +15,7 @@ import {
   type ResearchReportInput,
   type ResearchRequest,
 } from "./research.js";
-import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
 import type { ScalerState } from "./types.js";
 
@@ -255,9 +255,7 @@ export async function ingestResearchReport(cwd: string, stdoutEvents: unknown[],
 }
 
 export function extractResearchReport(stdoutEvents: unknown[], now = new Date()): ResearchReportExtractionResult {
-  const candidates = stdoutEvents
-    .map((event) => extractReportPayload(event))
-    .filter((payload): payload is Record<string, unknown> => Boolean(payload));
+  const candidates = extractStructuredReportPayloads(stdoutEvents, "scaler_research_report");
   if (candidates.length === 0) return { ok: false, reason: "No scaler_research_report report found in research-agent output." };
 
   const payload = candidates[candidates.length - 1];
@@ -408,15 +406,6 @@ async function loadResearchAgentContext(cwd: string, state: ScalerState, request
     coverageSummary: computePrdCoverageSummary(requirements, coverage, state),
     extraInstructions,
   };
-}
-
-function extractReportPayload(event: unknown): Record<string, unknown> | undefined {
-  if (!isRecord(event)) return undefined;
-  if (event.type === "scaler_research_report") return event;
-  const nested = event.scaler_research_report ?? event.payload ?? event.data;
-  if (isRecord(nested) && nested.type === "scaler_research_report") return nested;
-  if (isRecord(nested) && isRecord(nested.scaler_research_report)) return nested.scaler_research_report;
-  return undefined;
 }
 
 function intersects(left: string[] | undefined, right: string[] | undefined): boolean {

@@ -17,7 +17,7 @@ import {
   type ReplanRequest,
 } from "./plans.js";
 import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdCoverageSummary, type RuntimePrdRequirementsFile } from "./prd.js";
-import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
 import type { ScalerState } from "./types.js";
 
@@ -256,9 +256,7 @@ export function extractReplanProposalReport(
   defaultPlanVersion = 1,
   now = new Date(),
 ): ReplanProposalExtractionResult {
-  const candidates = stdoutEvents
-    .map((event) => extractReportPayload(event))
-    .filter((payload): payload is Record<string, unknown> => Boolean(payload));
+  const candidates = extractStructuredReportPayloads(stdoutEvents, "scaler_replan_proposal");
   if (candidates.length === 0) return { ok: false, reason: "No scaler_replan_proposal report found in replanner output." };
 
   const report = candidates[candidates.length - 1];
@@ -352,15 +350,6 @@ async function loadReplanAgentContext(cwd: string, state: ScalerState, extraInst
   const coverageSummary = computePrdCoverageSummary(requirements, coverage, state);
   const replanRequests = await loadReplanRequests(cwd);
   return { state, currentPlan, requirements, coverageSummary, replanRequests, extraInstructions };
-}
-
-function extractReportPayload(event: unknown): Record<string, unknown> | undefined {
-  if (!isRecord(event)) return undefined;
-  if (event.type === "scaler_replan_proposal") return event;
-  const nested = event.scaler_replan_proposal ?? event.payload ?? event.data;
-  if (isRecord(nested) && nested.type === "scaler_replan_proposal") return nested;
-  if (isRecord(nested) && isRecord(nested.scaler_replan_proposal)) return nested.scaler_replan_proposal;
-  return undefined;
 }
 
 function stringField(record: Record<string, unknown>, key: string): string | undefined {

@@ -3,7 +3,7 @@ import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { buildTaskAgentInvocation, runTaskAgent } from "../src/subagents.js";
+import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent } from "../src/subagents.js";
 
 async function withScript<T>(content: string, fn: (script: string, dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-subagent-test-"));
@@ -61,6 +61,37 @@ test("buildTaskAgentInvocation omits empty optional arrays", () => {
   const invocation = buildTaskAgentInvocation({ taskId: "T-003", prompt: "Task", tools: [], extensionPaths: [] });
 
   assert.deepEqual(invocation.args, ["--mode", "json", "-p", "--no-session", "Task"]);
+});
+
+test("extractStructuredReportPayloads accepts direct, nested, and exact Pi assistant JSON reports", () => {
+  const piTextReport = {
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [{
+        type: "text",
+        text: JSON.stringify({ type: "scaler_debug_report", taskId: "T-PI", status: "next_approach", summary: "Pi wrapped", nextApproach: "Use parsed assistant text." }),
+      }],
+    },
+  };
+  const payloads = extractStructuredReportPayloads([
+    { type: "scaler_debug_report", taskId: "T-DIRECT" },
+    { payload: { type: "scaler_debug_report", taskId: "T-NESTED" } },
+    piTextReport,
+  ], "scaler_debug_report");
+
+  assert.deepEqual(payloads.map((payload) => payload.taskId), ["T-DIRECT", "T-NESTED", "T-PI"]);
+});
+
+test("extractStructuredReportPayloads rejects prose, markdown, user text, and wrong report types", () => {
+  const payloads = extractStructuredReportPayloads([
+    { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "Here is the report: {\"type\":\"scaler_debug_report\",\"taskId\":\"T\"}" }] } },
+    { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "```json\n{\"type\":\"scaler_debug_report\",\"taskId\":\"T\"}\n```" }] } },
+    { type: "message_end", message: { role: "user", content: [{ type: "text", text: "{\"type\":\"scaler_debug_report\",\"taskId\":\"T\"}" }] } },
+    { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "{\"type\":\"scaler_research_report\",\"requestId\":\"R\"}" }] } },
+  ], "scaler_debug_report");
+
+  assert.deepEqual(payloads, []);
 });
 
 test("runTaskAgent reports default timeout and abort flags", async () => {

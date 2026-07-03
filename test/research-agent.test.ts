@@ -122,11 +122,28 @@ test("extractResearchReport validates latest structured research report", () => 
       sources: [{ id: "docs", title: "Official docs", quality: "official", url: "https://example.invalid/docs" }],
       conclusions: [{ summary: "Use the official API.", confidence: "high", sourceRefs: ["docs"] }],
     },
+    {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            type: "scaler_research_report",
+            requestId: "RESEARCH-PI",
+            question: "Which wrapped API?",
+            status: "complete",
+            sources: [{ id: "pi-docs", title: "Pi docs", quality: "project", summary: "Pi wrapped evidence." }],
+            conclusions: [{ summary: "Parse exact assistant JSON text.", confidence: "high", sourceRefs: ["pi-docs"] }],
+          }),
+        }],
+      },
+    },
   ], new Date("2026-01-01T00:00:00.000Z"));
 
   assert.equal(result.ok, true);
-  assert.equal(result.input?.requestId, "RESEARCH-001");
-  assert.equal(result.input?.sources?.[0]?.id, "docs");
+  assert.equal(result.input?.requestId, "RESEARCH-PI");
+  assert.equal(result.input?.sources?.[0]?.id, "pi-docs");
 });
 
 test("extractResearchReport reports missing, error, and invalid reports", () => {

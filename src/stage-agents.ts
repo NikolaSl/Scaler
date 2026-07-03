@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { logAgentPromptAudit, logStructuredReportAudit } from "./logging.js";
 import { getStageAgentRunsPath } from "./paths.js";
-import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
 import { loadStageArtifacts, stageArtifactStatuses, stageArtifactStages, upsertStageArtifact, type StageArtifact, type StageArtifactInput, type StageArtifactStage } from "./stages.js";
 import type { ScalerState } from "./types.js";
@@ -271,9 +271,7 @@ export function extractStageAgentArtifactReport(
   expectedStage?: StageArtifactStage | string,
 ): StageAgentReportExtractionResult {
   const expected = expectedStage ? normalizeStage(expectedStage) : undefined;
-  const candidates = stdoutEvents
-    .map((event) => extractReportPayload(event))
-    .filter((payload): payload is Record<string, unknown> => Boolean(payload));
+  const candidates = extractStructuredReportPayloads(stdoutEvents, "scaler_stage_artifact");
   if (candidates.length === 0) return { ok: false, reason: "No scaler_stage_artifact report found in stage-agent output." };
 
   const report = candidates[candidates.length - 1];
@@ -308,15 +306,6 @@ export function normalizeStage(stage: StageArtifactStage | string): StageArtifac
   const normalized = stage.trim() as StageArtifactStage;
   if (!stageArtifactStages.includes(normalized)) throw new Error(`Invalid stage agent stage: ${String(stage)}`);
   return normalized;
-}
-
-function extractReportPayload(event: unknown): Record<string, unknown> | undefined {
-  if (!isRecord(event)) return undefined;
-  if (event.type === "scaler_stage_artifact") return event;
-  const nested = event.scaler_stage_artifact ?? event.payload ?? event.data;
-  if (isRecord(nested) && nested.type === "scaler_stage_artifact") return nested;
-  if (isRecord(nested) && isRecord(nested.scaler_stage_artifact)) return nested.scaler_stage_artifact;
-  return undefined;
 }
 
 function stringField(record: Record<string, unknown>, key: string): string | undefined {

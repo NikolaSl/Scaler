@@ -61,18 +61,37 @@ test("extractStageAgentArtifactReport extracts and validates latest report", () 
       requirementRefs: ["PRD-S01"],
       taskRefs: ["T-001"],
     },
+    {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            type: "scaler_stage_artifact",
+            stage: "planning",
+            status: "ready",
+            title: "Pi wrapped plan",
+            path: ".scaler/plans/proposed-plan.json",
+            evidenceRefs: ["pi-event"],
+            requirementRefs: ["PRD-S02"],
+            taskRefs: ["T-002"],
+          }),
+        }],
+      },
+    },
   ], "planning");
 
   assert.equal(result.ok, true);
   assert.deepEqual(result.artifactInput, {
     stage: "planning",
     status: "ready",
-    title: "Plan",
-    path: ".scaler/plans/current-plan.json",
+    title: "Pi wrapped plan",
+    path: ".scaler/plans/proposed-plan.json",
     summary: undefined,
-    evidenceRefs: ["run:1", "run:2"],
-    requirementRefs: ["PRD-S01"],
-    taskRefs: ["T-001"],
+    evidenceRefs: ["pi-event"],
+    requirementRefs: ["PRD-S02"],
+    taskRefs: ["T-002"],
   });
 });
 

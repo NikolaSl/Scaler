@@ -94,11 +94,31 @@ test("extractReplanProposalReport validates latest structured proposal", () => {
         updatedAt: "2026-01-01T00:00:00.000Z",
       },
     },
+    {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            type: "scaler_replan_proposal",
+            plan: {
+              version: 1,
+              planVersion: 4,
+              status: "draft",
+              tasks: [{ id: "T-PI", title: "Pi wrapped proposal", prdRefs: ["REQ-002"] }],
+              createdAt: "2026-01-01T00:00:00.000Z",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+            },
+          }),
+        }],
+      },
+    },
   ], 2, new Date("2026-01-01T00:00:00.000Z"));
 
   assert.equal(result.ok, true);
-  assert.equal(result.plan?.planVersion, 3);
-  assert.equal(result.plan?.tasks[0]?.id, "T-001");
+  assert.equal(result.plan?.planVersion, 4);
+  assert.equal(result.plan?.tasks[0]?.id, "T-PI");
 });
 
 test("extractReplanProposalReport reports missing, error, and invalid proposals", () => {

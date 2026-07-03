@@ -59,6 +59,20 @@ export function buildTaskAgentInvocation(request: TaskAgentRequest, command = "p
   };
 }
 
+export function extractStructuredReportPayloads(stdoutEvents: unknown[], reportType: string): Record<string, unknown>[] {
+  const payloads: Record<string, unknown>[] = [];
+  for (const event of stdoutEvents) {
+    const direct = extractDirectReportPayload(event, reportType);
+    if (direct) payloads.push(direct);
+
+    for (const text of extractAssistantTextCandidates(event)) {
+      const parsed = parseExactReportJson(text, reportType);
+      if (parsed) payloads.push(parsed);
+    }
+  }
+  return payloads;
+}
+
 export async function runTaskAgent(
   request: TaskAgentRequest,
   options: RunTaskAgentOptions = {},
@@ -148,4 +162,63 @@ export async function runTaskAgent(
       }, options.timeoutMs);
     }
   });
+}
+
+function extractDirectReportPayload(event: unknown, reportType: string): Record<string, unknown> | undefined {
+  if (!isRecord(event)) return undefined;
+  if (event.type === reportType) return event;
+
+  const nested = event[reportType] ?? event.payload ?? event.data;
+  if (isRecord(nested) && nested.type === reportType) return nested;
+  if (isRecord(nested) && isRecord(nested[reportType])) return nested[reportType];
+  return undefined;
+}
+
+function extractAssistantTextCandidates(event: unknown): string[] {
+  if (!isRecord(event)) return [];
+  const texts: string[] = [];
+
+  if (event.type === "message_update" && isRecord(event.assistantMessageEvent)) {
+    const update = event.assistantMessageEvent;
+    if (typeof update.delta === "string") texts.push(update.delta);
+    if (typeof update.content === "string") texts.push(update.content);
+    if (isRecord(update.partial)) texts.push(...extractAssistantMessageTexts(update.partial));
+  }
+
+  if ((event.type === "message_end" || event.type === "turn_end") && isRecord(event.message)) {
+    texts.push(...extractAssistantMessageTexts(event.message));
+  }
+
+  if (event.type === "agent_end" && Array.isArray(event.messages)) {
+    for (const message of event.messages) texts.push(...extractAssistantMessageTexts(message));
+  }
+
+  texts.push(...extractAssistantMessageTexts(event));
+  return texts;
+}
+
+function extractAssistantMessageTexts(message: unknown): string[] {
+  if (!isRecord(message) || message.role !== "assistant") return [];
+  const content = message.content;
+  if (typeof content === "string") return [content];
+  if (!Array.isArray(content)) return [];
+  return content
+    .filter((item): item is Record<string, unknown> => isRecord(item))
+    .filter((item) => item.type === "text" && typeof item.text === "string")
+    .map((item) => item.text as string);
+}
+
+function parseExactReportJson(text: string, reportType: string): Record<string, unknown> | undefined {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return undefined;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return isRecord(parsed) && parsed.type === reportType ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -107,12 +107,29 @@ test("extractDebugReport validates latest structured debug report candidate", ()
         evidenceRefs: ["debug-log-1"],
       },
     },
+    {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            type: "scaler_debug_report",
+            taskId: "T-PI",
+            status: "next_approach",
+            summary: "Pi wrapped report",
+            nextApproach: "Parse exact assistant JSON text.",
+            evidenceRefs: ["pi-event"],
+          }),
+        }],
+      },
+    },
   ]);
 
   assert.equal(result.ok, true);
-  assert.equal(result.input?.taskId, "T-001");
+  assert.equal(result.input?.taskId, "T-PI");
   assert.equal(result.input?.status, "next_approach");
-  assert.deepEqual(result.input?.evidenceRefs, ["debug-log-1"]);
+  assert.deepEqual(result.input?.evidenceRefs, ["pi-event"]);
 });
 
 test("extractDebugReport reports missing and error outputs", () => {

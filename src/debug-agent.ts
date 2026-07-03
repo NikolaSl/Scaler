@@ -18,7 +18,7 @@ import {
 import { getDebugAgentRunsPath } from "./paths.js";
 import { loadReplanRequests } from "./plans.js";
 import { formatResearchSummary, loadResearchReports, loadResearchRequests } from "./research.js";
-import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
 
@@ -261,9 +261,7 @@ export async function ingestDebugReport(cwd: string, state: ScalerState, stdoutE
 }
 
 export function extractDebugReport(stdoutEvents: unknown[]): DebugReportExtractionResult {
-  const candidates = stdoutEvents
-    .map((event) => extractReportPayload(event))
-    .filter((payload): payload is Record<string, unknown> => Boolean(payload));
+  const candidates = extractStructuredReportPayloads(stdoutEvents, "scaler_debug_report");
   if (candidates.length === 0) return { ok: false, reason: "No scaler_debug_report report found in debug-agent output." };
 
   const payload = candidates[candidates.length - 1];
@@ -384,15 +382,6 @@ function selectDebugTask(state: ScalerState, taskId?: string): ScalerTaskState |
   return state.tasks.find((task) => task.status === "debugging")
     ?? state.tasks.find((task) => task.status === "needs_replan")
     ?? state.tasks.find((task) => task.status === "blocked");
-}
-
-function extractReportPayload(event: unknown): Record<string, unknown> | undefined {
-  if (!isRecord(event)) return undefined;
-  if (event.type === "scaler_debug_report") return event;
-  const nested = event.scaler_debug_report ?? event.payload ?? event.data;
-  if (isRecord(nested) && nested.type === "scaler_debug_report") return nested;
-  if (isRecord(nested) && isRecord(nested.scaler_debug_report)) return nested.scaler_debug_report;
-  return undefined;
 }
 
 function stringField(record: Record<string, unknown>, key: string): string | undefined {
