@@ -3,8 +3,17 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { assessDebugRetryGate, loadDebugAttempts, loadDebugFailures, recordDebugAttempt } from "../src/debug.js";
+import {
+  assessDebugRetryGate,
+  findDebugFingerprintCycles,
+  loadDebugAttempts,
+  loadDebugFailures,
+  loadDebugReports,
+  recordDebugAttempt,
+  recordDebugReport,
+} from "../src/debug.js";
 import { loadReplanRequests, saveReplanRequests } from "../src/plans.js";
+import { loadResearchRequests } from "../src/research.js";
 import { createDefaultState, loadState } from "../src/state.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -242,6 +251,122 @@ test("assessDebugRetryGate allows retries after new evidence", async () => {
 
     assert.equal(gate.allowed, true);
     assert.match(gate.reason, /cleared by new evidence/);
+  });
+});
+
+test("findDebugFingerprintCycles detects longer hidden cycles", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await recordDebugAttempt(dir, state, {
+      taskId: "T-001",
+      failureId: "F-001",
+      hypothesis: "Fix A",
+      actionSummary: "Change A",
+      result: "new_failure",
+      failureFingerprint: "failure-a",
+      resultingFailureFingerprint: "failure-b",
+    }, new Date("2026-01-01T00:00:01.000Z"));
+    await recordDebugAttempt(dir, state, {
+      taskId: "T-001",
+      failureId: "F-001",
+      hypothesis: "Fix B",
+      actionSummary: "Change B",
+      result: "new_failure",
+      failureFingerprint: "failure-b",
+      resultingFailureFingerprint: "failure-c",
+    }, new Date("2026-01-01T00:00:02.000Z"));
+    const third = await recordDebugAttempt(dir, state, {
+      taskId: "T-001",
+      failureId: "F-001",
+      hypothesis: "Fix C",
+      actionSummary: "Change C",
+      result: "new_failure",
+      failureFingerprint: "failure-c",
+      resultingFailureFingerprint: "failure-a",
+    }, new Date("2026-01-01T00:00:03.000Z"));
+
+    const cycles = findDebugFingerprintCycles(await loadDebugAttempts(dir), "T-001");
+
+    assert.match(third.cycleDetected ?? "", /failure-a -> failure-b -> failure-c -> failure-a/);
+    assert.equal(cycles.length, 1);
+    assert.deepEqual(cycles[0]?.fingerprints, ["failure-a", "failure-b", "failure-c", "failure-a"]);
+  });
+});
+
+test("recordDebugReport records next approach reports", async () => {
+  await withTempDir(async (dir) => {
+    const result = await recordDebugReport(dir, createDefaultState(), {
+      taskId: "T-001",
+      status: "next_approach",
+      summary: "Try root cause fix",
+      failureId: "F-001",
+      failureFingerprint: "Failure A line 12",
+      nextApproach: "Replace the compatibility shim instead of toggling imports.",
+      evidenceRefs: ["debug-log-1"],
+    }, new Date("2026-01-01T00:00:01.000Z"));
+
+    const reports = await loadDebugReports(dir);
+    assert.equal(result.accepted, true);
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0]?.status, "next_approach");
+    assert.equal(reports[0]?.failureFingerprint, "failure a line *");
+  });
+});
+
+test("recordDebugReport creates research requests for unresolved debug questions", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.tasks = [{ id: "T-001", status: "debugging", prdRefs: ["REQ-001"], updatedAt: state.createdAt }];
+    const result = await recordDebugReport(dir, state, {
+      taskId: "T-001",
+      status: "needs_research",
+      summary: "Local evidence is insufficient for version-specific API behavior.",
+      researchScope: "mixed",
+      researchQuestions: ["What changed in library X v2.1 error handling?"],
+      evidenceRefs: ["debug-log-1"],
+    }, new Date("2026-01-01T00:00:01.000Z"));
+
+    const requests = await loadResearchRequests(dir);
+    assert.equal(result.accepted, true);
+    assert.deepEqual(result.researchRequestIds, ["RESEARCH-20260101000001000"]);
+    assert.equal(requests[0]?.taskId, "T-001");
+    assert.equal(requests[0]?.scope, "mixed");
+    assert.deepEqual(requests[0]?.requirementRefs, ["REQ-001"]);
+  });
+});
+
+test("recordDebugReport creates replan request after exhausted debug research", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "debugging";
+    state.tasks = [{ id: "T-001", status: "debugging", prdRefs: ["REQ-001"], updatedAt: state.createdAt }];
+    const result = await recordDebugReport(dir, state, {
+      taskId: "T-001",
+      status: "needs_replan",
+      summary: "All realistic fixes are exhausted.",
+      exhaustedReason: "Official docs and local tests show the planned API cannot satisfy the task.",
+      evidenceRefs: ["RPT-RESEARCH-1", "debug-log-1"],
+    }, new Date("2026-01-01T00:00:01.000Z"));
+
+    const requests = await loadReplanRequests(dir);
+    assert.equal(result.accepted, true);
+    assert.equal(result.replanRequestId, "REPLAN-1767225601000");
+    assert.equal(requests[0]?.trigger, "debug_blocked");
+    assert.deepEqual(requests[0]?.evidenceRefs, ["debug-log-1", "RPT-RESEARCH-1"]);
+  });
+});
+
+test("recordDebugReport rejects invalid escalation reports", async () => {
+  await withTempDir(async (dir) => {
+    const result = await recordDebugReport(dir, createDefaultState(), {
+      taskId: "T-001",
+      status: "needs_research",
+      summary: "Need more information.",
+    });
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /researchQuestions/);
+    assert.deepEqual(await loadDebugReports(dir), []);
   });
 });
 
