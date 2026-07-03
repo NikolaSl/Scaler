@@ -137,3 +137,11 @@ export function getReplanRequestsPath(cwd: string): string {
 export function getReplanDecisionsPath(cwd: string): string {
   return join(getExecutionPlansDir(cwd), "replan-decisions.json");
 }
+
+export function getStagesDir(cwd: string): string {
+  return join(getScalerDir(cwd), "stages");
+}
+
+export function getStageArtifactsPath(cwd: string): string {
+  return join(getStagesDir(cwd), "stage-artifacts.json");
+}
