@@ -18,6 +18,8 @@ Stage outputs can be recorded and inspected with:
 ```text
 /scaler-stage-run planning
 /scaler-stage-record planning | ready | Execution plan | .scaler/plans/current-plan.json | Initial plan
+/scaler-stage-validate planning
+/scaler-stage-advance planning
 /scaler-stage-status
 /scaler-stage-runs planning
 ```

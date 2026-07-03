@@ -114,9 +114,17 @@ Shows the task context manifest summary for a task.
 
 Shows latest Stage I-IV artifact status from `.scaler/stages/stage-artifacts.json`.
 
+## `/scaler-stage-validate <stage>`
+
+Validates readiness of the latest recorded artifact for a stage.
+
+## `/scaler-stage-advance <stage>`
+
+Advances the supervisor stage after validating a ready stage artifact.
+
 ## `/scaler-stage-run <stage> [execute]`
 
-Prepares or executes a focused stage-agent subprocess for `prd`, `knowledge`, `planning`, `execution`, or `replanning`.
+Prepares or executes a focused stage-agent subprocess for `prd`, `knowledge`, `planning`, `execution`, or `replanning`. Successful executed runs attempt ready-artifact advancement automatically.
 
 ## `/scaler-stage-runs [stage]`
 
