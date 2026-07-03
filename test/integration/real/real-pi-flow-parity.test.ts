@@ -243,6 +243,96 @@ test("real flow parity: stage conductor ingests real Pi artifacts and completes 
   });
 });
 
+test("real flow parity: unsafe replan proposal from real Pi is rejected without replacing current plan", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    await upsertPrdRequirement(dir, {
+      id: "REQ-REAL-UNSAFE-KEEP",
+      title: "Preserved unsafe-parity requirement",
+      statement: "Validated work must not be dropped by unsafe proposals.",
+      status: "validated",
+      taskIds: ["T-REAL-UNSAFE-KEEP"],
+      evidenceRefs: ["validation-real-unsafe-keep"],
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    await upsertPrdRequirement(dir, {
+      id: "REQ-REAL-UNSAFE-NEW",
+      title: "New unsafe-parity requirement",
+      statement: "The replanner may add work but must keep validated work.",
+      status: "pending",
+      now: new Date("2026-01-01T00:00:01.000Z"),
+    });
+
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "replanning";
+    state.tasks = [{
+      id: "T-REAL-UNSAFE-KEEP",
+      status: "validated",
+      title: "Keep validated unsafe-parity work",
+      allowedPathPrefixes: ["index.js"],
+      prdRefs: ["REQ-REAL-UNSAFE-KEEP"],
+      updatedAt: state.createdAt,
+    }];
+    state.validatedTaskIds = ["T-REAL-UNSAFE-KEEP"];
+    state.completedTaskIds = ["T-REAL-UNSAFE-KEEP"];
+    await saveState(dir, state);
+    await saveExecutionPlan(dir, {
+      version: 1,
+      planVersion: 1,
+      status: "active",
+      title: "Real unsafe current plan",
+      tasks: [{ id: "T-REAL-UNSAFE-KEEP", title: "Keep validated unsafe-parity work", prdRefs: ["REQ-REAL-UNSAFE-KEEP"], allowedPathPrefixes: ["index.js"] }],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    await appendReplanRequest(dir, {
+      id: "REPLAN-REAL-UNSAFE",
+      trigger: "coverage_gap",
+      reason: "Need REQ-REAL-UNSAFE-NEW without losing REQ-REAL-UNSAFE-KEEP.",
+      requirementRefs: ["REQ-REAL-UNSAFE-NEW"],
+      planVersion: 1,
+    });
+
+    const unsafeProposal = {
+      type: "scaler_replan_proposal",
+      plan: {
+        version: 1,
+        planVersion: 2,
+        status: "draft",
+        title: "Unsafe real Pi proposal",
+        source: "real-pi-cardinal-unsafe-flow",
+        tasks: [{
+          id: "T-REAL-UNSAFE-NEW",
+          title: "Only new unsafe-parity work",
+          prdRefs: ["REQ-REAL-UNSAFE-NEW"],
+          allowedPathPrefixes: ["real-unsafe-new.js"],
+        }],
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    };
+    const instruction = `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: ${JSON.stringify(unsafeProposal)}.`;
+    const replan = await runReplanAgentStep(dir, await loadState(dir), {
+      execute: true,
+      timeoutMs: REAL_PI_TIMEOUT_MS,
+      model: REAL_PI_MODEL,
+      extraInstructions: instruction,
+    }, realCardinalRunner(instruction));
+
+    assert.equal(replan.accepted, true);
+    assert.equal(replan.ingestion?.ingested, true, replan.ingestion?.reason);
+    assert.equal(replan.ingestion?.preservation?.ok, false);
+    assert.equal((await loadProposedExecutionPlan(dir))?.tasks.some((task) => task.id === "T-REAL-UNSAFE-KEEP"), false);
+
+    const accepted = await acceptReplanProposal(dir, await loadState(dir), await loadPrdRequirements(dir), {
+      now: new Date("2026-01-01T00:00:03.000Z"),
+    });
+    assert.equal(accepted.accepted, false);
+    assert.equal((await loadExecutionPlan(dir)).planVersion, 1);
+    assert.equal((await loadReplanDecisions(dir))[0]?.status, "rejected");
+    assert.equal((await loadState(dir)).tasks.some((task) => task.id === "T-REAL-UNSAFE-NEW"), false);
+  });
+});
+
 test("real flow parity: replan proposal from real Pi is accepted into current plan", { skip: !REAL_PI_ENABLED }, async () => {
   await withRealPiTempRepo(async (dir) => {
     await upsertPrdRequirement(dir, {
