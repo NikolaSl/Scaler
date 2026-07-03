@@ -7,7 +7,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 ## Current implemented behavior
 
 - Pi extension entrypoint: `src/index.ts`.
-- Commands: `/scaler`, `/scaler-lock`, `/scaler-lock-clear`, `/scaler-runs`, `/scaler-tasks`, `/scaler-context-init`, `/scaler-context-status`, `/scaler-stage-status`, `/scaler-stage-validate`, `/scaler-stage-advance`, `/scaler-stage-step`, `/scaler-stage-loop`, `/scaler-stage-run`, `/scaler-stage-runs`, `/scaler-stage-record`, `/scaler-task-create`, `/scaler-task-update`, `/scaler-prd-status`, `/scaler-plan-status`, `/scaler-plan-apply`, `/scaler-replans`, `/scaler-replan-run`, `/scaler-replan-runs`, `/scaler-replan-proposal-status`, `/scaler-replan-accept`, `/scaler-replan-request`, `/scaler-prd-link`, `/scaler-task-retry`, `/scaler-step`, `/scaler-validation-add`, `/scaler-validate`, `/scaler-commit`, `/scaler-pause`, `/scaler-resume`, `/scaler-status`.
+- Commands: `/scaler`, `/scaler-lock`, `/scaler-lock-clear`, `/scaler-runs`, `/scaler-tasks`, `/scaler-context-init`, `/scaler-context-status`, `/scaler-stage-status`, `/scaler-stage-validate`, `/scaler-stage-advance`, `/scaler-stage-step`, `/scaler-stage-loop`, `/scaler-stage-run`, `/scaler-stage-runs`, `/scaler-stage-record`, `/scaler-task-create`, `/scaler-task-update`, `/scaler-prd-status`, `/scaler-plan-status`, `/scaler-plan-apply`, `/scaler-replans`, `/scaler-replan-run`, `/scaler-replan-runs`, `/scaler-research-status`, `/scaler-research-request`, `/scaler-research-report`, `/scaler-replan-proposal-status`, `/scaler-replan-accept`, `/scaler-replan-request`, `/scaler-prd-link`, `/scaler-task-retry`, `/scaler-step`, `/scaler-validation-add`, `/scaler-validate`, `/scaler-commit`, `/scaler-pause`, `/scaler-resume`, `/scaler-status`.
 - State file: `.scaler/state.json`.
 - Basic deterministic supervisor transition helpers.
 - Event log: `.scaler/logs/events.jsonl`.
@@ -15,6 +15,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - Experimental task-agent subprocess invocation builder.
 - Structured Scaler tool skeletons registered with Pi.
 - External memory write/retrieve under `.scaler/memory/`.
+- Research request/report ledgers under `.scaler/research/` with source quality, confidence, contradictions, and raw evidence storage in memory.
 - Task context manifests under `.scaler/context/tasks/` with file, memory, state, task, PRD ref, validation-manifest resolution, and relevance discovery from changed files, plans, PRD coverage, validation history, and memory matches.
 - Minimal adaptive `/scaler` entrypoint.
 - Budget usage helper skeleton for tools, spawned agents, debug attempts, and checkpoints.
@@ -36,6 +37,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - `manual/workflow.md`
 - `manual/runtime-prd.md`
 - `manual/execution-plans.md`
+- `manual/research.md`
 - `manual/stages.md`
 - `manual/sequential-execution.md`
 - `manual/commands.md`

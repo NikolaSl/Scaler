@@ -5,7 +5,7 @@ SCALER tracks Stage I-IV workflow outputs in `.scaler/stages/stage-artifacts.jso
 Implemented artifact stages:
 
 - `prd` — Stage I polished PRD output.
-- `knowledge` — Stage II knowledge/research output.
+- `knowledge` — Stage II knowledge/research output; supporting requests and reports live under `.scaler/research/`.
 - `planning` — Stage III plan output.
 - `execution` — Stage IV execution output/progress reference.
 - `replanning` — replacement-plan/replanning output.

@@ -17,3 +17,5 @@ Implemented tools:
 - `scaler_memory_retrieve` retrieves memory content by id/path and logs the retrieval.
 
 Memory should hold details useful later while active context keeps only concise references.
+
+Research reports can store raw evidence and long source excerpts in memory automatically; research reports keep only concise memory ids under `.scaler/research/reports.json`.

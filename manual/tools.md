@@ -5,6 +5,7 @@ Scaler currently registers structured tool skeletons:
 - `scaler_report`
 - `scaler_memory_write`
 - `scaler_memory_retrieve`
+- `scaler_research_report`
 - `scaler_spawn_task`
 - `scaler_tool_request`
 - `scaler_task_create`
@@ -22,6 +23,7 @@ Current behavior:
 - `scaler_validation_report` applies validation-driven task transitions
 - `scaler_memory_write` writes `.scaler/memory/` files and index entries
 - `scaler_memory_retrieve` retrieves memory by id/path
+- `scaler_research_report` records structured research findings with source quality, confidence, contradictions, and optional raw evidence stored in memory
 - `scaler_spawn_task` prepares a Pi subprocess invocation, or executes it when `execute: true`; executed spawns are refused while the repo-wide execution lock is held
 - `scaler_tool_request` persists isolated tool-agent requests under `.scaler/tool-requests/` and prepares invocations with only explicitly allowed tools
 - `scaler_task_create` creates supervisor task records, stores optional allowed paths/dependencies/runtime PRD refs, and rejects duplicate ids

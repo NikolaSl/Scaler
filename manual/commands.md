@@ -166,6 +166,18 @@ Prepares or executes the focused replanner agent. With `execute`, SCALER ingests
 
 Lists replanner-agent run records from `.scaler/reports/replan-agent-runs.json`.
 
+## `/scaler-research-status`
+
+Shows research request/report counts and recent open requests/reports from `.scaler/research/`.
+
+## `/scaler-research-request <question> | <reason> | <taskId> | <PRD refs> | <scope>`
+
+Creates a research request. `scope` is `local`, `internet`, or `mixed`.
+
+## `/scaler-research-report <question> | <conclusion> | <confidence> | <sourceId> | <sourceTitle> | <sourceQuality> | <sourceRef> | <requestId> | <taskId> | <PRD refs>`
+
+Records a compact research report with one source and one conclusion. Use `scaler_research_report` for richer reports with contradictions and raw evidence.
+
 ## `/scaler-replan-proposal-status`
 
 Shows preservation status for `.scaler/plans/proposed-plan.json` against the current plan, runtime PRD, and supervisor state.

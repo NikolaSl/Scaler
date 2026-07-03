@@ -12,7 +12,7 @@ Priority scale:
 
 | Gap ID | Related requirements | Gap | Suggested next implementation slice |
 |---|---|---|---|
-| GAP-004 | PRD-S06, PRD-S07, PRD-W03 | Research agents and evidence handling are missing. | Add research request/report schema, source quality/confidence fields, contradiction handling, and raw-evidence storage in memory. |
+| GAP-004 | PRD-S06, PRD-W03 | Research-agent automation is missing. Evidence ledgers, quality/confidence/contradiction handling, and raw-evidence memory storage exist. | Add focused research-agent prompt/run records and structured `scaler_research_report` ingestion from child output; later add internet/browser/MCP research execution. |
 | GAP-005 | PRD-S16, PRD-S02 | Audit logging is incomplete for prompts/tool calls/full reports. | Extend logging to cover command starts/ends, agent prompts, tool requests/results, transitions, validation summaries, and commit ids. |
 
 ## P1 gaps
