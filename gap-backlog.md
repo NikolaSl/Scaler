@@ -10,9 +10,7 @@ Priority scale:
 
 ## P0 gaps
 
-| Gap ID | Related requirements | Gap | Suggested next implementation slice |
-|---|---|---|---|
-| GAP-005 | PRD-S16, PRD-S02 | Audit logging is incomplete for prompts/tool calls/full reports. | Extend logging to cover command starts/ends, agent prompts, tool requests/results, transitions, validation summaries, and commit ids. |
+No open P0 gaps.
 
 ## P1 gaps
 
@@ -37,6 +35,7 @@ Priority scale:
 | GAP-016 | PRD-S28 | Commit workflow lacks post-commit artifact/report. | Record commit id, task id, included paths, and validation summary in `.scaler/reports/commits.json`. |
 | GAP-017 | PRD-S12, PRD-S13 | Memory retrieval is exact-id only. | Add tag/search filtering and summary references for task prompts. |
 | GAP-018 | PRD-W04, PRD-S25, PRD-S31 | Execution plan artifacts can link tasks to PRD refs and create task records, but no planner agent writes/verifies full PRD coverage automatically. | Make future planner output create/update runtime PRD requirements, current execution plan tasks, task `prdRefs`, and coverage checks before execution. |
+| GAP-020 | PRD-S02, PRD-S14, PRD-W05 | Full structured-report schemas exist for stage/replan/research/supervisor reports, but task-agent lifecycle still does not require a structured task completion report before validation. | Add task-agent `scaler_task_report` ingestion and require successful executed task agents to emit it before validation handoff. |
 
 ## Closure rule
 

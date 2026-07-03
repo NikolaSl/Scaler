@@ -1,5 +1,7 @@
 # Commands
 
+All registered SCALER commands write command audit events to `.scaler/logs/events.jsonl` with full command detail records under `.scaler/logs/details/`.
+
 ## `/scaler <request>`
 
 Starts a minimal adaptive Scaler run.

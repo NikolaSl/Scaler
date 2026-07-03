@@ -10,7 +10,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - Commands: `/scaler`, `/scaler-lock`, `/scaler-lock-clear`, `/scaler-runs`, `/scaler-tasks`, `/scaler-context-init`, `/scaler-context-status`, `/scaler-stage-status`, `/scaler-stage-validate`, `/scaler-stage-advance`, `/scaler-stage-step`, `/scaler-stage-loop`, `/scaler-stage-run`, `/scaler-stage-runs`, `/scaler-stage-record`, `/scaler-task-create`, `/scaler-task-update`, `/scaler-prd-status`, `/scaler-plan-status`, `/scaler-plan-apply`, `/scaler-replans`, `/scaler-replan-run`, `/scaler-replan-runs`, `/scaler-research-run`, `/scaler-research-runs`, `/scaler-research-status`, `/scaler-research-request`, `/scaler-research-report`, `/scaler-replan-proposal-status`, `/scaler-replan-accept`, `/scaler-replan-request`, `/scaler-prd-link`, `/scaler-task-retry`, `/scaler-step`, `/scaler-validation-add`, `/scaler-validate`, `/scaler-commit`, `/scaler-pause`, `/scaler-resume`, `/scaler-status`.
 - State file: `.scaler/state.json`.
 - Basic deterministic supervisor transition helpers.
-- Event log: `.scaler/logs/events.jsonl`.
+- Audit log: `.scaler/logs/events.jsonl` with detail payload files under `.scaler/logs/details/` for commands, prompts, tools, reports, validation summaries, and commits.
 - Deterministic safety gate for protected paths, destructive shell commands, protected-path shell access, and current-task allowed paths.
 - Experimental task-agent subprocess invocation builder.
 - Structured Scaler tool skeletons registered with Pi.

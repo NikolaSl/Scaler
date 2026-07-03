@@ -9,6 +9,7 @@ Current behavior:
 - Allowed task paths can be supplied to distinguish task changes from unrelated user changes.
 - Validated task changes can be committed with message format `TASK-ID: short title`.
 - `.scaler/` runtime data is not staged by the commit helper.
+- Commit attempts and accepted commit hashes are audit-logged under `.scaler/logs/`.
 - Commits are refused when unrelated changes are detected, when the task is not validated, or when the directory is not a git repository.
 
-A user-facing command for task commits has not been added yet.
+Use `/scaler-commit` to commit a validated task.

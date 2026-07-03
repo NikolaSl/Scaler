@@ -18,6 +18,7 @@ Scaler currently registers structured tool skeletons:
 
 Current behavior:
 
+- SCALER tool calls and results write audit events to `.scaler/logs/events.jsonl`; larger payloads are stored under `.scaler/logs/details/`.
 - `scaler_report` can request supervisor stage/task transitions and persists accepted/rejected state
 - `scaler_debug_attempt` persists failures/attempts under `.scaler/debug/`, rejects repeated failed attempts without new evidence, and logs debug decisions
 - `scaler_validation_report` applies validation-driven task transitions
