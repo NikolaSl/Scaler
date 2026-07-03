@@ -2,12 +2,12 @@
 
 This manual documents implemented Scaler behavior.
 
-Design requirements live in `assignement.md` and `specs/`. This manual stays aligned with code that actually exists.
+Design requirements live in `assignement.md` and `specs/`. Compliance reviews must read those source requirements alongside `requirements-catalog.md`, `traceability-matrix.md`, and this manual; the matrix is a tracking view, not the only source of truth. This manual stays aligned with code that actually exists.
 
 ## Current implemented behavior
 
 - Pi extension entrypoint: `src/index.ts`.
-- Commands: `/scaler`, `/scaler-lock`, `/scaler-lock-clear`, `/scaler-runs`, `/scaler-tasks`, `/scaler-context-init`, `/scaler-context-status`, `/scaler-stage-status`, `/scaler-stage-validate`, `/scaler-stage-advance`, `/scaler-stage-step`, `/scaler-stage-loop`, `/scaler-stage-run`, `/scaler-stage-runs`, `/scaler-stage-record`, `/scaler-task-create`, `/scaler-task-update`, `/scaler-prd-status`, `/scaler-plan-status`, `/scaler-plan-apply`, `/scaler-replans`, `/scaler-replan-run`, `/scaler-replan-runs`, `/scaler-research-run`, `/scaler-research-runs`, `/scaler-research-status`, `/scaler-research-request`, `/scaler-research-report`, `/scaler-replan-proposal-status`, `/scaler-replan-accept`, `/scaler-replan-request`, `/scaler-prd-link`, `/scaler-task-retry`, `/scaler-step`, `/scaler-validation-add`, `/scaler-validate`, `/scaler-commit`, `/scaler-pause`, `/scaler-resume`, `/scaler-status`.
+- Commands: `/scaler`, `/scaler-lock`, `/scaler-lock-clear`, `/scaler-runs`, `/scaler-tasks`, `/scaler-context-init`, `/scaler-context-status`, `/scaler-stage-status`, `/scaler-stage-validate`, `/scaler-stage-advance`, `/scaler-stage-step`, `/scaler-stage-loop`, `/scaler-stage-run`, `/scaler-stage-runs`, `/scaler-stage-record`, `/scaler-task-create`, `/scaler-task-update`, `/scaler-prd-status`, `/scaler-plan-status`, `/scaler-plan-apply`, `/scaler-replans`, `/scaler-replan-run`, `/scaler-replan-runs`, `/scaler-debug-run`, `/scaler-debug-runs`, `/scaler-debug-reports`, `/scaler-research-run`, `/scaler-research-runs`, `/scaler-research-status`, `/scaler-research-request`, `/scaler-research-report`, `/scaler-replan-proposal-status`, `/scaler-replan-accept`, `/scaler-replan-request`, `/scaler-prd-link`, `/scaler-task-retry`, `/scaler-step`, `/scaler-validation-add`, `/scaler-validate`, `/scaler-commit`, `/scaler-pause`, `/scaler-resume`, `/scaler-status`.
 - State file: `.scaler/state.json`.
 - Basic deterministic supervisor transition helpers.
 - Audit log: `.scaler/logs/events.jsonl` with detail payload files under `.scaler/logs/details/` for commands, prompts, tools, reports, validation summaries, and commits.
@@ -21,6 +21,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - Budget usage helpers and hard-limit gates for tools, spawned agents, debug attempts, context-token estimates, validation loops, storage scans, research reports, wall-clock time, and checkpoints.
 - Checkpoint writing under `.scaler/checkpoints/` for pause/resume and conductor steps.
 - Minimal one-step conductor execution with validation handoff artifacts and a debug retry gate for unresolved repeated failed fingerprints.
+- Debug failure/attempt/report ledgers, longer hidden fingerprint-cycle detection, and a focused debug-agent workflow that emits structured `scaler_debug_report` events; reports can create research requests or debug-blocked replan requests.
 - Deterministic validation manifests and command-run records.
 - Git status safety and validated-task commit helpers.
 - Implemented create/list/step/validate/commit workflow.
@@ -37,6 +38,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - `manual/workflow.md`
 - `manual/runtime-prd.md`
 - `manual/execution-plans.md`
+- `manual/debugging.md`
 - `manual/research.md`
 - `manual/stages.md`
 - `manual/sequential-execution.md`
@@ -67,7 +69,7 @@ Traceability artifacts:
 - `traceability-matrix.md` maps PRD IDs to coverage status and next actions.
 - `gap-backlog.md` tracks uncovered or partial requirements.
 
-Future implementation plans/tasks must update these artifacts when requirement coverage changes.
+Future implementation plans/tasks must update these artifacts when requirement coverage changes. Coverage review must consult `assignement.md` and relevant `specs/*.md` source requirements as well as the PRD catalog/matrix.
 
 ## `/scaler-status`
 

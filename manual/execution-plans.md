@@ -70,10 +70,11 @@ SCALER records replan requests when:
 
 - a validation report has status `blocked`
 - a debug attempt reports `blocked`
-- a debug attempt detects a failure-fingerprint cycle
+- a debug attempt detects a failure-fingerprint cycle, including longer hidden chains
+- a debug-agent report has status `needs_replan` or `blocked`
 - an operator uses `/scaler-replan-request`
 
-Blocked validation keeps the task in `blocked` and attempts a stage transition to `replanning`. Debug cycles or blocked debug attempts mark a `debugging` task as `needs_replan` before entering `replanning`. The task conductor also refuses retries for unresolved repeated failed fingerprints until later `newEvidence` is recorded or the related debug replan request is accepted/resolved.
+Blocked validation keeps the task in `blocked` and attempts a stage transition to `replanning`. Debug cycles or blocked debug attempts mark a `debugging` task as `needs_replan` before entering `replanning`. Debug-agent reports can create debug-blocked replan requests after realistic debug/research approaches are exhausted. The task conductor also refuses retries for unresolved repeated failed fingerprints until later `newEvidence` is recorded or the related debug replan request is accepted/resolved.
 
 Execution plan replacement preservation checks are available in code. They report dropped validated task ids, dropped validated requirement refs, runtime requirements unlinked by the next plan, and next-plan tasks without PRD refs.
 

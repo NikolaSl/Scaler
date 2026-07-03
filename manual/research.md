@@ -37,7 +37,7 @@ Contradictions are recorded as `resolved` or `unresolved`. Resolved contradictio
 
 `scope` is `local`, `internet`, or `mixed`.
 
-`/scaler-research-run` prepares the focused research-agent prompt for a selected request or the oldest open request. Passing `execute` runs the subprocess under the repo-wide execution lock and ingests only a valid structured `scaler_research_report` JSON event. Runs are recorded under `.scaler/reports/research-agent-runs.json`.
+`/scaler-research-run` prepares the focused research-agent prompt for a selected request or the oldest open request. Requests may be created manually or by accepted debug reports with status `needs_research`. Passing `execute` runs the subprocess under the repo-wide execution lock and ingests only a valid structured `scaler_research_report` JSON event. Runs are recorded under `.scaler/reports/research-agent-runs.json`.
 
 `/scaler-research-runs` lists recent research-agent run records, optionally filtered by request id.
 

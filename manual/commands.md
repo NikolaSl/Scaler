@@ -168,6 +168,24 @@ Prepares or executes the focused replanner agent. With `execute`, SCALER ingests
 
 Lists replanner-agent run records from `.scaler/reports/replan-agent-runs.json`.
 
+## `/scaler-debug-run [taskId] [execute]`
+
+Prepares or executes the focused debug agent for a selected debugging task. With `execute`, SCALER ingests a valid `scaler_debug_report` JSON event and stores it under `.scaler/debug/reports.json`.
+
+Debug report statuses:
+
+- `next_approach` records an evidence-backed untried approach.
+- `needs_research` creates research requests.
+- `needs_replan` and `blocked` create debug-blocked replan requests.
+
+## `/scaler-debug-runs [taskId]`
+
+Lists debug-agent run records from `.scaler/reports/debug-agent-runs.json`.
+
+## `/scaler-debug-reports`
+
+Lists debug reports from `.scaler/debug/reports.json`.
+
 ## `/scaler-research-run [requestId] [execute]`
 
 Prepares or executes the focused research agent for a selected request or the oldest open request. With `execute`, SCALER ingests a valid `scaler_research_report` JSON event and stores the report under `.scaler/research/reports.json`.

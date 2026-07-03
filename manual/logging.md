@@ -20,8 +20,8 @@ Implemented audit coverage includes:
 
 - command lifecycle: `start`, `end`, and `error` events for registered SCALER commands.
 - tool calls: observed Pi `tool_call` events plus SCALER tool result records with detail refs.
-- agent prompts: task, stage, replanner, and research-agent prompts are persisted to detail files.
-- structured reports: supervisor reports, stage artifacts, replan proposals, and research reports are logged with detail refs when ingested or rejected.
+- agent prompts: task, stage, replanner, research-agent, and debug-agent prompts are persisted to detail files.
+- structured reports: supervisor reports, stage artifacts, replan proposals, research reports, and debug reports are logged with detail refs when ingested or rejected.
 - transitions: report-driven accepted/rejected transitions are logged as `transition` or `rejected_transition` events.
 - validation: validation runs record command summaries and append validation audit detail files.
 - git commits: commit attempts and accepted commit ids are logged with detail refs and commit hashes in `outputRefs`.

@@ -40,6 +40,7 @@ Maintenance artifact for `traceability-matrix.md`. Update when implementation pl
 | IMPL-128..130 | Compression and exact-preservation workflow | Compression policy helpers, context exactness metadata, task-agent prompt guidance, exact/reference classifications, externalize and split recommendations | `src/compression.ts`, `src/context.ts`, `src/conductor.ts` | `test/compression.test.ts`, `test/context.test.ts`, `test/conductor.test.ts` | `manual/context.md`, `manual/task-agents.md`, `manual/index.md` |
 | IMPL-131..133 | Budget watchdog enforcement slice | Expanded budget counters, multi-update helper, `.scaler/` storage scan, conductor context/spawn budget gates, validation-loop gate, research/storage budget accounting | `src/budgets.ts`, `src/conductor.ts`, `src/operations.ts`, `src/tools.ts` | `test/budgets.test.ts`, `test/conductor.test.ts`, `test/operations.test.ts`, `test/tools.test.ts` | `manual/budgets.md`, `manual/index.md` |
 | IMPL-134..136 | Debug retry conductor gate | Repeated-fingerprint/cycle/block retry gate, clearing by new evidence or accepted/resolved replan, conductor pre-lock refusal | `src/debug.ts`, `src/conductor.ts` | `test/debug.test.ts`, `test/conductor.test.ts` | `manual/tools.md`, `manual/task-agents.md`, `manual/workflow.md`, `manual/execution-plans.md` |
+| IMPL-138..140 | Debug-agent escalation workflow | Debug report ledger, longer hidden fingerprint-cycle analysis, focused debug-agent prompts/runs, structured `scaler_debug_report` ingestion, research-request escalation, and debug-blocked replan escalation | `src/debug.ts`, `src/debug-agent.ts`, `src/index.ts`, `src/commands.ts`, `src/paths.ts` | `test/debug.test.ts`, `test/debug-agent.test.ts`, `test/commands.test.ts`, `test/extension-shape.test.ts` | `manual/debugging.md`, `manual/task-agents.md`, `manual/workflow.md`, `manual/commands.md`, `manual/execution-plans.md`, `manual/index.md` |
 
 ## Current high-value code areas
 
@@ -67,6 +68,7 @@ Maintenance artifact for `traceability-matrix.md`. Update when implementation pl
 | Stage conductor | `src/stage-conductor.ts` | One-step and bounded multi-step active-stage workflows that advance ready artifacts or run matching stage agents with ingestion and advancement. |
 | Stage advancement | `src/stage-advancement.ts`, `src/stages.ts`, `src/stage-consistency.ts` | Ready-artifact, semantic, and consistency validation plus deterministic stage advancement through supervisor transitions. |
 | Replanning triggers | `src/replanning.ts`, `src/validation.ts`, `src/debug.ts` | Manual and evidence-driven creation of replan requests with supervisor replanning transitions plus debug retry gate clearance from accepted/resolved replans or new evidence. |
+| Debug agent | `src/debug.ts`, `src/debug-agent.ts` | Failure/attempt/report ledgers, duplicate and direct/hidden-cycle detection, focused debug-agent prompt/run records, structured report ingestion, research escalation, and debug-blocked replan escalation. |
 | Tool isolation | `src/tool-requests.ts`, `src/tools.ts` | Structured tools and isolated tool requests. |
 
 ## Maintenance rule
@@ -76,3 +78,5 @@ When a future implementation task changes requirement coverage, update:
 1. `implementation-inventory.md`
 2. `traceability-matrix.md`
 3. `gap-backlog.md` when the change closes, adds, or reprioritizes a gap
+
+Coverage/compliance review must consult `assignement.md` and all relevant `specs/*.md` source requirements in addition to `requirements-catalog.md`, `traceability-matrix.md`, and manuals.

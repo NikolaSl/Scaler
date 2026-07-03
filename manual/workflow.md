@@ -69,7 +69,7 @@ If no task manifest exists, validation falls back to supported `package.json` sc
 
 Without `execute`, SCALER prepares the isolated task-agent invocation and writes a checkpoint. With `execute`, it runs the task-agent subprocess and records the run under `.scaler/reports/task-agent-runs.json`. A successful task-agent run moves the task to `validating`; a failed run moves it to `failed` when that transition is valid.
 
-The conductor refuses a selected task before locking when the debug retry gate finds unresolved repeated failed fingerprints, blocked debug attempts, or debug cycles. Record `newEvidence` through `scaler_debug_attempt` or accept/resolve the related debug replan request before retrying.
+The conductor refuses a selected task before locking when the debug retry gate finds unresolved repeated failed fingerprints, blocked debug attempts, or debug cycles, including longer hidden cycles such as A→B→C→A. Record `newEvidence` through `scaler_debug_attempt`, run `/scaler-debug-run [taskId] execute` to obtain a structured next approach/research/replan decision, or accept/resolve the related debug replan request before retrying.
 
 Inspect execution records with:
 
@@ -86,6 +86,17 @@ Inspect execution records with:
 ```
 
 Validation runs the task manifest commands and records results under `.scaler/reports/`. Passing validation moves a validating/debugging task to `validated`; failing validation moves a validating task to `debugging`.
+
+When debugging stalls, use:
+
+```text
+/scaler-debug-run T-001
+/scaler-debug-run T-001 execute
+/scaler-debug-reports
+/scaler-debug-runs T-001
+```
+
+A debug report with `needs_research` creates research requests for `/scaler-research-run`; a report with `needs_replan` or `blocked` creates a replan request for the replanner workflow. This step is currently operator/command driven rather than an automatic debug conductor loop.
 
 ## 6. Commit validated work
 

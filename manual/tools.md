@@ -20,7 +20,7 @@ Current behavior:
 
 - SCALER tool calls and results write audit events to `.scaler/logs/events.jsonl`; larger payloads are stored under `.scaler/logs/details/`.
 - `scaler_report` can request supervisor stage/task transitions and persists accepted/rejected state
-- `scaler_debug_attempt` persists failures/attempts under `.scaler/debug/`, rejects repeated failed attempts without new evidence, detects fingerprint cycles, requests replanning for blocked/cyclic debugging, and logs debug decisions
+- `scaler_debug_attempt` persists failures/attempts under `.scaler/debug/`, rejects repeated failed attempts without new evidence, detects direct and longer fingerprint cycles, requests replanning for blocked/cyclic debugging, and logs debug decisions
 - `scaler_validation_report` applies validation-driven task transitions
 - `scaler_memory_write` writes `.scaler/memory/` files and index entries
 - `scaler_memory_retrieve` retrieves memory by id/path
@@ -32,5 +32,7 @@ Current behavior:
 - `scaler_prd_write` writes `.scaler/prd/current.md` and optionally replaces the runtime PRD requirement catalog
 - `scaler_prd_requirement_update` upserts one runtime PRD requirement and optional explicit coverage status
 - `scaler_validation_manifest_write` persists task validation commands under `.scaler/reports/validation-manifests.json`
+
+Debug-agent subprocesses emit structured `scaler_debug_report` JSON events rather than using a registered tool; accepted reports are stored under `.scaler/debug/reports.json` and can create research or replan requests.
 
 Full supervisor and task execution integration will be added in later tasks.
