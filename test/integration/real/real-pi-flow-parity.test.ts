@@ -185,6 +185,136 @@ test("real flow parity: debug needs research, research resolves it, and debug pr
   });
 });
 
+test("real flow parity: debug blocked report creates replan request and safe acceptance clears retry gate", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    await upsertPrdRequirement(dir, {
+      id: "REQ-REAL-BLOCKED-KEEP",
+      title: "Blocked debug preserved requirement",
+      statement: "Debug-blocked work must remain in the execution plan.",
+      status: "validated",
+      taskIds: ["T-REAL-BLOCKED"],
+      evidenceRefs: ["validation-real-blocked-keep"],
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    await upsertPrdRequirement(dir, {
+      id: "REQ-REAL-BLOCKED-NEW",
+      title: "Blocked debug replacement requirement",
+      statement: "A blocked debug cycle needs a follow-up planned task.",
+      status: "pending",
+      now: new Date("2026-01-01T00:00:01.000Z"),
+    });
+
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "debugging";
+    state.currentTaskId = "T-REAL-BLOCKED";
+    state.tasks = [{
+      id: "T-REAL-BLOCKED",
+      status: "debugging",
+      title: "Real Pi debug blocked parity flow",
+      allowedPathPrefixes: ["index.js"],
+      prdRefs: ["REQ-REAL-BLOCKED-KEEP"],
+      updatedAt: state.createdAt,
+    }];
+    state.validatedTaskIds = ["T-REAL-BLOCKED"];
+    state.completedTaskIds = ["T-REAL-BLOCKED"];
+    await saveState(dir, state);
+    await saveExecutionPlan(dir, {
+      version: 1,
+      planVersion: 1,
+      status: "active",
+      title: "Real blocked debug current plan",
+      tasks: [{ id: "T-REAL-BLOCKED", title: "Real Pi debug blocked parity flow", prdRefs: ["REQ-REAL-BLOCKED-KEEP"], allowedPathPrefixes: ["index.js"] }],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    await recordDebugAttempt(dir, await loadState(dir), {
+      taskId: "T-REAL-BLOCKED",
+      failureId: "F-REAL-BLOCKED",
+      hypothesis: "Patch local branch A",
+      actionSummary: "Changed branch A",
+      result: "new_failure",
+      failureFingerprint: "real-blocked-a",
+      resultingFailureFingerprint: "real-blocked-b",
+      evidence: ["blocked-e1"],
+    }, new Date("2026-01-01T00:00:01.000Z"));
+    await recordDebugAttempt(dir, await loadState(dir), {
+      taskId: "T-REAL-BLOCKED",
+      failureId: "F-REAL-BLOCKED",
+      hypothesis: "Patch local branch B",
+      actionSummary: "Changed branch B",
+      result: "new_failure",
+      failureFingerprint: "real-blocked-b",
+      resultingFailureFingerprint: "real-blocked-a",
+      evidence: ["blocked-e2"],
+    }, new Date("2026-01-01T00:00:02.000Z"));
+
+    const blockedGate = await assessDebugRetryGate(dir, "T-REAL-BLOCKED");
+    assert.equal(blockedGate.allowed, false);
+    assert.ok((await loadReplanRequests(dir)).some((request) => request.trigger === "debug_cycle"));
+
+    const debugBlockedReport = {
+      type: "scaler_debug_report",
+      id: "RPT-REAL-DEBUG-BLOCKED",
+      taskId: "T-REAL-BLOCKED",
+      status: "needs_replan",
+      summary: "Local debug is exhausted and needs a replacement plan.",
+      failureId: "F-REAL-BLOCKED",
+      failureFingerprint: "real-blocked-a",
+      cycleSummary: "real-blocked-a -> real-blocked-b -> real-blocked-a",
+      attemptedApproaches: ["Changed branch A", "Changed branch B"],
+      investigationSummary: "No safe local-only fix remains.",
+      replanReason: "Add a follow-up task that preserves the blocked work and isolates the replacement path.",
+      evidenceRefs: ["blocked-e1", "blocked-e2"],
+    };
+    const debugInstruction = `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: ${JSON.stringify(debugBlockedReport)}.`;
+    const debug = await runDebugAgentStep(dir, await loadState(dir), {
+      taskId: "T-REAL-BLOCKED",
+      execute: true,
+      timeoutMs: REAL_PI_TIMEOUT_MS,
+      model: REAL_PI_MODEL,
+      extraInstructions: debugInstruction,
+    }, realCardinalRunner(debugInstruction));
+    assert.equal(debug.accepted, true);
+    assert.equal(debug.ingestion?.ingested, true, debug.ingestion?.reason);
+    assert.ok((await loadReplanRequests(dir)).some((request) => request.trigger === "debug_blocked"));
+
+    const safeProposal = {
+      type: "scaler_replan_proposal",
+      plan: {
+        version: 1,
+        planVersion: 2,
+        status: "draft",
+        title: "Real blocked debug safe replan",
+        source: "real-pi-cardinal-debug-blocked-flow",
+        tasks: [
+          { id: "T-REAL-BLOCKED", title: "Real Pi debug blocked parity flow", prdRefs: ["REQ-REAL-BLOCKED-KEEP"], allowedPathPrefixes: ["index.js"], validationRefs: ["validation-real-blocked-keep"] },
+          { id: "T-REAL-BLOCKED-NEW", title: "Isolate blocked debug replacement", prdRefs: ["REQ-REAL-BLOCKED-NEW"], allowedPathPrefixes: ["blocked-replacement.js"], dependsOn: ["T-REAL-BLOCKED"] },
+        ],
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    };
+    const replanInstruction = `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: ${JSON.stringify(safeProposal)}.`;
+    const replan = await runReplanAgentStep(dir, await loadState(dir), {
+      execute: true,
+      timeoutMs: REAL_PI_TIMEOUT_MS,
+      model: REAL_PI_MODEL,
+      extraInstructions: replanInstruction,
+    }, realCardinalRunner(replanInstruction));
+    assert.equal(replan.accepted, true);
+    assert.equal(replan.ingestion?.ingested, true, replan.ingestion?.reason);
+    assert.equal(replan.ingestion?.preservation?.ok, true, replan.ingestion?.reason);
+
+    const accepted = await acceptReplanProposal(dir, await loadState(dir), await loadPrdRequirements(dir), {
+      now: new Date("2026-01-01T00:00:03.000Z"),
+    });
+    assert.equal(accepted.accepted, true, accepted.message);
+    assert.equal((await loadReplanRequests(dir)).every((request) => request.status === "resolved"), true);
+    assert.equal((await assessDebugRetryGate(dir, "T-REAL-BLOCKED")).allowed, true);
+  });
+});
+
 test("real flow parity: stage conductor ingests real Pi artifacts and completes Stage I-IV", { skip: !REAL_PI_ENABLED }, async () => {
   await withRealPiTempRepo(async (dir) => {
     await mkdir(join(dir, "docs"), { recursive: true });
