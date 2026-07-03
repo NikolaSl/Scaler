@@ -1,31 +1,24 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { test } from "node:test";
-import { assessDebugRetryGate, loadDebugAttempts, loadDebugReports, recordDebugAttempt } from "../../src/debug.js";
-import { runDebugAgentStep } from "../../src/debug-agent.js";
-import { readLogEvents } from "../../src/logging.js";
-import { runValidationWithExecutionLock } from "../../src/operations.js";
-import { loadReplanRequests } from "../../src/plans.js";
-import { loadResearchReports, loadResearchRequests } from "../../src/research.js";
-import { runResearchAgentStep } from "../../src/research-agent.js";
-import { createDefaultState, loadState, saveState } from "../../src/state.js";
-import { runTaskAgent, type TaskAgentRequest, type TaskAgentRunResult } from "../../src/subagents.js";
-import { createTask } from "../../src/tasks.js";
-import { loadValidationRuns } from "../../src/validation.js";
-import { runConductorStep } from "../../src/conductor.js";
+import { assessDebugRetryGate, loadDebugAttempts, loadDebugReports, recordDebugAttempt } from "../../../src/debug.js";
+import { runDebugAgentStep } from "../../../src/debug-agent.js";
+import { readLogEvents } from "../../../src/logging.js";
+import { runValidationWithExecutionLock } from "../../../src/operations.js";
+import { loadReplanRequests } from "../../../src/plans.js";
+import { loadResearchReports, loadResearchRequests } from "../../../src/research.js";
+import { runResearchAgentStep } from "../../../src/research-agent.js";
+import { createDefaultState, loadState, saveState } from "../../../src/state.js";
+import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
+import { createTask } from "../../../src/tasks.js";
+import { loadValidationRuns } from "../../../src/validation.js";
+import { runConductorStep } from "../../../src/conductor.js";
 
 const execFileAsync = promisify(execFile);
-
-const REAL_PI_ENABLED = process.env.SCALER_REAL_PI_INTEGRATION === "1";
-const REAL_PI_MODEL = process.env.SCALER_REAL_PI_MODEL;
-const REAL_PI_COMMAND = process.env.SCALER_REAL_PI_COMMAND ?? "pi";
-const REAL_PI_TIMEOUT_MS = Number.parseInt(process.env.SCALER_REAL_PI_TIMEOUT_MS ?? "60000", 10);
-
-const CARDINAL_DEBUG_REPORT_INSTRUCTION = `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: {"type":"scaler_debug_report","taskId":"T-REAL","status":"next_approach","summary":"Real Pi integration deterministic report.","nextApproach":"No code change; this is an integration contract check.","evidenceRefs":["real-pi-cardinal-instruction"]}.`;
 
 async function withTempRepo<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-integration-test-"));
@@ -235,41 +228,5 @@ test("integration: child free-form output is not ingested as debug state", async
     assert.equal(result.ingestion?.ingested, false);
     assert.match(result.ingestion?.reason ?? "", /No scaler_debug_report/);
     assert.deepEqual(await loadDebugReports(dir), []);
-  });
-});
-
-test("optional real Pi integration obeys cardinal structured debug report instruction", { skip: !REAL_PI_ENABLED }, async () => {
-  await withTempRepo(async (dir) => {
-    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    state.stage = "debugging";
-    state.currentTaskId = "T-REAL";
-    state.tasks = [{ id: "T-REAL", status: "debugging", title: "Real Pi structured output contract", updatedAt: state.createdAt }];
-    await saveState(dir, state);
-
-    const realRunner = async (request: TaskAgentRequest): Promise<TaskAgentRunResult> => {
-      return await runTaskAgent({
-        ...request,
-        model: REAL_PI_MODEL ?? request.model,
-        prompt: `${CARDINAL_DEBUG_REPORT_INSTRUCTION}\n\n${request.prompt}`,
-      }, {
-        command: REAL_PI_COMMAND,
-        timeoutMs: REAL_PI_TIMEOUT_MS,
-      });
-    };
-
-    const result = await runDebugAgentStep(dir, state, {
-      taskId: "T-REAL",
-      execute: true,
-      timeoutMs: REAL_PI_TIMEOUT_MS,
-      model: REAL_PI_MODEL,
-      extraInstructions: CARDINAL_DEBUG_REPORT_INSTRUCTION,
-    }, realRunner);
-
-    assert.equal(result.accepted, true);
-    assert.equal(result.ingestion?.ingested, true, result.ingestion?.reason);
-    assert.equal(result.ingestion?.report?.status, "next_approach");
-    assert.equal(result.ingestion?.report?.taskId, "T-REAL");
-    assert.deepEqual(result.ingestion?.report?.evidenceRefs, ["real-pi-cardinal-instruction"]);
-    assert.equal((await loadDebugReports(dir)).length, 1);
   });
 });

@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { test } from "node:test";
-import { readLogEvents } from "../../src/logging.js";
-import { commitWithExecutionLock } from "../../src/operations.js";
+import { readLogEvents } from "../../../src/logging.js";
+import { commitWithExecutionLock } from "../../../src/operations.js";
 import {
   acceptReplanProposal,
   appendReplanRequest,
@@ -15,15 +15,15 @@ import {
   loadReplanDecisions,
   loadReplanRequests,
   saveExecutionPlan,
-} from "../../src/plans.js";
-import { loadPrdRequirements, upsertPrdRequirement } from "../../src/prd.js";
-import { loadReplanAgentRunRecords, runReplanAgentStep } from "../../src/replan-agent.js";
-import { createDefaultState, loadState, saveState } from "../../src/state.js";
-import { loadStageAgentRunRecords } from "../../src/stage-agents.js";
-import { runStageConductorLoop } from "../../src/stage-conductor.js";
-import { loadStageArtifacts } from "../../src/stages.js";
-import type { TaskAgentRequest, TaskAgentRunResult } from "../../src/subagents.js";
-import type { ScalerState } from "../../src/types.js";
+} from "../../../src/plans.js";
+import { loadPrdRequirements, upsertPrdRequirement } from "../../../src/prd.js";
+import { loadReplanAgentRunRecords, runReplanAgentStep } from "../../../src/replan-agent.js";
+import { createDefaultState, loadState, saveState } from "../../../src/state.js";
+import { loadStageAgentRunRecords } from "../../../src/stage-agents.js";
+import { runStageConductorLoop } from "../../../src/stage-conductor.js";
+import { loadStageArtifacts } from "../../../src/stages.js";
+import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
+import type { ScalerState } from "../../../src/types.js";
 
 const execFileAsync = promisify(execFile);
 

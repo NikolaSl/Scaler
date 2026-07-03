@@ -6,7 +6,11 @@
   "description": "SCALER Pi extension for supervised agentic orchestration.",
   "scripts": {
     "build": "tsc --noEmit",
-    "test": "node --test --import tsx test/*.test.ts test/integration/*.test.ts"
+    "test": "npm run test:unit && npm run test:integration:mock",
+    "test:unit": "node --test --import tsx test/*.test.ts",
+    "test:integration": "npm run test:integration:mock",
+    "test:integration:mock": "node --test --import tsx test/integration/mock/*.test.ts",
+    "test:integration:real": "node --test --import tsx test/integration/real/*.test.ts"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "^0.80.3",
