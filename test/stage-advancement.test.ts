@@ -31,6 +31,7 @@ test("advanceStageAfterReadyArtifact validates artifact and advances matching su
     status: "ready",
     title: "PRD",
     path: "agent-prd.md",
+    requirementRefs: ["PRD-S01"],
   }, new Date("2026-01-01T01:00:00.000Z"));
 
   const result = await advanceStageAfterReadyArtifact(cwd, state, "prd", new Date("2026-01-01T02:00:00.000Z"));
@@ -65,10 +66,33 @@ test("advanceStageAfterReadyArtifact refuses invalid artifact and stage mismatch
     status: "ready",
     title: "PRD",
     path: "agent-prd.md",
+    requirementRefs: ["PRD-S01"],
   }, new Date("2026-01-01T02:00:00.000Z"));
   const mismatch = await advanceStageAfterReadyArtifact(cwd, state, "prd");
   assert.equal(mismatch.accepted, false);
   assert.equal(mismatch.message, "Cannot advance prd artifact while supervisor stage is knowledge.");
+});
+
+test("advanceStageAfterReadyArtifact refuses semantically invalid artifacts", async () => {
+  const cwd = await tempDir();
+  await writeFile(join(cwd, "agent-prd.md"), "# PRD\n", "utf8");
+  const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+  state.stage = "prd";
+  await upsertStageArtifact(cwd, {
+    id: "ART-PRD",
+    stage: "prd",
+    status: "ready",
+    title: "PRD",
+    path: "agent-prd.md",
+  }, new Date("2026-01-01T01:00:00.000Z"));
+
+  const result = await advanceStageAfterReadyArtifact(cwd, state, "prd");
+
+  assert.equal(result.accepted, false);
+  assert.equal(result.advanced, false);
+  assert.equal(result.semanticValidation?.ok, false);
+  assert.match(result.message, /semantically invalid/);
+  assert.match(result.message, /requires requirement refs or a summary/);
 });
 
 test("advanceStageAfterReadyArtifact preserves supervisor completion guard", async () => {

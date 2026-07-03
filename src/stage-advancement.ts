@@ -1,10 +1,13 @@
 import { saveState } from "./state.js";
 import {
   formatStageArtifactReadiness,
+  formatStageArtifactSemantics,
   loadStageArtifacts,
   normalizeStageArtifactStage,
   validateStageArtifactReadiness,
+  validateStageArtifactSemantics,
   type StageArtifactReadinessValidation,
+  type StageArtifactSemanticValidation,
   type StageArtifactStage,
 } from "./stages.js";
 import { transitionStage } from "./supervisor.js";
@@ -18,6 +21,7 @@ export interface StageAdvancementResult {
   targetStage?: ScalerStage;
   state: ScalerState;
   validation?: StageArtifactReadinessValidation;
+  semanticValidation?: StageArtifactSemanticValidation;
 }
 
 export async function advanceStageAfterReadyArtifact(
@@ -43,6 +47,20 @@ export async function advanceStageAfterReadyArtifact(
     };
   }
 
+  const semanticValidation = validateStageArtifactSemantics(artifacts, stage);
+  if (!semanticValidation.ok) {
+    return {
+      accepted: false,
+      advanced: false,
+      message: formatStageArtifactSemantics(semanticValidation),
+      stage,
+      targetStage,
+      state,
+      validation,
+      semanticValidation,
+    };
+  }
+
   if (!targetStage) {
     return {
       accepted: false,
@@ -51,6 +69,7 @@ export async function advanceStageAfterReadyArtifact(
       stage,
       state,
       validation,
+      semanticValidation,
     };
   }
 
@@ -63,6 +82,7 @@ export async function advanceStageAfterReadyArtifact(
       targetStage,
       state,
       validation,
+      semanticValidation,
     };
   }
 
@@ -82,6 +102,7 @@ export async function advanceStageAfterReadyArtifact(
     targetStage,
     state: nextState,
     validation,
+    semanticValidation,
   };
 }
 

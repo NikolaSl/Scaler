@@ -22,6 +22,7 @@ test("runStageConductorStep advances an already ready active-stage artifact", as
     status: "ready",
     title: "PRD",
     path: "agent-prd.md",
+    requirementRefs: ["PRD-S01"],
   }, new Date("2026-01-01T01:00:00.000Z"));
 
   let called = false;
@@ -103,9 +104,9 @@ test("runStageConductorLoop chains pre-existing ready artifacts until completion
   await writeFile(join(cwd, "plan.md"), "# Plan\n", "utf8");
   const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
   state.stage = "prd";
-  await upsertStageArtifact(cwd, { id: "ART-PRD", stage: "prd", status: "ready", title: "PRD", path: "agent-prd.md" });
-  await upsertStageArtifact(cwd, { id: "ART-K", stage: "knowledge", status: "ready", title: "Knowledge", path: "knowledge.md" });
-  await upsertStageArtifact(cwd, { id: "ART-P", stage: "planning", status: "ready", title: "Plan", path: "plan.md" });
+  await upsertStageArtifact(cwd, { id: "ART-PRD", stage: "prd", status: "ready", title: "PRD", path: "agent-prd.md", requirementRefs: ["PRD-S01"] });
+  await upsertStageArtifact(cwd, { id: "ART-K", stage: "knowledge", status: "ready", title: "Knowledge", path: "knowledge.md", summary: "Knowledge summary." });
+  await upsertStageArtifact(cwd, { id: "ART-P", stage: "planning", status: "ready", title: "Plan", path: "plan.md", taskRefs: ["T-001"] });
   await upsertStageArtifact(cwd, { id: "ART-E", stage: "execution", status: "ready", title: "Execution", summary: "No tasks remain." });
 
   const result = await runStageConductorLoop(cwd, state, { maxSteps: 5 });
@@ -138,6 +139,8 @@ test("runStageConductorLoop executes child reports and carries advanced state fo
         title: `${stage} artifact`,
         path,
         summary: `${stage} ready`,
+        taskRefs: stage === "planning" || stage === "execution" ? ["T-001"] : undefined,
+        requirementRefs: stage === "prd" || stage === "planning" ? ["PRD-S01"] : undefined,
       }],
       stderr: "",
       timedOut: false,
@@ -176,9 +179,9 @@ test("runStageConductorLoop stops at max steps while preserving progress", async
   await writeFile(join(cwd, ".scaler", "plans", "current-plan.json"), "{}\n", "utf8");
   const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
   state.stage = "prd";
-  await upsertStageArtifact(cwd, { id: "ART-PRD", stage: "prd", status: "ready", title: "PRD", path: "agent-prd.md" });
-  await upsertStageArtifact(cwd, { id: "ART-K", stage: "knowledge", status: "ready", title: "Knowledge", path: "knowledge.md" });
-  await upsertStageArtifact(cwd, { id: "ART-P", stage: "planning", status: "ready", title: "Plan", path: ".scaler/plans/current-plan.json" });
+  await upsertStageArtifact(cwd, { id: "ART-PRD", stage: "prd", status: "ready", title: "PRD", path: "agent-prd.md", requirementRefs: ["PRD-S01"] });
+  await upsertStageArtifact(cwd, { id: "ART-K", stage: "knowledge", status: "ready", title: "Knowledge", path: "knowledge.md", summary: "Knowledge summary." });
+  await upsertStageArtifact(cwd, { id: "ART-P", stage: "planning", status: "ready", title: "Plan", path: ".scaler/plans/current-plan.json", taskRefs: ["T-001"] });
 
   const result = await runStageConductorLoop(cwd, state, { maxSteps: 2 });
 
