@@ -10,6 +10,25 @@ import type { ScalerState, ScalerTaskStatus } from "./types.js";
 
 export type ValidationStatus = "passed" | "failed" | "partial" | "blocked" | "not_applicable";
 
+export type ValidationGateKind =
+  | "dependency_check"
+  | "test_first"
+  | "build_compile"
+  | "unit_tests"
+  | "integration_tests"
+  | "static_checks"
+  | "security_checks"
+  | "local_ci"
+  | "acceptance_smoke"
+  | "regression"
+  | "completeness"
+  | "consistency"
+  | "compliance"
+  | "source_validation"
+  | "adversarial_review"
+  | "uncertainty_report"
+  | "custom";
+
 export interface ValidationReportInput {
   taskId: string;
   status: ValidationStatus | string;
@@ -30,6 +49,9 @@ export interface ValidationCommandManifest {
   description?: string;
   timeoutMs?: number;
   required: boolean;
+  gate?: ValidationGateKind | string;
+  expectedResult?: string;
+  evidenceRefs?: string[];
 }
 
 export interface TaskValidationManifest {
@@ -46,6 +68,9 @@ export interface ValidationManifestCommandInput {
   description?: string;
   timeoutMs?: number;
   required?: boolean;
+  gate?: ValidationGateKind | string;
+  expectedResult?: string;
+  evidenceRefs?: string[];
 }
 
 interface ValidationManifestIndex {
@@ -65,6 +90,11 @@ export interface ValidationCommandRunRecord {
   stderrSummary: string;
   startedAt: string;
   finishedAt: string;
+  required: boolean;
+  description?: string;
+  gate?: ValidationGateKind;
+  expectedResult?: string;
+  evidenceRefs?: string[];
 }
 
 export interface ValidationRunRecord {
@@ -82,8 +112,110 @@ interface ValidationRunIndex {
 
 const validationStatuses = new Set<ValidationStatus>(["passed", "failed", "partial", "blocked", "not_applicable"]);
 
+const validationGateKinds = new Set<ValidationGateKind>([
+  "dependency_check",
+  "test_first",
+  "build_compile",
+  "unit_tests",
+  "integration_tests",
+  "static_checks",
+  "security_checks",
+  "local_ci",
+  "acceptance_smoke",
+  "regression",
+  "completeness",
+  "consistency",
+  "compliance",
+  "source_validation",
+  "adversarial_review",
+  "uncertainty_report",
+  "custom",
+]);
+
+const validationGateAliases: Record<string, ValidationGateKind> = {
+  dependency: "dependency_check",
+  dependencies: "dependency_check",
+  deps: "dependency_check",
+  dependency_check: "dependency_check",
+  dependencycheck: "dependency_check",
+  test_first: "test_first",
+  testfirst: "test_first",
+  tests_first: "test_first",
+  build: "build_compile",
+  compile: "build_compile",
+  build_compile: "build_compile",
+  buildcompile: "build_compile",
+  unit: "unit_tests",
+  unit_test: "unit_tests",
+  unit_tests: "unit_tests",
+  unittests: "unit_tests",
+  test: "unit_tests",
+  tests: "unit_tests",
+  integration: "integration_tests",
+  integration_test: "integration_tests",
+  integration_tests: "integration_tests",
+  e2e: "integration_tests",
+  static: "static_checks",
+  lint: "static_checks",
+  typecheck: "static_checks",
+  type_check: "static_checks",
+  format_check: "static_checks",
+  formatcheck: "static_checks",
+  static_checks: "static_checks",
+  security: "security_checks",
+  audit: "security_checks",
+  security_checks: "security_checks",
+  cve: "security_checks",
+  ci: "local_ci",
+  local_ci: "local_ci",
+  localci: "local_ci",
+  docker: "local_ci",
+  compose: "local_ci",
+  smoke: "acceptance_smoke",
+  acceptance: "acceptance_smoke",
+  acceptance_smoke: "acceptance_smoke",
+  regression: "regression",
+  completeness: "completeness",
+  consistency: "consistency",
+  compliance: "compliance",
+  source: "source_validation",
+  sources: "source_validation",
+  source_validation: "source_validation",
+  adversarial: "adversarial_review",
+  adversarial_review: "adversarial_review",
+  uncertainty: "uncertainty_report",
+  uncertainty_report: "uncertainty_report",
+  custom: "custom",
+};
+
+const defaultScriptGateOrder = [
+  "test",
+  "test:unit",
+  "build",
+  "typecheck",
+  "lint",
+  "format:check",
+  "test:integration",
+  "integration",
+  "test:e2e",
+  "e2e",
+  "smoke",
+  "audit",
+] as const;
+
 export function isValidationStatus(value: unknown): value is ValidationStatus {
   return typeof value === "string" && validationStatuses.has(value as ValidationStatus);
+}
+
+export function isValidationGateKind(value: unknown): value is ValidationGateKind {
+  return typeof value === "string" && validationGateKinds.has(value as ValidationGateKind);
+}
+
+export function normalizeValidationGateKind(value: unknown): ValidationGateKind | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (!normalized) return undefined;
+  return validationGateAliases[normalized] ?? (isValidationGateKind(normalized) ? normalized : "custom");
 }
 
 export async function loadValidationManifests(cwd: string): Promise<TaskValidationManifest[]> {
@@ -107,6 +239,9 @@ export async function saveValidationManifest(cwd: string, manifest: TaskValidati
       ...command,
       id: command.id || `cmd-${index + 1}`,
       required: command.required,
+      gate: normalizeValidationGateKind(command.gate),
+      expectedResult: normalizeOptionalString(command.expectedResult),
+      evidenceRefs: normalizeStringList(command.evidenceRefs),
     })),
   };
   const next = [normalized, ...manifests.filter((candidate) => candidate.taskId !== manifest.taskId)];
@@ -126,6 +261,9 @@ export async function upsertValidationManifestCommand(
     description: input.description,
     timeoutMs: input.timeoutMs,
     required: input.required ?? true,
+    gate: normalizeValidationGateKind(input.gate),
+    expectedResult: normalizeOptionalString(input.expectedResult),
+    evidenceRefs: normalizeStringList(input.evidenceRefs),
   };
   return await saveValidationManifest(cwd, {
     ...base,
@@ -143,11 +281,9 @@ export async function createDefaultValidationManifest(cwd: string, taskId: strin
   const packageJsonPath = join(cwd, "package.json");
   try {
     const pkg = JSON.parse(await readFile(packageJsonPath, "utf8")) as { scripts?: Record<string, string> };
-    if (pkg.scripts?.test) {
-      commands.push({ id: "npm-test", command: "npm test", description: "Run package test script.", required: true });
-    }
-    if (pkg.scripts?.build) {
-      commands.push({ id: "npm-build", command: "npm run build", description: "Run package build script.", required: true });
+    for (const scriptName of defaultScriptGateOrder) {
+      if (!pkg.scripts?.[scriptName]) continue;
+      commands.push(createDefaultScriptValidationCommand(scriptName));
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -155,6 +291,28 @@ export async function createDefaultValidationManifest(cwd: string, taskId: strin
 
   const timestamp = new Date().toISOString();
   return { taskId, commands, createdAt: timestamp, updatedAt: timestamp };
+}
+
+export function createDefaultScriptValidationCommand(scriptName: string): ValidationCommandManifest {
+  return {
+    id: scriptName === "test" ? "npm-test" : `npm-run-${scriptName.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "")}`,
+    command: scriptName === "test" ? "npm test" : `npm run ${scriptName}`,
+    description: defaultScriptDescription(scriptName),
+    required: true,
+    gate: classifyDefaultScriptGate(scriptName),
+    expectedResult: "Command exits with code 0.",
+  };
+}
+
+export function classifyDefaultScriptGate(scriptName: string): ValidationGateKind {
+  const normalized = scriptName.trim().toLowerCase();
+  if (normalized === "build") return "build_compile";
+  if (normalized === "test" || normalized === "test:unit") return "unit_tests";
+  if (["lint", "typecheck", "format:check"].includes(normalized)) return "static_checks";
+  if (["test:integration", "integration", "test:e2e", "e2e"].includes(normalized)) return "integration_tests";
+  if (normalized === "smoke") return "acceptance_smoke";
+  if (normalized === "audit") return "security_checks";
+  return "custom";
 }
 
 export async function loadValidationRuns(cwd: string): Promise<ValidationRunRecord[]> {
@@ -174,7 +332,7 @@ export async function runTaskValidation(cwd: string, state: ScalerState, taskId:
     commandRuns.push(await runValidationCommand(cwd, command));
   }
 
-  const failedRequired = commandRuns.some((run, index) => manifest.commands[index]?.required && run.status !== "passed");
+  const failedRequired = commandRuns.some((run) => run.required && run.status !== "passed");
   const record: ValidationRunRecord = {
     id: `${taskId}-${Date.now()}`,
     taskId,
@@ -195,6 +353,7 @@ export async function runTaskValidation(cwd: string, state: ScalerState, taskId:
     status: record.status,
     commandCount: commandRuns.length,
     failedCommandIds: commandRuns.filter((run) => run.status !== "passed").map((run) => run.commandId),
+    gates: commandRuns.map((run) => ({ commandId: run.commandId, gate: run.gate, required: run.required, status: run.status })),
     details: record,
   });
   return record;
@@ -215,6 +374,11 @@ export async function runValidationCommand(cwd: string, command: ValidationComma
     stderrSummary: summarizeOutput(result.stderr),
     startedAt: startedAt.toISOString(),
     finishedAt: finishedAt.toISOString(),
+    required: command.required,
+    description: command.description,
+    gate: normalizeValidationGateKind(command.gate),
+    expectedResult: normalizeOptionalString(command.expectedResult),
+    evidenceRefs: normalizeStringList(command.evidenceRefs),
   };
 }
 
@@ -276,6 +440,35 @@ export async function applyValidationReport(
     message: accepted ? `Validation applied: ${report.taskId} -> ${targetStatus}` : `Validation transition rejected: ${report.taskId}`,
     targetStatus,
   };
+}
+
+function defaultScriptDescription(scriptName: string): string {
+  switch (classifyDefaultScriptGate(scriptName)) {
+    case "build_compile":
+      return "Run package build/compile script.";
+    case "unit_tests":
+      return "Run package unit test script.";
+    case "static_checks":
+      return "Run package static check script.";
+    case "integration_tests":
+      return "Run package integration test script.";
+    case "acceptance_smoke":
+      return "Run package smoke/acceptance script.";
+    case "security_checks":
+      return "Run package security/audit script.";
+    default:
+      return "Run package validation script.";
+  }
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeStringList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const list = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim());
+  return list.length > 0 ? Array.from(new Set(list)) : undefined;
 }
 
 function extractEvidenceRefs(details: unknown): string[] | undefined {

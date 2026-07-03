@@ -112,6 +112,7 @@ export interface ValidationSummaryAuditInput {
   status: string;
   commandCount?: number;
   failedCommandIds?: string[];
+  gates?: unknown;
   details?: unknown;
 }
 
@@ -203,6 +204,7 @@ export async function logValidationSummaryAudit(cwd: string, state: ScalerState,
       status: input.status,
       commandCount: input.commandCount,
       failedCommandIds: input.failedCommandIds,
+      gates: input.gates,
       detailsPath,
     },
     detailsPath,

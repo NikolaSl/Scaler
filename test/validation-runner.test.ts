@@ -21,11 +21,18 @@ test("runValidationCommand captures passing command", async () => {
       id: "ok",
       command: "node -e \"console.log('ok')\"",
       required: true,
+      gate: "unit_tests",
+      expectedResult: "prints ok",
+      evidenceRefs: ["manifest:ok"],
     });
 
     assert.equal(result.status, "passed");
     assert.equal(result.exitCode, 0);
     assert.equal(result.stdoutSummary, "ok");
+    assert.equal(result.required, true);
+    assert.equal(result.gate, "unit_tests");
+    assert.equal(result.expectedResult, "prints ok");
+    assert.deepEqual(result.evidenceRefs, ["manifest:ok"]);
   });
 });
 
@@ -36,7 +43,7 @@ test("runTaskValidation validates task when all required commands pass", async (
     await saveState(dir, state);
     await saveValidationManifest(dir, {
       taskId: "T-001",
-      commands: [{ id: "ok", command: "node -e \"process.exit(0)\"", required: true }],
+      commands: [{ id: "ok", command: "node -e \"process.exit(0)\"", required: true, gate: "build_compile", expectedResult: "build exits 0" }],
       createdAt: "",
       updatedAt: "",
     });
@@ -48,6 +55,8 @@ test("runTaskValidation validates task when all required commands pass", async (
     assert.equal(run.status, "passed");
     assert.equal(persisted.tasks[0]?.status, "validated");
     assert.equal(runs[0]?.taskId, "T-001");
+    assert.equal(runs[0]?.commandRuns[0]?.gate, "build_compile");
+    assert.equal(runs[0]?.commandRuns[0]?.expectedResult, "build exits 0");
   });
 });
 

@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
+  classifyDefaultScriptGate,
   createDefaultValidationManifest,
   getValidationManifestForTask,
   loadValidationManifests,
+  normalizeValidationGateKind,
   saveValidationManifest,
   upsertValidationManifestCommand,
 } from "../src/validation.js";
@@ -47,7 +49,15 @@ test("saveValidationManifest writes and replaces per-task manifest", async () =>
   });
 });
 
-test("upsertValidationManifestCommand appends and replaces commands", async () => {
+test("normalizeValidationGateKind maps common software and non-software aliases", () => {
+  assert.equal(normalizeValidationGateKind("unit"), "unit_tests");
+  assert.equal(normalizeValidationGateKind("build-compile"), "build_compile");
+  assert.equal(normalizeValidationGateKind("adversarial review"), "adversarial_review");
+  assert.equal(normalizeValidationGateKind("unknown-special-gate"), "custom");
+  assert.equal(normalizeValidationGateKind(" "), undefined);
+});
+
+test("upsertValidationManifestCommand appends and replaces commands with gate metadata", async () => {
   await withTempDir(async (dir) => {
     await upsertValidationManifestCommand(dir, {
       taskId: "T-001",
@@ -55,6 +65,9 @@ test("upsertValidationManifestCommand appends and replaces commands", async () =
       command: "npm test",
       description: "Run tests",
       required: true,
+      gate: "unit",
+      expectedResult: "Jest exits 0",
+      evidenceRefs: ["plan:test-first", "plan:test-first"],
     });
     await upsertValidationManifestCommand(dir, {
       taskId: "T-001",
@@ -68,17 +81,49 @@ test("upsertValidationManifestCommand appends and replaces commands", async () =
     assert.equal(manifests[0]?.commands.length, 1);
     assert.equal(manifests[0]?.commands[0]?.command, "npm test -- --runInBand");
     assert.equal(manifests[0]?.commands[0]?.required, false);
+    assert.equal(manifests[0]?.commands[0]?.gate, undefined);
   });
 });
 
-test("createDefaultValidationManifest uses package scripts", async () => {
+test("saveValidationManifest normalizes gate metadata", async () => {
   await withTempDir(async (dir) => {
-    await writeFile(join(dir, "package.json"), JSON.stringify({ scripts: { test: "node --test", build: "tsc" } }), "utf8");
+    await saveValidationManifest(dir, {
+      taskId: "T-001",
+      commands: [{
+        id: "review",
+        command: "node review.js",
+        required: true,
+        gate: "source validation",
+        expectedResult: "review evidence exists",
+        evidenceRefs: ["doc:one", "doc:one", "doc:two"],
+      }],
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    const command = (await loadValidationManifests(dir))[0]?.commands[0];
+    assert.equal(command?.gate, "source_validation");
+    assert.equal(command?.expectedResult, "review evidence exists");
+    assert.deepEqual(command?.evidenceRefs, ["doc:one", "doc:two"]);
+  });
+});
+
+test("createDefaultValidationManifest uses and classifies package scripts", async () => {
+  await withTempDir(async (dir) => {
+    await writeFile(join(dir, "package.json"), JSON.stringify({ scripts: { test: "node --test", build: "tsc", lint: "eslint .", "test:integration": "node integration.js", audit: "npm audit" } }), "utf8");
 
     const manifest = await createDefaultValidationManifest(dir, "T-001");
 
-    assert.deepEqual(manifest.commands.map((command) => command.command), ["npm test", "npm run build"]);
+    assert.deepEqual(manifest.commands.map((command) => command.command), ["npm test", "npm run build", "npm run lint", "npm run test:integration", "npm run audit"]);
+    assert.deepEqual(manifest.commands.map((command) => command.gate), ["unit_tests", "build_compile", "static_checks", "integration_tests", "security_checks"]);
+    assert.equal(manifest.commands.every((command) => command.expectedResult === "Command exits with code 0."), true);
   });
+});
+
+test("classifyDefaultScriptGate returns deterministic categories", () => {
+  assert.equal(classifyDefaultScriptGate("typecheck"), "static_checks");
+  assert.equal(classifyDefaultScriptGate("smoke"), "acceptance_smoke");
+  assert.equal(classifyDefaultScriptGate("custom-script"), "custom");
 });
 
 test("getValidationManifestForTask falls back to default project commands", async () => {
