@@ -1,7 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { startScalerRun } from "./adaptive.js";
-import { getBudgetState } from "./budgets.js";
+import { formatBudgetStatus, getBudgetState, isBudgetUsageKey, setBudgetLimits } from "./budgets.js";
 import {
+  parseBudgetSetArgs,
   parseCommitArgs,
   parseContextTaskArgs,
   parseDebugLoopArgs,
@@ -874,6 +875,52 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       } else {
         console.log(result.message);
       }
+    },
+  });
+
+  pi.registerCommand("scaler-budget-status", {
+    description: "Show SCALER budget usage, limits, and strongest decision.",
+    handler: async (_args, ctx) => {
+      const state = await ensureState(ctx.cwd);
+      const message = formatBudgetStatus(state);
+      await logStateEvent(ctx.cwd, state, "Scaler budget status requested", { command: "scaler-budget-status" });
+
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-budget-set", {
+    description: "Set a SCALER budget limit: /scaler-budget-set <key> | <soft> | <hard>; use - to clear a limit.",
+    handler: async (args, ctx) => {
+      const parsed = parseBudgetSetArgs(args);
+      if (!parsed || !isBudgetUsageKey(parsed.key)) {
+        const message = "Usage: /scaler-budget-set <key> | <soft> | <hard>. Example: /scaler-budget-set validationLoops | 2 | 3";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+      if (parsed.soft === undefined && parsed.hard === undefined) {
+        const message = "Budget set requires at least one numeric soft or hard limit.";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+
+      const state = await ensureState(ctx.cwd);
+      const nextState = setBudgetLimits(state, {
+        [parsed.key]: { soft: parsed.soft, hard: parsed.hard },
+      });
+      await saveState(ctx.cwd, nextState);
+      await logStateEvent(ctx.cwd, nextState, `Budget limit updated: ${parsed.key}`, {
+        command: "scaler-budget-set",
+        key: parsed.key,
+        soft: parsed.soft,
+        hard: parsed.hard,
+      });
+      const message = `Budget limit updated: ${parsed.key} soft=${parsed.soft ?? "-"} hard=${parsed.hard ?? "-"}`;
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
     },
   });
 

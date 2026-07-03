@@ -3,8 +3,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { getBudgetState } from "../src/budgets.js";
 import scalerExtension from "../src/index.js";
 import { readLogEvents } from "../src/logging.js";
+import { loadState } from "../src/state.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-extension-test-"));
@@ -76,8 +78,34 @@ test("extension registers scaler commands", () => {
     "scaler-validate",
     "scaler-pause",
     "scaler-resume",
+    "scaler-budget-status",
+    "scaler-budget-set",
     "scaler-status",
   ]);
+});
+
+test("budget-set command persists configured limits", async () => {
+  await withTempDir(async (dir) => {
+    const commands = new Map<string, { handler: (args: string | undefined, ctx: { cwd: string; hasUI: boolean }) => Promise<void> }>();
+    const fakePi = {
+      on() {},
+      registerTool() {},
+      registerCommand(name: string, command: { handler: (args: string | undefined, ctx: { cwd: string; hasUI: boolean }) => Promise<void> }) {
+        commands.set(name, command);
+      },
+    };
+
+    scalerExtension(fakePi as never);
+    await commands.get("scaler-budget-set")?.handler("validationLoops | 1 | 2", { cwd: dir, hasUI: false });
+    await commands.get("scaler-budget-status")?.handler(undefined, { cwd: dir, hasUI: false });
+
+    const state = await loadState(dir);
+    const budgets = getBudgetState(state);
+    assert.deepEqual(budgets.limits.validationLoops, { soft: 1, hard: 2 });
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Budget limit updated: validationLoops"));
+    assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Scaler budget status requested"));
+  });
 });
 
 test("extension command handlers write command audit events", async () => {
