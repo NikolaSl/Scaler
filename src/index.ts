@@ -4,6 +4,7 @@ import { getBudgetState } from "./budgets.js";
 import {
   parseCommitArgs,
   parseContextTaskArgs,
+  parseDebugRunArgs,
   parsePrdLinkArgs,
   parseReplanRequestArgs,
   parseReplanRunArgs,
@@ -23,7 +24,8 @@ import {
 import { pauseScalerRun, resumeScalerRun } from "./checkpoints.js";
 import { ensureTaskContextManifest, formatTaskContextManifest, loadTaskContextManifest } from "./context.js";
 import { formatTaskAgentRunList, loadTaskAgentRunRecords, runConductorStep } from "./conductor.js";
-import { loadDebugAttempts, loadDebugFailures } from "./debug.js";
+import { loadDebugAttempts, loadDebugFailures, loadDebugReports, formatDebugReportSummary } from "./debug.js";
+import { formatDebugAgentRunList, loadDebugAgentRunRecords, runDebugAgentStep } from "./debug-agent.js";
 import { clearExecutionLock, formatExecutionLock, loadExecutionLock } from "./locks.js";
 import { createLogEvent, appendLogEvent, logCommandAudit, logStateEvent, logToolAudit } from "./logging.js";
 import { loadMemoryIndex } from "./memory.js";
@@ -501,6 +503,40 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     description: "List recent SCALER replanner-agent run records.",
     handler: async (_args, ctx) => {
       const message = formatReplanAgentRunList(await loadReplanAgentRunRecords(ctx.cwd));
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-debug-run", {
+    description: "Prepare or execute the focused SCALER debug agent: /scaler-debug-run [taskId] [execute]",
+    handler: async (args, ctx) => {
+      const parsed = parseDebugRunArgs(args);
+      const state = await ensureState(ctx.cwd);
+      const result = await runDebugAgentStep(ctx.cwd, state, { taskId: parsed.taskId, execute: parsed.execute });
+      const ingestion = result.ingestion?.attempted
+        ? ` ingestion=${result.ingestion.ingested ? "ingested" : "rejected"}${result.ingestion.report ? ` report=${result.ingestion.report.id}` : ""}${result.ingestion.researchRequestIds?.length ? ` research=${result.ingestion.researchRequestIds.join(",")}` : ""}${result.ingestion.replanRequestId ? ` replan=${result.ingestion.replanRequestId}` : ""}`
+        : "";
+      const message = result.accepted ? `${result.message}${ingestion}` : result.message;
+      if (ctx.hasUI) ctx.ui.notify(message, result.accepted && result.ingestion?.ingested !== false ? "info" : "warning");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-debug-runs", {
+    description: "List recent SCALER debug-agent run records: /scaler-debug-runs [taskId]",
+    handler: async (args, ctx) => {
+      const taskId = args?.trim() || undefined;
+      const message = formatDebugAgentRunList(await loadDebugAgentRunRecords(ctx.cwd), taskId);
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-debug-reports", {
+    description: "List recent SCALER debug reports.",
+    handler: async (_args, ctx) => {
+      const message = formatDebugReportSummary(await loadDebugReports(ctx.cwd));
       if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
     },

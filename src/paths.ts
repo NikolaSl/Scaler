@@ -114,6 +114,10 @@ export function getResearchAgentRunsPath(cwd: string): string {
   return join(getReportsDir(cwd), "research-agent-runs.json");
 }
 
+export function getDebugAgentRunsPath(cwd: string): string {
+  return join(getReportsDir(cwd), "debug-agent-runs.json");
+}
+
 export function getValidationManifestsPath(cwd: string): string {
   return join(getReportsDir(cwd), "validation-manifests.json");
 }

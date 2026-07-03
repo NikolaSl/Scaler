@@ -64,6 +64,11 @@ export interface ParsedResearchRunArgs {
   execute: boolean;
 }
 
+export interface ParsedDebugRunArgs {
+  taskId?: string;
+  execute: boolean;
+}
+
 export interface ParsedResearchReportArgs {
   question: string;
   conclusion: string;
@@ -191,6 +196,14 @@ export function parseResearchRunArgs(args: string | undefined): ParsedResearchRu
   const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
   return {
     requestId: parts.find((part) => part.toLowerCase() !== "execute"),
+    execute: parts.some((part) => part.toLowerCase() === "execute"),
+  };
+}
+
+export function parseDebugRunArgs(args: string | undefined): ParsedDebugRunArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  return {
+    taskId: parts.find((part) => part.toLowerCase() !== "execute"),
     execute: parts.some((part) => part.toLowerCase() === "execute"),
   };
 }
