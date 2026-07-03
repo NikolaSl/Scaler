@@ -6,7 +6,10 @@ import { loadExecutionPlan, type ExecutionPlanTask } from "./plans.js";
 import { getTaskContextManifestPath } from "./paths.js";
 import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements } from "./prd.js";
 import { getValidationManifestForTask, loadValidationRuns, type ValidationRunRecord } from "./validation.js";
+import { normalizeExactness, type ContextExactness } from "./compression.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
+
+export type { ContextExactness };
 
 export type ContextItemType = "prd" | "knowledge" | "memory" | "file" | "task_report" | "validation" | "tool" | "decision";
 export type ContextPriority = "required" | "useful" | "optional";
@@ -19,6 +22,7 @@ export interface ContextItem {
   content: string;
   priority: ContextPriority;
   scope: ContextScope;
+  exactness?: ContextExactness;
   estimatedTokens?: number;
 }
 
@@ -46,6 +50,7 @@ export interface TaskContextManifestItem {
   reason: string;
   priority: ContextPriority;
   scope: ContextScope;
+  exactness?: ContextExactness;
   source: ContextManifestSource;
   content?: string;
   path?: string;
@@ -71,6 +76,7 @@ const priorityOrder: Record<ContextPriority, number> = {
 const contextItemTypes = new Set<ContextItemType>(["prd", "knowledge", "memory", "file", "task_report", "validation", "tool", "decision"]);
 const contextPriorities = new Set<ContextPriority>(["required", "useful", "optional"]);
 const contextScopes = new Set<ContextScope>(["full", "section", "snippet", "summary", "reference-only"]);
+const contextExactnessValues = new Set<ContextExactness>(["exact", "summary-ok", "reference-only"]);
 const contextManifestSources = new Set<ContextManifestSource>(["inline", "file", "memory", "state", "task", "prd_refs", "validation_manifest"]);
 
 export function createDefaultTaskContextManifest(state: ScalerState, taskId: string, now = new Date()): TaskContextManifest {
@@ -83,6 +89,7 @@ export function createDefaultTaskContextManifest(state: ScalerState, taskId: str
       reason: "Current supervisor state and task status are required for safe execution.",
       priority: "required",
       scope: "summary",
+      exactness: "exact",
       source: "state",
     },
     {
@@ -91,6 +98,7 @@ export function createDefaultTaskContextManifest(state: ScalerState, taskId: str
       reason: "Task metadata defines scope, dependencies, allowed paths, and PRD links.",
       priority: "required",
       scope: "summary",
+      exactness: "exact",
       source: "task",
       taskId,
     },
@@ -100,6 +108,7 @@ export function createDefaultTaskContextManifest(state: ScalerState, taskId: str
       reason: "Validation requirements guide the task definition of done.",
       priority: "useful",
       scope: "summary",
+      exactness: "exact",
       source: "validation_manifest",
       taskId,
     },
@@ -112,6 +121,7 @@ export function createDefaultTaskContextManifest(state: ScalerState, taskId: str
       reason: "Runtime PRD requirement ids link the task to validated product requirements.",
       priority: "useful",
       scope: "reference-only",
+      exactness: "reference-only",
       source: "prd_refs",
       taskId,
     });
@@ -124,6 +134,7 @@ export function createDefaultTaskContextManifest(state: ScalerState, taskId: str
       reason: "Supervisor memory reference may contain relevant prior context.",
       priority: "optional",
       scope: "summary",
+      exactness: "summary-ok",
       source: "memory",
       memoryId,
     });
@@ -167,6 +178,7 @@ export async function saveTaskContextManifest(cwd: string, manifest: TaskContext
       ...item,
       id: item.id.trim(),
       reason: item.reason.trim(),
+      exactness: normalizeExactness(item.exactness, item.scope),
       content: item.content?.trim() || undefined,
       path: item.path?.trim() || undefined,
       memoryId: item.memoryId?.trim() || undefined,
@@ -197,7 +209,7 @@ export function formatTaskContextManifest(manifest: TaskContextManifest): string
   validateTaskContextManifest(manifest);
   const lines = [`Task context manifest: ${manifest.taskId} items=${manifest.items.length} tokenBudget=${manifest.tokenBudget ?? "default"}`];
   for (const item of manifest.items) {
-    lines.push(`- ${item.id}: ${item.source}/${item.type} ${item.priority} ${item.scope} reason=${item.reason}`);
+    lines.push(`- ${item.id}: ${item.source}/${item.type} ${item.priority} ${item.scope} exactness=${normalizeExactness(item.exactness, item.scope)} reason=${item.reason}`);
   }
   return lines.join("\n");
 }
@@ -228,6 +240,7 @@ async function resolveManifestItem(
       reason: entry.reason,
       priority: entry.priority,
       scope: entry.scope,
+      exactness: normalizeExactness(entry.exactness, entry.scope),
       content: await resolveManifestItemContent(cwd, state, manifest, entry),
     };
   } catch (error) {
@@ -237,6 +250,7 @@ async function resolveManifestItem(
       reason: `${entry.reason} (missing: ${(error as Error).message})`,
       priority: entry.priority === "required" ? "required" : "optional",
       scope: "reference-only",
+      exactness: "reference-only",
       content: `MISSING CONTEXT: ${entry.id}\nSource: ${entry.source}\nReason: ${(error as Error).message}`,
     };
   }
@@ -330,6 +344,7 @@ async function discoverChangedFileItems(cwd: string, task: ScalerTaskState | und
       reason: "Git changed paths are relevant for avoiding stale or unrelated task context.",
       priority: allowed.length > 0 ? "useful" : "optional",
       scope: "summary",
+      exactness: "exact",
       source: "inline",
       content: `Changed paths:\n${changedPaths.map((path) => `- ${path}`).join("\n")}`,
     },
@@ -346,6 +361,7 @@ async function discoverChangedFileItems(cwd: string, task: ScalerTaskState | und
         : "Changed file may affect the current task and is included with lower priority.",
       priority: matchesAllowedPath ? "useful" : "optional",
       scope: "snippet",
+      exactness: "exact",
       source: "file",
       path,
     });
@@ -364,6 +380,7 @@ async function discoverExecutionPlanItem(cwd: string, taskId: string): Promise<T
     reason: "Current execution plan entry provides planner intent, dependencies, PRD refs, allowed paths, and validation refs.",
     priority: "useful",
     scope: "summary",
+    exactness: "exact",
     source: "inline",
     content: JSON.stringify(formatPlanTaskContext(planTask, plan.planVersion), null, 2),
   };
@@ -392,6 +409,7 @@ async function discoverPrdCoverageItem(
     reason: "Runtime PRD coverage links this task to current requirement status and evidence.",
     priority: "useful",
     scope: "summary",
+    exactness: "exact",
     source: "inline",
     content: JSON.stringify(content, null, 2),
   };
@@ -409,6 +427,7 @@ async function discoverValidationHistoryItem(cwd: string, taskId: string): Promi
     reason: "Recent validation history helps avoid repeating known failures and confirms latest checks.",
     priority: "useful",
     scope: "summary",
+    exactness: "exact",
     source: "inline",
     content: JSON.stringify(runs.map(formatValidationRunContext), null, 2),
   };
@@ -434,6 +453,7 @@ async function discoverMemoryItems(
       reason: `Memory matched task relevance terms with score ${score}.`,
       priority: score >= 4 ? "useful" : "optional",
       scope: "summary",
+      exactness: "summary-ok",
       source: "memory",
       memoryId: entry.id,
     }));
@@ -518,6 +538,7 @@ function validateTaskContextManifestItem(item: TaskContextManifestItem, ids: Set
   if (!contextItemTypes.has(item.type)) throw new Error(`Invalid task context item type: ${String(item.type)}`);
   if (!contextPriorities.has(item.priority)) throw new Error(`Invalid task context item priority: ${String(item.priority)}`);
   if (!contextScopes.has(item.scope)) throw new Error(`Invalid task context item scope: ${String(item.scope)}`);
+  if (item.exactness !== undefined && !contextExactnessValues.has(item.exactness)) throw new Error(`Invalid task context item exactness: ${String(item.exactness)}`);
   if (!contextManifestSources.has(item.source)) throw new Error(`Invalid task context item source: ${String(item.source)}`);
   if (!item.reason.trim()) throw new Error(`Task context item ${item.id} reason is required.`);
   if (item.source === "inline" && !item.content?.trim()) throw new Error(`Task context item ${item.id} inline content is required.`);
@@ -559,6 +580,7 @@ export function formatContextItem(item: ContextItem): string {
     `Type: ${item.type}`,
     `Priority: ${item.priority}`,
     `Scope: ${item.scope}`,
+    `Exactness: ${normalizeExactness(item.exactness, item.scope)}`,
     `Reason: ${item.reason}`,
     "",
     item.content,
@@ -569,7 +591,7 @@ export function formatOmittedContextSummary(items: ContextItem[]): string {
   return [
     "## Omitted Context",
     "The following context items were omitted due to the token budget. Request them explicitly if needed.",
-    ...items.map((item) => `- ${item.id}: ${item.reason} (${item.type}, ${item.priority}, ${item.scope})`),
+    ...items.map((item) => `- ${item.id}: ${item.reason} (${item.type}, ${item.priority}, ${item.scope}, exactness=${normalizeExactness(item.exactness, item.scope)})`),
   ].join("\n");
 }
 

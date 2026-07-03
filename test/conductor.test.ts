@@ -120,6 +120,8 @@ test("buildTaskAgentPrompt includes task metadata and report instructions", () =
   assert.match(result.prompt, /Do not read or modify protected paths/);
   assert.match(result.prompt, /Do not run destructive commands/);
   assert.match(result.prompt, /Required final report/);
+  assert.match(result.prompt, /Compression and Exact-Preservation Policy/);
+  assert.match(result.prompt, /Summary-ok refs: spec/);
   assert.match(result.prompt, /Widget must render labels/);
 });
 

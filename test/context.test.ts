@@ -111,7 +111,7 @@ test("formatOmittedContextSummary renders ids and reasons", () => {
     { id: "OPT-1", type: "memory", reason: "Too large", content: "x", priority: "optional", scope: "summary" },
   ]);
 
-  assert.match(summary, /OPT-1: Too large \(memory, optional, summary\)/);
+  assert.match(summary, /OPT-1: Too large \(memory, optional, summary, exactness=summary-ok\)/);
 });
 
 test("resolveContext orders by priority", () => {
@@ -208,8 +208,10 @@ test("createDiscoveredTaskContextManifest adds ranked evidence from changed file
     assert.ok(ids.includes("runtime-prd-coverage"));
     assert.ok(ids.includes("validation-history"));
     assert.ok(ids.includes(`memory-search-${memory.id}`));
-    assert.equal(manifest.items.find((item) => item.id === "changed-file-feature-ts")?.priority, "useful");
+      assert.equal(manifest.items.find((item) => item.id === "changed-file-feature-ts")?.priority, "useful");
+    assert.equal(manifest.items.find((item) => item.id === "changed-file-feature-ts")?.exactness, "exact");
     assert.equal(manifest.items.find((item) => item.id === `memory-search-${memory.id}`)?.priority, "useful");
+    assert.equal(manifest.items.find((item) => item.id === `memory-search-${memory.id}`)?.exactness, "summary-ok");
   });
 });
 
@@ -229,6 +231,7 @@ test("saveTaskContextManifest and loadTaskContextManifest round trip normalized 
     assert.equal(saved.items[0]?.id, "file");
     assert.equal(saved.items[0]?.reason, "Need file");
     assert.equal(saved.items[0]?.path, "README.md");
+    assert.equal(saved.items[0]?.exactness, "exact");
     assert.equal(loaded?.items[0]?.id, saved.items[0]?.id);
     assert.equal(loaded?.items[0]?.reason, saved.items[0]?.reason);
     assert.equal(loaded?.items[0]?.path, saved.items[0]?.path);
@@ -291,6 +294,8 @@ test("resolveTaskContextManifest resolves inline, file, memory, state, task, prd
     assert.match(items.find((item) => item.id === "task")?.content ?? "", /"title": "Do task"/);
     assert.match(items.find((item) => item.id === "prd")?.content ?? "", /REQ-001/);
     assert.match(items.find((item) => item.id === "validation")?.content ?? "", /npm test/);
+    assert.equal(items.find((item) => item.id === "file")?.exactness, "exact");
+    assert.equal(items.find((item) => item.id === "prd")?.exactness, "reference-only");
   });
 });
 
@@ -321,6 +326,7 @@ test("validateTaskContextManifest rejects invalid and incomplete items", () => {
   };
 
   assert.throws(() => validateTaskContextManifest({ ...base, version: 2 as never }), /Unsupported task context manifest version/);
+  assert.throws(() => validateTaskContextManifest({ ...base, items: [{ ...base.items[0]!, exactness: "lossy" as never }] }), /Invalid task context item exactness/);
   assert.throws(() => validateTaskContextManifest({ ...base, items: [{ ...base.items[0]!, path: undefined }] }), /file path is required/);
   assert.throws(() => validateTaskContextManifest({ ...base, items: [base.items[0]!, base.items[0]!] }), /Duplicate task context item id/);
 });

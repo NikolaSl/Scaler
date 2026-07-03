@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { writeCheckpoint } from "./checkpoints.js";
+import { assessCompression, formatCompressionGuidance } from "./compression.js";
 import {
   ensureTaskContextManifest,
   resolveContext,
@@ -313,6 +314,12 @@ export function buildTaskAgentPrompt(input: TaskPromptInput): TaskPromptResult {
     tokenBudget: input.tokenBudget,
   });
 
+  const compressionGuidance = formatCompressionGuidance(assessCompression({
+    items: resolvedContext.included,
+    estimatedTokens: resolvedContext.estimatedTokens,
+    contextWindowTokens: input.tokenBudget,
+  }));
+
   const prompt = [
     "# SCALER Task Agent Request",
     `Task ID: ${input.task.id}`,
@@ -337,6 +344,8 @@ export function buildTaskAgentPrompt(input: TaskPromptInput): TaskPromptResult {
     "## Required final report",
     "Report task result, files changed, validation run, validation outcome, blockers, and memory references.",
     "If implementation is complete, request task transition to validating or submit a validation report.",
+    "",
+    compressionGuidance,
     "",
     resolvedContext.text,
   ].join("\n");
