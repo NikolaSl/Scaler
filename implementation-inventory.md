@@ -31,6 +31,7 @@ Maintenance artifact for `traceability-matrix.md`. Update when implementation pl
 | IMPL-101..103 | Staged conductor step | Deterministic one-step stage conductor, `/scaler-stage-step`, docs/traceability | `src/stage-conductor.ts`, `src/index.ts` | `test/stage-conductor.test.ts`, `test/extension-shape.test.ts` | `manual/stages.md`, `manual/commands.md`, `manual/workflow.md`, `manual/index.md` |
 | IMPL-104..106 | Bounded staged conductor loop | Multi-step stage conductor loop, `/scaler-stage-loop`, docs/traceability | `src/stage-conductor.ts`, `src/commands.ts`, `src/index.ts` | `test/stage-conductor.test.ts`, `test/commands.test.ts`, `test/extension-shape.test.ts` | `manual/stages.md`, `manual/commands.md`, `manual/workflow.md`, `manual/index.md` |
 | IMPL-107..109 | Stage semantic validation | Stage-specific semantic validation, advancement gates, docs/traceability | `src/stages.ts`, `src/stage-advancement.ts` | `test/stages.test.ts`, `test/stage-advancement.test.ts`, `test/stage-conductor.test.ts` | `manual/stages.md`, `manual/commands.md` |
+| IMPL-110..112 | Stage consistency validation | Cross-artifact consistency validation against PRD requirements, execution plans, supervisor tasks, and replan artifacts | `src/stage-consistency.ts`, `src/stage-advancement.ts` | `test/stage-consistency.test.ts`, `test/stage-advancement.test.ts`, `test/stage-conductor.test.ts` | `manual/stages.md`, `manual/commands.md`, `manual/index.md` |
 
 ## Current high-value code areas
 
@@ -48,9 +49,10 @@ Maintenance artifact for `traceability-matrix.md`. Update when implementation pl
 | Runtime PRD ledger | `src/prd.ts` | Per-run polished PRD files, requirement catalog, coverage computation, snapshots, and change log. |
 | Execution plans | `src/plans.ts` | Current/proposed/versioned execution plan artifacts, coverage summaries, preservation checks, replan requests, replan decisions, proposal acceptance, and task application. |
 | Stage artifacts | `src/stages.ts`, `src/workflow.ts` | Stage I-IV artifact records, status formatting, readiness and semantic validation, record commands, and stage-aware next-action recommendations. |
+| Stage consistency | `src/stage-consistency.ts` | Cross-artifact consistency checks for requirement refs, plan task refs, supervisor task refs, and replan artifacts. |
 | Stage agents | `src/stage-agents.ts` | Focused stage-agent prompt contracts, Pi subprocess invocation preparation/execution, stage-agent run records, structured artifact report extraction, and automatic artifact ingestion. |
 | Stage conductor | `src/stage-conductor.ts` | One-step and bounded multi-step active-stage workflows that advance ready artifacts or run matching stage agents with ingestion and advancement. |
-| Stage advancement | `src/stage-advancement.ts`, `src/stages.ts` | Ready-artifact and semantic validation plus deterministic stage advancement through supervisor transitions. |
+| Stage advancement | `src/stage-advancement.ts`, `src/stages.ts`, `src/stage-consistency.ts` | Ready-artifact, semantic, and consistency validation plus deterministic stage advancement through supervisor transitions. |
 | Replanning triggers | `src/replanning.ts`, `src/validation.ts`, `src/debug.ts` | Manual and evidence-driven creation of replan requests with supervisor replanning transitions. |
 | Tool isolation | `src/tool-requests.ts`, `src/tools.ts` | Structured tools and isolated tool requests. |
 

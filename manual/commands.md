@@ -120,11 +120,11 @@ Validates readiness of the latest recorded artifact for a stage.
 
 ## `/scaler-stage-advance <stage>`
 
-Advances the supervisor stage after validating stage artifact readiness and deterministic stage-specific semantics.
+Advances the supervisor stage after validating stage artifact readiness, deterministic stage-specific semantics, and available cross-artifact consistency gates.
 
 ## `/scaler-stage-step [execute]`
 
-Runs one deterministic stage-conductor step for the current supervisor stage. If a ready, semantically valid artifact already exists for the active stage, SCALER validates and advances it. Otherwise SCALER prepares the matching focused stage agent; with `execute`, it runs the agent, ingests a valid `scaler_stage_artifact` JSON event, and attempts advancement.
+Runs one deterministic stage-conductor step for the current supervisor stage. If a ready, semantically valid, and consistent artifact already exists for the active stage, SCALER validates and advances it. Otherwise SCALER prepares the matching focused stage agent; with `execute`, it runs the agent, ingests a valid `scaler_stage_artifact` JSON event, and attempts advancement.
 
 ## `/scaler-stage-loop [execute] [max=N]`
 
