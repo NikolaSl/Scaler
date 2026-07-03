@@ -114,6 +114,14 @@ Shows the task context manifest summary for a task.
 
 Shows latest Stage I-IV artifact status from `.scaler/stages/stage-artifacts.json`.
 
+## `/scaler-stage-run <stage> [execute]`
+
+Prepares or executes a focused stage-agent subprocess for `prd`, `knowledge`, `planning`, `execution`, or `replanning`.
+
+## `/scaler-stage-runs [stage]`
+
+Lists stage-agent run records from `.scaler/reports/stage-agent-runs.json`.
+
 ## `/scaler-stage-record <stage> | <status> | <title> | <path> | <summary> | <evidence refs> | <PRD refs> | <task refs>`
 
 Records a normalized stage artifact for `prd`, `knowledge`, `planning`, `execution`, or `replanning`.

@@ -16,8 +16,10 @@ SCALER operations are sequential per repository. Task steps, task-agent executio
 Stage outputs can be recorded and inspected with:
 
 ```text
+/scaler-stage-run planning
 /scaler-stage-record planning | ready | Execution plan | .scaler/plans/current-plan.json | Initial plan
 /scaler-stage-status
+/scaler-stage-runs planning
 ```
 
 ## 2. Create or apply tasks

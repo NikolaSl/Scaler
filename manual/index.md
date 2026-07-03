@@ -7,7 +7,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 ## Current implemented behavior
 
 - Pi extension entrypoint: `src/index.ts`.
-- Commands: `/scaler`, `/scaler-lock`, `/scaler-lock-clear`, `/scaler-runs`, `/scaler-tasks`, `/scaler-context-init`, `/scaler-context-status`, `/scaler-stage-status`, `/scaler-stage-record`, `/scaler-task-create`, `/scaler-task-update`, `/scaler-prd-status`, `/scaler-plan-status`, `/scaler-plan-apply`, `/scaler-replans`, `/scaler-replan-proposal-status`, `/scaler-replan-accept`, `/scaler-replan-request`, `/scaler-prd-link`, `/scaler-task-retry`, `/scaler-step`, `/scaler-validation-add`, `/scaler-validate`, `/scaler-commit`, `/scaler-pause`, `/scaler-resume`, `/scaler-status`.
+- Commands: `/scaler`, `/scaler-lock`, `/scaler-lock-clear`, `/scaler-runs`, `/scaler-tasks`, `/scaler-context-init`, `/scaler-context-status`, `/scaler-stage-status`, `/scaler-stage-run`, `/scaler-stage-runs`, `/scaler-stage-record`, `/scaler-task-create`, `/scaler-task-update`, `/scaler-prd-status`, `/scaler-plan-status`, `/scaler-plan-apply`, `/scaler-replans`, `/scaler-replan-proposal-status`, `/scaler-replan-accept`, `/scaler-replan-request`, `/scaler-prd-link`, `/scaler-task-retry`, `/scaler-step`, `/scaler-validation-add`, `/scaler-validate`, `/scaler-commit`, `/scaler-pause`, `/scaler-resume`, `/scaler-status`.
 - State file: `.scaler/state.json`.
 - Basic deterministic supervisor transition helpers.
 - Event log: `.scaler/logs/events.jsonl`.
@@ -27,7 +27,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - Mandatory repo-wide sequential execution lock for SCALER operations.
 - Runtime PRD ledger under `.scaler/prd/` with requirement coverage summaries and task links.
 - Versioned execution plan artifacts under `.scaler/plans/` with task application, replan request, preservation-check, and proposal acceptance helpers.
-- Stage I-IV artifact records under `.scaler/stages/` with status commands and workflow recommendations.
+- Stage I-IV artifact records under `.scaler/stages/` with status commands, focused stage-agent preparation/runs, and workflow recommendations.
 - Development traceability artifacts for requirement IDs, implementation inventory, matrix coverage, and gap backlog.
 
 ## Manual pages
