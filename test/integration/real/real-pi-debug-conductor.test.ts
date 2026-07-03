@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { test } from "node:test";
 import { loadDebugAgentRunRecords } from "../../../src/debug-agent.js";
 import { runDebugConductorLoop, type DebugConductorRunners } from "../../../src/debug-conductor.js";
@@ -9,6 +11,7 @@ import { loadResearchReports, loadResearchRequests } from "../../../src/research
 import { createDefaultState, saveState } from "../../../src/state.js";
 import { runTaskAgent, type TaskAgentRequest, type TaskAgentRunResult } from "../../../src/subagents.js";
 import { applyValidationReport } from "../../../src/validation.js";
+import { runValidationDebugLoopWorkflow } from "../../../src/validation-debug-loop.js";
 import { REAL_PI_COMMAND, REAL_PI_ENABLED, REAL_PI_MODEL, REAL_PI_TIMEOUT_MS, withRealPiTempRepo } from "./real-pi-harness.js";
 
 function realCardinalOnlyRunner(cardinalInstruction: string): (request: TaskAgentRequest) => Promise<TaskAgentRunResult> {
@@ -27,6 +30,57 @@ function realCardinalOnlyRunner(cardinalInstruction: string): (request: TaskAgen
 function runResultFromReal(instructionFor: (request: TaskAgentRequest) => string): (request: TaskAgentRequest) => Promise<TaskAgentRunResult> {
   return async (request) => realCardinalOnlyRunner(instructionFor(request))(request);
 }
+
+test("real validation debug loop: failed validation starts bounded debug loop", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    await writeFile(join(dir, "package.json"), JSON.stringify({
+      type: "module",
+      scripts: { test: "node -e \"process.exit(1)\"" },
+    }, null, 2));
+
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-REAL-VALIDATE-LOOP";
+    state.tasks = [{
+      id: "T-REAL-VALIDATE-LOOP",
+      status: "validating",
+      title: "Real Pi validation debug loop flow",
+      prdRefs: ["REQ-REAL-VALIDATE-LOOP"],
+      allowedPathPrefixes: ["package.json"],
+      updatedAt: state.createdAt,
+    }];
+    await saveState(dir, state);
+
+    const runners: DebugConductorRunners = {
+      debug: runResultFromReal(() => {
+        const event = {
+          type: "scaler_debug_report",
+          id: "RPT-REAL-VALIDATE-LOOP-NEXT",
+          taskId: "T-REAL-VALIDATE-LOOP",
+          status: "next_approach",
+          summary: "The failed package test gives a deterministic next debug approach.",
+          nextApproach: "Inspect the package test script and replace the failing fixture before rerunning validation.",
+          evidenceRefs: ["validation-real-validate-loop"],
+        };
+        return `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: ${JSON.stringify(event)}.`;
+      }),
+    };
+
+    const result = await runValidationDebugLoopWorkflow(dir, state, "T-REAL-VALIDATE-LOOP", {
+      execute: true,
+      maxSteps: 2,
+      timeoutMs: REAL_PI_TIMEOUT_MS,
+      model: REAL_PI_MODEL,
+    }, runners);
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.validation.result?.status, "failed");
+    assert.equal(result.debugLoop?.stopReason, "next_approach");
+    assert.deepEqual(result.debugLoop?.steps.map((step) => step.action), ["run_debug_agent"]);
+    assert.ok((await loadDebugReports(dir)).some((report) => report.id === "RPT-REAL-VALIDATE-LOOP-NEXT"));
+    assert.ok((await readLogEvents(dir)).some((event) => event.eventType === "validation" && event.summary.includes("Validation debug loop")));
+  });
+});
 
 test("real debug conductor: validation failure chains through research to next approach", { skip: !REAL_PI_ENABLED }, async () => {
   await withRealPiTempRepo(async (dir) => {
