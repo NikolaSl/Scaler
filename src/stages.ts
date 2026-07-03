@@ -54,6 +54,13 @@ export interface StageArtifactReadinessValidation {
   reasons: string[];
 }
 
+export interface StageArtifactSemanticValidation {
+  ok: boolean;
+  stage: StageArtifactStage;
+  artifact?: StageArtifact;
+  reasons: string[];
+}
+
 export async function loadStageArtifacts(cwd: string): Promise<StageArtifact[]> {
   try {
     const raw = await readFile(getStageArtifactsPath(cwd), "utf8");
@@ -146,10 +153,62 @@ export async function validateStageArtifactReadiness(
   return { ok: reasons.length === 0, stage, artifact, reasons };
 }
 
+export function validateStageArtifactSemantics(
+  artifacts: StageArtifact[],
+  stageInput: StageArtifactStage | string,
+): StageArtifactSemanticValidation {
+  const stage = normalizeStageArtifactStage(stageInput);
+  const artifact = latestArtifactForStage(artifacts, stage);
+  const reasons: string[] = [];
+
+  if (!artifact) {
+    return { ok: false, stage, reasons: [`No artifact recorded for stage ${stage}.`] };
+  }
+
+  switch (stage) {
+    case "prd":
+      if (!hasRefs(artifact.requirementRefs) && !artifact.summary) {
+        reasons.push(`Stage prd artifact ${artifact.id} requires requirement refs or a summary.`);
+      }
+      break;
+    case "knowledge":
+      if (!hasRefs(artifact.evidenceRefs) && !artifact.summary) {
+        reasons.push(`Stage knowledge artifact ${artifact.id} requires evidence refs or a summary.`);
+      }
+      break;
+    case "planning":
+      if (!hasRefs(artifact.taskRefs) && !hasRefs(artifact.requirementRefs)) {
+        reasons.push(`Stage planning artifact ${artifact.id} requires task refs or requirement refs.`);
+      }
+      break;
+    case "replanning":
+      if (!hasRefs(artifact.evidenceRefs)) {
+        reasons.push(`Stage replanning artifact ${artifact.id} requires evidence refs.`);
+      }
+      if (!hasRefs(artifact.requirementRefs) && !hasRefs(artifact.taskRefs)) {
+        reasons.push(`Stage replanning artifact ${artifact.id} requires requirement refs or task refs.`);
+      }
+      break;
+    case "execution":
+      if (!hasRefs(artifact.taskRefs) && !artifact.summary) {
+        reasons.push(`Stage execution artifact ${artifact.id} requires task refs or a summary.`);
+      }
+      break;
+  }
+
+  return { ok: reasons.length === 0, stage, artifact, reasons };
+}
+
 export function formatStageArtifactReadiness(validation: StageArtifactReadinessValidation): string {
   const artifact = validation.artifact ? ` artifact=${validation.artifact.id}` : "";
   if (validation.ok) return `Stage ${validation.stage} artifact is ready.${artifact}`;
   return [`Stage ${validation.stage} artifact is not ready.${artifact}`, ...validation.reasons.map((reason) => `- ${reason}`)].join("\n");
+}
+
+export function formatStageArtifactSemantics(validation: StageArtifactSemanticValidation): string {
+  const artifact = validation.artifact ? ` artifact=${validation.artifact.id}` : "";
+  if (validation.ok) return `Stage ${validation.stage} artifact is semantically valid.${artifact}`;
+  return [`Stage ${validation.stage} artifact is semantically invalid.${artifact}`, ...validation.reasons.map((reason) => `- ${reason}`)].join("\n");
 }
 
 export function formatStageArtifactSummary(summary: StageArtifactSummary): string {
@@ -216,6 +275,10 @@ function clean(value: string | undefined): string | undefined {
 function normalizeList(values: string[] | undefined): string[] | undefined {
   const normalized = Array.from(new Set((values ?? []).map((value) => value.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
   return normalized.length > 0 ? normalized : undefined;
+}
+
+function hasRefs(values: string[] | undefined): boolean {
+  return Boolean(values && values.length > 0);
 }
 
 export function normalizeStageArtifactStage(stage: StageArtifactStage | string): StageArtifactStage {

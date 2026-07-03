@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
   formatStageArtifactReadiness,
+  formatStageArtifactSemantics,
   formatStageArtifactSummary,
   loadStageArtifacts,
   saveStageArtifacts,
@@ -12,6 +13,7 @@ import {
   upsertStageArtifact,
   validateStageArtifact,
   validateStageArtifactReadiness,
+  validateStageArtifactSemantics,
 } from "../src/stages.js";
 
 async function tempDir(): Promise<string> {
@@ -149,6 +151,50 @@ test("validateStageArtifactReadiness requires path for planning but allows execu
     updatedAt: "2026-01-01T00:00:00.000Z",
   }], "execution");
   assert.equal(execution.ok, true);
+});
+
+test("validateStageArtifactSemantics checks stage-specific references and summaries", () => {
+  const createdAt = "2026-01-01T00:00:00.000Z";
+  const base = { status: "ready" as const, title: "Artifact", createdAt, updatedAt: createdAt };
+  const validPrd = validateStageArtifactSemantics([{ ...base, id: "ART-PRD", stage: "prd", requirementRefs: ["PRD-S01"] }], "prd");
+  assert.equal(validPrd.ok, true);
+  assert.equal(formatStageArtifactSemantics(validPrd), "Stage prd artifact is semantically valid. artifact=ART-PRD");
+
+  const validKnowledge = validateStageArtifactSemantics([{ ...base, id: "ART-K", stage: "knowledge", evidenceRefs: ["ev:1"] }], "knowledge");
+  assert.equal(validKnowledge.ok, true);
+
+  const validPlanning = validateStageArtifactSemantics([{ ...base, id: "ART-P", stage: "planning", taskRefs: ["T-001"] }], "planning");
+  assert.equal(validPlanning.ok, true);
+
+  const validReplanning = validateStageArtifactSemantics([{ ...base, id: "ART-R", stage: "replanning", evidenceRefs: ["REQ-1"], requirementRefs: ["PRD-S01"] }], "replanning");
+  assert.equal(validReplanning.ok, true);
+
+  const validExecution = validateStageArtifactSemantics([{ ...base, id: "ART-E", stage: "execution", summary: "Task execution summary." }], "execution");
+  assert.equal(validExecution.ok, true);
+});
+
+test("validateStageArtifactSemantics reports deterministic missing semantics", () => {
+  const createdAt = "2026-01-01T00:00:00.000Z";
+  const base = { status: "ready" as const, title: "Artifact", createdAt, updatedAt: createdAt };
+  assert.deepEqual(validateStageArtifactSemantics([], "prd"), {
+    ok: false,
+    stage: "prd",
+    reasons: ["No artifact recorded for stage prd."],
+  });
+
+  const prd = validateStageArtifactSemantics([{ ...base, id: "ART-PRD", stage: "prd" }], "prd");
+  assert.equal(prd.ok, false);
+  assert.deepEqual(prd.reasons, ["Stage prd artifact ART-PRD requires requirement refs or a summary."]);
+
+  const replanning = validateStageArtifactSemantics([{ ...base, id: "ART-R", stage: "replanning" }], "replanning");
+  assert.deepEqual(replanning.reasons, [
+    "Stage replanning artifact ART-R requires evidence refs.",
+    "Stage replanning artifact ART-R requires requirement refs or task refs.",
+  ]);
+  assert.equal(
+    formatStageArtifactSemantics(replanning),
+    "Stage replanning artifact is semantically invalid. artifact=ART-R\n- Stage replanning artifact ART-R requires evidence refs.\n- Stage replanning artifact ART-R requires requirement refs or task refs.",
+  );
 });
 
 test("validateStageArtifact rejects invalid records", () => {
