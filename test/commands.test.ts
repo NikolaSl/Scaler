@@ -9,6 +9,7 @@ import {
   parseReplanRunArgs,
   parseResearchReportArgs,
   parseResearchRequestArgs,
+  parseResearchRunArgs,
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
@@ -128,6 +129,12 @@ test("parseReplanRequestArgs parses reason, task, evidence, and requirements", (
 test("parseReplanRunArgs parses execute flag", () => {
   assert.deepEqual(parseReplanRunArgs("execute"), { execute: true });
   assert.deepEqual(parseReplanRunArgs(" "), { execute: false });
+});
+
+test("parseResearchRunArgs parses optional request and execute flag", () => {
+  assert.deepEqual(parseResearchRunArgs("RESEARCH-001 execute"), { requestId: "RESEARCH-001", execute: true });
+  assert.deepEqual(parseResearchRunArgs("execute"), { requestId: undefined, execute: true });
+  assert.deepEqual(parseResearchRunArgs(" "), { requestId: undefined, execute: false });
 });
 
 test("parseResearchRequestArgs parses research request fields", () => {

@@ -59,6 +59,11 @@ export interface ParsedResearchRequestArgs {
   scope?: string;
 }
 
+export interface ParsedResearchRunArgs {
+  requestId?: string;
+  execute: boolean;
+}
+
 export interface ParsedResearchReportArgs {
   question: string;
   conclusion: string;
@@ -180,6 +185,14 @@ export function parseReplanRequestArgs(args: string | undefined): ParsedReplanRe
 export function parseReplanRunArgs(args: string | undefined): ParsedReplanRunArgs {
   const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
   return { execute: parts.some((part) => part.toLowerCase() === "execute") };
+}
+
+export function parseResearchRunArgs(args: string | undefined): ParsedResearchRunArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  return {
+    requestId: parts.find((part) => part.toLowerCase() !== "execute"),
+    execute: parts.some((part) => part.toLowerCase() === "execute"),
+  };
 }
 
 export function parseResearchRequestArgs(args: string | undefined): ParsedResearchRequestArgs | undefined {
