@@ -27,7 +27,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - Mandatory repo-wide sequential execution lock for SCALER operations.
 - Runtime PRD ledger under `.scaler/prd/` with requirement coverage summaries and task links.
 - Versioned execution plan artifacts under `.scaler/plans/` with task application, replan request, preservation-check, and proposal acceptance helpers.
-- Stage I-IV artifact records under `.scaler/stages/` with status commands, focused stage-agent preparation/runs, structured ingestion, one-step and bounded multi-step stage conductors, readiness validation, advancement, and workflow recommendations.
+- Stage I-IV artifact records under `.scaler/stages/` with status commands, focused stage-agent preparation/runs, structured ingestion, one-step and bounded multi-step stage conductors, readiness/semantic validation, advancement, and workflow recommendations.
 - Development traceability artifacts for requirement IDs, implementation inventory, matrix coverage, and gap backlog.
 
 ## Manual pages

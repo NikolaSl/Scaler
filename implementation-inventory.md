@@ -30,6 +30,7 @@ Maintenance artifact for `traceability-matrix.md`. Update when implementation pl
 | IMPL-098..100 | Stage-agent report ingestion | Structured stage artifact report extraction, automatic artifact upsert from successful stage-agent runs, command/docs integration | `src/stage-agents.ts`, `src/index.ts` | `test/stage-agents.test.ts` | `manual/stages.md`, `manual/commands.md` |
 | IMPL-101..103 | Staged conductor step | Deterministic one-step stage conductor, `/scaler-stage-step`, docs/traceability | `src/stage-conductor.ts`, `src/index.ts` | `test/stage-conductor.test.ts`, `test/extension-shape.test.ts` | `manual/stages.md`, `manual/commands.md`, `manual/workflow.md`, `manual/index.md` |
 | IMPL-104..106 | Bounded staged conductor loop | Multi-step stage conductor loop, `/scaler-stage-loop`, docs/traceability | `src/stage-conductor.ts`, `src/commands.ts`, `src/index.ts` | `test/stage-conductor.test.ts`, `test/commands.test.ts`, `test/extension-shape.test.ts` | `manual/stages.md`, `manual/commands.md`, `manual/workflow.md`, `manual/index.md` |
+| IMPL-107..109 | Stage semantic validation | Stage-specific semantic validation, advancement gates, docs/traceability | `src/stages.ts`, `src/stage-advancement.ts` | `test/stages.test.ts`, `test/stage-advancement.test.ts`, `test/stage-conductor.test.ts` | `manual/stages.md`, `manual/commands.md` |
 
 ## Current high-value code areas
 
@@ -46,10 +47,10 @@ Maintenance artifact for `traceability-matrix.md`. Update when implementation pl
 | Context | `src/context.ts` | Context resolver, omitted-context summaries, per-task context manifests, and source resolution for files, memory, state, task metadata, PRD refs, and validation manifests. |
 | Runtime PRD ledger | `src/prd.ts` | Per-run polished PRD files, requirement catalog, coverage computation, snapshots, and change log. |
 | Execution plans | `src/plans.ts` | Current/proposed/versioned execution plan artifacts, coverage summaries, preservation checks, replan requests, replan decisions, proposal acceptance, and task application. |
-| Stage artifacts | `src/stages.ts`, `src/workflow.ts` | Stage I-IV artifact records, status formatting, record commands, and stage-aware next-action recommendations. |
+| Stage artifacts | `src/stages.ts`, `src/workflow.ts` | Stage I-IV artifact records, status formatting, readiness and semantic validation, record commands, and stage-aware next-action recommendations. |
 | Stage agents | `src/stage-agents.ts` | Focused stage-agent prompt contracts, Pi subprocess invocation preparation/execution, stage-agent run records, structured artifact report extraction, and automatic artifact ingestion. |
 | Stage conductor | `src/stage-conductor.ts` | One-step and bounded multi-step active-stage workflows that advance ready artifacts or run matching stage agents with ingestion and advancement. |
-| Stage advancement | `src/stage-advancement.ts`, `src/stages.ts` | Ready-artifact validation and deterministic stage advancement through supervisor transitions. |
+| Stage advancement | `src/stage-advancement.ts`, `src/stages.ts` | Ready-artifact and semantic validation plus deterministic stage advancement through supervisor transitions. |
 | Replanning triggers | `src/replanning.ts`, `src/validation.ts`, `src/debug.ts` | Manual and evidence-driven creation of replan requests with supervisor replanning transitions. |
 | Tool isolation | `src/tool-requests.ts`, `src/tools.ts` | Structured tools and isolated tool requests. |
 
