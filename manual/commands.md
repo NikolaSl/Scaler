@@ -124,7 +124,7 @@ Advances the supervisor stage after validating a ready stage artifact.
 
 ## `/scaler-stage-run <stage> [execute]`
 
-Prepares or executes a focused stage-agent subprocess for `prd`, `knowledge`, `planning`, `execution`, or `replanning`. Successful executed runs attempt ready-artifact advancement automatically.
+Prepares or executes a focused stage-agent subprocess for `prd`, `knowledge`, `planning`, `execution`, or `replanning`. Successful executed runs ingest a valid `scaler_stage_artifact` JSON event and attempt ready-artifact advancement automatically.
 
 ## `/scaler-stage-runs [stage]`
 

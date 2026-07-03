@@ -251,6 +251,11 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         const state = await ensureState(ctx.cwd);
         const result = await runStageAgentStep(ctx.cwd, state, parsed.stage, { execute: parsed.execute });
         let message = result.accepted ? `${result.message} run=${result.runRecord?.id ?? "n/a"}` : result.message;
+        if (parsed.execute && result.ingestion?.attempted) {
+          message = result.ingestion.ingested
+            ? `${message}\nIngested stage artifact ${result.ingestion.artifact?.id ?? "unknown"}.`
+            : `${message}\nNo stage artifact ingested: ${result.ingestion.reason ?? "unknown reason"}`;
+        }
         if (parsed.execute && result.runRecord?.status === "passed" && result.stage) {
           const advancement = await advanceStageAfterReadyArtifact(ctx.cwd, state, result.stage);
           message = `${message}\n${advancement.message}`;
