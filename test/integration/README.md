@@ -51,6 +51,10 @@ Prefer assertions on durable artifacts such as:
 - `.scaler/reports/validation-runs.json`
 - `.scaler/reports/*-agent-runs.json`
 - `.scaler/logs/events.jsonl`
+- `.scaler/stages/stage-artifacts.json`
+- `.scaler/plans/current-plan.json`
+- `.scaler/plans/proposed-plan.json`
+- `.scaler/plans/replan-decisions.json`
 
 ## Mock child-agent runners
 
@@ -158,3 +162,10 @@ npm run build
   - retry-gate clearance by later `newEvidence`;
   - rejection of free-form debug-agent output;
   - optional real Pi/model structured-output contract check.
+- `stage-replan-plan-flow.test.ts`
+  - stage conductor loop from PRD through knowledge, planning, execution, and completion;
+  - stage-agent structured artifact ingestion, readiness, semantic, consistency, advancement, run records, and audit logs;
+  - runtime PRD requirements plus coverage-gap replan request;
+  - replanner-agent structured proposal ingestion, preservation checks, proposed-plan persistence, run records, and audit logs;
+  - replan proposal acceptance, current-plan replacement, version snapshot, replan decision, request resolution, and task creation;
+  - validated-task git commit through the execution lock while preserving `.scaler/` runtime artifacts and recording git audit logs.

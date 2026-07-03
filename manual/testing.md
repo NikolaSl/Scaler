@@ -30,7 +30,10 @@ The current integration harness covers:
 - debug report creation of research requests;
 - focused research-agent report ingestion and request resolution;
 - next-approach debug reports and retry-gate clearance by later `newEvidence`;
-- rejection of child free-form text without a structured `scaler_debug_report` event.
+- rejection of child free-form text without a structured `scaler_debug_report` event;
+- stage conductor artifact ingestion and advancement from PRD through knowledge, planning, execution, and completion;
+- runtime PRD coverage-gap replanning through proposal ingestion, preservation checks, proposal acceptance, current-plan replacement, decisions, snapshots, request resolution, and task creation;
+- validated-task git commits through execution locks while `.scaler/` runtime artifacts remain uncommitted and git audit logs are recorded.
 
 ## Optional real Pi/model mode
 
