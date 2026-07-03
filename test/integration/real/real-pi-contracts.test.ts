@@ -7,7 +7,13 @@ import { promisify } from "node:util";
 import { test } from "node:test";
 import { loadDebugReports } from "../../../src/debug.js";
 import { runDebugAgentStep } from "../../../src/debug-agent.js";
+import { appendReplanRequest, loadProposedExecutionPlan } from "../../../src/plans.js";
+import { runReplanAgentStep } from "../../../src/replan-agent.js";
+import { loadResearchReports, upsertResearchRequest } from "../../../src/research.js";
+import { runResearchAgentStep } from "../../../src/research-agent.js";
 import { createDefaultState, saveState } from "../../../src/state.js";
+import { runStageAgentStep } from "../../../src/stage-agents.js";
+import { loadStageArtifacts } from "../../../src/stages.js";
 import { runTaskAgent, type TaskAgentRequest, type TaskAgentRunResult } from "../../../src/subagents.js";
 
 const execFileAsync = promisify(execFile);
@@ -18,6 +24,9 @@ const REAL_PI_COMMAND = process.env.SCALER_REAL_PI_COMMAND ?? "pi";
 const REAL_PI_TIMEOUT_MS = Number.parseInt(process.env.SCALER_REAL_PI_TIMEOUT_MS ?? "60000", 10);
 
 const CARDINAL_DEBUG_REPORT_INSTRUCTION = `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: {"type":"scaler_debug_report","taskId":"T-REAL","status":"next_approach","summary":"Real Pi integration deterministic report.","nextApproach":"No code change; this is an integration contract check.","evidenceRefs":["real-pi-cardinal-instruction"]}.`;
+const CARDINAL_RESEARCH_REPORT_INSTRUCTION = `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: {"type":"scaler_research_report","id":"RPT-REAL","requestId":"RESEARCH-REAL","taskId":"T-REAL","status":"complete","question":"What is the deterministic real integration answer?","sources":[{"id":"real-cardinal-source","title":"Real cardinal instruction","quality":"project","summary":"The cardinal instruction is the evidence source."}],"conclusions":[{"summary":"The deterministic answer is supplied by the cardinal instruction.","confidence":"high","sourceRefs":["real-cardinal-source"]}],"contradictions":[],"unresolvedUnknowns":[],"recommendations":["Treat this as a subprocess structured-output contract check."]}.`;
+const CARDINAL_STAGE_ARTIFACT_INSTRUCTION = `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: {"type":"scaler_stage_artifact","stage":"execution","status":"ready","title":"Real Pi execution artifact","summary":"Real Pi integration deterministic stage artifact.","evidenceRefs":["real-pi-cardinal-instruction"],"taskRefs":["T-REAL"]}.`;
+const CARDINAL_REPLAN_PROPOSAL_INSTRUCTION = `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: {"type":"scaler_replan_proposal","plan":{"version":1,"planVersion":1,"status":"draft","title":"Real Pi deterministic proposal","source":"real-pi-cardinal-instruction","tasks":[{"id":"T-REAL-PLAN","title":"Real Pi deterministic plan task","prdRefs":[],"allowedPathPrefixes":["package.json"]}],"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}}.`;
 
 async function withTempRepo<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-real-integration-test-"));
@@ -33,10 +42,11 @@ async function withTempRepo<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
-async function runRealPi(request: TaskAgentRequest): Promise<TaskAgentRunResult> {
+async function runRealPi(request: TaskAgentRequest, cardinalInstruction: string): Promise<TaskAgentRunResult> {
   return await runTaskAgent({
     ...request,
     model: REAL_PI_MODEL ?? request.model,
+    prompt: `${cardinalInstruction}\n\n${request.prompt}`,
   }, {
     command: REAL_PI_COMMAND,
     timeoutMs: REAL_PI_TIMEOUT_MS,
@@ -52,7 +62,7 @@ test("real integration: debug agent obeys cardinal structured report instruction
     await saveState(dir, state);
 
     const realRunner = async (request: TaskAgentRequest): Promise<TaskAgentRunResult> => {
-      return await runRealPi({ ...request, prompt: `${CARDINAL_DEBUG_REPORT_INSTRUCTION}\n\n${request.prompt}` });
+      return await runRealPi(request, CARDINAL_DEBUG_REPORT_INSTRUCTION);
     };
 
     const result = await runDebugAgentStep(dir, state, {
@@ -69,5 +79,93 @@ test("real integration: debug agent obeys cardinal structured report instruction
     assert.equal(result.ingestion?.report?.taskId, "T-REAL");
     assert.deepEqual(result.ingestion?.report?.evidenceRefs, ["real-pi-cardinal-instruction"]);
     assert.equal((await loadDebugReports(dir)).length, 1);
+  });
+});
+
+test("real integration: research agent obeys cardinal structured report instruction", { skip: !REAL_PI_ENABLED }, async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "knowledge";
+    state.tasks = [{ id: "T-REAL", status: "ready", title: "Real research contract", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+    await upsertResearchRequest(dir, {
+      id: "RESEARCH-REAL",
+      question: "What is the deterministic real integration answer?",
+      reason: "Real Pi contract check.",
+      scope: "local",
+      taskId: "T-REAL",
+    });
+
+    const realRunner = async (request: TaskAgentRequest): Promise<TaskAgentRunResult> => {
+      return await runRealPi(request, CARDINAL_RESEARCH_REPORT_INSTRUCTION);
+    };
+
+    const result = await runResearchAgentStep(dir, state, {
+      requestId: "RESEARCH-REAL",
+      execute: true,
+      timeoutMs: REAL_PI_TIMEOUT_MS,
+      model: REAL_PI_MODEL,
+      extraInstructions: CARDINAL_RESEARCH_REPORT_INSTRUCTION,
+    }, realRunner);
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.ingestion?.ingested, true, result.ingestion?.reason);
+    assert.equal(result.ingestion?.report?.id, "RPT-REAL");
+    assert.equal((await loadResearchReports(dir))[0]?.id, "RPT-REAL");
+  });
+});
+
+test("real integration: stage agent obeys cardinal structured artifact instruction", { skip: !REAL_PI_ENABLED }, async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.tasks = [{ id: "T-REAL", status: "validated", title: "Real stage contract", updatedAt: state.createdAt }];
+    state.validatedTaskIds = ["T-REAL"];
+    await saveState(dir, state);
+
+    const realRunner = async (request: TaskAgentRequest): Promise<TaskAgentRunResult> => {
+      return await runRealPi(request, CARDINAL_STAGE_ARTIFACT_INSTRUCTION);
+    };
+
+    const result = await runStageAgentStep(dir, state, "execution", {
+      execute: true,
+      timeoutMs: REAL_PI_TIMEOUT_MS,
+      model: REAL_PI_MODEL,
+      extraInstructions: CARDINAL_STAGE_ARTIFACT_INSTRUCTION,
+    }, realRunner);
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.ingestion?.ingested, true, result.ingestion?.reason);
+    assert.equal(result.ingestion?.artifact?.stage, "execution");
+    assert.equal((await loadStageArtifacts(dir))[0]?.title, "Real Pi execution artifact");
+  });
+});
+
+test("real integration: replan agent obeys cardinal structured proposal instruction", { skip: !REAL_PI_ENABLED }, async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "replanning";
+    await saveState(dir, state);
+    await appendReplanRequest(dir, {
+      id: "REPLAN-REAL",
+      trigger: "manual",
+      reason: "Real Pi proposal contract check.",
+    });
+
+    const realRunner = async (request: TaskAgentRequest): Promise<TaskAgentRunResult> => {
+      return await runRealPi(request, CARDINAL_REPLAN_PROPOSAL_INSTRUCTION);
+    };
+
+    const result = await runReplanAgentStep(dir, state, {
+      execute: true,
+      timeoutMs: REAL_PI_TIMEOUT_MS,
+      model: REAL_PI_MODEL,
+      extraInstructions: CARDINAL_REPLAN_PROPOSAL_INSTRUCTION,
+    }, realRunner);
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.ingestion?.ingested, true, result.ingestion?.reason);
+    assert.equal(result.ingestion?.plan?.tasks[0]?.id, "T-REAL-PLAN");
+    assert.equal((await loadProposedExecutionPlan(dir))?.tasks[0]?.id, "T-REAL-PLAN");
   });
 });
