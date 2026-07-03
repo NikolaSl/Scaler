@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
+import { ensureTaskContextManifest } from "../../../src/context.js";
 import { assessDebugRetryGate, loadDebugAttempts, loadDebugReports, recordDebugAttempt } from "../../../src/debug.js";
 import { loadDebugAgentRunRecords, runDebugAgentStep } from "../../../src/debug-agent.js";
 import { readLogEvents } from "../../../src/logging.js";
+import { loadMemoryIndex } from "../../../src/memory.js";
 import {
   acceptReplanProposal,
   appendReplanRequest,
@@ -182,6 +184,90 @@ test("real flow parity: debug needs research, research resolves it, and debug pr
     assert.ok(events.some((event) => event.eventType === "agent" && event.agentType === "research"));
     assert.ok(events.some((event) => event.eventType === "report" && event.summary.includes("Debug report ingested")));
     assert.ok(events.some((event) => event.eventType === "report" && event.summary.includes("Research report ingested")));
+  });
+});
+
+test("real flow parity: research raw evidence from real Pi becomes memory and appears in later context", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    await upsertPrdRequirement(dir, {
+      id: "REQ-REAL-MEMORY",
+      title: "Real research memory requirement",
+      statement: "Raw research evidence must be externalized into SCALER memory for later task context.",
+      status: "pending",
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.tasks = [{
+      id: "T-REAL-MEMORY",
+      status: "ready",
+      title: "Use real raw evidence memory",
+      prdRefs: ["REQ-REAL-MEMORY"],
+      allowedPathPrefixes: ["index.js"],
+      updatedAt: state.createdAt,
+    }];
+    await saveState(dir, state);
+    await upsertResearchRequest(dir, {
+      id: "RESEARCH-REAL-MEMORY",
+      question: "What exact evidence should later task context preserve?",
+      reason: "Need raw evidence externalized through the real Pi report path.",
+      scope: "local",
+      taskId: "T-REAL-MEMORY",
+      requirementRefs: ["REQ-REAL-MEMORY"],
+    });
+
+    const report = {
+      type: "scaler_research_report",
+      id: "RPT-REAL-MEMORY",
+      requestId: "RESEARCH-REAL-MEMORY",
+      taskId: "T-REAL-MEMORY",
+      status: "complete",
+      question: "What exact evidence should later task context preserve?",
+      requirementRefs: ["REQ-REAL-MEMORY"],
+      sources: [{
+        id: "real-memory-source",
+        title: "Real Pi cardinal raw evidence source",
+        quality: "project",
+        path: "package.json",
+        summary: "The cardinal instruction supplies exact raw evidence for memory externalization.",
+      }],
+      conclusions: [{
+        summary: "Later context must include the externalized real raw evidence memory ref.",
+        confidence: "high",
+        sourceRefs: ["real-memory-source"],
+      }],
+      contradictions: [],
+      unresolvedUnknowns: [],
+      recommendations: ["Attach the report memoryRefs to the task context before execution."],
+      rawEvidence: [{
+        title: "Real raw evidence body",
+        content: "Exact real Pi raw evidence body that must be stored outside the concise research report.",
+        sourceId: "real-memory-source",
+        summary: "raw evidence preserved",
+      }],
+    };
+    const instruction = `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: ${JSON.stringify(report)}.`;
+    const research = await runResearchAgentStep(dir, await loadState(dir), {
+      requestId: "RESEARCH-REAL-MEMORY",
+      execute: true,
+      timeoutMs: REAL_PI_TIMEOUT_MS,
+      model: REAL_PI_MODEL,
+      extraInstructions: instruction,
+    }, realCardinalRunner(instruction));
+
+    assert.equal(research.accepted, true);
+    assert.equal(research.ingestion?.ingested, true, research.ingestion?.reason);
+    const memoryEntries = await loadMemoryIndex(dir);
+    assert.equal(memoryEntries.entries.length, 1);
+    const reports = await loadResearchReports(dir);
+    assert.deepEqual(reports[0]?.memoryRefs, [memoryEntries.entries[0]?.id]);
+    assert.equal((await loadResearchRequests(dir))[0]?.status, "resolved");
+
+    const stateWithMemory = { ...await loadState(dir), memoryRefs: reports[0]?.memoryRefs ?? [] };
+    await saveState(dir, stateWithMemory);
+    const manifest = await ensureTaskContextManifest(dir, stateWithMemory, "T-REAL-MEMORY");
+    assert.ok(manifest.items.some((item) => item.source === "memory" && item.memoryId === memoryEntries.entries[0]?.id));
   });
 });
 
