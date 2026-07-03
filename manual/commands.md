@@ -66,6 +66,10 @@ Examples:
 
 The command refuses commits when unrelated changes are detected, the task is not validated, or the project is not a git repository.
 
+## `/scaler-validate-loop [taskId] [execute] [max=N]`
+
+Runs validation first and, only if validation fails and the task becomes `debugging`, starts `/scaler-debug-loop` after the validation execution lock is released. Validation always executes; the optional `execute` flag controls whether the debug loop executes child agents or only prepares the first handoff. The workflow does not auto-accept replans.
+
 ## `/scaler-validate [taskId]`
 
 Runs validation for a task id, the current validating task, or the first validating task. Validation runs under the repo-wide execution lock.

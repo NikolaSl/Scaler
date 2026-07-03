@@ -174,6 +174,7 @@ When adding a new integration scenario:
   - rejection of free-form debug-agent output.
 - `mock/debug-conductor-flow.test.ts`
   - bounded debug conductor from failed validation through debug `needs_research` → research completion → debug `next_approach`;
+  - validation-debug workflow from actual validation failure through debug/research loop after the validation lock is released;
   - bounded debug conductor from debug `needs_replan` → replanner proposal staging without automatic acceptance.
 - `mock/stage-replan-plan-flow.test.ts`
   - stage conductor loop from PRD through knowledge, planning, execution, and completion;
@@ -209,6 +210,7 @@ When adding a new integration scenario:
   - cardinal real-model call to `scaler_task_create` with exact arguments and persisted SCALER task state;
   - cardinal real-model call to built-in `bash` with `cat .env`, blocked by SCALER's safety hook and recorded as a safety audit event.
 - `real/real-pi-debug-conductor.test.ts`
+  - opt-in real Pi/model validation-debug workflow from actual failed validation into a bounded debug loop next approach;
   - opt-in real Pi/model bounded debug conductor chain from validation failure through debug `needs_research` → research completion → debug `next_approach` with persisted ledgers and audit events.
 - `real/real-pi-flow-parity.test.ts`
   - real non-debug child free-form output rejection for stage, replan, and research agents without ledger mutation;

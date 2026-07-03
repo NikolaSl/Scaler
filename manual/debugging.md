@@ -25,6 +25,7 @@ Cycle detection includes direct A→B→A loops and longer hidden chains such as
 Commands:
 
 ```text
+/scaler-validate-loop [taskId] [execute] [max=N]
 /scaler-debug-run [taskId] [execute]
 /scaler-debug-loop [taskId] [execute] [max=N]
 /scaler-debug-runs [taskId]
@@ -69,6 +70,8 @@ Statuses:
 
 ## Bounded debug conductor
 
+`/scaler-validate-loop [taskId] [execute] [max=N]` runs validation, reloads the persisted state, and starts the bounded debug conductor only when validation fails the task into `debugging`. It avoids nested execution locks by running the debug loop after validation returns.
+
 `/scaler-debug-loop [taskId] [execute] [max=N]` automates the current debug-agent/research-agent/replanner-agent handoffs for one debugging task. It is deterministic and bounded:
 
 1. If a task-local debug-cycle/debug-blocked replan request is open, it runs the replanner agent and stops after a proposed plan is staged.
@@ -79,4 +82,4 @@ The loop stops on prepare-mode handoff, rejected structured ingestion, `next_app
 
 ## Current limitations
 
-The bounded debug conductor does not yet implement automatic code patch/retry after `next_approach`, and it does not auto-start immediately inside `/scaler-validate`. Internet research still depends on explicitly granted tools and safety policy.
+The bounded debug conductor does not yet implement automatic code patch/retry after `next_approach`. Use `/scaler-validate-loop` when you want validation to explicitly hand off into the bounded debug loop; plain `/scaler-validate` remains validation-only. Internet research still depends on explicitly granted tools and safety policy.

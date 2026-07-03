@@ -83,9 +83,10 @@ Inspect execution records with:
 ```text
 /scaler-validate T-001
 /scaler-validate
+/scaler-validate-loop T-001 execute max=5
 ```
 
-Validation runs the task manifest commands and records results under `.scaler/reports/`. Passing validation moves a validating/debugging task to `validated`; failing validation moves a validating task to `debugging`.
+Validation runs the task manifest commands and records results under `.scaler/reports/`. Passing validation moves a validating/debugging task to `validated`; failing validation moves a validating task to `debugging`. `/scaler-validate-loop` keeps `/scaler-validate` semantics, then starts the bounded debug loop after failed validation and after the validation lock is released.
 
 When debugging stalls, use either individual focused-agent commands or the bounded debug loop:
 

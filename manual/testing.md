@@ -52,6 +52,7 @@ The current mocked integration harness covers:
 - unsafe replan proposal acceptance rejection;
 - debug report → replan request → replanner proposal → acceptance retry-gate clearance;
 - bounded debug conductor chains from validation failure through debug → research → debug next approach;
+- validation-debug workflow runs actual validation failure, then starts the bounded debug loop after the validation lock is released;
 - bounded debug conductor stages replanner proposals from debug `needs_replan` without accepting them;
 - blocked validation → replan request → proposal acceptance;
 - execution-lock contention across conductor, validation, stage-agent, replan-agent, research-agent, debug-agent, and commit workflows;
@@ -87,6 +88,7 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - real free-form rejection for stage, replan, and research child-agent outputs without mutating ledgers;
 - real chained debug → research → next-approach flow-parity through persisted debug/research ledgers;
 - real bounded debug conductor chain from validation failure through debug → research → debug next approach;
+- real validation-debug workflow from actual failing validation into a bounded debug loop next approach;
 - real research raw-evidence externalization into memory and later task context manifests;
 - real debug-blocked replan request creation plus safe replan acceptance that clears the retry gate;
 - real chained Stage I-IV conductor flow-parity through persisted stage artifacts and stage-agent run records;
