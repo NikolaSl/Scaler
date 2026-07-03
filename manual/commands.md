@@ -110,6 +110,14 @@ Creates a default task context manifest under `.scaler/context/tasks/<taskId>.js
 
 Shows the task context manifest summary for a task.
 
+## `/scaler-stage-status`
+
+Shows latest Stage I-IV artifact status from `.scaler/stages/stage-artifacts.json`.
+
+## `/scaler-stage-record <stage> | <status> | <title> | <path> | <summary> | <evidence refs> | <PRD refs> | <task refs>`
+
+Records a normalized stage artifact for `prd`, `knowledge`, `planning`, `execution`, or `replanning`.
+
 ## `/scaler-prd-status`
 
 Shows runtime PRD requirement coverage from `.scaler/prd/requirements.json`, `.scaler/prd/coverage.json`, and task `prdRefs` links.
