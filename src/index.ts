@@ -6,6 +6,7 @@ import {
   parseContextTaskArgs,
   parsePrdLinkArgs,
   parseReplanRequestArgs,
+  parseStageLoopArgs,
   parseStageRecordArgs,
   parseStageRunArgs,
   parseTaskCreateArgs,
@@ -43,7 +44,7 @@ import { createTask, formatTaskList, retryTask, updateTask } from "./tasks.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
 import { advanceStageAfterReadyArtifact } from "./stage-advancement.js";
 import { formatStageAgentRunList, loadStageAgentRunRecords, runStageAgentStep } from "./stage-agents.js";
-import { runStageConductorStep } from "./stage-conductor.js";
+import { runStageConductorLoop, runStageConductorStep } from "./stage-conductor.js";
 import {
   formatStageArtifactReadiness,
   formatStageArtifactSummary,
@@ -244,6 +245,23 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         const state = await ensureState(ctx.cwd);
         const execute = /\bexecute\b/i.test(args ?? "");
         const result = await runStageConductorStep(ctx.cwd, state, { execute });
+        if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
+        else console.log(result.message);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+      }
+    },
+  });
+
+  pi.registerCommand("scaler-stage-loop", {
+    description: "Run bounded SCALER stage-conductor steps: /scaler-stage-loop [execute] [max=N]",
+    handler: async (args, ctx) => {
+      try {
+        const state = await ensureState(ctx.cwd);
+        const parsed = parseStageLoopArgs(args);
+        const result = await runStageConductorLoop(ctx.cwd, state, { execute: parsed.execute, maxSteps: parsed.maxSteps });
         if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
         else console.log(result.message);
       } catch (error) {

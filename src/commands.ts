@@ -67,6 +67,11 @@ export interface ParsedStageRunArgs {
   execute: boolean;
 }
 
+export interface ParsedStageLoopArgs {
+  execute: boolean;
+  maxSteps?: number;
+}
+
 export function parseTaskCreateArgs(args: string | undefined): ParsedTaskCreateArgs | undefined {
   const parts = splitPipeArgs(args);
   const taskId = parts[0]?.trim();
@@ -156,6 +161,16 @@ export function parseStageRunArgs(args: string | undefined): ParsedStageRunArgs 
   return {
     stage: parts[0],
     execute: parts.slice(1).some((part) => part.toLowerCase() === "execute"),
+  };
+}
+
+export function parseStageLoopArgs(args: string | undefined): ParsedStageLoopArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  const maxPart = parts.find((part) => /^max=\d+$/i.test(part));
+  const maxSteps = maxPart ? Number.parseInt(maxPart.split("=")[1] ?? "", 10) : undefined;
+  return {
+    execute: parts.some((part) => part.toLowerCase() === "execute"),
+    maxSteps: maxSteps === undefined || !Number.isFinite(maxSteps) ? undefined : maxSteps,
   };
 }
 

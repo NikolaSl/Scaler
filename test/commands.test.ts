@@ -9,6 +9,7 @@ import {
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
+  parseStageLoopArgs,
   parseStageRecordArgs,
   parseStageRunArgs,
   parseValidationAddArgs,
@@ -89,6 +90,12 @@ test("parseContextTaskArgs parses optional task id", () => {
 test("parseStageRunArgs parses stage and execute flag", () => {
   assert.deepEqual(parseStageRunArgs("planning execute"), { stage: "planning", execute: true });
   assert.deepEqual(parseStageRunArgs(" "), { stage: undefined, execute: false });
+});
+
+test("parseStageLoopArgs parses execute and max options", () => {
+  assert.deepEqual(parseStageLoopArgs("execute max=7"), { execute: true, maxSteps: 7 });
+  assert.deepEqual(parseStageLoopArgs("max=bad"), { execute: false, maxSteps: undefined });
+  assert.deepEqual(parseStageLoopArgs(" "), { execute: false, maxSteps: undefined });
 });
 
 test("parseStageRecordArgs parses stage artifact fields", () => {
