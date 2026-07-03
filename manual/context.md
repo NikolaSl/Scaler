@@ -11,6 +11,7 @@ Context items include:
 - `reason`
 - `priority`: `required`, `useful`, or `optional`
 - `scope`: `full`, `section`, `snippet`, `summary`, or `reference-only`
+- `exactness`: optional `exact`, `summary-ok`, or `reference-only`
 - `content`
 
 Current behavior:
@@ -19,6 +20,7 @@ Current behavior:
 - useful/optional items are omitted when over budget
 - included items are ordered by priority
 - omitted items are summarized so task agents can request missing context explicitly
+- task-agent prompts include deterministic compression guidance and exact-preservation rules
 
 ## Task context manifests
 
@@ -53,6 +55,20 @@ When SCALER creates a missing manifest, it also discovers and ranks relevant con
 Existing manifests are preserved; discovery only runs when a manifest is created.
 
 If a source cannot be resolved, SCALER preserves a `MISSING CONTEXT` item instead of silently dropping it.
+
+## Compression and exact preservation
+
+SCALER uses deterministic compression policy helpers for task-agent prompts:
+
+- Active context target defaults to 75% of the task token budget.
+- Context is classified by exactness:
+  - `exact`: preserve unchanged; do not paraphrase code, commands, identifiers, API signatures, contracts, requirements, or validation evidence.
+  - `summary-ok`: may be compressed into task-relevant conclusions with evidence refs.
+  - `reference-only`: keep ids/paths/refs unless retrieval is explicitly needed.
+- Large exact items are recommended for externalization to memory/files with stable references instead of lossy summary.
+- If resolved active context exceeds the 75% target, the prompt recommends splitting work or spawning a fresh minimal-context agent after exact data has been externalized.
+
+Default/discovered manifests mark file snippets, task metadata, validation evidence, execution-plan entries, changed paths, and PRD coverage as `exact`; memory summaries are `summary-ok`; PRD id-only links are `reference-only`.
 
 ## Commands
 

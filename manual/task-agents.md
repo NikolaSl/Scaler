@@ -37,3 +37,5 @@ Task-agent run results include:
 Use `/scaler-runs [taskId]` to inspect recent run records.
 
 Current conductor integration starts selected tasks, records run results, writes validation handoffs, and transitions successful executions to `validating`. Task-agent prepare/execute operations are sequential per repository and are refused while another execution lock is held.
+
+Task-agent prompts include a compression and exact-preservation section derived from resolved context metadata. Agents are instructed to preserve `exact` refs unchanged, summarize only `summary-ok` refs, keep `reference-only` refs compact, externalize large exact material to memory/files, and split work when active context exceeds the 75% target.

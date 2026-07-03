@@ -16,7 +16,6 @@ No open P0 gaps.
 
 | Gap ID | Related requirements | Gap | Suggested next implementation slice |
 |---|---|---|---|
-| GAP-006 | PRD-S10, PRD-S11, PRD-P02 | Compression and exact-preservation workflow missing. | Add compression policy docs/prompts plus structured exact data references and split/externalize recommendations. |
 | GAP-007 | PRD-S18, PRD-P03 | Budget/watchdog enforcement is basic. | Add real counters/enforcement for wall time, spawned agents, validation loops, debug attempts, storage, and token estimates. |
 | GAP-008 | PRD-S20, PRD-P06 | Debug-cycle detection can request replanning and mark debugging tasks `needs_replan`, but repeated failed fingerprints are not yet a hard conductor retry gate. | Block conductor retries after repeated failed fingerprints unless new evidence or an accepted replan request exists. |
 | GAP-009 | PRD-S21..S24, PRD-W06..W07 | Validation gates need richer software and non-software support. | Add typed validation categories, non-software checklists, acceptance evidence fields, and stronger manifest defaults. |
@@ -36,6 +35,7 @@ No open P0 gaps.
 | GAP-017 | PRD-S12, PRD-S13 | Memory retrieval is exact-id only. | Add tag/search filtering and summary references for task prompts. |
 | GAP-018 | PRD-W04, PRD-S25, PRD-S31 | Execution plan artifacts can link tasks to PRD refs and create task records, but no planner agent writes/verifies full PRD coverage automatically. | Make future planner output create/update runtime PRD requirements, current execution plan tasks, task `prdRefs`, and coverage checks before execution. |
 | GAP-020 | PRD-S02, PRD-S14, PRD-W05 | Full structured-report schemas exist for stage/replan/research/supervisor reports, but task-agent lifecycle still does not require a structured task completion report before validation. | Add task-agent `scaler_task_report` ingestion and require successful executed task agents to emit it before validation handoff. |
+| GAP-021 | PRD-S11, PRD-P02 | Context split/externalization is currently prompt-guided by compression assessment, not automatically executed as a handoff workflow. | Add automatic context-split artifacts or fresh minimal-context task-agent spawning when resolved context remains over the active target after required refs are externalized. |
 
 ## Closure rule
 

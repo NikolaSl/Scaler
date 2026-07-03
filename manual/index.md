@@ -16,7 +16,7 @@ Design requirements live in `assignement.md` and `specs/`. This manual stays ali
 - Structured Scaler tool skeletons registered with Pi.
 - External memory write/retrieve under `.scaler/memory/`.
 - Research request/report ledgers under `.scaler/research/` with source quality, confidence, contradictions, raw evidence storage in memory, and focused research-agent run records/structured ingestion.
-- Task context manifests under `.scaler/context/tasks/` with file, memory, state, task, PRD ref, validation-manifest resolution, and relevance discovery from changed files, plans, PRD coverage, validation history, and memory matches.
+- Task context manifests under `.scaler/context/tasks/` with file, memory, state, task, PRD ref, validation-manifest resolution, exactness metadata, compression guidance, and relevance discovery from changed files, plans, PRD coverage, validation history, and memory matches.
 - Minimal adaptive `/scaler` entrypoint.
 - Budget usage helper skeleton for tools, spawned agents, debug attempts, and checkpoints.
 - Checkpoint writing under `.scaler/checkpoints/` for pause/resume and conductor steps.
