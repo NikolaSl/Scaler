@@ -31,6 +31,7 @@ Design requirements live in `assignement.md` and `specs/`. Compliance reviews mu
 - Versioned execution plan artifacts under `.scaler/plans/` with task application, replan request, focused replanner-agent proposal generation, preservation-check, and proposal acceptance helpers.
 - Stage I-IV artifact records under `.scaler/stages/` with status commands, focused stage-agent preparation/runs, structured ingestion, one-step and bounded multi-step stage conductors, readiness/semantic/consistency validation, advancement, and workflow recommendations.
 - Development traceability artifacts for requirement IDs, implementation inventory, matrix coverage, and gap backlog.
+- Integration test harness with deterministic mock child-agent runners and optional real Pi/model execution guarded by cardinal structured-output instructions.
 
 ## Manual pages
 
@@ -51,6 +52,7 @@ Design requirements live in `assignement.md` and `specs/`. Compliance reviews mu
 - `manual/tools.md`
 - `manual/budgets.md`
 - `manual/git.md`
+- `manual/testing.md`
 - `manual/installation.md`
 
 ## Development
@@ -61,6 +63,8 @@ Run checks:
 npm test
 npm run build
 ```
+
+See `manual/testing.md` for mock integration tests and optional real Pi/model integration mode.
 
 Traceability artifacts:
 

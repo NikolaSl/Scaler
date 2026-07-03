@@ -39,7 +39,7 @@ No open P0 gaps.
 
 ## Compliance review findings
 
-Plan 035 source-spec review found that prior matrix entries for debugging overclaimed the full behavior described in `assignement.md` and `specs/attempt-tracking.md`. IMPL-138..140 added hidden-cycle detection, debug reports, and focused debug-agent escalation, but the remaining automatic debug/research/replan conductor loop is tracked as GAP-022. Existing major misses remain visible above: internet/browser/MCP research execution, storage management, CI/CD/sandbox validation, non-software validation, task-agent report enforcement, and automatic context split/externalization.
+Plan 035 source-spec review found that prior matrix entries for debugging overclaimed the full behavior described in `assignement.md` and `specs/attempt-tracking.md`. IMPL-138..140 added hidden-cycle detection, debug reports, and focused debug-agent escalation. IMPL-142 added integration coverage for the current manual validation-failure → debug report → research request/report → next approach path, but the remaining automatic debug/research/replan conductor loop is tracked as GAP-022. Existing major misses remain visible above: internet/browser/MCP research execution, storage management, CI/CD/sandbox validation, non-software validation, task-agent report enforcement, and automatic context split/externalization.
 
 ## Closure rule
 
