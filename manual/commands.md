@@ -126,6 +126,14 @@ Creates missing supervisor task records from `.scaler/plans/current-plan.json`. 
 
 Lists replan requests from `.scaler/plans/replan-requests.json`.
 
+## `/scaler-replan-proposal-status`
+
+Shows preservation status for `.scaler/plans/proposed-plan.json` against the current plan, runtime PRD, and supervisor state.
+
+## `/scaler-replan-accept`
+
+Accepts `.scaler/plans/proposed-plan.json` only when preservation checks pass, snapshots the previous plan, saves the proposal as current, applies missing tasks, resolves open replan requests, and records a decision.
+
 ## `/scaler-replan-request <reason> | <taskId> | <evidence refs> | <PRD refs>`
 
 Records a manual replan request and attempts to transition the supervisor stage to `replanning`.

@@ -23,6 +23,7 @@ Maintenance artifact for `traceability-matrix.md`. Update when implementation pl
 | IMPL-067..071 | Versioned execution plans | Current plan storage, version snapshots, plan coverage summary, plan-to-task apply commands/docs | `src/plans.ts`, `src/paths.ts`, `src/index.ts` | `test/plans.test.ts`, `test/extension-shape.test.ts` | `manual/execution-plans.md`, `manual/workflow.md`, `manual/index.md` |
 | IMPL-072..076 | Replan requests and preservation checks | Replan request artifacts, preservation checks, replan commands, blocked-validation/debug-cycle triggers | `src/plans.ts`, `src/replanning.ts`, `src/validation.ts`, `src/debug.ts`, `src/index.ts`, `src/paths.ts` | `test/plans.test.ts`, `test/validation.test.ts`, `test/debug.test.ts`, `test/commands.test.ts`, `test/extension-shape.test.ts` | `manual/execution-plans.md`, `manual/commands.md`, `manual/index.md` |
 | IMPL-077..081 | Task context manifests | Context manifest storage, source resolution, conductor integration, context commands/docs | `src/context.ts`, `src/conductor.ts`, `src/commands.ts`, `src/index.ts`, `src/paths.ts` | `test/context.test.ts`, `test/conductor.test.ts`, `test/commands.test.ts`, `test/extension-shape.test.ts` | `manual/context.md`, `manual/commands.md`, `manual/index.md` |
+| IMPL-082..085 | Replan proposal acceptance | Proposed plan artifacts, replan decision records, preservation-gated proposal acceptance commands/docs | `src/plans.ts`, `src/index.ts`, `src/paths.ts` | `test/plans.test.ts`, `test/extension-shape.test.ts` | `manual/execution-plans.md`, `manual/commands.md`, `manual/index.md` |
 
 ## Current high-value code areas
 
@@ -38,7 +39,7 @@ Maintenance artifact for `traceability-matrix.md`. Update when implementation pl
 | External memory/logging | `src/memory.ts`, `src/logging.ts` | Memory files and JSONL audit log. |
 | Context | `src/context.ts` | Context resolver, omitted-context summaries, per-task context manifests, and source resolution for files, memory, state, task metadata, PRD refs, and validation manifests. |
 | Runtime PRD ledger | `src/prd.ts` | Per-run polished PRD files, requirement catalog, coverage computation, snapshots, and change log. |
-| Execution plans | `src/plans.ts` | Current/versioned execution plan artifacts, coverage summaries, preservation checks, replan requests, and task application. |
+| Execution plans | `src/plans.ts` | Current/proposed/versioned execution plan artifacts, coverage summaries, preservation checks, replan requests, replan decisions, proposal acceptance, and task application. |
 | Replanning triggers | `src/replanning.ts`, `src/validation.ts`, `src/debug.ts` | Manual and evidence-driven creation of replan requests with supervisor replanning transitions. |
 | Tool isolation | `src/tool-requests.ts`, `src/tools.ts` | Structured tools and isolated tool requests. |
 

@@ -7,6 +7,8 @@ Implemented artifacts:
 - `.scaler/plans/current-plan.json` — current structured execution plan.
 - `.scaler/plans/versions/PLAN-vNNN.json` — versioned execution plan snapshots.
 - `.scaler/plans/replan-requests.json` — newest-first replan request records.
+- `.scaler/plans/proposed-plan.json` — staged replacement plan for a replan request.
+- `.scaler/plans/replan-decisions.json` — accepted/rejected proposal decisions.
 
 Current plan task fields:
 
@@ -31,6 +33,8 @@ Plan statuses:
 /scaler-plan-status
 /scaler-plan-apply
 /scaler-replans
+/scaler-replan-proposal-status
+/scaler-replan-accept
 /scaler-replan-request <reason> | <taskId> | <evidence refs> | <PRD refs>
 ```
 
@@ -50,6 +54,10 @@ Plan statuses:
 
 `/scaler-replan-request` records a manual replan request and attempts to transition the supervisor stage to `replanning` when the current stage allows it.
 
+`/scaler-replan-proposal-status` validates `.scaler/plans/proposed-plan.json` against the current plan, runtime PRD requirements, and supervisor state.
+
+`/scaler-replan-accept` accepts `.scaler/plans/proposed-plan.json` only when preservation checks pass. Acceptance snapshots the previous current plan, saves the proposed plan as current, applies missing task records, resolves open replan requests, and records a decision.
+
 ## Replan triggers and preservation checks
 
 SCALER records replan requests when:
@@ -67,4 +75,4 @@ Execution plan replacement preservation checks are available in code. They repor
 
 SCALER does not yet include a planner agent that writes the current plan automatically. The plan artifact can be written by future planner tooling or direct file creation, and then applied through `/scaler-plan-apply`.
 
-SCALER does not yet include an automatic planner agent that consumes replan requests and writes a replacement execution plan.
+SCALER does not yet include an automatic planner agent that writes `.scaler/plans/proposed-plan.json` from replan requests.
