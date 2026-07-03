@@ -62,6 +62,11 @@ export interface ParsedStageRecordArgs {
   taskRefs?: string[];
 }
 
+export interface ParsedStageRunArgs {
+  stage?: string;
+  execute: boolean;
+}
+
 export function parseTaskCreateArgs(args: string | undefined): ParsedTaskCreateArgs | undefined {
   const parts = splitPipeArgs(args);
   const taskId = parts[0]?.trim();
@@ -144,6 +149,14 @@ export function parseReplanRequestArgs(args: string | undefined): ParsedReplanRe
 
 export function parseContextTaskArgs(args: string | undefined): ParsedContextTaskArgs {
   return { taskId: args?.trim() || undefined };
+}
+
+export function parseStageRunArgs(args: string | undefined): ParsedStageRunArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  return {
+    stage: parts[0],
+    execute: parts.slice(1).some((part) => part.toLowerCase() === "execute"),
+  };
 }
 
 export function parseStageRecordArgs(args: string | undefined): ParsedStageRecordArgs | undefined {

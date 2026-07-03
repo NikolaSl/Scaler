@@ -10,6 +10,7 @@ import {
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
   parseStageRecordArgs,
+  parseStageRunArgs,
   parseValidationAddArgs,
   resolveCommitAllowedPaths,
   selectTaskForCommit,
@@ -83,6 +84,11 @@ test("parseCommaList removes blanks", () => {
 test("parseContextTaskArgs parses optional task id", () => {
   assert.deepEqual(parseContextTaskArgs(" T-001 "), { taskId: "T-001" });
   assert.deepEqual(parseContextTaskArgs(" "), { taskId: undefined });
+});
+
+test("parseStageRunArgs parses stage and execute flag", () => {
+  assert.deepEqual(parseStageRunArgs("planning execute"), { stage: "planning", execute: true });
+  assert.deepEqual(parseStageRunArgs(" "), { stage: undefined, execute: false });
 });
 
 test("parseStageRecordArgs parses stage artifact fields", () => {

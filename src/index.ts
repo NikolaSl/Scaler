@@ -7,6 +7,7 @@ import {
   parsePrdLinkArgs,
   parseReplanRequestArgs,
   parseStageRecordArgs,
+  parseStageRunArgs,
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
@@ -40,6 +41,7 @@ import { requestReplan } from "./replanning.js";
 import { assessToolCallSafety } from "./safety.js";
 import { createTask, formatTaskList, retryTask, updateTask } from "./tasks.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
+import { formatStageAgentRunList, loadStageAgentRunRecords, runStageAgentStep } from "./stage-agents.js";
 import { formatStageArtifactSummary, loadStageArtifacts, summarizeStageArtifacts, upsertStageArtifact } from "./stages.js";
 import { registerScalerTools } from "./tools.js";
 import { upsertValidationManifestCommand } from "./validation.js";
@@ -175,6 +177,47 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const message = formatStageArtifactSummary(summarizeStageArtifacts(await loadStageArtifacts(ctx.cwd)));
       if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-stage-run", {
+    description: "Prepare or execute a focused stage agent: /scaler-stage-run <stage> [execute]",
+    handler: async (args, ctx) => {
+      const parsed = parseStageRunArgs(args);
+      if (!parsed.stage) {
+        const message = "Usage: /scaler-stage-run <stage> [execute]";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+
+      try {
+        const state = await ensureState(ctx.cwd);
+        const result = await runStageAgentStep(ctx.cwd, state, parsed.stage, { execute: parsed.execute });
+        const message = result.accepted ? `${result.message} run=${result.runRecord?.id ?? "n/a"}` : result.message;
+        if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
+        else console.log(message);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+      }
+    },
+  });
+
+  pi.registerCommand("scaler-stage-runs", {
+    description: "List recent stage-agent runs. Optional arg filters by stage.",
+    handler: async (args, ctx) => {
+      const stage = args?.trim() || undefined;
+      try {
+        const message = formatStageAgentRunList(await loadStageAgentRunRecords(ctx.cwd), stage);
+        if (ctx.hasUI) ctx.ui.notify(message, "info");
+        else console.log(message);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+      }
     },
   });
 

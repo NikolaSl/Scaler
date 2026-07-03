@@ -27,6 +27,8 @@ test("extension registers scaler commands", () => {
     "scaler-context-init",
     "scaler-context-status",
     "scaler-stage-status",
+    "scaler-stage-run",
+    "scaler-stage-runs",
     "scaler-stage-record",
     "scaler-task-create",
     "scaler-task-update",
