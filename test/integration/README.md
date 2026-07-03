@@ -138,6 +138,7 @@ Rules:
 - Also pass it as `extraInstructions` when supported so it appears in the generated prompt detail.
 - Require exactly one JSON event or exactly one named tool call, depending on the scenario.
 - For structured report contracts, require no prose/markdown.
+- For negative structured-ingestion tests, a cardinal-only real Pi prompt may be used so the model cannot repair the intentionally invalid output from the ordinary agent prompt.
 - For tool/hook contracts, restrict `--tools` to the single required tool whenever possible.
 - Include all fields needed for deterministic ingestion or ledger mutation.
 - SCALER accepts report events either as direct mock `scaler_*` objects or as exact JSON objects in assistant text inside Pi `--mode json` event wrappers; surrounding prose/markdown remains rejected.
@@ -205,10 +206,14 @@ When adding a new integration scenario:
   - cardinal real-model call to `scaler_task_create` with exact arguments and persisted SCALER task state;
   - cardinal real-model call to built-in `bash` with `cat .env`, blocked by SCALER's safety hook and recorded as a safety audit event.
 - `real/real-pi-flow-parity.test.ts`
+  - real non-debug child free-form output rejection for stage, replan, and research agents without ledger mutation;
   - real debug-agent `needs_research` report → research request ledger;
   - real research-agent complete report → request resolution;
   - real debug-agent `next_approach` report → debug report ledger;
+  - real research raw evidence → memory entry → later task context manifest reference;
+  - real debug-agent `needs_replan` report → debug-blocked replan request → safe replan acceptance → retry-gate clearance;
   - real Stage I-IV conductor loop using cardinal stage artifacts, readiness/semantic/consistency advancement, and final completed state;
+  - real unsafe replanner proposal → failed preservation check → rejected acceptance with current plan unchanged;
   - real replanner proposal ingestion → preservation check → proposal acceptance → current-plan replacement, version snapshot, replan decision, request resolution, and task creation.
 - `real/real-pi-harness.ts`
   - shared temp-repository and `pi --mode json -p --no-session -e <src/index.ts>` harness for opt-in real extension tests.

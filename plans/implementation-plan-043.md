@@ -26,4 +26,5 @@ Add opt-in real Pi integration coverage for remaining mocked-flow scenarios that
 3. `IMPL-162: add real unsafe replan parity test`
 4. `IMPL-163: add real debug blocked replan parity test`
 5. `IMPL-164: add real research memory parity test`
-6. `IMPL-165: document expanded real flow parity coverage`
+6. `IMPL-165: harden real negative parity tests`
+7. `IMPL-166: document expanded real flow parity coverage`
