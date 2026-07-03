@@ -3,8 +3,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { appendLogEvent, createLogEvent, logStateEvent, readLogEvents } from "../src/logging.js";
-import { getEventLogPath } from "../src/paths.js";
+import { appendLogEvent, createLogEvent, logAgentPromptAudit, logCommandAudit, logGitCommitAudit, logStateEvent, logStructuredReportAudit, logValidationSummaryAudit, readLogEvents, writeAuditDetail } from "../src/logging.js";
+import { getEventLogPath, getLogDetailsDir } from "../src/paths.js";
 import { createDefaultState } from "../src/state.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -61,6 +61,35 @@ test("readLogEvents returns appended events", async () => {
 test("readLogEvents returns empty array when log is missing", async () => {
   await withTempDir(async (dir) => {
     assert.deepEqual(await readLogEvents(dir), []);
+  });
+});
+
+test("writeAuditDetail persists payload under log details", async () => {
+  await withTempDir(async (dir) => {
+    const path = await writeAuditDetail(dir, "agent prompt/test", { prompt: "hello" }, new Date("2026-01-01T00:00:00.000Z"));
+    const raw = await readFile(path, "utf8");
+    const detail = JSON.parse(raw) as { category: string; payload: { prompt: string } };
+
+    assert.equal(path.startsWith(getLogDetailsDir(dir)), true);
+    assert.equal(detail.category, "agent prompt/test");
+    assert.equal(detail.payload.prompt, "hello");
+  });
+});
+
+test("audit helpers append events with detail refs", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+
+    await logCommandAudit(dir, state, { command: "scaler-status", phase: "start", args: "" }, new Date("2026-01-01T00:00:01.000Z"));
+    await logAgentPromptAudit(dir, state, { agentType: "task", agentId: "T-001", prompt: "Do work", taskId: "T-001" }, new Date("2026-01-01T00:00:02.000Z"));
+    await logStructuredReportAudit(dir, state, { reportType: "scaler_report", summary: "done", report: { ok: true }, accepted: true }, new Date("2026-01-01T00:00:03.000Z"));
+    await logValidationSummaryAudit(dir, state, { taskId: "T-001", runId: "run-1", status: "passed", commandCount: 2 }, new Date("2026-01-01T00:00:04.000Z"));
+    await logGitCommitAudit(dir, state, { taskId: "T-001", accepted: true, message: "Committed T-001: abc123", commitHash: "abc123" }, new Date("2026-01-01T00:00:05.000Z"));
+
+    const events = await readLogEvents(dir);
+    assert.deepEqual(events.map((event) => event.eventType), ["command", "agent", "report", "validation", "git"]);
+    assert.equal(events.every((event) => Boolean(event.detailsPath)), true);
+    assert.deepEqual(events[4]?.outputRefs, ["abc123"]);
   });
 });
 
