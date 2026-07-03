@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
 import { writeCheckpoint } from "./checkpoints.js";
 import { assessCompression, formatCompressionGuidance } from "./compression.js";
+import { assessDebugRetryGate } from "./debug.js";
 import {
   ensureTaskContextManifest,
   resolveContext,
@@ -142,6 +143,12 @@ export async function runConductorStep(
   if (!selection.task) {
     await appendLogEvent(cwd, createLogEvent(state, { eventType: "system", summary: selection.reason }));
     return { accepted: false, message: selection.reason, state };
+  }
+
+  const debugGate = await assessDebugRetryGate(cwd, selection.task.id);
+  if (!debugGate.allowed) {
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "debug", summary: debugGate.reason, taskId: selection.task.id, details: debugGate }));
+    return { accepted: false, message: debugGate.reason, state, task: selection.task };
   }
 
   const lock = await acquireExecutionLock(cwd, {

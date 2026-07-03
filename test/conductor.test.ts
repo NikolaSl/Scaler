@@ -16,6 +16,7 @@ import {
   selectNextTask,
 } from "../src/conductor.js";
 import { saveTaskContextManifest } from "../src/context.js";
+import { recordDebugAttempt } from "../src/debug.js";
 import { acquireExecutionLock, loadExecutionLock } from "../src/locks.js";
 import { createDefaultState, loadState } from "../src/state.js";
 import type { ScalerTaskStatus } from "../src/types.js";
@@ -124,6 +125,37 @@ test("buildTaskAgentPrompt includes task metadata and report instructions", () =
   assert.match(result.prompt, /Compression and Exact-Preservation Policy/);
   assert.match(result.prompt, /Summary-ok refs: spec/);
   assert.match(result.prompt, /Widget must render labels/);
+});
+
+test("runConductorStep refuses unresolved debug retry gates before locking", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "debugging";
+    await recordDebugAttempt(dir, state, {
+      taskId: "T-001",
+      failureId: "F-001",
+      hypothesis: "Fix A",
+      actionSummary: "Change A",
+      result: "new_failure",
+      failureFingerprint: "failure-a",
+      resultingFailureFingerprint: "failure-b",
+    }, new Date("2026-01-01T00:00:01.000Z"));
+    await recordDebugAttempt(dir, state, {
+      taskId: "T-001",
+      failureId: "F-001",
+      hypothesis: "Fix B",
+      actionSummary: "Change B",
+      result: "new_failure",
+      failureFingerprint: "failure-b",
+      resultingFailureFingerprint: "failure-a",
+    }, new Date("2026-01-01T00:00:02.000Z"));
+
+    const result = await runConductorStep(dir, state);
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /Debug retry blocked for T-001/);
+    assert.equal(await loadExecutionLock(dir), undefined);
+  });
 });
 
 test("runConductorStep refuses when execution lock is held", async () => {
