@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { incrementBudgetUsage, persistBudgetDecision, type BudgetUsageKey } from "./budgets.js";
+import { incrementBudgetUsage, persistBudgetDecision, recordStorageBudgetUsage, type BudgetUsageKey } from "./budgets.js";
 import { recordDebugAttempt } from "./debug.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { logToolAudit } from "./logging.js";
@@ -246,6 +246,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         content: params.content,
         taskId: params.taskId,
       });
+      await recordCurrentStorageUsage(ctx.cwd);
       await logTool(ctx.cwd, "scaler_memory_write", `Memory written: ${entry.id}`, { params, entry });
       return textResult(`Memory written: ${entry.id}\nPath: ${entry.path}\nSummary: ${entry.summary}`, { status: "written", entry });
     },
@@ -282,6 +283,8 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         recommendations: params.recommendations,
         rawEvidence: params.rawEvidence,
       });
+      await recordBudgetUsage(ctx.cwd, "researchReports");
+      await recordCurrentStorageUsage(ctx.cwd);
       await logTool(ctx.cwd, "scaler_research_report", `Research report recorded: ${report.id}`, { params, report });
       return textResult(`Research report recorded: ${report.id}`, { status: "recorded", report });
     },
@@ -550,6 +553,12 @@ async function logTool(cwd: string, toolName: ScalerToolName, summary: string, d
 async function recordBudgetUsage(cwd: string, key: BudgetUsageKey): Promise<ScalerState> {
   const state = await ensureState(cwd);
   const { state: budgetedState, decision } = incrementBudgetUsage(state, key);
+  return await persistBudgetDecision(cwd, budgetedState, decision);
+}
+
+async function recordCurrentStorageUsage(cwd: string): Promise<ScalerState> {
+  const state = await ensureState(cwd);
+  const { state: budgetedState, decision } = await recordStorageBudgetUsage(cwd, state);
   return await persistBudgetDecision(cwd, budgetedState, decision);
 }
 

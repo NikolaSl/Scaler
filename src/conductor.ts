@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
 import { writeCheckpoint } from "./checkpoints.js";
 import { assessCompression, formatCompressionGuidance } from "./compression.js";
 import {
@@ -164,12 +165,27 @@ export async function runConductorStep(
   const runningTask = nextState.tasks.find((task) => task.id === selection.task!.id)!;
   const contextManifest = options.contextItems ? undefined : await ensureTaskContextManifest(cwd, nextState, runningTask.id);
   const contextItems = options.contextItems ?? (await resolveTaskContextManifest(cwd, nextState, contextManifest!));
-  const { prompt } = buildTaskAgentPrompt({
+  const { prompt, resolvedContext } = buildTaskAgentPrompt({
     state: nextState,
     task: runningTask,
     contextItems,
     tokenBudget: options.tokenBudget ?? contextManifest?.tokenBudget,
   });
+  const budgetUpdates = [
+    { key: "contextTokens" as const, amount: resolvedContext.estimatedTokens, mode: "set" as const },
+    ...(options.execute ? [{ key: "spawnedAgents" as const, amount: 1, mode: "increment" as const }] : []),
+  ];
+  const budgetResult = applyBudgetUsageUpdates(nextState, budgetUpdates);
+  nextState = await persistBudgetDecision(cwd, budgetResult.state, budgetResult.decision);
+  if (budgetResult.decision.status === "hard_limit") {
+    return {
+      accepted: false,
+      message: `Budget hard limit refused task ${runningTask.id}: ${budgetResult.decision.reason}`,
+      state: nextState,
+      task: runningTask,
+      prompt,
+    };
+  }
   await logAgentPromptAudit(cwd, nextState, {
     agentType: "task",
     agentId: runningTask.id,

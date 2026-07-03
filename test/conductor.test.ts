@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { getBudgetState, setBudgetLimits } from "../src/budgets.js";
 import {
   buildTaskAgentPrompt,
   dependenciesSatisfied,
@@ -184,6 +185,44 @@ test("runConductorStep uses task context manifest when explicit context is absen
     assert.equal(result.accepted, true);
     assert.match(result.prompt ?? "", /Manifest file context/);
     assert.deepEqual(result.prompt?.match(/## Context: file/g), ["## Context: file"]);
+  });
+});
+
+test("runConductorStep records context tokens and spawned agents", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => ({
+      taskId: request.taskId,
+      exitCode: 0,
+      stdoutEvents: [],
+      stderr: "",
+      timedOut: false,
+      aborted: false,
+    }));
+
+    const budgets = getBudgetState(result.state);
+    assert.equal(budgets.usage.spawnedAgents, 1);
+    assert.ok((budgets.usage.contextTokens ?? 0) > 0);
+  });
+});
+
+test("runConductorStep refuses hard budget limits before executing runner", async () => {
+  await withTempDir(async (dir) => {
+    const state = setBudgetLimits(stateWithTasks(["ready"]), { spawnedAgents: { hard: 1 } });
+    state.stage = "execution";
+    let called = false;
+
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
+      called = true;
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(called, false);
+    assert.match(result.message, /Budget hard limit refused task T-001/);
+    assert.equal(getBudgetState(result.state).usage.spawnedAgents, 1);
   });
 });
 

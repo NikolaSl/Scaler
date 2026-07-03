@@ -1,3 +1,4 @@
+import { incrementBudgetUsage, persistBudgetDecision } from "./budgets.js";
 import { commitValidatedTask, type GitCommitTaskResult } from "./git.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import type { ScalerState } from "./types.js";
@@ -18,7 +19,13 @@ export async function runValidationWithExecutionLock(
   if (!lock.acquired) return { accepted: false, message: lock.message };
 
   try {
-    const run = await runTaskValidation(cwd, state, taskId);
+    const budgetResult = incrementBudgetUsage(state, "validationLoops");
+    const budgetedState = await persistBudgetDecision(cwd, budgetResult.state, budgetResult.decision);
+    if (budgetResult.decision.status === "hard_limit") {
+      return { accepted: false, message: `Validation refused by budget: ${budgetResult.decision.reason}` };
+    }
+
+    const run = await runTaskValidation(cwd, budgetedState, taskId);
     return { accepted: true, message: `Validation ${run.status}: ${taskId} commands=${run.commandRuns.length}`, result: run };
   } finally {
     await releaseExecutionLock(cwd, lock.lock.id);

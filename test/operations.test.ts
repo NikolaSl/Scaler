@@ -3,9 +3,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { getBudgetState, setBudgetLimits } from "../src/budgets.js";
 import { acquireExecutionLock, loadExecutionLock } from "../src/locks.js";
 import { commitWithExecutionLock, runValidationWithExecutionLock } from "../src/operations.js";
-import { createDefaultState } from "../src/state.js";
+import { createDefaultState, loadState } from "../src/state.js";
 import { addTask } from "../src/supervisor.js";
 import { saveValidationManifest } from "../src/validation.js";
 
@@ -44,6 +45,28 @@ test("runValidationWithExecutionLock releases lock after validation", async () =
 
     assert.equal(result.accepted, true);
     assert.equal(result.result?.status, "passed");
+    assert.equal(getBudgetState(await loadState(dir)).usage.validationLoops, 1);
+    assert.equal(await loadExecutionLock(dir), undefined);
+  });
+});
+
+test("runValidationWithExecutionLock refuses hard validation-loop budget before commands", async () => {
+  await withTempDir(async (dir) => {
+    const state = setBudgetLimits(addTask(createDefaultState(), { id: "T-001", status: "validating" }), {
+      validationLoops: { hard: 1 },
+    });
+    await saveValidationManifest(dir, {
+      taskId: "T-001",
+      commands: [{ id: "fail-if-run", command: "node -e \"process.exit(9)\"", required: true }],
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    const result = await runValidationWithExecutionLock(dir, state, "T-001");
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /Validation refused by budget/);
+    assert.equal(getBudgetState(await loadState(dir)).usage.validationLoops, 1);
     assert.equal(await loadExecutionLock(dir), undefined);
   });
 });

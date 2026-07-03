@@ -3,8 +3,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { getBudgetState } from "../src/budgets.js";
 import { loadCurrentPrd, loadPrdCoverage, loadPrdRequirements } from "../src/prd.js";
 import { loadResearchReports } from "../src/research.js";
+import { loadState } from "../src/state.js";
 import { scalerToolNames, registerScalerTools } from "../src/tools.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -67,8 +69,11 @@ test("scaler_research_report records structured research", async () => {
     );
 
     const reports = await loadResearchReports(dir);
+    const budgets = getBudgetState(await loadState(dir));
     assert.equal(reports[0]?.question, "Which docs apply?");
     assert.equal(reports[0]?.memoryRefs?.length, 1);
+    assert.equal(budgets.usage.researchReports, 1);
+    assert.ok((budgets.usage.storageBytes ?? 0) > 0);
   });
 });
 
