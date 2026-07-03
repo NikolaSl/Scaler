@@ -86,6 +86,10 @@ export function getStageAgentRunsPath(cwd: string): string {
   return join(getReportsDir(cwd), "stage-agent-runs.json");
 }
 
+export function getReplanAgentRunsPath(cwd: string): string {
+  return join(getReportsDir(cwd), "replan-agent-runs.json");
+}
+
 export function getValidationManifestsPath(cwd: string): string {
   return join(getReportsDir(cwd), "validation-manifests.json");
 }
