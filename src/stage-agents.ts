@@ -4,7 +4,7 @@ import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { getStageAgentRunsPath } from "./paths.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
-import { loadStageArtifacts, stageArtifactStages, type StageArtifact, type StageArtifactStage } from "./stages.js";
+import { loadStageArtifacts, stageArtifactStatuses, stageArtifactStages, type StageArtifact, type StageArtifactInput, type StageArtifactStage } from "./stages.js";
 import type { ScalerState } from "./types.js";
 
 export interface StageAgentPromptInput {
@@ -64,6 +64,23 @@ export interface StageAgentStepResult {
 
 export type StageAgentRunner = typeof runTaskAgent;
 
+export interface StageAgentArtifactReport {
+  stage: StageArtifactStage;
+  status: string;
+  title?: string;
+  path?: string;
+  summary?: string;
+  evidenceRefs?: string[];
+  requirementRefs?: string[];
+  taskRefs?: string[];
+}
+
+export interface StageAgentReportExtractionResult {
+  ok: boolean;
+  artifactInput?: StageArtifactInput;
+  reason?: string;
+}
+
 export function buildStageAgentPrompt(input: StageAgentPromptInput): string {
   const stage = normalizeStage(input.stage);
   const relatedArtifacts = (input.artifacts ?? []).filter((artifact) => artifact.stage === stage);
@@ -83,7 +100,8 @@ export function buildStageAgentPrompt(input: StageAgentPromptInput): string {
     "Required final response:",
     "- Summarize what artifact was produced or why it is blocked.",
     "- List exact file paths and evidence references used.",
-    "- State the /scaler-stage-record command arguments that should record the artifact.",
+    "- Emit one JSON event with type `scaler_stage_artifact` and fields: stage, status, title, optional path, optional summary, optional evidenceRefs, optional requirementRefs, optional taskRefs.",
+    "- If JSON event emission is unavailable, state the /scaler-stage-record command arguments that should record the artifact.",
   ];
 
   if (input.extraInstructions?.trim()) {
@@ -208,10 +226,75 @@ export function formatStageAgentRunList(records: StageAgentRunRecord[], stage?: 
   return lines.join("\n");
 }
 
+export function extractStageAgentArtifactReport(
+  stdoutEvents: unknown[],
+  expectedStage?: StageArtifactStage | string,
+): StageAgentReportExtractionResult {
+  const expected = expectedStage ? normalizeStage(expectedStage) : undefined;
+  const candidates = stdoutEvents
+    .map((event) => extractReportPayload(event))
+    .filter((payload): payload is Record<string, unknown> => Boolean(payload));
+  if (candidates.length === 0) return { ok: false, reason: "No scaler_stage_artifact report found in stage-agent output." };
+
+  const report = candidates[candidates.length - 1];
+  const stageValue = stringField(report, "stage");
+  if (!stageValue) return { ok: false, reason: "Stage artifact report is missing stage." };
+  const stage = normalizeStage(stageValue);
+  if (expected && stage !== expected) return { ok: false, reason: `Stage artifact report stage ${stage} does not match expected ${expected}.` };
+
+  const status = stringField(report, "status");
+  if (!status) return { ok: false, reason: "Stage artifact report is missing status." };
+  if (!stageArtifactStatuses.includes(status as never)) return { ok: false, reason: `Invalid stage artifact report status: ${status}.` };
+
+  const title = stringField(report, "title");
+  if (!title) return { ok: false, reason: "Stage artifact report is missing title." };
+
+  return {
+    ok: true,
+    artifactInput: {
+      stage,
+      status,
+      title,
+      path: stringField(report, "path"),
+      summary: stringField(report, "summary"),
+      evidenceRefs: stringArrayField(report, "evidenceRefs"),
+      requirementRefs: stringArrayField(report, "requirementRefs"),
+      taskRefs: stringArrayField(report, "taskRefs"),
+    },
+  };
+}
+
 export function normalizeStage(stage: StageArtifactStage | string): StageArtifactStage {
   const normalized = stage.trim() as StageArtifactStage;
   if (!stageArtifactStages.includes(normalized)) throw new Error(`Invalid stage agent stage: ${String(stage)}`);
   return normalized;
+}
+
+function extractReportPayload(event: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(event)) return undefined;
+  if (event.type === "scaler_stage_artifact") return event;
+  const nested = event.scaler_stage_artifact ?? event.payload ?? event.data;
+  if (isRecord(nested) && nested.type === "scaler_stage_artifact") return nested;
+  if (isRecord(nested) && isRecord(nested.scaler_stage_artifact)) return nested.scaler_stage_artifact;
+  return undefined;
+}
+
+function stringField(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
+function stringArrayField(record: Record<string, unknown>, key: string): string[] | undefined {
+  const value = record[key];
+  if (!Array.isArray(value)) return undefined;
+  const items = value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean);
+  return items.length > 0 ? Array.from(new Set(items)).sort((a, b) => a.localeCompare(b)) : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function stageContract(stage: StageArtifactStage): string[] {

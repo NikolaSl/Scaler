@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
   buildStageAgentPrompt,
+  extractStageAgentArtifactReport,
   formatStageAgentRunList,
   loadStageAgentRunRecords,
   normalizeStage,
@@ -41,7 +42,56 @@ test("buildStageAgentPrompt includes stage contract, state, and artifact refs", 
   assert.match(prompt, /Create or refresh the sequential execution plan/);
   assert.match(prompt, /ART-PLAN \| draft \| Draft plan \| path=.scaler\/plans\/current-plan.json/);
   assert.match(prompt, /Prefer small tasks/);
+  assert.match(prompt, /scaler_stage_artifact/);
   assert.match(prompt, /\/scaler-stage-record/);
+});
+
+test("extractStageAgentArtifactReport extracts and validates latest report", () => {
+  const result = extractStageAgentArtifactReport([
+    { type: "message", text: "working" },
+    { payload: { type: "scaler_stage_artifact", stage: "planning", status: "draft", title: "Old" } },
+    {
+      type: "scaler_stage_artifact",
+      stage: "planning",
+      status: "ready",
+      title: "Plan",
+      path: ".scaler/plans/current-plan.json",
+      evidenceRefs: [" run:2 ", "run:1", "run:1"],
+      requirementRefs: ["PRD-S01"],
+      taskRefs: ["T-001"],
+    },
+  ], "planning");
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.artifactInput, {
+    stage: "planning",
+    status: "ready",
+    title: "Plan",
+    path: ".scaler/plans/current-plan.json",
+    summary: undefined,
+    evidenceRefs: ["run:1", "run:2"],
+    requirementRefs: ["PRD-S01"],
+    taskRefs: ["T-001"],
+  });
+});
+
+test("extractStageAgentArtifactReport reports missing, invalid, and mismatched reports", () => {
+  assert.deepEqual(extractStageAgentArtifactReport([], "prd"), {
+    ok: false,
+    reason: "No scaler_stage_artifact report found in stage-agent output.",
+  });
+  assert.deepEqual(extractStageAgentArtifactReport([{ type: "scaler_stage_artifact", stage: "prd", status: "ready" }], "prd"), {
+    ok: false,
+    reason: "Stage artifact report is missing title.",
+  });
+  assert.deepEqual(extractStageAgentArtifactReport([{ type: "scaler_stage_artifact", stage: "knowledge", status: "ready", title: "Knowledge" }], "prd"), {
+    ok: false,
+    reason: "Stage artifact report stage knowledge does not match expected prd.",
+  });
+  assert.deepEqual(extractStageAgentArtifactReport([{ type: "scaler_stage_artifact", stage: "prd", status: "done", title: "PRD" }], "prd"), {
+    ok: false,
+    reason: "Invalid stage artifact report status: done.",
+  });
 });
 
 test("prepareStageAgentInvocation builds isolated Pi invocation", () => {
