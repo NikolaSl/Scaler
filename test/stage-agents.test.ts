@@ -14,6 +14,7 @@ import {
   runStageAgentStep,
 } from "../src/stage-agents.js";
 import { createDefaultState } from "../src/state.js";
+import { loadStageArtifacts } from "../src/stages.js";
 
 async function tempDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "scaler-stage-agents-test-"));
@@ -162,6 +163,58 @@ test("runStageAgentStep prepares and executes under lock", async () => {
   assert.equal(executed.accepted, true);
   assert.equal(executed.runRecord?.status, "passed");
   assert.equal(executed.runResult?.taskId, "stage-planning");
+  assert.deepEqual(executed.ingestion, {
+    attempted: true,
+    ingested: false,
+    reason: "No scaler_stage_artifact report found in stage-agent output.",
+  });
+});
+
+test("runStageAgentStep ingests successful stage-agent artifact reports", async () => {
+  const cwd = await tempDir();
+  const state = createDefaultState();
+  const result = await runStageAgentStep(cwd, state, "execution", { execute: true }, async (request) => ({
+    taskId: request.taskId,
+    exitCode: 0,
+    stdoutEvents: [{
+      type: "scaler_stage_artifact",
+      stage: "execution",
+      status: "ready",
+      title: "Execution ready",
+      summary: "Ready to execute tasks.",
+      taskRefs: ["T-001"],
+    }],
+    stderr: "",
+    timedOut: false,
+    aborted: false,
+  }));
+
+  assert.equal(result.ingestion?.ingested, true);
+  assert.equal(result.ingestion?.artifact?.id.startsWith("ART-execution-"), true);
+  const artifacts = await loadStageArtifacts(cwd);
+  assert.equal(artifacts.length, 1);
+  assert.equal(artifacts[0].stage, "execution");
+  assert.equal(artifacts[0].summary, "Ready to execute tasks.");
+});
+
+test("runStageAgentStep preserves invalid and mismatched reports as non-ingestion", async () => {
+  const cwd = await tempDir();
+  const state = createDefaultState();
+  const result = await runStageAgentStep(cwd, state, "prd", { execute: true }, async (request) => ({
+    taskId: request.taskId,
+    exitCode: 0,
+    stdoutEvents: [{ type: "scaler_stage_artifact", stage: "knowledge", status: "ready", title: "Knowledge" }],
+    stderr: "",
+    timedOut: false,
+    aborted: false,
+  }));
+
+  assert.deepEqual(result.ingestion, {
+    attempted: true,
+    ingested: false,
+    reason: "Stage artifact report stage knowledge does not match expected prd.",
+  });
+  assert.deepEqual(await loadStageArtifacts(cwd), []);
 });
 
 test("normalizeStage rejects invalid stage agents", () => {

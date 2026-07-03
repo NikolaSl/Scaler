@@ -4,7 +4,7 @@ import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { getStageAgentRunsPath } from "./paths.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
-import { loadStageArtifacts, stageArtifactStatuses, stageArtifactStages, type StageArtifact, type StageArtifactInput, type StageArtifactStage } from "./stages.js";
+import { loadStageArtifacts, stageArtifactStatuses, stageArtifactStages, upsertStageArtifact, type StageArtifact, type StageArtifactInput, type StageArtifactStage } from "./stages.js";
 import type { ScalerState } from "./types.js";
 
 export interface StageAgentPromptInput {
@@ -52,6 +52,13 @@ export interface RunStageAgentOptions extends StageAgentInvocationOptions {
   extraInstructions?: string;
 }
 
+export interface StageAgentArtifactIngestionResult {
+  attempted: boolean;
+  ingested: boolean;
+  artifact?: StageArtifact;
+  reason?: string;
+}
+
 export interface StageAgentStepResult {
   accepted: boolean;
   message: string;
@@ -60,6 +67,7 @@ export interface StageAgentStepResult {
   invocation?: TaskAgentInvocation;
   runResult?: TaskAgentRunResult;
   runRecord?: StageAgentRunRecord;
+  ingestion?: StageAgentArtifactIngestionResult;
 }
 
 export type StageAgentRunner = typeof runTaskAgent;
@@ -155,6 +163,7 @@ export async function runStageAgentStep(
     }, options);
     const runResult = options.execute ? await runner(preparation.request, { timeoutMs: options.timeoutMs }) : undefined;
     const runRecord = await recordStageAgentRun(cwd, stage, runResult, options.execute ? undefined : "prepared");
+    const ingestion = runResult?.exitCode === 0 ? await ingestStageAgentArtifactReport(cwd, stage, runResult.stdoutEvents) : { attempted: false, ingested: false };
     return {
       accepted: true,
       message: `${options.execute ? "Executed" : "Prepared"} stage agent ${stage}`,
@@ -163,6 +172,7 @@ export async function runStageAgentStep(
       invocation: preparation.invocation,
       runResult,
       runRecord,
+      ingestion,
     };
   } finally {
     await releaseExecutionLock(cwd, lock.lock.id);
@@ -224,6 +234,19 @@ export function formatStageAgentRunList(records: StageAgentRunRecord[], stage?: 
     lines.push(`- ${record.stage}: ${record.status} exit=${exit} flags=${flags} stdout_events=${record.stdoutEventCount ?? 0}${stderr}`);
   }
   return lines.join("\n");
+}
+
+export async function ingestStageAgentArtifactReport(
+  cwd: string,
+  stage: StageArtifactStage | string,
+  stdoutEvents: unknown[],
+): Promise<StageAgentArtifactIngestionResult> {
+  const extraction = extractStageAgentArtifactReport(stdoutEvents, stage);
+  if (!extraction.ok || !extraction.artifactInput) {
+    return { attempted: true, ingested: false, reason: extraction.reason ?? "Stage artifact report extraction failed." };
+  }
+  const artifact = await upsertStageArtifact(cwd, extraction.artifactInput);
+  return { attempted: true, ingested: true, artifact };
 }
 
 export function extractStageAgentArtifactReport(
