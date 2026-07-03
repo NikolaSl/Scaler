@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
+import { getBudgetState } from "../../../src/budgets.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { loadState } from "../../../src/state.js";
 import { REAL_PI_ENABLED, REAL_PI_MODEL, runScalerPi, withRealPiTempRepo } from "./real-pi-harness.js";
@@ -26,6 +27,39 @@ test("real Pi extension: slash command dispatch writes SCALER command audit logs
     assert.equal(commandEvents.every((event) => Boolean(event.detailsPath)), true);
     assert.match(commandEvents[0]?.summary ?? "", /Command start: scaler-lock/);
     assert.match(commandEvents[1]?.summary ?? "", /Command end: scaler-lock/);
+  });
+});
+
+test("real Pi extension: slash command dispatch persists budget limits", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const setResult = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-budget-set validationLoops | 1 | 2",
+    });
+
+    assert.equal(setResult.exitCode, 0, setResult.stderr || setResult.stdout);
+    assert.match(`${setResult.stdout}\n${setResult.stderr}`, /Budget limit updated: validationLoops soft=1 hard=2/);
+    assert.ok(setResult.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const statusResult = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-budget-status",
+    });
+
+    assert.equal(statusResult.exitCode, 0, statusResult.stderr || statusResult.stdout);
+    assert.match(`${statusResult.stdout}\n${statusResult.stderr}`, /validationLoops: usage=0 soft=1 hard=2 status=ok/);
+
+    const state = await loadState(dir);
+    assert.deepEqual(getBudgetState(state).limits.validationLoops, { soft: 1, hard: 2 });
+
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Budget limit updated: validationLoops"));
+    assert.deepEqual(
+      events
+        .filter((event) => event.eventType === "command" && isRecord(event.details) && ["scaler-budget-set", "scaler-budget-status"].includes(String(event.details.command)))
+        .map((event) => `${(event.details as { command: string; phase: string }).command}:${(event.details as { command: string; phase: string }).phase}`),
+      ["scaler-budget-set:start", "scaler-budget-set:end", "scaler-budget-status:start", "scaler-budget-status:end"],
+    );
   });
 });
 
