@@ -26,6 +26,18 @@ export function getMemoryIndexPath(cwd: string): string {
   return join(getMemoryDir(cwd), "index.json");
 }
 
+export function getResearchDir(cwd: string): string {
+  return join(getScalerDir(cwd), "research");
+}
+
+export function getResearchRequestsPath(cwd: string): string {
+  return join(getResearchDir(cwd), "requests.json");
+}
+
+export function getResearchReportsPath(cwd: string): string {
+  return join(getResearchDir(cwd), "reports.json");
+}
+
 export function getDebugDir(cwd: string): string {
   return join(getScalerDir(cwd), "debug");
 }
