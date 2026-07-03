@@ -3,6 +3,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { savePrdRequirements } from "../src/prd.js";
 import { advanceStageAfterReadyArtifact, nextStageForArtifact } from "../src/stage-advancement.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { upsertStageArtifact } from "../src/stages.js";
@@ -93,6 +94,33 @@ test("advanceStageAfterReadyArtifact refuses semantically invalid artifacts", as
   assert.equal(result.semanticValidation?.ok, false);
   assert.match(result.message, /semantically invalid/);
   assert.match(result.message, /requires requirement refs or a summary/);
+});
+
+test("advanceStageAfterReadyArtifact refuses inconsistent artifacts", async () => {
+  const cwd = await tempDir();
+  await writeFile(join(cwd, "agent-prd.md"), "# PRD\n", "utf8");
+  const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+  state.stage = "prd";
+  await savePrdRequirements(cwd, {
+    version: 1,
+    requirements: [{ id: "PRD-S01", statement: "Requirement", createdAt: state.createdAt, updatedAt: state.createdAt }],
+  });
+  await upsertStageArtifact(cwd, {
+    id: "ART-PRD",
+    stage: "prd",
+    status: "ready",
+    title: "PRD",
+    path: "agent-prd.md",
+    requirementRefs: ["PRD-MISSING"],
+  }, new Date("2026-01-01T01:00:00.000Z"));
+
+  const result = await advanceStageAfterReadyArtifact(cwd, state, "prd");
+
+  assert.equal(result.accepted, false);
+  assert.equal(result.advanced, false);
+  assert.equal(result.consistencyValidation?.ok, false);
+  assert.match(result.message, /inconsistent/);
+  assert.match(result.message, /unknown runtime PRD requirement ids/);
 });
 
 test("advanceStageAfterReadyArtifact preserves supervisor completion guard", async () => {

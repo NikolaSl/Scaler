@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { savePrdRequirements } from "../src/prd.js";
 import { runStageConductorLoop, runStageConductorStep } from "../src/stage-conductor.js";
 import { createDefaultState, loadState } from "../src/state.js";
 import { upsertStageArtifact } from "../src/stages.js";
@@ -36,6 +37,32 @@ test("runStageConductorStep advances an already ready active-stage artifact", as
   assert.equal(result.advancement?.advanced, true);
   assert.equal(called, false);
   assert.equal((await loadState(cwd)).stage, "knowledge");
+});
+
+test("runStageConductorStep reports consistency-gated advancement failures", async () => {
+  const cwd = await tempDir();
+  await writeFile(join(cwd, "agent-prd.md"), "# PRD\n", "utf8");
+  const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+  state.stage = "prd";
+  await savePrdRequirements(cwd, {
+    version: 1,
+    requirements: [{ id: "PRD-S01", statement: "Requirement", createdAt: state.createdAt, updatedAt: state.createdAt }],
+  });
+  await upsertStageArtifact(cwd, {
+    id: "ART-PRD",
+    stage: "prd",
+    status: "ready",
+    title: "PRD",
+    path: "agent-prd.md",
+    requirementRefs: ["PRD-MISSING"],
+  });
+
+  const result = await runStageConductorStep(cwd, state);
+
+  assert.equal(result.accepted, false);
+  assert.equal(result.action, "advance");
+  assert.equal(result.advancement?.consistencyValidation?.ok, false);
+  assert.match(result.message, /inconsistent/);
 });
 
 test("runStageConductorStep prepares a stage agent when no ready artifact exists", async () => {

@@ -1,3 +1,4 @@
+import { formatStageArtifactConsistency, validateStageArtifactConsistency, type StageArtifactConsistencyValidation } from "./stage-consistency.js";
 import { saveState } from "./state.js";
 import {
   formatStageArtifactReadiness,
@@ -22,6 +23,7 @@ export interface StageAdvancementResult {
   state: ScalerState;
   validation?: StageArtifactReadinessValidation;
   semanticValidation?: StageArtifactSemanticValidation;
+  consistencyValidation?: StageArtifactConsistencyValidation;
 }
 
 export async function advanceStageAfterReadyArtifact(
@@ -61,6 +63,21 @@ export async function advanceStageAfterReadyArtifact(
     };
   }
 
+  const consistencyValidation = await validateStageArtifactConsistency(cwd, state, stage, validation.artifact);
+  if (!consistencyValidation.ok) {
+    return {
+      accepted: false,
+      advanced: false,
+      message: formatStageArtifactConsistency(consistencyValidation),
+      stage,
+      targetStage,
+      state,
+      validation,
+      semanticValidation,
+      consistencyValidation,
+    };
+  }
+
   if (!targetStage) {
     return {
       accepted: false,
@@ -70,6 +87,7 @@ export async function advanceStageAfterReadyArtifact(
       state,
       validation,
       semanticValidation,
+      consistencyValidation,
     };
   }
 
@@ -83,6 +101,7 @@ export async function advanceStageAfterReadyArtifact(
       state,
       validation,
       semanticValidation,
+      consistencyValidation,
     };
   }
 
@@ -103,6 +122,7 @@ export async function advanceStageAfterReadyArtifact(
     state: nextState,
     validation,
     semanticValidation,
+    consistencyValidation,
   };
 }
 
