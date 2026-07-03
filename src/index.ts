@@ -41,8 +41,16 @@ import { requestReplan } from "./replanning.js";
 import { assessToolCallSafety } from "./safety.js";
 import { createTask, formatTaskList, retryTask, updateTask } from "./tasks.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
+import { advanceStageAfterReadyArtifact } from "./stage-advancement.js";
 import { formatStageAgentRunList, loadStageAgentRunRecords, runStageAgentStep } from "./stage-agents.js";
-import { formatStageArtifactSummary, loadStageArtifacts, summarizeStageArtifacts, upsertStageArtifact } from "./stages.js";
+import {
+  formatStageArtifactReadiness,
+  formatStageArtifactSummary,
+  loadStageArtifacts,
+  summarizeStageArtifacts,
+  upsertStageArtifact,
+  validateStageArtifactReadiness,
+} from "./stages.js";
 import { registerScalerTools } from "./tools.js";
 import { upsertValidationManifestCommand } from "./validation.js";
 import { formatWorkflowSummary, summarizeWorkflow } from "./workflow.js";
@@ -180,6 +188,54 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     },
   });
 
+  pi.registerCommand("scaler-stage-validate", {
+    description: "Validate latest stage artifact readiness: /scaler-stage-validate <stage>",
+    handler: async (args, ctx) => {
+      const stage = args?.trim();
+      if (!stage) {
+        const message = "Usage: /scaler-stage-validate <stage>";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+
+      try {
+        const validation = await validateStageArtifactReadiness(ctx.cwd, await loadStageArtifacts(ctx.cwd), stage);
+        const message = formatStageArtifactReadiness(validation);
+        if (ctx.hasUI) ctx.ui.notify(message, validation.ok ? "info" : "warning");
+        else console.log(message);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+      }
+    },
+  });
+
+  pi.registerCommand("scaler-stage-advance", {
+    description: "Advance supervisor stage after a ready artifact: /scaler-stage-advance <stage>",
+    handler: async (args, ctx) => {
+      const stage = args?.trim();
+      if (!stage) {
+        const message = "Usage: /scaler-stage-advance <stage>";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+
+      try {
+        const state = await ensureState(ctx.cwd);
+        const result = await advanceStageAfterReadyArtifact(ctx.cwd, state, stage);
+        if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
+        else console.log(result.message);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+      }
+    },
+  });
+
   pi.registerCommand("scaler-stage-run", {
     description: "Prepare or execute a focused stage agent: /scaler-stage-run <stage> [execute]",
     handler: async (args, ctx) => {
@@ -194,7 +250,11 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       try {
         const state = await ensureState(ctx.cwd);
         const result = await runStageAgentStep(ctx.cwd, state, parsed.stage, { execute: parsed.execute });
-        const message = result.accepted ? `${result.message} run=${result.runRecord?.id ?? "n/a"}` : result.message;
+        let message = result.accepted ? `${result.message} run=${result.runRecord?.id ?? "n/a"}` : result.message;
+        if (parsed.execute && result.runRecord?.status === "passed" && result.stage) {
+          const advancement = await advanceStageAfterReadyArtifact(ctx.cwd, state, result.stage);
+          message = `${message}\n${advancement.message}`;
+        }
         if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
         else console.log(message);
       } catch (error) {
