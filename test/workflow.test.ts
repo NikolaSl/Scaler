@@ -48,6 +48,31 @@ test("summarizeWorkflow reports current task and warnings", () => {
   ]);
 });
 
+test("summarizeWorkflow recommends active stage artifact records before task execution", () => {
+  const state = createDefaultState();
+  state.stage = "planning";
+  state.tasks = [{ id: "T-001", status: "ready", updatedAt: state.createdAt }];
+
+  assert.equal(
+    summarizeWorkflow(state, { stageArtifacts: [] }).nextAction,
+    "/scaler-stage-record planning | ready | Stage III execution plan artifact | <path> | <summary>",
+  );
+
+  assert.equal(
+    summarizeWorkflow(state, {
+      stageArtifacts: [{
+        id: "ART-PLAN",
+        stage: "planning",
+        status: "accepted",
+        title: "Plan",
+        createdAt: state.createdAt,
+        updatedAt: state.createdAt,
+      }],
+    }).nextAction,
+    "/scaler-step",
+  );
+});
+
 test("formatWorkflowSummary renders compact multiline summary", () => {
   assert.equal(
     formatWorkflowSummary({ currentTask: "none", nextAction: "/scaler-step", hints: ["1 runnable task(s)"], warnings: [] }),

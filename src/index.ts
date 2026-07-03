@@ -503,6 +503,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const debugAttempts = await loadDebugAttempts(ctx.cwd);
       const debugFailures = await loadDebugFailures(ctx.cwd);
       const budgetState = getBudgetState(state);
+      const stageArtifacts = await loadStageArtifacts(ctx.cwd);
       await logStateEvent(ctx.cwd, state, "Scaler status requested", { command: "scaler-status" });
       const message = `${formatDetailedStateStatus(state, {
         memoryCount: memoryIndex.entries.length,
@@ -510,7 +511,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         debugFailureCount: debugFailures.length,
         budgetUsage: budgetState.usage,
         logPath: getEventLogPath(ctx.cwd),
-      })}\n${formatWorkflowSummary(summarizeWorkflow(state))}`;
+      })}\n${formatWorkflowSummary(summarizeWorkflow(state, { stageArtifacts }))}`;
 
       if (ctx.hasUI) {
         ctx.ui.notify(message, "info");

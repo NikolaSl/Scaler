@@ -1,3 +1,4 @@
+import type { StageArtifact, StageArtifactStage } from "./stages.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
 
 export interface WorkflowSummary {
@@ -7,7 +8,11 @@ export interface WorkflowSummary {
   warnings: string[];
 }
 
-export function summarizeWorkflow(state: ScalerState): WorkflowSummary {
+export interface WorkflowSummaryOptions {
+  stageArtifacts?: StageArtifact[];
+}
+
+export function summarizeWorkflow(state: ScalerState, options: WorkflowSummaryOptions = {}): WorkflowSummary {
   const currentTask = state.currentTaskId
     ? formatTaskRef(state.tasks.find((task) => task.id === state.currentTaskId)) ?? `${state.currentTaskId}:missing`
     : "none";
@@ -16,7 +21,7 @@ export function summarizeWorkflow(state: ScalerState): WorkflowSummary {
 
   return {
     currentTask,
-    nextAction: selectNextAction(state),
+    nextAction: selectNextAction(state, options.stageArtifacts),
     hints,
     warnings,
   };
@@ -29,7 +34,10 @@ export function formatWorkflowSummary(summary: WorkflowSummary): string {
   return lines.join("\n");
 }
 
-function selectNextAction(state: ScalerState): string {
+function selectNextAction(state: ScalerState, stageArtifacts: StageArtifact[] | undefined): string {
+  const stageAction = selectStageArtifactAction(state, stageArtifacts);
+  if (stageAction) return stageAction;
+
   const validating = state.tasks.find((task) => task.status === "validating");
   if (validating) return `/scaler-validate ${validating.id}`;
 
@@ -47,6 +55,30 @@ function selectNextAction(state: ScalerState): string {
 
   if (state.tasks.length === 0) return "/scaler-task-create <taskId> | <title> | <paths>";
   return "/scaler-status";
+}
+
+function selectStageArtifactAction(state: ScalerState, stageArtifacts: StageArtifact[] | undefined): string | undefined {
+  if (!stageArtifacts) return undefined;
+  if (!isStageArtifactStage(state.stage) || state.stage === "execution") return undefined;
+  const artifact = stageArtifacts
+    .filter((candidate) => candidate.stage === state.stage)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))[0];
+  if (artifact?.status === "ready" || artifact?.status === "accepted") return undefined;
+  return `/scaler-stage-record ${state.stage} | ready | ${stageArtifactTitle(state.stage)} | <path> | <summary>`;
+}
+
+function isStageArtifactStage(value: string): value is StageArtifactStage {
+  return ["prd", "knowledge", "planning", "execution", "replanning"].includes(value);
+}
+
+function stageArtifactTitle(stage: StageArtifactStage): string {
+  switch (stage) {
+    case "prd": return "Stage I PRD artifact";
+    case "knowledge": return "Stage II knowledge artifact";
+    case "planning": return "Stage III execution plan artifact";
+    case "execution": return "Stage IV execution artifact";
+    case "replanning": return "Replanning artifact";
+  }
 }
 
 function buildHints(state: ScalerState): string[] {
