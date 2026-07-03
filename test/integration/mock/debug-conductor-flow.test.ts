@@ -16,6 +16,7 @@ import { loadReplanAgentRunRecords } from "../../../src/replan-agent.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
 import { applyValidationReport } from "../../../src/validation.js";
+import { runValidationDebugLoopWorkflow } from "../../../src/validation-debug-loop.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -124,6 +125,75 @@ test("mock integration: debug conductor chains validation failure through resear
     assert.equal((await loadDebugAgentRunRecords(dir)).length, 2);
     assert.equal((await loadResearchAgentRunRecords(dir)).length, 1);
     assert.ok((await readLogEvents(dir)).some((event) => event.eventType === "debug" && event.summary.includes("Debug conductor loop")));
+  });
+});
+
+test("mock integration: validation debug loop runs validation failure through debug and research", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-VALIDATE-LOOP";
+    state.tasks = [{
+      id: "T-VALIDATE-LOOP",
+      status: "validating",
+      title: "Validate-loop task",
+      prdRefs: ["REQ-VALIDATE-LOOP"],
+      allowedPathPrefixes: ["src/app.js", "test-runner.js"],
+      updatedAt: state.createdAt,
+    }];
+    await saveState(dir, state);
+
+    let debugCalls = 0;
+    const runners: DebugConductorRunners = {
+      debug: async (request) => {
+        debugCalls += 1;
+        if (debugCalls === 1) {
+          return runResult(request, [{
+            type: "scaler_debug_report",
+            id: "RPT-MOCK-VALIDATE-LOOP-NEEDS-RESEARCH",
+            taskId: "T-VALIDATE-LOOP",
+            status: "needs_research",
+            summary: "Validation failure needs local fixture evidence.",
+            researchScope: "local",
+            researchQuestions: ["Why does the validation fixture fail?"],
+            evidenceRefs: ["validation-run"],
+          }]);
+        }
+        return runResult(request, [{
+          type: "scaler_debug_report",
+          id: "RPT-MOCK-VALIDATE-LOOP-NEXT",
+          taskId: "T-VALIDATE-LOOP",
+          status: "next_approach",
+          summary: "Research found the fixture mismatch.",
+          nextApproach: "Patch src/app.js to satisfy test-runner.js, then rerun validation.",
+          evidenceRefs: ["RPT-MOCK-VALIDATE-LOOP-RESEARCH"],
+        }]);
+      },
+      research: async (request) => runResult(request, [{
+        type: "scaler_research_report",
+        id: "RPT-MOCK-VALIDATE-LOOP-RESEARCH",
+        requestId: request.taskId.replace(/^research-agent-/, ""),
+        taskId: "T-VALIDATE-LOOP",
+        status: "complete",
+        question: "Why does the validation fixture fail?",
+        sources: [{ id: "fixture", title: "Failing fixture", quality: "project", path: "test-runner.js" }],
+        conclusions: [{ summary: "The test runner exits non-zero until the fixture-facing code changes.", confidence: "high", sourceRefs: ["fixture"] }],
+        contradictions: [],
+        unresolvedUnknowns: [],
+        recommendations: ["Patch the fixture-facing code."],
+      }]),
+    };
+
+    const result = await runValidationDebugLoopWorkflow(dir, state, "T-VALIDATE-LOOP", { execute: true, maxSteps: 4 }, runners);
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.validation.result?.status, "failed");
+    assert.equal(result.debugLoop?.stopReason, "next_approach");
+    assert.deepEqual(result.debugLoop?.steps.map((step) => step.action), ["run_debug_agent", "run_research_agent", "run_debug_agent"]);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "debugging");
+    assert.equal((await loadResearchReports(dir))[0]?.id, "RPT-MOCK-VALIDATE-LOOP-RESEARCH");
+    assert.ok((await loadDebugReports(dir)).some((report) => report.id === "RPT-MOCK-VALIDATE-LOOP-NEXT"));
+    assert.ok((await readLogEvents(dir)).some((event) => event.eventType === "validation" && event.summary.includes("Validation debug loop")));
   });
 });
 
