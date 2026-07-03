@@ -45,6 +45,8 @@ async function withTempRepo<T>(fn: (dir: string) => Promise<T>): Promise<T> {
 async function runRealPi(request: TaskAgentRequest, cardinalInstruction: string): Promise<TaskAgentRunResult> {
   return await runTaskAgent({
     ...request,
+    noTools: true,
+    tools: undefined,
     model: REAL_PI_MODEL ?? request.model,
     prompt: `${cardinalInstruction}\n\n${request.prompt}`,
   }, {

@@ -108,12 +108,13 @@ Prefer provider-qualified model names such as `openai-codex/gpt-5.3-codex-spark`
 
 Real Pi/model tests are opt-in because they can cost tokens, depend on local/provider configuration, and are less deterministic than mock tests. They should validate narrow real-boundary contracts only; do not make them depend on external network access.
 
-Current real mode has two layers:
+Current real mode has three layers:
 
-1. child-agent structured-output contracts that call real Pi/model subprocesses and verify SCALER report extraction; and
-2. real Pi extension integrity tests that launch `pi --mode json -p --no-session -e <src/index.ts>` in a temporary repository and verify extension command dispatch, SCALER tool calls, safety hooks, `.scaler/logs/events.jsonl`, detail payload references, and persisted state.
+1. child-agent structured-output contracts that call real Pi/model subprocesses and verify SCALER report extraction;
+2. real Pi extension integrity tests that launch `pi --mode json -p --no-session -e <src/index.ts>` in a temporary repository and verify extension command dispatch, SCALER tool calls, safety hooks, `.scaler/logs/events.jsonl`, detail payload references, and persisted state; and
+3. real flow-parity chains that run real Pi/model child agents through SCALER's normal debug, research, stage, and replanner pathways while asserting persisted ledgers.
 
-Command-dispatch extension tests may avoid model output. Cardinal SCALER-tool and hook tests use the selected real model with restricted `--tools` lists.
+Command-dispatch extension tests may avoid model output. Cardinal SCALER-tool and hook tests use the selected real model with restricted `--tools` lists. Report-only child-agent flow tests disable tools with `--no-tools` so the real model cannot mutate the temporary repository outside the expected structured report.
 
 ## Cardinal instruction pattern for real mode
 
@@ -203,5 +204,11 @@ When adding a new integration scenario:
   - command audit events and detail payload references in `.scaler/logs/events.jsonl`;
   - cardinal real-model call to `scaler_task_create` with exact arguments and persisted SCALER task state;
   - cardinal real-model call to built-in `bash` with `cat .env`, blocked by SCALER's safety hook and recorded as a safety audit event.
+- `real/real-pi-flow-parity.test.ts`
+  - real debug-agent `needs_research` report → research request ledger;
+  - real research-agent complete report → request resolution;
+  - real debug-agent `next_approach` report → debug report ledger;
+  - real Stage I-IV conductor loop using cardinal stage artifacts, readiness/semantic/consistency advancement, and final completed state;
+  - real replanner proposal ingestion → preservation check → proposal acceptance → current-plan replacement, version snapshot, replan decision, request resolution, and task creation.
 - `real/real-pi-harness.ts`
   - shared temp-repository and `pi --mode json -p --no-session -e <src/index.ts>` harness for opt-in real extension tests.

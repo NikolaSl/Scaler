@@ -82,6 +82,10 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 
 - debug, research, stage, and replan agent structured event ingestion through real Pi/model subprocesses;
 - exact assistant JSON objects carried inside Pi `--mode json` event wrappers, while prose/markdown text is still rejected;
+- real chained debug → research → next-approach flow-parity through persisted debug/research ledgers;
+- real chained Stage I-IV conductor flow-parity through persisted stage artifacts and stage-agent run records;
+- real chained replanner proposal → acceptance flow-parity through proposed/current plan artifacts, snapshots, decisions, and task creation;
+- report-only child agents launched with `--no-tools` for cardinal JSON-output tests;
 - real Pi extension loading via `-e src/index.ts`;
 - slash-command dispatch and command audit logs;
 - cardinal SCALER tool invocation with persisted `.scaler/state.json` mutation;
