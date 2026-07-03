@@ -4,6 +4,7 @@ import {
   parseCommaList,
   parseCommitArgs,
   parseContextTaskArgs,
+  parseDebugLoopArgs,
   parseDebugRunArgs,
   parsePrdLinkArgs,
   parseReplanRequestArgs,
@@ -142,6 +143,13 @@ test("parseDebugRunArgs parses optional task and execute flag", () => {
   assert.deepEqual(parseDebugRunArgs("T-001 execute"), { taskId: "T-001", execute: true });
   assert.deepEqual(parseDebugRunArgs("execute"), { taskId: undefined, execute: true });
   assert.deepEqual(parseDebugRunArgs(" "), { taskId: undefined, execute: false });
+});
+
+test("parseDebugLoopArgs parses optional task, execute flag, and max option", () => {
+  assert.deepEqual(parseDebugLoopArgs("T-001 execute max=4"), { taskId: "T-001", execute: true, maxSteps: 4 });
+  assert.deepEqual(parseDebugLoopArgs("execute max=2"), { taskId: undefined, execute: true, maxSteps: 2 });
+  assert.deepEqual(parseDebugLoopArgs("max=bad"), { taskId: undefined, execute: false, maxSteps: undefined });
+  assert.deepEqual(parseDebugLoopArgs(" "), { taskId: undefined, execute: false, maxSteps: undefined });
 });
 
 test("parseResearchRequestArgs parses research request fields", () => {

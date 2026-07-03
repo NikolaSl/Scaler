@@ -4,6 +4,7 @@ import { getBudgetState } from "./budgets.js";
 import {
   parseCommitArgs,
   parseContextTaskArgs,
+  parseDebugLoopArgs,
   parseDebugRunArgs,
   parsePrdLinkArgs,
   parseReplanRequestArgs,
@@ -26,6 +27,7 @@ import { ensureTaskContextManifest, formatTaskContextManifest, loadTaskContextMa
 import { formatTaskAgentRunList, loadTaskAgentRunRecords, runConductorStep } from "./conductor.js";
 import { loadDebugAttempts, loadDebugFailures, loadDebugReports, formatDebugReportSummary } from "./debug.js";
 import { formatDebugAgentRunList, loadDebugAgentRunRecords, runDebugAgentStep } from "./debug-agent.js";
+import { runDebugConductorLoop } from "./debug-conductor.js";
 import { clearExecutionLock, formatExecutionLock, loadExecutionLock } from "./locks.js";
 import { createLogEvent, appendLogEvent, logCommandAudit, logStateEvent, logToolAudit } from "./logging.js";
 import { loadMemoryIndex } from "./memory.js";
@@ -519,6 +521,22 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         : "";
       const message = result.accepted ? `${result.message}${ingestion}` : result.message;
       if (ctx.hasUI) ctx.ui.notify(message, result.accepted && result.ingestion?.ingested !== false ? "info" : "warning");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-debug-loop", {
+    description: "Run the bounded SCALER debug/research/replan conductor: /scaler-debug-loop [taskId] [execute] [max=N]",
+    handler: async (args, ctx) => {
+      const parsed = parseDebugLoopArgs(args);
+      const state = await ensureState(ctx.cwd);
+      const result = await runDebugConductorLoop(ctx.cwd, state, {
+        taskId: parsed.taskId,
+        execute: parsed.execute,
+        maxSteps: parsed.maxSteps,
+      });
+      const message = result.message;
+      if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
       else console.log(message);
     },
   });

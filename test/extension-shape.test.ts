@@ -56,6 +56,7 @@ test("extension registers scaler commands", () => {
     "scaler-replan-run",
     "scaler-replan-runs",
     "scaler-debug-run",
+    "scaler-debug-loop",
     "scaler-debug-runs",
     "scaler-debug-reports",
     "scaler-research-run",

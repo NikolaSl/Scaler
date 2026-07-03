@@ -69,6 +69,12 @@ export interface ParsedDebugRunArgs {
   execute: boolean;
 }
 
+export interface ParsedDebugLoopArgs {
+  taskId?: string;
+  execute: boolean;
+  maxSteps?: number;
+}
+
 export interface ParsedResearchReportArgs {
   question: string;
   conclusion: string;
@@ -205,6 +211,17 @@ export function parseDebugRunArgs(args: string | undefined): ParsedDebugRunArgs 
   return {
     taskId: parts.find((part) => part.toLowerCase() !== "execute"),
     execute: parts.some((part) => part.toLowerCase() === "execute"),
+  };
+}
+
+export function parseDebugLoopArgs(args: string | undefined): ParsedDebugLoopArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  const maxPart = parts.find((part) => /^max=\d+$/i.test(part));
+  const maxSteps = maxPart ? Number.parseInt(maxPart.split("=")[1] ?? "", 10) : undefined;
+  return {
+    taskId: parts.find((part) => part.toLowerCase() !== "execute" && !/^max=/i.test(part)),
+    execute: parts.some((part) => part.toLowerCase() === "execute"),
+    maxSteps: maxSteps === undefined || !Number.isFinite(maxSteps) ? undefined : maxSteps,
   };
 }
 
