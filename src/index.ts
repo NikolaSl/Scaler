@@ -18,6 +18,7 @@ import {
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
+  parseValidateLoopArgs,
   parseValidationAddArgs,
   resolveCommitAllowedPaths,
   selectTaskForCommit,
@@ -66,6 +67,7 @@ import {
 } from "./stages.js";
 import { registerScalerTools } from "./tools.js";
 import { upsertValidationManifestCommand } from "./validation.js";
+import { runValidationDebugLoopWorkflow, selectTaskForValidationDebugLoop } from "./validation-debug-loop.js";
 import { formatWorkflowSummary, summarizeWorkflow } from "./workflow.js";
 
 export default function scalerExtension(pi: ExtensionAPI): void {
@@ -799,6 +801,28 @@ export default function scalerExtension(pi: ExtensionAPI): void {
 
       const allowedPaths = resolveCommitAllowedPaths(state, taskId, parsed.allowedPathPrefixes);
       const result = await commitWithExecutionLock(ctx.cwd, state, taskId, allowedPaths);
+      if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
+      else console.log(result.message);
+    },
+  });
+
+  pi.registerCommand("scaler-validate-loop", {
+    description: "Run validation and, on failure, start the bounded debug loop: /scaler-validate-loop [taskId] [execute] [max=N]",
+    handler: async (args, ctx) => {
+      const parsed = parseValidateLoopArgs(args);
+      const state = await ensureState(ctx.cwd);
+      const taskId = selectTaskForValidationDebugLoop(state, parsed.taskId);
+      if (!taskId) {
+        const message = "No validating/debugging task found for /scaler-validate-loop.";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+
+      const result = await runValidationDebugLoopWorkflow(ctx.cwd, state, taskId, {
+        execute: parsed.execute,
+        maxSteps: parsed.maxSteps,
+      });
       if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
       else console.log(result.message);
     },

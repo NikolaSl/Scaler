@@ -72,6 +72,7 @@ test("extension registers scaler commands", () => {
     "scaler-step",
     "scaler-validation-add",
     "scaler-commit",
+    "scaler-validate-loop",
     "scaler-validate",
     "scaler-pause",
     "scaler-resume",

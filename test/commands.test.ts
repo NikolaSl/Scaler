@@ -15,6 +15,7 @@ import {
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
+  parseValidateLoopArgs,
   parseStageLoopArgs,
   parseStageRecordArgs,
   parseStageRunArgs,
@@ -78,6 +79,13 @@ test("parseValidationAddArgs parses manifest command fields", () => {
 
 test("parseValidationAddArgs requires task, id, and command", () => {
   assert.equal(parseValidationAddArgs("T-001 | test"), undefined);
+});
+
+test("parseValidateLoopArgs parses optional task, execute flag, and max option", () => {
+  assert.deepEqual(parseValidateLoopArgs("T-001 execute max=3"), { taskId: "T-001", execute: true, maxSteps: 3 });
+  assert.deepEqual(parseValidateLoopArgs("execute max=2"), { taskId: undefined, execute: true, maxSteps: 2 });
+  assert.deepEqual(parseValidateLoopArgs("max=bad"), { taskId: undefined, execute: false, maxSteps: undefined });
+  assert.deepEqual(parseValidateLoopArgs(" "), { taskId: undefined, execute: false, maxSteps: undefined });
 });
 
 test("parseTaskCreateArgs returns undefined without task id", () => {

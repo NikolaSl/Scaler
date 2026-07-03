@@ -30,6 +30,12 @@ export interface ParsedValidationAddArgs {
   required?: boolean;
 }
 
+export interface ParsedValidateLoopArgs {
+  taskId?: string;
+  execute: boolean;
+  maxSteps?: number;
+}
+
 export interface ParsedPrdLinkArgs {
   taskId: string;
   prdRefs: string[];
@@ -161,6 +167,17 @@ export function parseValidationAddArgs(args: string | undefined): ParsedValidati
     command,
     description: parts[3]?.trim() || undefined,
     required: parseOptionalBoolean(parts[4]),
+  };
+}
+
+export function parseValidateLoopArgs(args: string | undefined): ParsedValidateLoopArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  const maxPart = parts.find((part) => /^max=\d+$/i.test(part));
+  const maxSteps = maxPart ? Number.parseInt(maxPart.split("=")[1] ?? "", 10) : undefined;
+  return {
+    taskId: parts.find((part) => part.toLowerCase() !== "execute" && !/^max=/i.test(part)),
+    execute: parts.some((part) => part.toLowerCase() === "execute"),
+    maxSteps: maxSteps === undefined || !Number.isFinite(maxSteps) ? undefined : maxSteps,
   };
 }
 
