@@ -9,6 +9,7 @@ import {
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
+  parseStageRecordArgs,
   parseValidationAddArgs,
   resolveCommitAllowedPaths,
   selectTaskForCommit,
@@ -82,6 +83,20 @@ test("parseCommaList removes blanks", () => {
 test("parseContextTaskArgs parses optional task id", () => {
   assert.deepEqual(parseContextTaskArgs(" T-001 "), { taskId: "T-001" });
   assert.deepEqual(parseContextTaskArgs(" "), { taskId: undefined });
+});
+
+test("parseStageRecordArgs parses stage artifact fields", () => {
+  assert.deepEqual(parseStageRecordArgs("planning | ready | Plan | .scaler/plans/current-plan.json | OK | ev:1,ev:2 | PRD-S01 | T-001"), {
+    stage: "planning",
+    status: "ready",
+    title: "Plan",
+    path: ".scaler/plans/current-plan.json",
+    summary: "OK",
+    evidenceRefs: ["ev:1", "ev:2"],
+    requirementRefs: ["PRD-S01"],
+    taskRefs: ["T-001"],
+  });
+  assert.equal(parseStageRecordArgs("  "), undefined);
 });
 
 test("parseReplanRequestArgs parses reason, task, evidence, and requirements", () => {

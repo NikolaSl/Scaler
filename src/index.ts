@@ -6,6 +6,7 @@ import {
   parseContextTaskArgs,
   parsePrdLinkArgs,
   parseReplanRequestArgs,
+  parseStageRecordArgs,
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
@@ -39,6 +40,7 @@ import { requestReplan } from "./replanning.js";
 import { assessToolCallSafety } from "./safety.js";
 import { createTask, formatTaskList, retryTask, updateTask } from "./tasks.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
+import { formatStageArtifactSummary, loadStageArtifacts, summarizeStageArtifacts, upsertStageArtifact } from "./stages.js";
 import { registerScalerTools } from "./tools.js";
 import { upsertValidationManifestCommand } from "./validation.js";
 import { formatWorkflowSummary, summarizeWorkflow } from "./workflow.js";
@@ -164,6 +166,48 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const message = manifest ? formatTaskContextManifest(manifest) : `No context manifest${taskId ? ` for ${taskId}` : ""}.`;
       if (ctx.hasUI) ctx.ui.notify(message, manifest ? "info" : "warning");
       else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-stage-status", {
+    description: "Show SCALER Stage I-IV artifact status.",
+    handler: async (_args, ctx) => {
+      const message = formatStageArtifactSummary(summarizeStageArtifacts(await loadStageArtifacts(ctx.cwd)));
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-stage-record", {
+    description: "Record a stage artifact: /scaler-stage-record <stage> | <status> | <title> | <path> | <summary> | <evidence refs> | <PRD refs> | <task refs>",
+    handler: async (args, ctx) => {
+      const parsed = parseStageRecordArgs(args);
+      if (!parsed) {
+        const message = "Usage: /scaler-stage-record <stage> | <status> | <title> | <path> | <summary> | <evidence refs> | <PRD refs> | <task refs>";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+
+      try {
+        const artifact = await upsertStageArtifact(ctx.cwd, {
+          stage: parsed.stage,
+          status: parsed.status,
+          title: parsed.title,
+          path: parsed.path,
+          summary: parsed.summary,
+          evidenceRefs: parsed.evidenceRefs,
+          requirementRefs: parsed.requirementRefs,
+          taskRefs: parsed.taskRefs,
+        });
+        const message = `Recorded stage artifact ${artifact.id} stage=${artifact.stage} status=${artifact.status}`;
+        if (ctx.hasUI) ctx.ui.notify(message, "info");
+        else console.log(message);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+      }
     },
   });
 

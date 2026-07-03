@@ -51,6 +51,17 @@ export interface ParsedContextTaskArgs {
   taskId?: string;
 }
 
+export interface ParsedStageRecordArgs {
+  stage: string;
+  status?: string;
+  title?: string;
+  path?: string;
+  summary?: string;
+  evidenceRefs?: string[];
+  requirementRefs?: string[];
+  taskRefs?: string[];
+}
+
 export function parseTaskCreateArgs(args: string | undefined): ParsedTaskCreateArgs | undefined {
   const parts = splitPipeArgs(args);
   const taskId = parts[0]?.trim();
@@ -133,6 +144,22 @@ export function parseReplanRequestArgs(args: string | undefined): ParsedReplanRe
 
 export function parseContextTaskArgs(args: string | undefined): ParsedContextTaskArgs {
   return { taskId: args?.trim() || undefined };
+}
+
+export function parseStageRecordArgs(args: string | undefined): ParsedStageRecordArgs | undefined {
+  const parts = splitPipeArgs(args);
+  const stage = parts[0]?.trim();
+  if (!stage) return undefined;
+  return {
+    stage,
+    status: parts[1]?.trim() || undefined,
+    title: parts[2]?.trim() || undefined,
+    path: parts[3]?.trim() || undefined,
+    summary: parts[4]?.trim() || undefined,
+    evidenceRefs: parseCommaList(parts[5]),
+    requirementRefs: parseCommaList(parts[6]),
+    taskRefs: parseCommaList(parts[7]),
+  };
 }
 
 export function selectTaskForCommit(state: ScalerState, requestedTaskId?: string): string | undefined {
