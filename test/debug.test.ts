@@ -3,8 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { loadDebugAttempts, loadDebugFailures, recordDebugAttempt } from "../src/debug.js";
-import { loadReplanRequests } from "../src/plans.js";
+import { assessDebugRetryGate, loadDebugAttempts, loadDebugFailures, recordDebugAttempt } from "../src/debug.js";
+import { loadReplanRequests, saveReplanRequests } from "../src/plans.js";
 import { createDefaultState, loadState } from "../src/state.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -170,5 +170,113 @@ test("recordDebugAttempt reports fingerprint cycles", async () => {
 
     assert.equal(second.accepted, true);
     assert.match(second.cycleDetected ?? "", /cycled failure-a -> failure-b -> failure-a/);
+  });
+});
+
+test("assessDebugRetryGate blocks unresolved debug fingerprint cycles", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "debugging";
+    state.tasks = [{ id: "T-001", status: "debugging", updatedAt: state.createdAt }];
+    await recordDebugAttempt(dir, state, {
+      taskId: "T-001",
+      failureId: "F-001",
+      hypothesis: "Fix A",
+      actionSummary: "Change A",
+      result: "new_failure",
+      failureFingerprint: "failure-a",
+      resultingFailureFingerprint: "failure-b",
+    }, new Date("2026-01-01T00:00:01.000Z"));
+    await recordDebugAttempt(dir, state, {
+      taskId: "T-001",
+      failureId: "F-001",
+      hypothesis: "Fix B",
+      actionSummary: "Change B",
+      result: "new_failure",
+      failureFingerprint: "failure-b",
+      resultingFailureFingerprint: "failure-a",
+    }, new Date("2026-01-01T00:00:02.000Z"));
+
+    const gate = await assessDebugRetryGate(dir, "T-001");
+
+    assert.equal(gate.allowed, false);
+    assert.equal(gate.failureId, "F-001");
+    assert.match(gate.reason, /requires new evidence or an accepted replan request/);
+    assert.deepEqual(gate.replanRequestIds, ["REPLAN-1767225602000"]);
+  });
+});
+
+test("assessDebugRetryGate allows retries after new evidence", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await recordDebugAttempt(dir, state, {
+      taskId: "T-001",
+      failureId: "F-001",
+      hypothesis: "Fix A",
+      actionSummary: "Change A",
+      result: "new_failure",
+      failureFingerprint: "failure-a",
+      resultingFailureFingerprint: "failure-b",
+    }, new Date("2026-01-01T00:00:01.000Z"));
+    await recordDebugAttempt(dir, state, {
+      taskId: "T-001",
+      failureId: "F-001",
+      hypothesis: "Fix B",
+      actionSummary: "Change B",
+      result: "new_failure",
+      failureFingerprint: "failure-b",
+      resultingFailureFingerprint: "failure-a",
+    }, new Date("2026-01-01T00:00:02.000Z"));
+    await recordDebugAttempt(dir, state, {
+      taskId: "T-001",
+      failureId: "F-001",
+      hypothesis: "Investigate logs",
+      actionSummary: "Found new stack trace",
+      result: "partial",
+      failureFingerprint: "failure-a",
+      resultingFailureFingerprint: "failure-a",
+      newEvidence: "Stack trace points at generated config.",
+    }, new Date("2026-01-01T00:00:03.000Z"));
+
+    const gate = await assessDebugRetryGate(dir, "T-001");
+
+    assert.equal(gate.allowed, true);
+    assert.match(gate.reason, /cleared by new evidence/);
+  });
+});
+
+test("assessDebugRetryGate allows retries after accepted resolved replan", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await recordDebugAttempt(dir, state, {
+      taskId: "T-001",
+      failureId: "F-001",
+      hypothesis: "Fix A",
+      actionSummary: "Change A",
+      result: "new_failure",
+      failureFingerprint: "failure-a",
+      resultingFailureFingerprint: "failure-b",
+    }, new Date("2026-01-01T00:00:01.000Z"));
+    await recordDebugAttempt(dir, state, {
+      taskId: "T-001",
+      failureId: "F-001",
+      hypothesis: "Fix B",
+      actionSummary: "Change B",
+      result: "new_failure",
+      failureFingerprint: "failure-b",
+      resultingFailureFingerprint: "failure-a",
+    }, new Date("2026-01-01T00:00:02.000Z"));
+    const requests = await loadReplanRequests(dir);
+    await saveReplanRequests(dir, requests.map((request) => ({
+      ...request,
+      status: request.id === "REPLAN-1767225602000" ? "resolved" : request.status,
+      updatedAt: "2026-01-01T00:00:04.000Z",
+    })));
+
+    const gate = await assessDebugRetryGate(dir, "T-001");
+
+    assert.equal(gate.allowed, true);
+    assert.match(gate.reason, /cleared by accepted replan/);
+    assert.deepEqual(gate.replanRequestIds, ["REPLAN-1767225602000"]);
   });
 });

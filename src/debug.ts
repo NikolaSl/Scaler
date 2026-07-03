@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { getDebugAttemptsPath, getDebugFailuresPath } from "./paths.js";
+import { loadReplanDecisions, loadReplanRequests } from "./plans.js";
 import { requestReplan } from "./replanning.js";
 import { transitionTask } from "./supervisor.js";
 import type { ScalerState } from "./types.js";
@@ -74,6 +75,16 @@ export interface DebugAttemptApplyResult {
   replanRequestId?: string;
 }
 
+export interface DebugRetryGateResult {
+  allowed: boolean;
+  taskId: string;
+  reason: string;
+  blockingAttemptId?: string;
+  failureId?: string;
+  replanRequestIds: string[];
+  acceptedReplanDecisionIds: string[];
+}
+
 interface DebugFailureIndex {
   version: 1;
   failures: DebugFailureRecord[];
@@ -104,6 +115,67 @@ export async function loadDebugFailures(cwd: string): Promise<DebugFailureRecord
 
 export async function loadDebugAttempts(cwd: string): Promise<DebugAttemptRecord[]> {
   return (await readJsonFile<DebugAttemptIndex>(getDebugAttemptsPath(cwd), { version: 1, attempts: [] })).attempts;
+}
+
+export async function assessDebugRetryGate(cwd: string, taskId: string): Promise<DebugRetryGateResult> {
+  const attempts = (await loadDebugAttempts(cwd))
+    .filter((attempt) => attempt.taskId === taskId && attempt.result !== "fixed")
+    .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  if (attempts.length === 0) {
+    return { allowed: true, taskId, reason: `No debug retry gate for ${taskId}.`, replanRequestIds: [], acceptedReplanDecisionIds: [] };
+  }
+
+  const failures = await loadDebugFailures(cwd);
+  const blockingAttempt = attempts.find((attempt) => isBlockingDebugAttempt(attempt, failures));
+  if (!blockingAttempt) {
+    return { allowed: true, taskId, reason: `No repeated failed debug fingerprint for ${taskId}.`, replanRequestIds: [], acceptedReplanDecisionIds: [] };
+  }
+
+  if (attempts.some((attempt) => attempt.timestamp >= blockingAttempt.timestamp && Boolean(attempt.newEvidence?.trim()))) {
+    return {
+      allowed: true,
+      taskId,
+      reason: `Debug retry gate cleared by new evidence for ${taskId}.`,
+      blockingAttemptId: blockingAttempt.id,
+      failureId: blockingAttempt.failureId,
+      replanRequestIds: [],
+      acceptedReplanDecisionIds: [],
+    };
+  }
+
+  const replanRequests = (await loadReplanRequests(cwd)).filter((request) =>
+    request.taskId === taskId &&
+    (request.trigger === "debug_cycle" || request.trigger === "debug_blocked") &&
+    request.createdAt >= blockingAttempt.timestamp,
+  );
+  const acceptedOrResolvedRequests = replanRequests.filter((request) => request.status === "accepted" || request.status === "resolved");
+  const acceptedDecisions = (await loadReplanDecisions(cwd)).filter((decision) =>
+    decision.status === "accepted" &&
+    decision.createdAt >= blockingAttempt.timestamp &&
+    decision.requestIds.some((requestId) => replanRequests.some((request) => request.id === requestId)),
+  );
+
+  if (acceptedOrResolvedRequests.length > 0 || acceptedDecisions.length > 0) {
+    return {
+      allowed: true,
+      taskId,
+      reason: `Debug retry gate cleared by accepted replan for ${taskId}.`,
+      blockingAttemptId: blockingAttempt.id,
+      failureId: blockingAttempt.failureId,
+      replanRequestIds: acceptedOrResolvedRequests.map((request) => request.id),
+      acceptedReplanDecisionIds: acceptedDecisions.map((decision) => decision.id),
+    };
+  }
+
+  return {
+    allowed: false,
+    taskId,
+    reason: `Debug retry blocked for ${taskId}: repeated failed fingerprint requires new evidence or an accepted replan request.`,
+    blockingAttemptId: blockingAttempt.id,
+    failureId: blockingAttempt.failureId,
+    replanRequestIds: replanRequests.map((request) => request.id),
+    acceptedReplanDecisionIds: [],
+  };
 }
 
 export async function recordDebugAttempt(
@@ -205,6 +277,15 @@ export async function recordDebugAttempt(
   );
 
   return { accepted: true, message, attempt, cycleDetected, replanRequestId };
+}
+
+function isBlockingDebugAttempt(attempt: DebugAttemptRecord, failures: DebugFailureRecord[]): boolean {
+  if (attempt.result === "fixed") return false;
+  if (attempt.cycleDetected) return true;
+  if (attempt.result === "blocked") return true;
+  const failure = failures.find((candidate) => candidate.taskId === attempt.taskId && candidate.id === attempt.failureId);
+  const failedResult = attempt.result === "same_failure" || attempt.result === "new_failure" || attempt.result === "partial" || attempt.result === "no_effect" || attempt.result === "worse";
+  return failedResult && (failure?.attemptCount ?? 0) >= 2;
 }
 
 function findDuplicateAttempt(
