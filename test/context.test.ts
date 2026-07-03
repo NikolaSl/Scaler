@@ -235,13 +235,22 @@ test("saveTaskContextManifest and loadTaskContextManifest round trip normalized 
   });
 });
 
-test("ensureTaskContextManifest creates default manifest when missing", async () => {
+test("ensureTaskContextManifest creates discovered manifest when missing", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState();
-    state.tasks = [{ id: "T-001", status: "ready", updatedAt: state.createdAt }];
+    state.tasks = [{ id: "T-001", status: "ready", title: "Plan-backed task", updatedAt: state.createdAt }];
+    await saveExecutionPlan(dir, {
+      version: 1,
+      planVersion: 1,
+      status: "active",
+      tasks: [{ id: "T-001", title: "Plan-backed task" }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
 
     const manifest = await ensureTaskContextManifest(dir, state, "T-001");
     assert.equal(manifest.taskId, "T-001");
+    assert.ok(manifest.items.some((item) => item.id === "execution-plan-task"));
     assert.equal((await loadTaskContextManifest(dir, "T-001"))?.taskId, "T-001");
   });
 });

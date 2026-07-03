@@ -183,7 +183,7 @@ export async function saveTaskContextManifest(cwd: string, manifest: TaskContext
 export async function ensureTaskContextManifest(cwd: string, state: ScalerState, taskId: string): Promise<TaskContextManifest> {
   const existing = await loadTaskContextManifest(cwd, taskId);
   if (existing) return existing;
-  return await saveTaskContextManifest(cwd, createDefaultTaskContextManifest(state, taskId));
+  return await saveTaskContextManifest(cwd, await createDiscoveredTaskContextManifest(cwd, state, taskId));
 }
 
 export function validateTaskContextManifest(manifest: TaskContextManifest): void {
