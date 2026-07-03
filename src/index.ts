@@ -43,6 +43,7 @@ import { createTask, formatTaskList, retryTask, updateTask } from "./tasks.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
 import { advanceStageAfterReadyArtifact } from "./stage-advancement.js";
 import { formatStageAgentRunList, loadStageAgentRunRecords, runStageAgentStep } from "./stage-agents.js";
+import { runStageConductorStep } from "./stage-conductor.js";
 import {
   formatStageArtifactReadiness,
   formatStageArtifactSummary,
@@ -226,6 +227,23 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       try {
         const state = await ensureState(ctx.cwd);
         const result = await advanceStageAfterReadyArtifact(ctx.cwd, state, stage);
+        if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
+        else console.log(result.message);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+      }
+    },
+  });
+
+  pi.registerCommand("scaler-stage-step", {
+    description: "Run one deterministic SCALER stage-conductor step. Pass 'execute' to run the stage agent.",
+    handler: async (args, ctx) => {
+      try {
+        const state = await ensureState(ctx.cwd);
+        const execute = /\bexecute\b/i.test(args ?? "");
+        const result = await runStageConductorStep(ctx.cwd, state, { execute });
         if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
         else console.log(result.message);
       } catch (error) {
