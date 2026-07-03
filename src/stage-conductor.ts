@@ -17,8 +17,19 @@ import {
 import type { ScalerState } from "./types.js";
 
 export type StageConductorAction = "advance" | "run_stage_agent" | "unsupported_stage";
+export type StageConductorLoopStopReason =
+  | "completed"
+  | "max_steps"
+  | "unsupported_stage"
+  | "step_rejected"
+  | "prepared_stage_agent"
+  | "stage_agent_without_advancement";
 
 export interface StageConductorStepOptions extends RunStageAgentOptions {}
+
+export interface StageConductorLoopOptions extends StageConductorStepOptions {
+  maxSteps?: number;
+}
 
 export interface StageConductorStepResult {
   accepted: boolean;
@@ -28,6 +39,15 @@ export interface StageConductorStepResult {
   readiness?: StageArtifactReadinessValidation;
   advancement?: StageAdvancementResult;
   stageAgent?: StageAgentStepResult;
+}
+
+export interface StageConductorLoopResult {
+  accepted: boolean;
+  completed: boolean;
+  stopReason: StageConductorLoopStopReason;
+  steps: StageConductorStepResult[];
+  finalState: ScalerState;
+  message: string;
 }
 
 export async function runStageConductorStep(
@@ -74,6 +94,78 @@ export async function runStageConductorStep(
     stageAgent,
     advancement,
   };
+}
+
+export async function runStageConductorLoop(
+  cwd: string,
+  state: ScalerState,
+  options: StageConductorLoopOptions = {},
+  runner?: StageAgentRunner,
+): Promise<StageConductorLoopResult> {
+  const maxSteps = normalizeLoopMaxSteps(options.maxSteps);
+  const steps: StageConductorStepResult[] = [];
+  let currentState = state;
+  let stopReason: StageConductorLoopStopReason = "max_steps";
+
+  for (let index = 0; index < maxSteps; index += 1) {
+    const step = await runStageConductorStep(cwd, currentState, options, runner);
+    steps.push(step);
+    if (step.advancement?.state) currentState = step.advancement.state;
+
+    if (currentState.stage === "completed") {
+      stopReason = "completed";
+      break;
+    }
+
+    if (step.action === "unsupported_stage") {
+      stopReason = "unsupported_stage";
+      break;
+    }
+
+    if (!step.accepted) {
+      stopReason = "step_rejected";
+      break;
+    }
+
+    if (step.advancement?.advanced) continue;
+
+    if (step.action === "run_stage_agent") {
+      stopReason = options.execute ? "stage_agent_without_advancement" : "prepared_stage_agent";
+      break;
+    }
+
+    stopReason = "step_rejected";
+    break;
+  }
+
+  if (currentState.stage === "completed") stopReason = "completed";
+  return {
+    accepted: steps.length > 0 && steps.every((step) => step.accepted),
+    completed: currentState.stage === "completed",
+    stopReason,
+    steps,
+    finalState: currentState,
+    message: formatStageConductorLoopMessage(steps, currentState, stopReason),
+  };
+}
+
+function formatStageConductorLoopMessage(
+  steps: StageConductorStepResult[],
+  finalState: ScalerState,
+  stopReason: StageConductorLoopStopReason,
+): string {
+  const lines = [`Stage conductor loop: steps=${steps.length} stop=${stopReason} final_stage=${finalState.stage}`];
+  for (const [index, step] of steps.entries()) {
+    const stage = step.stage ?? "n/a";
+    const summary = step.message.split("\n")[0] ?? step.message;
+    lines.push(`- ${index + 1}. ${stage} ${step.action}: ${summary}`);
+  }
+  return lines.join("\n");
+}
+
+function normalizeLoopMaxSteps(maxSteps: number | undefined): number {
+  if (maxSteps === undefined || !Number.isFinite(maxSteps)) return 5;
+  return Math.min(Math.max(Math.trunc(maxSteps), 1), 20);
 }
 
 function formatStageConductorMessage(
