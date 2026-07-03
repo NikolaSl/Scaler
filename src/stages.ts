@@ -1,5 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join } from "node:path";
 import { getStageArtifactsPath } from "./paths.js";
 
 export const stageArtifactStages = ["prd", "knowledge", "planning", "execution", "replanning"] as const;
@@ -45,6 +45,13 @@ export interface StageArtifactSummary {
   missingStages: StageArtifactStage[];
   readyStages: StageArtifactStage[];
   blockedStages: StageArtifactStage[];
+}
+
+export interface StageArtifactReadinessValidation {
+  ok: boolean;
+  stage: StageArtifactStage;
+  artifact?: StageArtifact;
+  reasons: string[];
 }
 
 export async function loadStageArtifacts(cwd: string): Promise<StageArtifact[]> {
@@ -100,6 +107,51 @@ export function summarizeStageArtifacts(artifacts: StageArtifact[]): StageArtifa
   return { total: artifacts.length, latestByStage, missingStages, readyStages, blockedStages };
 }
 
+export async function validateStageArtifactReadiness(
+  cwd: string,
+  artifacts: StageArtifact[],
+  stageInput: StageArtifactStage | string,
+): Promise<StageArtifactReadinessValidation> {
+  const stage = normalizeStageArtifactStage(stageInput);
+  const artifact = latestArtifactForStage(artifacts, stage);
+  const reasons: string[] = [];
+
+  if (!artifact) {
+    return { ok: false, stage, reasons: [`No artifact recorded for stage ${stage}.`] };
+  }
+
+  if (artifact.status !== "ready" && artifact.status !== "accepted") {
+    reasons.push(`Latest ${stage} artifact ${artifact.id} status is ${artifact.status}, expected ready or accepted.`);
+  }
+
+  if (requiresPath(stage) && !artifact.path) {
+    reasons.push(`Stage ${stage} requires an artifact path.`);
+  }
+
+  if (!artifact.path && !artifact.summary && (!artifact.taskRefs || artifact.taskRefs.length === 0)) {
+    reasons.push(`Stage ${stage} artifact ${artifact.id} needs a path, summary, or task refs.`);
+  }
+
+  if (artifact.path) {
+    const path = isAbsolute(artifact.path) ? artifact.path : join(cwd, artifact.path);
+    try {
+      const pathStat = await stat(path);
+      if (!pathStat.isFile()) reasons.push(`Artifact path is not a file: ${artifact.path}`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") reasons.push(`Artifact path does not exist: ${artifact.path}`);
+      else throw error;
+    }
+  }
+
+  return { ok: reasons.length === 0, stage, artifact, reasons };
+}
+
+export function formatStageArtifactReadiness(validation: StageArtifactReadinessValidation): string {
+  const artifact = validation.artifact ? ` artifact=${validation.artifact.id}` : "";
+  if (validation.ok) return `Stage ${validation.stage} artifact is ready.${artifact}`;
+  return [`Stage ${validation.stage} artifact is not ready.${artifact}`, ...validation.reasons.map((reason) => `- ${reason}`)].join("\n");
+}
+
 export function formatStageArtifactSummary(summary: StageArtifactSummary): string {
   const lines = [`Stage artifacts: total=${summary.total} ready=${summary.readyStages.length}/${stageArtifactStages.length}`];
   for (const stage of stageArtifactStages) {
@@ -127,8 +179,7 @@ export function validateStageArtifact(artifact: StageArtifact): void {
 }
 
 function normalizeStageArtifactInput(input: StageArtifactInput, existing: StageArtifact | undefined, timestamp: string): StageArtifact {
-  const stage = input.stage as StageArtifactStage;
-  if (!stageArtifactStages.includes(stage)) throw new Error(`Invalid stage artifact stage: ${String(input.stage)}`);
+  const stage = normalizeStageArtifactStage(input.stage);
   const status = (input.status ?? existing?.status ?? "draft") as StageArtifactStatus;
   if (!stageArtifactStatuses.includes(status)) throw new Error(`Invalid stage artifact status: ${String(input.status)}`);
   const id = input.id?.trim() || existing?.id || `ART-${stage}-${timestamp.replace(/[^0-9]/g, "")}`;
@@ -165,6 +216,20 @@ function clean(value: string | undefined): string | undefined {
 function normalizeList(values: string[] | undefined): string[] | undefined {
   const normalized = Array.from(new Set((values ?? []).map((value) => value.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
   return normalized.length > 0 ? normalized : undefined;
+}
+
+export function normalizeStageArtifactStage(stage: StageArtifactStage | string): StageArtifactStage {
+  const normalized = stage.trim() as StageArtifactStage;
+  if (!stageArtifactStages.includes(normalized)) throw new Error(`Invalid stage artifact stage: ${String(stage)}`);
+  return normalized;
+}
+
+function latestArtifactForStage(artifacts: StageArtifact[], stage: StageArtifactStage): StageArtifact | undefined {
+  return sortStageArtifacts(artifacts).find((artifact) => artifact.stage === stage);
+}
+
+function requiresPath(stage: StageArtifactStage): boolean {
+  return stage === "prd" || stage === "knowledge" || stage === "planning" || stage === "replanning";
 }
 
 function sortStageArtifacts(artifacts: StageArtifact[]): StageArtifact[] {
