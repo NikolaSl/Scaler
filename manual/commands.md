@@ -90,6 +90,21 @@ Pauses the current Scaler run through the supervisor transition rules and writes
 
 Resumes a paused run only to its previous active stage and writes a checkpoint under `.scaler/checkpoints/`.
 
+## `/scaler-budget-status`
+
+Shows state-backed budget usage, soft/hard limits, checkpoint count, and the strongest current budget decision.
+
+## `/scaler-budget-set <key> | <soft> | <hard>`
+
+Persists a budget limit in `.scaler/state.json`. Supported keys are `toolCalls`, `spawnedAgents`, `debugAttempts`, `wallClockMs`, `checkpoints`, `contextTokens`, `validationLoops`, `storageBytes`, `researchReports`, and `estimatedCostMicros`. Use `-` to clear one side while setting the other side.
+
+Examples:
+
+```text
+/scaler-budget-set validationLoops | 2 | 3
+/scaler-budget-set estimatedCostMicros | - | 500000
+```
+
 ## `/scaler-lock`
 
 Shows the current repo-wide SCALER execution lock, or reports that no lock exists.

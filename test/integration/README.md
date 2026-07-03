@@ -183,6 +183,9 @@ When adding a new integration scenario:
   - replanner-agent structured proposal ingestion, preservation checks, proposed-plan persistence, run records, and audit logs;
   - replan proposal acceptance, current-plan replacement, version snapshot, replan decision, request resolution, and task creation;
   - validated-task git commit through the execution lock while preserving `.scaler/` runtime artifacts and recording git audit logs.
+- `mock/budget-command-flow.test.ts`
+  - command-driven budget configuration persisted to state;
+  - configured validation-loop hard stop before validation command execution, with pause/audit behavior.
 - `mock/remaining-flows.test.ts`
   - budget hard stops for conductor and validation plus pause/audit behavior;
   - context discovery into conductor prompts, including exactness/compression guidance;
@@ -206,6 +209,7 @@ When adding a new integration scenario:
   - real Pi `--mode json` wrapper extraction for exact assistant JSON events.
 - `real/real-pi-extension-integrity.test.ts`
   - real Pi extension load and slash-command dispatch via `/scaler-lock`;
+  - real Pi slash-command budget configuration/status persistence;
   - command audit events and detail payload references in `.scaler/logs/events.jsonl`;
   - cardinal real-model call to `scaler_task_create` with exact arguments and persisted SCALER task state;
   - cardinal real-model call to built-in `bash` with `cat .env`, blocked by SCALER's safety hook and recorded as a safety audit event.
