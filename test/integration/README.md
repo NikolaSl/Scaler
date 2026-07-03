@@ -1,18 +1,25 @@
 # SCALER Integration Test Suite
 
-This folder contains SCALER integration tests. These tests exercise multi-module workflows against temporary repositories and persisted `.scaler/` artifacts. They are intended to catch orchestration regressions that unit tests can miss.
+This folder contains SCALER integration tests. They exercise multi-module workflows against temporary repositories and persisted `.scaler/` artifacts so orchestration regressions are caught outside unit tests.
 
-## Relationship to unit tests
+## Suite layout
 
 - Unit/component tests live in `test/*.test.ts`.
-- Integration tests live in `test/integration/*.test.ts`.
-- `npm test` runs both sets:
+- Deterministic mocked integration tests live in `test/integration/mock/*.test.ts`.
+- Optional real Pi/model contract tests live in `test/integration/real/*.test.ts`.
+
+Scripts:
 
 ```bash
-node --test --import tsx test/*.test.ts test/integration/*.test.ts
+npm test                         # unit + mocked integration
+npm run test:unit                # unit tests only
+npm run test:integration         # mocked integration (default integration suite)
+npm run test:integration:mock    # mocked integration only
+npm run test:integration:real    # real suite only; skipped unless enabled
+npm run build
 ```
 
-Keep integration tests in this folder so future agents can distinguish scenario/workflow tests from local module tests.
+The default `npm test` path must remain deterministic and must not call real LLMs or the real `pi` executable.
 
 ## Requirement sources
 
@@ -34,7 +41,7 @@ A good integration test should:
 2. initialize git if workflow/git behavior matters;
 3. create realistic project files such as `package.json`, source files, and validation scripts;
 4. call public SCALER workflow functions or command handlers across module boundaries;
-5. use deterministic mock child-agent runners by default;
+5. use deterministic mock child-agent runners in `test/integration/mock/`;
 6. assert persisted `.scaler/` artifacts, not only returned function values;
 7. assert structured-only ingestion behavior where child-agent output is involved;
 8. clean up the temp repo in `finally`.
@@ -58,7 +65,7 @@ Prefer assertions on durable artifacts such as:
 
 ## Mock child-agent runners
 
-Default integration tests must not call real LLMs or the real `pi` binary. Use mock runners with the same shape as `runTaskAgent`:
+Mocked integration tests must not call real LLMs or the real `pi` binary. Use mock runners with the same shape as `runTaskAgent`:
 
 ```ts
 async function mockRunner(request: TaskAgentRequest): Promise<TaskAgentRunResult> {
@@ -77,38 +84,27 @@ Use scripted mock runners when a scenario needs multiple child-agent turns. Exam
 
 ## Structured-only ingestion tests
 
-SCALER must not ingest arbitrary child-agent prose as state. For each new child-agent report type, add or extend integration coverage that feeds free-form/unparsed output and verifies:
+SCALER must not ingest arbitrary child-agent prose as state. For each child-agent report type, integration coverage should feed free-form/unparsed output and verify:
 
 - the run record may exist;
 - ingestion is attempted and rejected;
 - no state/report ledger is mutated as if the prose were valid.
 
-For example, debug-agent free-form output should not create `.scaler/debug/reports.json` entries.
+Current mocked coverage includes negative cases for debug, stage, replan, and research agent outputs.
 
 ## Optional real Pi/model mode
 
-Integration tests may include optional real Pi/model execution, but these tests must be skipped by default. Gate them with environment variables.
-
-Current optional variables:
-
-```bash
-SCALER_REAL_PI_INTEGRATION=1
-SCALER_REAL_PI_MODEL=<model-name>
-SCALER_REAL_PI_COMMAND=pi
-SCALER_REAL_PI_TIMEOUT_MS=60000
-```
-
-Run real mode explicitly:
+Real tests are separate from the deterministic mock suite and are skipped unless explicitly enabled:
 
 ```bash
 SCALER_REAL_PI_INTEGRATION=1 \
 SCALER_REAL_PI_MODEL=<model-name> \
 SCALER_REAL_PI_COMMAND=pi \
 SCALER_REAL_PI_TIMEOUT_MS=60000 \
-npm test
+npm run test:integration:real
 ```
 
-Real Pi/model tests are opt-in because they can cost tokens, depend on local/provider configuration, and are less deterministic than mock tests.
+Real Pi/model tests are opt-in because they can cost tokens, depend on local/provider configuration, and are less deterministic than mock tests. They should only validate subprocess/model structured-output contracts; do not make them depend on external network access.
 
 ## Cardinal instruction pattern for real mode
 
@@ -136,23 +132,19 @@ If a model cannot follow this instruction reliably, treat that as a model/config
 
 When adding a new integration scenario:
 
-1. Put the file under `test/integration/<scenario>.test.ts`.
-2. Use deterministic temp repo setup.
-3. Prefer mock runners; add optional real mode only when it increases confidence.
-4. Assert returned results and persisted artifacts.
-5. Add structured-only negative coverage if a child report is ingested.
-6. Update this README when adding a new pattern or environment variable.
-7. Update `manual/testing.md`, `implementation-inventory.md`, and `traceability-matrix.md` if coverage changes.
-8. Run:
+1. Put deterministic tests under `test/integration/mock/<scenario>.test.ts`.
+2. Put opt-in real subprocess/model contracts under `test/integration/real/<scenario>.test.ts`.
+3. Use deterministic temp repo setup.
+4. Prefer mock runners; add optional real mode only when it increases confidence.
+5. Assert returned results and persisted artifacts.
+6. Add structured-only negative coverage if a child report is ingested.
+7. Update this README when adding a new pattern or environment variable.
+8. Update `manual/testing.md`, `implementation-inventory.md`, and `traceability-matrix.md` if coverage changes.
+9. Run `npm test` and `npm run build`.
 
-```bash
-npm test
-npm run build
-```
+## Current mocked scenarios
 
-## Current scenarios
-
-- `debug-research-flow.test.ts`
+- `mock/debug-research-flow.test.ts`
   - conductor execution into validation handoff;
   - failing validation into debugging;
   - cyclic debug attempts and retry-gate refusal;
@@ -160,12 +152,31 @@ npm run build
   - research-agent report ingestion and request resolution;
   - debug-agent `next_approach` report ingestion;
   - retry-gate clearance by later `newEvidence`;
-  - rejection of free-form debug-agent output;
-  - optional real Pi/model structured-output contract check.
-- `stage-replan-plan-flow.test.ts`
+  - rejection of free-form debug-agent output.
+- `mock/stage-replan-plan-flow.test.ts`
   - stage conductor loop from PRD through knowledge, planning, execution, and completion;
   - stage-agent structured artifact ingestion, readiness, semantic, consistency, advancement, run records, and audit logs;
   - runtime PRD requirements plus coverage-gap replan request;
   - replanner-agent structured proposal ingestion, preservation checks, proposed-plan persistence, run records, and audit logs;
   - replan proposal acceptance, current-plan replacement, version snapshot, replan decision, request resolution, and task creation;
   - validated-task git commit through the execution lock while preserving `.scaler/` runtime artifacts and recording git audit logs.
+- `mock/remaining-flows.test.ts`
+  - budget hard stops for conductor and validation plus pause/audit behavior;
+  - context discovery into conductor prompts, including exactness/compression guidance;
+  - structured-only rejection for stage, replan, and research agents;
+  - unsafe replan proposal acceptance rejection;
+  - debug report to replan request to acceptance retry-gate clearance;
+  - blocked validation to replan proposal acceptance;
+  - execution-lock contention across conductor, validation, stage, replan, research, debug, and commit workflows;
+  - safety/allowed-path and commit-refusal chains;
+  - research raw evidence memory references in later context;
+  - stage consistency rejection;
+  - dependency-blocked task selection and release after dependency validation.
+
+## Current real scenarios
+
+- `real/real-pi-contracts.test.ts`
+  - opt-in cardinal structured-output contract for `scaler_debug_report`;
+  - opt-in cardinal structured-output contract for `scaler_research_report`;
+  - opt-in cardinal structured-output contract for `scaler_stage_artifact`;
+  - opt-in cardinal structured-output contract for `scaler_replan_proposal`.
