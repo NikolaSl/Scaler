@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
+  applyBudgetUsageUpdates,
   getBudgetState,
   incrementBudgetUsage,
   persistBudgetDecision,
   recordBudgetCheckpoint,
+  recordStorageBudgetUsage,
+  scanScalerStorageBytes,
   setBudgetLimits,
 } from "../src/budgets.js";
 import { readLogEvents } from "../src/logging.js";
@@ -77,4 +80,40 @@ test("recordBudgetCheckpoint records wall-clock usage", () => {
   assert.equal(budgets.usage.wallClockMs, 1_000);
   assert.equal(budgets.usage.checkpoints, 1);
   assert.equal(decision.status, "soft_limit");
+});
+
+test("applyBudgetUsageUpdates supports set and increment with strongest decision", () => {
+  const initial = setBudgetLimits(createDefaultState(new Date("2026-01-01T00:00:00.000Z")), {
+    contextTokens: { soft: 100, hard: 200 },
+    validationLoops: { hard: 2 },
+  });
+  const result = applyBudgetUsageUpdates(initial, [
+    { key: "contextTokens", amount: 150, mode: "set" },
+    { key: "validationLoops", amount: 2, mode: "increment" },
+  ], new Date("2026-01-01T00:00:01.000Z"));
+  const budgets = getBudgetState(result.state);
+
+  assert.equal(budgets.usage.contextTokens, 150);
+  assert.equal(budgets.usage.validationLoops, 2);
+  assert.equal(result.decisions.length, 2);
+  assert.equal(result.decision.key, "validationLoops");
+  assert.equal(result.decision.status, "hard_limit");
+});
+
+test("recordStorageBudgetUsage scans .scaler bytes and evaluates limits", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, ".scaler", "memory"), { recursive: true });
+    await writeFile(join(dir, ".scaler", "memory", "one.txt"), "12345", "utf8");
+    await writeFile(join(dir, ".scaler", "two.txt"), "123", "utf8");
+    const limited = setBudgetLimits(createDefaultState(new Date("2026-01-01T00:00:00.000Z")), {
+      storageBytes: { soft: 5, hard: 8 },
+    });
+
+    const result = await recordStorageBudgetUsage(dir, limited, new Date("2026-01-01T00:00:01.000Z"));
+
+    assert.equal(await scanScalerStorageBytes(dir), 8);
+    assert.equal(result.storageBytes, 8);
+    assert.equal(getBudgetState(result.state).usage.storageBytes, 8);
+    assert.equal(result.decision.status, "hard_limit");
+  });
 });

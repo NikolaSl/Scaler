@@ -1,9 +1,22 @@
+import { readdir, stat } from "node:fs/promises";
+import { join } from "node:path";
 import { appendLogEvent, createLogEvent } from "./logging.js";
+import { getScalerDir } from "./paths.js";
 import { saveState } from "./state.js";
 import { transitionStage } from "./supervisor.js";
 import type { ScalerState } from "./types.js";
 
-export type BudgetUsageKey = "toolCalls" | "spawnedAgents" | "debugAttempts" | "wallClockMs" | "checkpoints";
+export type BudgetUsageKey =
+  | "toolCalls"
+  | "spawnedAgents"
+  | "debugAttempts"
+  | "wallClockMs"
+  | "checkpoints"
+  | "contextTokens"
+  | "validationLoops"
+  | "storageBytes"
+  | "researchReports"
+  | "estimatedCostMicros";
 export type BudgetDecisionStatus = "ok" | "soft_limit" | "hard_limit";
 export type BudgetRecommendedAction = "continue" | "reduce_scope" | "pause";
 
@@ -40,7 +53,30 @@ export interface BudgetDecision {
   recommendedAction: BudgetRecommendedAction;
 }
 
-const usageKeys: BudgetUsageKey[] = ["toolCalls", "spawnedAgents", "debugAttempts", "wallClockMs", "checkpoints"];
+export interface BudgetUsageUpdate {
+  key: BudgetUsageKey;
+  amount: number;
+  mode?: "increment" | "set";
+}
+
+export interface BudgetUpdateResult {
+  state: ScalerState;
+  decisions: BudgetDecision[];
+  decision: BudgetDecision;
+}
+
+const usageKeys: BudgetUsageKey[] = [
+  "toolCalls",
+  "spawnedAgents",
+  "debugAttempts",
+  "wallClockMs",
+  "checkpoints",
+  "contextTokens",
+  "validationLoops",
+  "storageBytes",
+  "researchReports",
+  "estimatedCostMicros",
+];
 
 export function getBudgetState(state: ScalerState, now = new Date()): ScalerBudgetState {
   const raw = state.budgets as Partial<ScalerBudgetState> | undefined;
@@ -77,15 +113,51 @@ export function incrementBudgetUsage(
   amount = 1,
   now = new Date(),
 ): { state: ScalerState; decision: BudgetDecision } {
+  const result = applyBudgetUsageUpdates(state, [{ key, amount, mode: "increment" }], now);
+  return { state: result.state, decision: result.decision };
+}
+
+export function setBudgetUsage(
+  state: ScalerState,
+  key: BudgetUsageKey,
+  value: number,
+  now = new Date(),
+): { state: ScalerState; decision: BudgetDecision } {
+  const result = applyBudgetUsageUpdates(state, [{ key, amount: value, mode: "set" }], now);
+  return { state: result.state, decision: result.decision };
+}
+
+export function applyBudgetUsageUpdates(
+  state: ScalerState,
+  updates: BudgetUsageUpdate[],
+  now = new Date(),
+): BudgetUpdateResult {
+  if (updates.length === 0) {
+    const decision = evaluateBudgetUsage("toolCalls", getBudgetState(state, now).usage.toolCalls ?? 0);
+    return { state, decisions: [decision], decision };
+  }
+
+  const timestamp = now.toISOString();
   const budgetState = getBudgetState(state, now);
-  const nextUsage = Math.max(0, (budgetState.usage[key] ?? 0) + amount);
+  const usage = { ...budgetState.usage };
+  const decisions: BudgetDecision[] = [];
+
+  for (const update of updates) {
+    const normalizedAmount = Number.isFinite(update.amount) ? update.amount : 0;
+    const nextUsage = update.mode === "set"
+      ? Math.max(0, normalizedAmount)
+      : Math.max(0, (usage[update.key] ?? 0) + normalizedAmount);
+    usage[update.key] = nextUsage;
+    decisions.push(evaluateBudgetUsage(update.key, nextUsage, budgetState.limits[update.key]));
+  }
+
   const nextBudgetState: ScalerBudgetState = {
     ...budgetState,
-    usage: { ...budgetState.usage, [key]: nextUsage },
-    updatedAt: now.toISOString(),
+    usage,
+    updatedAt: timestamp,
   };
-  const decision = evaluateBudgetUsage(key, nextUsage, nextBudgetState.limits[key]);
-  return { state: { ...state, budgets: nextBudgetState, updatedAt: now.toISOString() }, decision };
+  const decision = getStrongestBudgetDecision(decisions);
+  return { state: { ...state, budgets: nextBudgetState, updatedAt: timestamp }, decisions, decision };
 }
 
 export function recordBudgetCheckpoint(
@@ -118,6 +190,20 @@ export function recordBudgetCheckpoint(
   const wallClockDecision = evaluateBudgetUsage("wallClockMs", wallClockMs, nextBudgetState.limits.wallClockMs);
   const decision = strongerDecision(checkpointDecision, wallClockDecision);
   return { state: { ...state, budgets: nextBudgetState, updatedAt: now.toISOString() }, decision, checkpoint };
+}
+
+export async function recordStorageBudgetUsage(
+  cwd: string,
+  state: ScalerState,
+  now = new Date(),
+): Promise<{ state: ScalerState; decision: BudgetDecision; storageBytes: number }> {
+  const storageBytes = await scanScalerStorageBytes(cwd);
+  const { state: nextState, decision } = setBudgetUsage(state, "storageBytes", storageBytes, now);
+  return { state: nextState, decision, storageBytes };
+}
+
+export async function scanScalerStorageBytes(cwd: string): Promise<number> {
+  return await scanPathBytes(getScalerDir(cwd));
 }
 
 export function evaluateBudgetUsage(key: BudgetUsageKey, usage: number, limit?: BudgetLimit): BudgetDecision {
@@ -182,6 +268,11 @@ export async function persistBudgetDecision(
   return nextState;
 }
 
+export function getStrongestBudgetDecision(decisions: BudgetDecision[]): BudgetDecision {
+  if (decisions.length === 0) return evaluateBudgetUsage("toolCalls", 0);
+  return decisions.reduce((strongest, candidate) => strongerDecision(strongest, candidate));
+}
+
 function strongerDecision(first: BudgetDecision, second: BudgetDecision): BudgetDecision {
   const rank: Record<BudgetDecisionStatus, number> = { ok: 0, soft_limit: 1, hard_limit: 2 };
   return rank[second.status] > rank[first.status] ? second : first;
@@ -209,6 +300,20 @@ function normalizeLimits(value: unknown): Partial<Record<BudgetUsageKey, BudgetL
     };
   }
   return limits;
+}
+
+async function scanPathBytes(path: string): Promise<number> {
+  try {
+    const info = await stat(path);
+    if (info.isFile()) return info.size;
+    if (!info.isDirectory()) return 0;
+    const entries = await readdir(path);
+    const sizes = await Promise.all(entries.map((entry) => scanPathBytes(join(path, entry))));
+    return sizes.reduce((total, size) => total + size, 0);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return 0;
+    throw error;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
