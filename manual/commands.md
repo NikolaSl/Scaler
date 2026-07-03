@@ -126,6 +126,10 @@ Advances the supervisor stage after validating a ready stage artifact.
 
 Runs one deterministic stage-conductor step for the current supervisor stage. If a ready artifact already exists for the active stage, SCALER validates and advances it. Otherwise SCALER prepares the matching focused stage agent; with `execute`, it runs the agent, ingests a valid `scaler_stage_artifact` JSON event, and attempts advancement.
 
+## `/scaler-stage-loop [execute] [max=N]`
+
+Runs bounded deterministic stage-conductor steps, carrying forward supervisor state after every successful advancement. Stops on completion, max steps, unsupported stages, rejected steps, prepare-mode handoff, or executed stage-agent output that does not advance. Default max is 5 and bounds normalize to 1..20.
+
 ## `/scaler-stage-run <stage> [execute]`
 
 Prepares or executes a focused stage-agent subprocess for `prd`, `knowledge`, `planning`, `execution`, or `replanning`. Successful executed runs ingest a valid `scaler_stage_artifact` JSON event and attempt ready-artifact advancement automatically.
