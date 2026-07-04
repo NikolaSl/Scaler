@@ -31,6 +31,7 @@ export interface ParsedValidationAddArgs {
   gate?: string;
   expectedResult?: string;
   evidenceRefs?: string[];
+  environment?: string;
 }
 
 export interface ParsedValidationChecklistItemArgs {
@@ -231,6 +232,7 @@ export function parseValidationAddArgs(args: string | undefined): ParsedValidati
     gate: parts[5]?.trim() || undefined,
     expectedResult: parts[6]?.trim() || undefined,
     evidenceRefs: parseCommaList(parts[7]),
+    environment: parts[8]?.trim() || undefined,
   };
 }
 

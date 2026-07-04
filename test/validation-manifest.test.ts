@@ -9,6 +9,7 @@ import {
   evaluateValidationManifestPolicy,
   getValidationManifestForTask,
   loadValidationManifests,
+  normalizeValidationEnvironmentKind,
   normalizeValidationGateKind,
   saveValidationManifest,
   upsertValidationManifestCommand,
@@ -58,6 +59,14 @@ test("normalizeValidationGateKind maps common software and non-software aliases"
   assert.equal(normalizeValidationGateKind(" "), undefined);
 });
 
+test("normalizeValidationEnvironmentKind maps sandbox environment aliases", () => {
+  assert.equal(normalizeValidationEnvironmentKind("native"), "host");
+  assert.equal(normalizeValidationEnvironmentKind("docker-compose"), "compose");
+  assert.equal(normalizeValidationEnvironmentKind("dev container"), "devcontainer");
+  assert.equal(normalizeValidationEnvironmentKind("sandbox"), "local_ci");
+  assert.equal(normalizeValidationEnvironmentKind("unknown-env"), undefined);
+});
+
 test("upsertValidationManifestCommand appends and replaces commands with gate metadata", async () => {
   await withTempDir(async (dir) => {
     await upsertValidationManifestCommand(dir, {
@@ -97,6 +106,7 @@ test("saveValidationManifest normalizes gate metadata", async () => {
         gate: "source validation",
         expectedResult: "review evidence exists",
         evidenceRefs: ["doc:one", "doc:one", "doc:two"],
+        environment: "docker-compose",
       }],
       createdAt: "",
       updatedAt: "",
@@ -106,6 +116,7 @@ test("saveValidationManifest normalizes gate metadata", async () => {
     assert.equal(command?.gate, "source_validation");
     assert.equal(command?.expectedResult, "review evidence exists");
     assert.deepEqual(command?.evidenceRefs, ["doc:one", "doc:two"]);
+    assert.equal(command?.environment, "compose");
   });
 });
 
@@ -139,6 +150,46 @@ test("evaluateValidationManifestPolicy fails required dependency and test-first 
 
   assert.equal(policy.status, "failed");
   assert.deepEqual(policy.diagnostics.map((diagnostic) => diagnostic.code), ["dependency_check_order", "test_first_order"]);
+});
+
+test("evaluateValidationManifestPolicy fails required local-ci gates without sandbox environment", () => {
+  const policy = evaluateValidationManifestPolicy({
+    taskId: "T-001",
+    createdAt: "",
+    updatedAt: "",
+    commands: [{ id: "ci", command: "npm run ci", required: true, gate: "local_ci" }],
+  });
+
+  assert.equal(policy.status, "failed");
+  assert.equal(policy.diagnostics.some((diagnostic) => diagnostic.code === "local_ci_requires_environment"), true);
+});
+
+test("evaluateValidationManifestPolicy fails docker tooling without environment metadata", () => {
+  const policy = evaluateValidationManifestPolicy({
+    taskId: "T-001",
+    createdAt: "",
+    updatedAt: "",
+    commands: [{ id: "docker", command: "docker compose config", required: true, gate: "local_ci" }],
+  });
+
+  assert.equal(policy.status, "failed");
+  assert.equal(policy.diagnostics.some((diagnostic) => diagnostic.code === "sandbox_environment_missing"), true);
+});
+
+test("evaluateValidationManifestPolicy passes declared local-ci sandbox environment", () => {
+  const policy = evaluateValidationManifestPolicy({
+    taskId: "T-001",
+    createdAt: "",
+    updatedAt: "",
+    commands: [
+      { id: "deps", command: "node deps.js", required: true, gate: "dependency_check" },
+      { id: "test-first", command: "node test-first.js", required: true, gate: "test_first" },
+      { id: "ci", command: "docker compose config", required: true, gate: "local_ci", environment: "compose" },
+    ],
+  });
+
+  assert.equal(policy.status, "passed");
+  assert.deepEqual(policy.diagnostics, []);
 });
 
 test("evaluateValidationManifestPolicy warns when implementation gates omit policy preflights", () => {

@@ -11,6 +11,7 @@ import type { ScalerState, ScalerTaskStatus } from "./types.js";
 export type ValidationStatus = "passed" | "failed" | "partial" | "blocked" | "not_applicable";
 export type ValidationChecklistItemStatus = "passed" | "failed" | "blocked" | "not_applicable";
 export type ValidationChecklistStatus = "passed" | "failed" | "blocked";
+export type ValidationEnvironmentKind = "host" | "docker" | "compose" | "devcontainer" | "minikube" | "local_ci";
 
 export type ValidationGateKind =
   | "dependency_check"
@@ -54,6 +55,7 @@ export interface ValidationCommandManifest {
   gate?: ValidationGateKind | string;
   expectedResult?: string;
   evidenceRefs?: string[];
+  environment?: ValidationEnvironmentKind | string;
 }
 
 export interface TaskValidationManifest {
@@ -73,6 +75,7 @@ export interface ValidationManifestCommandInput {
   gate?: ValidationGateKind | string;
   expectedResult?: string;
   evidenceRefs?: string[];
+  environment?: ValidationEnvironmentKind | string;
 }
 
 export interface ValidationChecklistItemInput {
@@ -146,6 +149,7 @@ export interface ValidationCommandRunRecord {
   gate?: ValidationGateKind;
   expectedResult?: string;
   evidenceRefs?: string[];
+  environment?: ValidationEnvironmentKind;
 }
 
 export type ValidationManifestPolicySeverity = "warning" | "failure";
@@ -156,6 +160,7 @@ export interface ValidationManifestPolicyDiagnostic {
   message: string;
   commandId?: string;
   gate?: ValidationGateKind;
+  environment?: ValidationEnvironmentKind;
 }
 
 export interface ValidationManifestPolicyResult {
@@ -185,6 +190,36 @@ interface ValidationChecklistIndex {
 const validationStatuses = new Set<ValidationStatus>(["passed", "failed", "partial", "blocked", "not_applicable"]);
 
 const validationChecklistItemStatuses = new Set<ValidationChecklistItemStatus>(["passed", "failed", "blocked", "not_applicable"]);
+
+const validationEnvironmentKinds = new Set<ValidationEnvironmentKind>(["host", "docker", "compose", "devcontainer", "minikube", "local_ci"]);
+const nonHostValidationEnvironments = new Set<ValidationEnvironmentKind>(["docker", "compose", "devcontainer", "minikube", "local_ci"]);
+
+const validationEnvironmentAliases: Record<string, ValidationEnvironmentKind> = {
+  host: "host",
+  local: "host",
+  native: "host",
+  machine: "host",
+  docker: "docker",
+  container: "docker",
+  containers: "docker",
+  compose: "compose",
+  docker_compose: "compose",
+  dockercompose: "compose",
+  docker_compose_v2: "compose",
+  dockercomposev2: "compose",
+  "docker-compose": "compose",
+  devcontainer: "devcontainer",
+  dev_container: "devcontainer",
+  devcontainers: "devcontainer",
+  "dev-container": "devcontainer",
+  minikube: "minikube",
+  k8s: "minikube",
+  kubernetes: "minikube",
+  ci: "local_ci",
+  local_ci: "local_ci",
+  localci: "local_ci",
+  sandbox: "local_ci",
+};
 
 const implementationValidationGates = new Set<ValidationGateKind>([
   "build_compile",
@@ -306,6 +341,17 @@ export function isValidationGateKind(value: unknown): value is ValidationGateKin
   return typeof value === "string" && validationGateKinds.has(value as ValidationGateKind);
 }
 
+export function isValidationEnvironmentKind(value: unknown): value is ValidationEnvironmentKind {
+  return typeof value === "string" && validationEnvironmentKinds.has(value as ValidationEnvironmentKind);
+}
+
+export function normalizeValidationEnvironmentKind(value: unknown): ValidationEnvironmentKind | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (!normalized) return undefined;
+  return validationEnvironmentAliases[normalized] ?? (isValidationEnvironmentKind(normalized) ? normalized : undefined);
+}
+
 export function normalizeValidationGateKind(value: unknown): ValidationGateKind | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
@@ -337,6 +383,7 @@ export async function saveValidationManifest(cwd: string, manifest: TaskValidati
       gate: normalizeValidationGateKind(command.gate),
       expectedResult: normalizeOptionalString(command.expectedResult),
       evidenceRefs: normalizeStringList(command.evidenceRefs),
+      environment: normalizeValidationEnvironmentKind(command.environment),
     })),
   };
   const next = [normalized, ...manifests.filter((candidate) => candidate.taskId !== manifest.taskId)];
@@ -359,6 +406,7 @@ export async function upsertValidationManifestCommand(
     gate: normalizeValidationGateKind(input.gate),
     expectedResult: normalizeOptionalString(input.expectedResult),
     evidenceRefs: normalizeStringList(input.evidenceRefs),
+    environment: normalizeValidationEnvironmentKind(input.environment),
   };
   return await saveValidationManifest(cwd, {
     ...base,
@@ -396,6 +444,7 @@ export function createDefaultScriptValidationCommand(scriptName: string): Valida
     required: true,
     gate: classifyDefaultScriptGate(scriptName),
     expectedResult: "Command exits with code 0.",
+    environment: "host",
   };
 }
 
@@ -504,6 +553,8 @@ export function evaluateValidationManifestPolicy(manifest: TaskValidationManifes
     command,
     index,
     gate: normalizeValidationGateKind(command.gate),
+    environment: normalizeValidationEnvironmentKind(command.environment),
+    detectedEnvironment: detectValidationEnvironmentFromCommand(command.command),
   }));
   const diagnostics: ValidationManifestPolicyDiagnostic[] = [];
   const firstNonPolicy = commands.find((entry) => !entry.gate || !policyValidationGates.has(entry.gate));
@@ -553,10 +604,54 @@ export function evaluateValidationManifestPolicy(manifest: TaskValidationManifes
     }
   }
 
+  for (const entry of commands) {
+    const environment = entry.environment;
+    const isHostEnvironment = !environment || environment === "host";
+    if (entry.gate === "local_ci" && entry.command.required && isHostEnvironment) {
+      diagnostics.push({
+        severity: "failure",
+        code: "local_ci_requires_environment",
+        commandId: entry.command.id,
+        gate: "local_ci",
+        environment,
+        message: `local_ci command ${entry.command.id} must declare docker, compose, devcontainer, minikube, or local_ci environment metadata before execution.`,
+      });
+    }
+    if (entry.gate === "acceptance_smoke" && isHostEnvironment) {
+      diagnostics.push({
+        severity: "warning",
+        code: "acceptance_smoke_host_environment",
+        commandId: entry.command.id,
+        gate: "acceptance_smoke",
+        environment,
+        message: `acceptance_smoke command ${entry.command.id} is configured for host execution; declare a sandbox environment when available.`,
+      });
+    }
+    if (entry.detectedEnvironment && isHostEnvironment) {
+      diagnostics.push({
+        severity: entry.command.required ? "failure" : "warning",
+        code: entry.command.required ? "sandbox_environment_missing" : "optional_sandbox_environment_missing",
+        commandId: entry.command.id,
+        gate: entry.gate,
+        environment: entry.detectedEnvironment,
+        message: `command ${entry.command.id} appears to invoke ${entry.detectedEnvironment} tooling but does not declare matching validation environment metadata.`,
+      });
+    }
+  }
+
   return {
     status: diagnostics.some((diagnostic) => diagnostic.severity === "failure") ? "failed" : "passed",
     diagnostics,
   };
+}
+
+function detectValidationEnvironmentFromCommand(command: string): ValidationEnvironmentKind | undefined {
+  const normalized = command.toLowerCase();
+  if (/\bdocker\s+compose\b|\bdocker-compose\b/.test(normalized)) return "compose";
+  if (/\bdevcontainer\b|\bdev-container\b/.test(normalized)) return "devcontainer";
+  if (/\bminikube\b/.test(normalized)) return "minikube";
+  if (/\bdocker\b/.test(normalized)) return "docker";
+  return undefined;
 }
 
 function createValidationPolicyFailureRuns(diagnostics: ValidationManifestPolicyDiagnostic[]): ValidationCommandRunRecord[] {
@@ -575,8 +670,9 @@ function createValidationPolicyFailureRuns(diagnostics: ValidationManifestPolicy
     required: true,
     description: "Validation manifest policy preflight failed before command execution.",
     gate: diagnostic.gate,
-    expectedResult: "dependency_check/test_first preflight commands must precede dependent validation gates.",
+    expectedResult: "Validation manifest policy preflight must pass before command execution.",
     evidenceRefs: diagnostic.commandId ? [`manifest:${diagnostic.commandId}`] : undefined,
+    environment: diagnostic.environment,
   }));
 }
 
@@ -662,6 +758,7 @@ export async function runValidationCommand(cwd: string, command: ValidationComma
     gate: normalizeValidationGateKind(command.gate),
     expectedResult: normalizeOptionalString(command.expectedResult),
     evidenceRefs: normalizeStringList(command.evidenceRefs),
+    environment: normalizeValidationEnvironmentKind(command.environment),
   };
 }
 

@@ -93,7 +93,7 @@ test("runTaskValidation validates task when all required commands pass", async (
     await saveState(dir, state);
     await saveValidationManifest(dir, {
       taskId: "T-001",
-      commands: [{ id: "ok", command: "node -e \"process.exit(0)\"", required: true, gate: "build_compile", expectedResult: "build exits 0" }],
+      commands: [{ id: "ok", command: "node -e \"process.exit(0)\"", required: true, gate: "build_compile", expectedResult: "build exits 0", environment: "host" }],
       createdAt: "",
       updatedAt: "",
     });
@@ -107,6 +107,7 @@ test("runTaskValidation validates task when all required commands pass", async (
     assert.equal(runs[0]?.taskId, "T-001");
     assert.equal(runs[0]?.commandRuns[0]?.gate, "build_compile");
     assert.equal(runs[0]?.commandRuns[0]?.expectedResult, "build exits 0");
+    assert.equal(runs[0]?.commandRuns[0]?.environment, "host");
   });
 });
 

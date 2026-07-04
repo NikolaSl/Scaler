@@ -76,7 +76,7 @@ test("parsePrdLinkArgs parses task id and PRD refs", () => {
 });
 
 test("parseValidationAddArgs parses manifest command fields", () => {
-  assert.deepEqual(parseValidationAddArgs("T-001 | test | npm test | Run tests | optional | unit | exits 0 | ev:1, ev:2"), {
+  assert.deepEqual(parseValidationAddArgs("T-001 | test | npm test | Run tests | optional | unit | exits 0 | ev:1, ev:2 | docker"), {
     taskId: "T-001",
     id: "test",
     command: "npm test",
@@ -85,6 +85,7 @@ test("parseValidationAddArgs parses manifest command fields", () => {
     gate: "unit",
     expectedResult: "exits 0",
     evidenceRefs: ["ev:1", "ev:2"],
+    environment: "docker",
   });
 });
 
