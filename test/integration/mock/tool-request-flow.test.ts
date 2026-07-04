@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { getBudgetState } from "../../../src/budgets.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { createDefaultState, loadState } from "../../../src/state.js";
-import { loadToolRequests, loadToolResults, loadToolTransactions, prepareToolRequest, recordToolResult, runToolRequestAgent } from "../../../src/tool-requests.js";
+import { loadToolRequests, loadToolResults, loadToolTransactions, prepareToolRequest, recordToolResult, recordToolSchema, runToolRequestAgent } from "../../../src/tool-requests.js";
 import { registerScalerTools } from "../../../src/tools.js";
 
 const execFileAsync = promisify(execFile);
@@ -33,8 +33,19 @@ async function withTempRepo<T>(fn: (dir: string) => Promise<T>): Promise<T> {
 test("mock integration: tool transaction execution requires structured scaler_tool_result closure", async () => {
   await withTempRepo(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await recordToolSchema(dir, state, {
+      toolName: "mcp_docs_search",
+      source: "mcp://docs/schema",
+      description: "Search project docs with a query argument.",
+      riskLevel: "low",
+      docsRef: "docs:mcp-search",
+      schemaRef: "schema:mcp-search-v1",
+      notes: "args: { query: string }",
+      evidenceRefs: ["docs:mcp-search"],
+      discoveredByAgentId: "mock-schema-agent",
+    });
     const prepared = await prepareToolRequest(dir, state, {
-      toolName: "docs_search",
+      toolName: "mcp_docs_search",
       request: "Find the widget lifecycle API.",
       taskId: "T-TOOL-TXN",
       expectedOutput: "Widget lifecycle API names and source refs.",
@@ -43,6 +54,8 @@ test("mock integration: tool transaction execution requires structured scaler_to
       allowedTools: ["read"],
     });
     assert.ok(prepared.record);
+    assert.match(prepared.prompt ?? "", /schemaRef=schema:mcp-search-v1/);
+    assert.match(prepared.prompt ?? "", /args: \{ query: string \}/);
 
     const missing = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => ({
       taskId: request.taskId,
@@ -59,6 +72,8 @@ test("mock integration: tool transaction execution requires structured scaler_to
     const completed = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
       assert.match(request.prompt, /scaler_tool_result/);
       assert.match(request.prompt, /Required format: JSON with fields apiNames and refs/);
+      assert.match(request.prompt, /Search project docs with a query argument/);
+      assert.match(request.prompt, /schemaRef=schema:mcp-search-v1/);
       await recordToolResult(dir, state, {
         requestId: prepared.record!.id,
         status: "completed",
