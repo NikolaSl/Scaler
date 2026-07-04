@@ -285,6 +285,38 @@ test("real Pi extension: slash command dispatch enforces validation gate policy"
   });
 });
 
+test("real Pi extension: slash command dispatch enforces validation environment policy", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-REAL-ENV";
+    state.tasks = [{ id: "T-REAL-ENV", status: "validating", title: "Real environment", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+
+    const addResult = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-validation-add T-REAL-ENV | ci | node -e \"require('node:fs').writeFileSync('real-env-should-not-run.txt','ran')\" | Local CI validation | required | local_ci | local CI exits 0 | manifest:ci",
+    });
+    assert.equal(addResult.exitCode, 0, addResult.stderr || addResult.stdout);
+    assert.match(`${addResult.stdout}\n${addResult.stderr}`, /gate=local_ci/);
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-validate T-REAL-ENV",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /policyFailures=1/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const runs = await loadValidationRuns(dir);
+    assert.equal(runs[0]?.status, "failed");
+    assert.equal(runs[0]?.policyDiagnostics?.some((diagnostic) => diagnostic.code === "local_ci_requires_environment"), true);
+    assert.equal(runs[0]?.commandRuns[0]?.command, "SCALER validation manifest policy preflight");
+    await assert.rejects(stat(join(dir, "real-env-should-not-run.txt")));
+  });
+});
+
 test("real Pi extension: slash command dispatch persists typed validation gate metadata", { skip: !REAL_PI_ENABLED }, async () => {
   await withRealPiTempRepo(async (dir) => {
     const result = await runScalerPi({
