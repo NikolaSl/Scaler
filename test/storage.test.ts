@@ -111,6 +111,65 @@ test("planStorageMaintenance proposes compression and explicit cache deletion on
   });
 });
 
+test("planStorageMaintenance proposes active ledger rotation and free disk diagnostics", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, ".scaler", "logs"), { recursive: true });
+    await mkdir(join(dir, ".scaler", "reports"), { recursive: true });
+    await writeFile(join(dir, ".scaler", "logs", "events.jsonl"), "e".repeat(64), "utf8");
+    await writeFile(join(dir, ".scaler", "reports", "validation-runs.json"), "v".repeat(64), "utf8");
+    await writeFile(join(dir, ".scaler", "reports", "validation-manifests.json"), "m".repeat(64), "utf8");
+
+    const report = await planStorageMaintenance(dir, {
+      rotateActive: true,
+      maxActiveBytes: 32,
+      minAgeDays: 999,
+      minSizeBytes: 1000,
+      minFreeBytes: Number.MAX_SAFE_INTEGER,
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    assert.deepEqual(report.actions.map((action) => [action.type, action.path, action.status]), [
+      ["rotate_active", ".scaler/logs/events.jsonl", "planned"],
+      ["rotate_active", ".scaler/reports/validation-runs.json", "planned"],
+      ["check_free_disk", ".scaler", "failed"],
+    ]);
+    assert.match(report.actions[0]?.targetPath ?? "", /^\.scaler\/storage\/archive\/logs\/events-20260101000000000\.jsonl$/);
+    assert.equal(report.actions.some((action) => action.path === ".scaler/reports/validation-manifests.json"), false);
+    assert.equal(report.disk?.status, "below_minimum");
+    assert.match(formatStorageMaintenanceReport(report), /Disk: status=below_minimum/);
+  });
+});
+
+test("runStorageMaintenance rotates active ledgers into archives and resets active files", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, ".scaler", "logs"), { recursive: true });
+    await mkdir(join(dir, ".scaler", "reports"), { recursive: true });
+    await writeFile(join(dir, ".scaler", "logs", "events.jsonl"), "old event\n", "utf8");
+    await writeFile(join(dir, ".scaler", "reports", "validation-runs.json"), "[{\"id\":\"run-1\"}]\n", "utf8");
+
+    const executed = await runStorageMaintenance(dir, {
+      execute: true,
+      compress: false,
+      rotateActive: true,
+      maxActiveBytes: 1,
+      minFreeBytes: 1,
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    assert.equal(executed.executed, true);
+    assert.equal(executed.summary.failed, 0);
+    assert.equal(executed.actions.filter((action) => action.type === "rotate_active" && action.status === "completed").length, 2);
+    assert.ok(executed.actions.some((action) => action.type === "check_free_disk" && action.status === "completed"));
+
+    const eventRotation = executed.actions.find((action) => action.path === ".scaler/logs/events.jsonl");
+    const runRotation = executed.actions.find((action) => action.path === ".scaler/reports/validation-runs.json");
+    assert.equal(await readFile(join(dir, eventRotation?.targetPath ?? "missing"), "utf8"), "old event\n");
+    assert.equal(await readFile(join(dir, runRotation?.targetPath ?? "missing"), "utf8"), "[{\"id\":\"run-1\"}]\n");
+    assert.equal(await readFile(join(dir, ".scaler", "logs", "events.jsonl"), "utf8"), "");
+    assert.equal(await readFile(join(dir, ".scaler", "reports", "validation-runs.json"), "utf8"), "[]\n");
+  });
+});
+
 test("runStorageMaintenance compresses eligible files and deletes cache only when executed", async () => {
   await withTempDir(async (dir) => {
     await mkdir(join(dir, ".scaler", "logs", "details"), { recursive: true });

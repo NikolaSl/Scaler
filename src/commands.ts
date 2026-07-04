@@ -71,6 +71,9 @@ export interface ParsedStorageMaintainArgs {
   deleteCache: boolean;
   minAgeDays?: number;
   minSizeBytes?: number;
+  rotateActive: boolean;
+  maxActiveBytes?: number;
+  minFreeBytes?: number;
 }
 
 export interface ParsedPrdLinkArgs {
@@ -283,14 +286,21 @@ export function parseStorageMaintainArgs(args: string | undefined): ParsedStorag
   const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
   const minAgePart = parts.find((part) => /^min-age-days=\d+$/i.test(part));
   const minSizePart = parts.find((part) => /^min-size=\d+$/i.test(part));
+  const maxActivePart = parts.find((part) => /^max-active-bytes=\d+$/i.test(part));
+  const minFreePart = parts.find((part) => /^min-free-bytes=\d+$/i.test(part));
   const minAgeDays = minAgePart ? Number.parseInt(minAgePart.split("=")[1] ?? "", 10) : undefined;
   const minSizeBytes = minSizePart ? Number.parseInt(minSizePart.split("=")[1] ?? "", 10) : undefined;
+  const maxActiveBytes = maxActivePart ? Number.parseInt(maxActivePart.split("=")[1] ?? "", 10) : undefined;
+  const minFreeBytes = minFreePart ? Number.parseInt(minFreePart.split("=")[1] ?? "", 10) : undefined;
   return {
     execute: parts.some((part) => part.toLowerCase() === "execute"),
     compress: !parts.some((part) => part.toLowerCase() === "no-compress"),
     deleteCache: parts.some((part) => part.toLowerCase() === "delete-cache"),
     minAgeDays: minAgeDays === undefined || !Number.isFinite(minAgeDays) ? undefined : minAgeDays,
     minSizeBytes: minSizeBytes === undefined || !Number.isFinite(minSizeBytes) ? undefined : minSizeBytes,
+    rotateActive: parts.some((part) => part.toLowerCase() === "rotate-active"),
+    maxActiveBytes: maxActiveBytes === undefined || !Number.isFinite(maxActiveBytes) ? undefined : maxActiveBytes,
+    minFreeBytes: minFreeBytes === undefined || !Number.isFinite(minFreeBytes) ? undefined : minFreeBytes,
   };
 }
 

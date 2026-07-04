@@ -1,5 +1,5 @@
 import { createReadStream, createWriteStream } from "node:fs";
-import { lstat, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, readFile, readdir, statfs, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
@@ -35,7 +35,7 @@ export interface StorageInventoryOptions {
   now?: Date;
 }
 
-export type StorageMaintenanceActionType = "compress" | "delete_cache";
+export type StorageMaintenanceActionType = "compress" | "delete_cache" | "rotate_active" | "check_free_disk";
 export type StorageMaintenanceActionStatus = "planned" | "completed" | "failed" | "skipped";
 
 export interface StorageMaintenanceAction {
@@ -54,6 +54,19 @@ export interface StorageMaintenancePolicy {
   deleteCache: boolean;
   minAgeDays: number;
   minSizeBytes: number;
+  rotateActive: boolean;
+  maxActiveBytes: number;
+  minFreeBytes?: number;
+}
+
+export interface StorageDiskCheck {
+  path: string;
+  checkedAt: string;
+  minFreeBytes: number;
+  freeBytes?: number;
+  totalBytes?: number;
+  status: "ok" | "below_minimum" | "unavailable";
+  message?: string;
 }
 
 export interface StorageMaintenanceReport {
@@ -61,6 +74,7 @@ export interface StorageMaintenanceReport {
   generatedAt: string;
   executed: boolean;
   policy: StorageMaintenancePolicy;
+  disk?: StorageDiskCheck;
   actions: StorageMaintenanceAction[];
   summary: {
     planned: number;
@@ -78,10 +92,25 @@ export interface StorageMaintenanceOptions {
   deleteCache?: boolean;
   minAgeDays?: number;
   minSizeBytes?: number;
+  rotateActive?: boolean;
+  maxActiveBytes?: number;
+  minFreeBytes?: number;
   now?: Date;
 }
 
 interface MutableTopLevelSummary extends StorageTopLevelSummary {}
+
+const DEFAULT_MAX_ACTIVE_BYTES = 10 * 1024 * 1024;
+const activeReportLedgerNames = new Set([
+  "validation-runs.json",
+  "validation-checklists.json",
+  "validation-handoffs.json",
+  "task-agent-runs.json",
+  "stage-agent-runs.json",
+  "replan-agent-runs.json",
+  "research-agent-runs.json",
+  "debug-agent-runs.json",
+]);
 
 export async function scanScalerStorageInventory(
   cwd: string,
@@ -197,7 +226,23 @@ export async function planStorageMaintenance(cwd: string, options: StorageMainte
     if (!info.isFile()) return;
 
     const rel = normalizeRelativeStoragePath(cwd, absolutePath);
-    if (!isManagedStoragePath(rel) || isStorageMaintenanceArtifact(rel) || rel.endsWith(".gz")) return;
+    if (!isManagedStoragePath(rel) || isStorageMaintenanceArtifact(rel) || isStorageArchivePath(rel) || rel.endsWith(".gz")) return;
+
+    if (isActiveRotatableStoragePath(rel)) {
+      if (policy.rotateActive && info.size >= policy.maxActiveBytes) {
+        actions.push({
+          id: `rotate-active-${actions.length + 1}`,
+          type: "rotate_active",
+          path: rel,
+          targetPath: buildActiveRotationTargetPath(rel, generatedAt),
+          sizeBytes: info.size,
+          reason: `size>=${policy.maxActiveBytes}`,
+          status: "planned",
+        });
+      }
+      return;
+    }
+
     const oldEnough = info.mtime.getTime() <= cutoffMs;
     const largeEnough = info.size >= policy.minSizeBytes;
     if (!oldEnough && !largeEnough) return;
@@ -229,8 +274,10 @@ export async function planStorageMaintenance(cwd: string, options: StorageMainte
   }
 
   await visit(getScalerDir(cwd));
-  actions.sort((left, right) => left.type.localeCompare(right.type) || right.sizeBytes - left.sizeBytes || left.path.localeCompare(right.path));
-  return buildMaintenanceReport(generatedAt, false, policy, actions);
+  const disk = policy.minFreeBytes === undefined ? undefined : await checkStorageDisk(cwd, policy.minFreeBytes, generatedAt);
+  if (disk) actions.push(createDiskCheckAction(disk, false));
+  actions.sort(compareMaintenanceActions);
+  return buildMaintenanceReport(generatedAt, false, policy, actions, disk);
 }
 
 export async function runStorageMaintenance(cwd: string, options: StorageMaintenanceOptions = {}): Promise<StorageMaintenanceReport> {
@@ -241,7 +288,8 @@ export async function runStorageMaintenance(cwd: string, options: StorageMainten
   }
 
   const executedActions: StorageMaintenanceAction[] = [];
-  for (const action of planned.actions) {
+  const diskCheckActions = planned.actions.filter((action) => action.type === "check_free_disk");
+  for (const action of planned.actions.filter((candidate) => candidate.type !== "check_free_disk")) {
     try {
       if (action.type === "compress") {
         await compressStorageFile(cwd, action);
@@ -249,6 +297,9 @@ export async function runStorageMaintenance(cwd: string, options: StorageMainten
       } else if (action.type === "delete_cache") {
         await deleteStorageCacheFile(cwd, action);
         executedActions.push({ ...action, status: "completed", message: "Deleted cache file" });
+      } else if (action.type === "rotate_active") {
+        await rotateActiveStorageFile(cwd, action);
+        executedActions.push({ ...action, status: "completed", message: `Rotated to ${action.targetPath}` });
       } else {
         executedActions.push({ ...action, status: "skipped", message: "Unknown action type" });
       }
@@ -257,7 +308,11 @@ export async function runStorageMaintenance(cwd: string, options: StorageMainten
     }
   }
 
-  const report = buildMaintenanceReport(planned.generatedAt, true, planned.policy, executedActions);
+  const disk = planned.policy.minFreeBytes === undefined ? undefined : await checkStorageDisk(cwd, planned.policy.minFreeBytes, planned.generatedAt);
+  executedActions.push(...diskCheckActions.map(() => disk ? createDiskCheckAction(disk, true) : undefined).filter((action): action is StorageMaintenanceAction => Boolean(action)));
+  executedActions.sort(compareMaintenanceActions);
+
+  const report = buildMaintenanceReport(planned.generatedAt, true, planned.policy, executedActions, disk);
   await saveStorageMaintenanceReport(cwd, report);
   await saveStorageInventory(cwd, await scanScalerStorageInventory(cwd, { now: options.now }));
   return report;
@@ -282,7 +337,8 @@ export async function loadStorageMaintenanceReport(cwd: string): Promise<Storage
 export function formatStorageMaintenanceReport(report: StorageMaintenanceReport): string {
   const lines = [
     `Storage maintenance: executed=${report.executed} planned=${report.summary.planned} completed=${report.summary.completed} failed=${report.summary.failed} skipped=${report.summary.skipped} bytesEligible=${report.summary.bytesEligible} bytesCompleted=${report.summary.bytesCompleted}`,
-    `Policy: compress=${report.policy.compress} deleteCache=${report.policy.deleteCache} minAgeDays=${report.policy.minAgeDays} minSizeBytes=${report.policy.minSizeBytes}`,
+    `Policy: compress=${report.policy.compress} deleteCache=${report.policy.deleteCache} minAgeDays=${report.policy.minAgeDays} minSizeBytes=${report.policy.minSizeBytes} rotateActive=${report.policy.rotateActive} maxActiveBytes=${report.policy.maxActiveBytes}${report.policy.minFreeBytes === undefined ? "" : ` minFreeBytes=${report.policy.minFreeBytes}`}`,
+    ...(report.disk ? [`Disk: status=${report.disk.status} freeBytes=${report.disk.freeBytes ?? "unknown"} minFreeBytes=${report.disk.minFreeBytes}${report.disk.message ? ` message=${report.disk.message}` : ""}`] : []),
     ...report.actions.map((action) => `- ${action.status} ${action.type} ${action.path}${action.targetPath ? ` -> ${action.targetPath}` : ""} bytes=${action.sizeBytes} reason=${action.reason}${action.message ? ` message=${action.message}` : ""}`),
   ];
   return lines.join("\n");
@@ -291,20 +347,32 @@ export function formatStorageMaintenanceReport(report: StorageMaintenanceReport)
 function normalizeMaintenancePolicy(options: StorageMaintenanceOptions): StorageMaintenancePolicy {
   const minAgeDays = Number.isFinite(options.minAgeDays) && options.minAgeDays !== undefined ? Math.max(0, options.minAgeDays) : 7;
   const minSizeBytes = Number.isFinite(options.minSizeBytes) && options.minSizeBytes !== undefined ? Math.max(1, options.minSizeBytes) : 1024 * 1024;
+  const maxActiveBytes = Number.isFinite(options.maxActiveBytes) && options.maxActiveBytes !== undefined ? Math.max(1, options.maxActiveBytes) : DEFAULT_MAX_ACTIVE_BYTES;
+  const minFreeBytes = Number.isFinite(options.minFreeBytes) && options.minFreeBytes !== undefined ? Math.max(0, options.minFreeBytes) : undefined;
   return {
     compress: options.compress ?? true,
     deleteCache: options.deleteCache ?? false,
     minAgeDays,
     minSizeBytes,
+    rotateActive: options.rotateActive ?? false,
+    maxActiveBytes,
+    minFreeBytes,
   };
 }
 
-function buildMaintenanceReport(generatedAt: string, executed: boolean, policy: StorageMaintenancePolicy, actions: StorageMaintenanceAction[]): StorageMaintenanceReport {
+function buildMaintenanceReport(
+  generatedAt: string,
+  executed: boolean,
+  policy: StorageMaintenancePolicy,
+  actions: StorageMaintenanceAction[],
+  disk?: StorageDiskCheck,
+): StorageMaintenanceReport {
   return {
     version: 1,
     generatedAt,
     executed,
     policy,
+    disk,
     actions,
     summary: {
       planned: actions.length,
@@ -334,6 +402,60 @@ async function deleteStorageCacheFile(cwd: string, action: StorageMaintenanceAct
   await unlink(join(cwd, action.path));
 }
 
+async function rotateActiveStorageFile(cwd: string, action: StorageMaintenanceAction): Promise<void> {
+  if (action.type !== "rotate_active" || !action.targetPath) throw new Error("Invalid active rotation action.");
+  if (!isActiveRotatableStoragePath(action.path) || !isStorageArchivePath(action.targetPath)) throw new Error("Active rotation action is outside allowed storage roots.");
+  const source = join(cwd, action.path);
+  const target = join(cwd, action.targetPath);
+  await mkdir(dirname(target), { recursive: true });
+  await copyFile(source, target);
+  const archived = await lstat(target);
+  if (!archived.isFile() || archived.size !== action.sizeBytes) throw new Error("Rotated archive was not written completely.");
+  await writeFile(source, getActiveLedgerResetContent(action.path), "utf8");
+}
+
+async function checkStorageDisk(cwd: string, minFreeBytes: number, checkedAt: string): Promise<StorageDiskCheck> {
+  try {
+    const stats = await statfs(cwd);
+    const freeBytes = Number(stats.bavail) * Number(stats.bsize);
+    const totalBytes = Number(stats.blocks) * Number(stats.bsize);
+    return {
+      path: SCALER_DIR,
+      checkedAt,
+      minFreeBytes,
+      freeBytes,
+      totalBytes,
+      status: freeBytes >= minFreeBytes ? "ok" : "below_minimum",
+    };
+  } catch (error) {
+    return {
+      path: SCALER_DIR,
+      checkedAt,
+      minFreeBytes,
+      status: "unavailable",
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function createDiskCheckAction(disk: StorageDiskCheck, executed: boolean): StorageMaintenanceAction {
+  const ok = disk.status === "ok";
+  return {
+    id: "check-free-disk",
+    type: "check_free_disk",
+    path: disk.path,
+    sizeBytes: 0,
+    reason: `freeBytes=${disk.freeBytes ?? "unknown"} minFreeBytes=${disk.minFreeBytes}`,
+    status: ok ? (executed ? "completed" : "planned") : "failed",
+    message: ok ? "Free disk check passed" : disk.message ?? `Free disk below minimum: ${disk.freeBytes ?? "unknown"}/${disk.minFreeBytes}`,
+  };
+}
+
+function compareMaintenanceActions(left: StorageMaintenanceAction, right: StorageMaintenanceAction): number {
+  const order: Record<StorageMaintenanceActionType, number> = { rotate_active: 0, compress: 1, delete_cache: 2, check_free_disk: 3 };
+  return order[left.type] - order[right.type] || right.sizeBytes - left.sizeBytes || left.path.localeCompare(right.path);
+}
+
 function isManagedStoragePath(rel: string): boolean {
   return rel === SCALER_DIR || rel.startsWith(`${SCALER_DIR}/`);
 }
@@ -342,7 +464,40 @@ function isStorageMaintenanceArtifact(rel: string): boolean {
   return rel === `${SCALER_DIR}/storage/maintenance.json`;
 }
 
+function isStorageArchivePath(rel: string): boolean {
+  return rel.startsWith(`${SCALER_DIR}/storage/archive/`);
+}
+
+function isActiveRotatableStoragePath(rel: string): boolean {
+  return rel === `${SCALER_DIR}/logs/events.jsonl` || isActiveReportLedgerPath(rel);
+}
+
+function isActiveReportLedgerPath(rel: string): boolean {
+  if (!rel.startsWith(`${SCALER_DIR}/reports/`)) return false;
+  const parts = rel.split("/");
+  return parts.length === 3 && activeReportLedgerNames.has(parts[2] ?? "");
+}
+
+function buildActiveRotationTargetPath(rel: string, generatedAt: string): string {
+  const parts = rel.split("/");
+  const fileName = parts[parts.length - 1] ?? "ledger";
+  const dotIndex = fileName.lastIndexOf(".");
+  const stem = dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName;
+  const extension = dotIndex > 0 ? fileName.slice(dotIndex) : "";
+  const category = rel === `${SCALER_DIR}/logs/events.jsonl` ? "logs" : "reports";
+  return `${SCALER_DIR}/storage/archive/${category}/${stem}-${formatArchiveTimestamp(generatedAt)}${extension}`;
+}
+
+function formatArchiveTimestamp(value: string): string {
+  return value.replace(/\D/g, "") || String(Date.now());
+}
+
+function getActiveLedgerResetContent(rel: string): string {
+  return rel.endsWith(".jsonl") ? "" : "[]\n";
+}
+
 function isCompressibleStoragePath(rel: string): boolean {
+  if (isActiveRotatableStoragePath(rel)) return false;
   return rel.startsWith(`${SCALER_DIR}/logs/details/`) || rel.startsWith(`${SCALER_DIR}/reports/`) || rel.startsWith(`${SCALER_DIR}/memory/`);
 }
 
