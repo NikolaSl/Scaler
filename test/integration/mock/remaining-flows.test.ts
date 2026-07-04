@@ -9,7 +9,7 @@ import { setBudgetLimits } from "../../../src/budgets.js";
 import { ensureTaskContextManifest, loadTaskContextManifest } from "../../../src/context.js";
 import { assessDebugRetryGate, loadDebugReports, recordDebugAttempt } from "../../../src/debug.js";
 import { runDebugAgentStep } from "../../../src/debug-agent.js";
-import { assessGitStatusSafety } from "../../../src/git.js";
+import { assessGitStatusSafety, loadCommitReports } from "../../../src/git.js";
 import { acquireExecutionLock, releaseExecutionLock } from "../../../src/locks.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { loadMemoryIndex, writeMemory } from "../../../src/memory.js";
@@ -308,6 +308,7 @@ test("mock integration: safety and git allowed-path checks reject unrelated work
     await unlink(join(dir, "README.md"));
     const commit = await commitWithExecutionLock(dir, state, "T-SAFE", ["src/app.js"]);
     assert.equal(commit.accepted, true, commit.message);
+    assert.equal((await loadCommitReports(dir))[0]?.commitHash, commit.result?.commitHash);
   });
 });
 

@@ -100,6 +100,7 @@ test("extension registers scaler commands", () => {
     "scaler-validation-checklist",
     "scaler-validation-add",
     "scaler-commit",
+    "scaler-commits",
     "scaler-validate-loop",
     "scaler-validate",
     "scaler-validation-envs",

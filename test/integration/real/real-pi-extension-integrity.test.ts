@@ -3,6 +3,7 @@ import { mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { getBudgetState } from "../../../src/budgets.js";
+import { loadCommitReports, recordCommitReport } from "../../../src/git.js";
 import { loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
 import { loadDebugRetryPolicy } from "../../../src/debug-retry.js";
 import { readLogEvents } from "../../../src/logging.js";
@@ -62,6 +63,28 @@ test("real Pi extension: slash command dispatch applies adaptive escalation", { 
 
     const events = await readLogEvents(dir);
     assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Scaler adaptive orchestration applied"));
+  });
+});
+
+test("real Pi extension: slash command dispatch lists commit reports", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    await recordCommitReport(dir, {
+      taskId: "T-REAL-COMMIT",
+      commitHash: "abc1234",
+      includedPaths: ["src/app.js"],
+      validation: { runId: "VAL-REAL", status: "passed", commandCount: 1, failedCommandIds: [], createdAt: "2026-01-01T00:00:00.000Z" },
+      safety: { status: "allowed", clean: false, changedPaths: ["src/app.js"], runtimePaths: [], allowedPaths: ["src/app.js"], unrelatedPaths: [], reason: "Only allowed task paths changed outside .scaler." },
+    }, new Date("2026-01-01T00:00:00.000Z"));
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-commits T-REAL-COMMIT",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /T-REAL-COMMIT: abc1234/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+    assert.equal((await loadCommitReports(dir))[0]?.commitHash, "abc1234");
   });
 });
 

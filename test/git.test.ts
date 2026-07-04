@@ -5,8 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { test } from "node:test";
-import { assessGitStatusSafety, commitValidatedTask } from "../src/git.js";
-import { createDefaultState } from "../src/state.js";
+import { assessGitStatusSafety, commitValidatedTask, formatCommitReports, loadCommitReports } from "../src/git.js";
+import { createDefaultState, loadState } from "../src/state.js";
+import { runTaskValidation, upsertValidationManifestCommand } from "../src/validation.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -93,9 +94,12 @@ test("commitValidatedTask commits allowed validated task changes and excludes sc
     await writeFile(join(dir, "src", "feature.ts"), "export const value = 1;\n", "utf8");
     await writeFile(join(dir, ".scaler", "state.json"), "{}\n", "utf8");
     const state = createDefaultState();
-    state.tasks = [{ id: "T-001", title: "Add feature", status: "validated", updatedAt: state.createdAt }];
+    state.tasks = [{ id: "T-001", title: "Add feature", status: "validating", updatedAt: state.createdAt }];
+    await upsertValidationManifestCommand(dir, { taskId: "T-001", id: "test", command: "node -e \"process.exit(0)\"", required: true });
+    await runTaskValidation(dir, state, "T-001");
+    const validatedState = await loadState(dir);
 
-    const result = await commitValidatedTask(dir, state, "T-001", ["src"]);
+    const result = await commitValidatedTask(dir, validatedState, "T-001", ["src"]);
     const { stdout: message } = await execFileAsync("git", ["log", "-1", "--pretty=%s"], { cwd: dir });
     const { stdout: showFiles } = await execFileAsync("git", ["show", "--name-only", "--pretty=", "HEAD"], { cwd: dir });
 
@@ -103,5 +107,11 @@ test("commitValidatedTask commits allowed validated task changes and excludes sc
     assert.equal(message.trim(), "T-001: Add feature");
     assert.match(showFiles, /src\/feature.ts/);
     assert.doesNotMatch(showFiles, /.scaler\/state.json/);
+    assert.equal(result.report?.taskId, "T-001");
+    assert.equal(result.report?.validation.status, "passed");
+    assert.equal(result.report?.validation.commandCount, 1);
+    const reports = await loadCommitReports(dir);
+    assert.equal(reports[0]?.commitHash, result.commitHash);
+    assert.match(formatCommitReports(reports), /T-001/);
   });
 });
