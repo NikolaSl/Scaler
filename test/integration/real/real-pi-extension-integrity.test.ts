@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { getBudgetState } from "../../../src/budgets.js";
 import { readLogEvents } from "../../../src/logging.js";
-import { loadState } from "../../../src/state.js";
+import { createDefaultState, loadState } from "../../../src/state.js";
 import { loadStorageInventory } from "../../../src/storage.js";
-import { loadToolRequests } from "../../../src/tool-requests.js";
+import { loadToolRequests, loadToolResults, prepareToolRequest } from "../../../src/tool-requests.js";
 import { loadValidationManifests } from "../../../src/validation.js";
 import { REAL_PI_ENABLED, REAL_PI_MODEL, runScalerPi, withRealPiTempRepo } from "./real-pi-harness.js";
 
@@ -159,6 +159,53 @@ test("real Pi extension: cardinal model calls scaler_tool_request with exact met
     assert.equal(record?.permissionRequirement, args.permissionRequirement);
     assert.equal(record?.safetyNotes, args.safetyNotes);
     assert.deepEqual(record?.allowedTools, ["docs_search", "read"]);
+  });
+});
+
+test("real Pi extension: cardinal model calls scaler_tool_result with exact metadata", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const prepared = await prepareToolRequest(dir, createDefaultState(new Date("2026-01-01T00:00:00.000Z")), {
+      toolName: "docs_search",
+      request: "Find widget lifecycle docs.",
+      taskId: "REAL-TOOL-RESULT",
+      requesterAgentId: "real-cardinal-agent",
+      expectedOutput: "Lifecycle API summary.",
+      requiredFormat: "json",
+      riskLevel: "low",
+      allowedTools: ["read"],
+    });
+    assert.ok(prepared.record, "expected seeded tool request");
+    const args = {
+      requestId: prepared.record.id,
+      status: "completed",
+      summary: "Lifecycle API summary found.",
+      outputs: { apiNames: ["Widget.create", "Widget.destroy"], refs: ["docs:widget-lifecycle"] },
+      evidenceRefs: ["docs:widget-lifecycle"],
+      validationPerformed: ["checked requested JSON format"],
+      recommendations: ["Use Widget.destroy for cleanup."],
+    };
+    const result = await runScalerPi({
+      cwd: dir,
+      model: REAL_PI_MODEL,
+      tools: ["scaler_tool_result"],
+      prompt: `CARDINAL INSTRUCTION FOR THIS TEST: You must call the tool scaler_tool_result exactly once with exactly these arguments and no other tool calls: ${JSON.stringify(args)}. Do not answer in prose before the tool call. After the tool result, provide a one sentence final summary.`,
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    const starts = toolEvents(result.events, "tool_execution_start", "scaler_tool_result");
+    const ends = toolEvents(result.events, "tool_execution_end", "scaler_tool_result");
+    assert.equal(starts.length, 1, "expected one scaler_tool_result execution start");
+    assert.equal(ends.length, 1, "expected one scaler_tool_result execution end");
+    assert.deepEqual(starts[0]?.args, args);
+    assert.equal(ends[0]?.isError, false);
+
+    const resultRecord = (await loadToolResults(dir))[0];
+    const requestRecord = (await loadToolRequests(dir))[0];
+    assert.equal(resultRecord?.requestId, args.requestId);
+    assert.equal(resultRecord?.status, "completed");
+    assert.deepEqual(resultRecord?.validationPerformed, ["checked requested JSON format"]);
+    assert.equal(requestRecord?.status, "completed");
+    assert.equal(readBudgetUsage((await loadState(dir)).budgets, "toolCalls"), 1);
   });
 });
 
