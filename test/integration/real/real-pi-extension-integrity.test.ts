@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { getBudgetState } from "../../../src/budgets.js";
 import { loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
+import { loadDebugRetryPolicy } from "../../../src/debug-retry.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { loadSafetyApprovals, loadSafetyPolicy } from "../../../src/safety.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
@@ -342,6 +343,27 @@ test("real Pi extension: slash command dispatch deletes approved storage archive
     assert.equal(deletion?.status, "completed");
     assert.equal(await pathExists(oldArchive), false);
     assert.equal(await readFile(newArchive, "utf8"), "n".repeat(5));
+  });
+});
+
+test("real Pi extension: slash command dispatch persists debug retry policy", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-debug-retry-policy auto-start=on require-approval=off post-exact-pass=validate",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /autoStart=true requireApproval=false postExactPass=full_validation/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const policy = await loadDebugRetryPolicy(dir);
+    assert.equal(policy.autoStart, true);
+    assert.equal(policy.requireApproval, false);
+    assert.equal(policy.postExactPass, "full_validation");
+
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Scaler debug retry policy requested"));
   });
 });
 

@@ -7,7 +7,9 @@ import {
   parseContextTaskArgs,
   parseDebugLoopArgs,
   parseDebugRunArgs,
+  parseDebugRetryApprovalArgs,
   parseDebugRetryArgs,
+  parseDebugRetryPolicyArgs,
   parsePrdLinkArgs,
   parseReplanRequestArgs,
   parseReplanRunArgs,
@@ -302,6 +304,18 @@ test("parseDebugRetryArgs parses optional task and execute flag", () => {
   assert.deepEqual(parseDebugRetryArgs("T-001 execute"), { taskId: "T-001", execute: true });
   assert.deepEqual(parseDebugRetryArgs("execute"), { taskId: undefined, execute: true });
   assert.deepEqual(parseDebugRetryArgs(" "), { taskId: undefined, execute: false });
+});
+
+test("parseDebugRetryPolicyArgs parses retry automation controls", () => {
+  assert.deepEqual(parseDebugRetryPolicyArgs("auto-start=on require-approval=off post-exact-pass=validate-commit"), { autoStart: true, requireApproval: false, postExactPass: "validate-commit" });
+  assert.deepEqual(parseDebugRetryPolicyArgs("auto-start=deny require-approval=allowed post-exact-pass=stop"), { autoStart: false, requireApproval: true, postExactPass: "stop" });
+  assert.deepEqual(parseDebugRetryPolicyArgs(" "), { autoStart: undefined, requireApproval: undefined, postExactPass: undefined });
+});
+
+test("parseDebugRetryApprovalArgs parses report task and reason", () => {
+  assert.deepEqual(parseDebugRetryApprovalArgs("RPT-1 | T-1 | approve retry"), { debugReportId: "RPT-1", taskId: "T-1", reason: "approve retry" });
+  assert.deepEqual(parseDebugRetryApprovalArgs("RPT-1"), { debugReportId: "RPT-1", taskId: undefined, reason: undefined });
+  assert.equal(parseDebugRetryApprovalArgs(" "), undefined);
 });
 
 test("parseDebugLoopArgs parses optional task, execute flag, and max option", () => {

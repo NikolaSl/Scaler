@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { loadDebugAttempts, loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
-import { runDebugNextApproachRetry } from "../../../src/debug-retry.js";
+import { runDebugConductorLoop } from "../../../src/debug-conductor.js";
+import { runDebugNextApproachRetry, saveDebugRetryPolicy } from "../../../src/debug-retry.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { runValidationWithExecutionLock } from "../../../src/operations.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
@@ -23,6 +24,66 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
 function passingRun(request: TaskAgentRequest): TaskAgentRunResult {
   return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
 }
+
+test("mock integration: debug retry policy auto-starts next approach and runs full validation", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const updatedAt = state.createdAt;
+    state.stage = "execution";
+    state.currentTaskId = "T-RETRY-AUTO";
+    state.tasks = [{ id: "T-RETRY-AUTO", status: "validating", title: "Retry auto flow", updatedAt }];
+    await saveState(dir, state);
+    await upsertValidationManifestCommand(dir, {
+      taskId: "T-RETRY-AUTO",
+      id: "exact-marker",
+      command: "node -e \"process.exit(require('fs').existsSync('fixed.txt') ? 0 : 1)\"",
+      description: "Exact marker validation",
+      required: true,
+      gate: "unit",
+      expectedResult: "fixed.txt exists",
+      evidenceRefs: ["validation:exact-marker"],
+    });
+
+    const initialRun = await runTaskValidation(dir, state, "T-RETRY-AUTO");
+    assert.equal(initialRun.status, "failed");
+    await saveDebugRetryPolicy(dir, { autoStart: true, postExactPass: "validate" });
+    const debugging = await loadState(dir);
+
+    const result = await runDebugConductorLoop(dir, debugging, { taskId: "T-RETRY-AUTO", execute: true, maxSteps: 2 }, {
+      debug: async (request) => ({
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [{
+          type: "scaler_debug_report",
+          id: "RPT-RETRY-AUTO",
+          taskId: "T-RETRY-AUTO",
+          status: "next_approach",
+          summary: "Write the missing marker file.",
+          failureId: "F-RETRY-AUTO",
+          failureFingerprint: "missing marker file",
+          rootCause: "The implementation did not create fixed.txt.",
+          nextApproach: "Create fixed.txt and rerun the exact marker validation.",
+          evidenceRefs: [initialRun.id],
+        }],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      }),
+      retry: async (request) => {
+        assert.match(request.prompt, /Create fixed\.txt/);
+        await writeFile(join(request.cwd ?? dir, "fixed.txt"), "ok\n", "utf8");
+        return passingRun(request);
+      },
+    });
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.stopReason, "retry_exact_validation_passed");
+    assert.deepEqual(result.steps.map((step) => step.action), ["run_debug_agent", "run_debug_retry"]);
+    assert.equal(result.steps[1]?.debugRetry?.postValidation?.result?.status, "passed");
+    assert.equal((await loadState(dir)).tasks.find((task) => task.id === "T-RETRY-AUTO")?.status, "validated");
+    assert.equal((await loadDebugRetries(dir))[0]?.status, "exact_validation_passed");
+  });
+});
 
 test("mock integration: debug next approach retry fixes exact validation before full validation", async () => {
   await withTempDir(async (dir) => {

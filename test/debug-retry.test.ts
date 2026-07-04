@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { loadDebugAttempts, loadDebugRetries, recordDebugReport } from "../src/debug.js";
-import { buildNextApproachContextItem, runDebugNextApproachRetry, selectDebugRetryWork } from "../src/debug-retry.js";
+import { approveDebugRetry, buildNextApproachContextItem, formatDebugRetryPolicy, loadDebugRetryApprovals, loadDebugRetryPolicy, runDebugNextApproachRetry, runDebugRetryPolicyWorkflow, saveDebugRetryPolicy, selectDebugRetryWork } from "../src/debug-retry.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult, RunTaskAgentOptions } from "../src/subagents.js";
 import type { ScalerState } from "../src/types.js";
@@ -81,6 +81,61 @@ test("runDebugNextApproachRetry prepare mode records prompt without changing deb
     const retries = await loadDebugRetries(dir);
     assert.equal(retries[0]?.status, "prepared");
     assert.equal(retries[0]?.debugReportId, "RPT-RETRY");
+  });
+});
+
+test("debug retry policy persists automation controls", async () => {
+  await withTempDir(async (dir) => {
+    assert.equal((await loadDebugRetryPolicy(dir)).autoStart, false);
+    const policy = await saveDebugRetryPolicy(dir, {
+      autoStart: true,
+      requireApproval: true,
+      postExactPass: "validate",
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    assert.deepEqual(await loadDebugRetryPolicy(dir), policy);
+    assert.match(formatDebugRetryPolicy(policy), /autoStart=true requireApproval=true postExactPass=full_validation/);
+  });
+});
+
+test("debug retry policy workflow requires and consumes approval when configured", async () => {
+  await withTempDir(async (dir) => {
+    const state = await seedDebuggingTask(dir);
+    await saveDebugRetryPolicy(dir, { requireApproval: true });
+
+    const rejected = await runDebugRetryPolicyWorkflow(dir, state, { taskId: "T-RETRY", execute: true }, async (request) => passingRun(request));
+    assert.equal(rejected.accepted, false);
+    assert.match(rejected.message, /approval required/);
+
+    await approveDebugRetry(dir, { debugReportId: "RPT-RETRY", taskId: "T-RETRY", reason: "Approve controlled retry." });
+    const approved = await runDebugRetryPolicyWorkflow(dir, await loadState(dir), { taskId: "T-RETRY", execute: true }, async (request) => {
+      await writeFile(join(request.cwd ?? dir, "fixed.txt"), "ok\n", "utf8");
+      return passingRun(request);
+    });
+
+    assert.equal(approved.accepted, true);
+    assert.equal(approved.status, "exact_validation_passed");
+    assert.equal((await loadDebugRetryApprovals(dir))[0]?.status, "used");
+    assert.equal((await loadDebugRetryApprovals(dir))[0]?.usedByRetryId, approved.retry?.id);
+  });
+});
+
+test("debug retry policy workflow can run full validation after exact pass", async () => {
+  await withTempDir(async (dir) => {
+    const state = await seedDebuggingTask(dir);
+    await saveDebugRetryPolicy(dir, { postExactPass: "validate" });
+
+    const result = await runDebugRetryPolicyWorkflow(dir, state, { taskId: "T-RETRY", execute: true }, async (request) => {
+      await writeFile(join(request.cwd ?? dir, "fixed.txt"), "ok\n", "utf8");
+      return passingRun(request);
+    });
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.status, "exact_validation_passed");
+    assert.equal(result.postValidation?.accepted, true);
+    assert.equal(result.postValidation?.result?.status, "passed");
+    assert.equal((await loadState(dir)).tasks.find((task) => task.id === "T-RETRY")?.status, "validated");
   });
 });
 
