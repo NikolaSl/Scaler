@@ -4,6 +4,7 @@ import { incrementBudgetUsage, persistBudgetDecision, recordStorageBudgetUsage, 
 import { recordDebugAttempt } from "./debug.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { logToolAudit } from "./logging.js";
+import { applyPlanningReport, type ExecutionPlanStatus } from "./plans.js";
 import { formatMemorySearchResults, retrieveMemory, searchMemory, writeMemory, type MemoryValidity } from "./memory.js";
 import { recordProviderUsageBudget } from "./provider-usage.js";
 import {
@@ -37,6 +38,7 @@ export const scalerToolNames = [
   "scaler_tool_result",
   "scaler_task_create",
   "scaler_task_update",
+  "scaler_planning_report",
   "scaler_prd_write",
   "scaler_prd_requirement_update",
   "scaler_validation_manifest_write",
@@ -211,6 +213,36 @@ const TaskUpdateParams = Type.Object({
   allowedPathPrefixes: Type.Optional(Type.Array(Type.String(), { description: "Replacement allowed paths." })),
   dependsOn: Type.Optional(Type.Array(Type.String(), { description: "Replacement dependency ids." })),
   prdRefs: Type.Optional(Type.Array(Type.String(), { description: "Replacement runtime PRD requirement ids." })),
+});
+
+const PlanningReportParams = Type.Object({
+  id: Type.Optional(Type.String()),
+  reason: Type.Optional(Type.String()),
+  source: Type.Optional(Type.String()),
+  requirements: Type.Array(Type.Object({
+    id: Type.String(),
+    statement: Type.String(),
+    title: Type.Optional(Type.String()),
+    source: Type.Optional(Type.String()),
+    status: Type.Optional(Type.String({ description: "pending, in_progress, implemented, validated, blocked, or needs_replan." })),
+    evidenceRefs: Type.Optional(Type.Array(Type.String())),
+    notes: Type.Optional(Type.String()),
+  })),
+  plan: Type.Object({
+    planVersion: Type.Number(),
+    status: Type.String({ description: "draft, active, superseded, or completed." }),
+    title: Type.Optional(Type.String()),
+    source: Type.Optional(Type.String()),
+    tasks: Type.Array(Type.Object({
+      id: Type.String(),
+      title: Type.String(),
+      description: Type.Optional(Type.String()),
+      prdRefs: Type.Optional(Type.Array(Type.String())),
+      allowedPathPrefixes: Type.Optional(Type.Array(Type.String())),
+      dependsOn: Type.Optional(Type.Array(Type.String())),
+      validationRefs: Type.Optional(Type.Array(Type.String())),
+    })),
+  }),
 });
 
 const PrdWriteParams = Type.Object({
@@ -541,6 +573,34 @@ export function registerScalerTools(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
+    name: "scaler_planning_report",
+    label: "Scaler Planning Report",
+    description: "Ingest structured planner output, synchronize runtime PRD requirements, execution plan tasks, task PRD refs, and coverage diagnostics.",
+    parameters: PlanningReportParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const state = await ensureState(ctx.cwd);
+      const result = await applyPlanningReport(ctx.cwd, state, {
+        id: params.id,
+        reason: params.reason,
+        source: params.source,
+        requirements: params.requirements.map((requirement) => ({
+          id: requirement.id,
+          statement: requirement.statement,
+          title: requirement.title,
+          source: requirement.source,
+          status: normalizePrdStatus(requirement.status),
+          evidenceRefs: requirement.evidenceRefs,
+          notes: requirement.notes,
+        })),
+        plan: { ...params.plan, status: normalizeExecutionPlanStatus(params.plan.status) },
+      });
+      await recordCurrentStorageUsage(ctx.cwd);
+      await logTool(ctx.cwd, "scaler_planning_report", result.message, { params, report: result.report });
+      return textResult(result.message, { status: result.accepted ? "accepted" : "warnings", report: result.report, plan: result.plan });
+    },
+  });
+
+  pi.registerTool({
     name: "scaler_prd_write",
     label: "Scaler Runtime PRD Write",
     description: "Write the polished runtime PRD and optional requirement catalog under .scaler/prd.",
@@ -743,6 +803,19 @@ async function recordCurrentStorageUsage(cwd: string): Promise<ScalerState> {
   const state = await ensureState(cwd);
   const { state: budgetedState, decision } = await recordStorageBudgetUsage(cwd, state);
   return await persistBudgetDecision(cwd, budgetedState, decision);
+}
+
+function normalizeExecutionPlanStatus(value: string): ExecutionPlanStatus {
+  const normalized = value.toLowerCase();
+  if (["draft", "active", "superseded", "completed"].includes(normalized)) return normalized as ExecutionPlanStatus;
+  return "draft";
+}
+
+function normalizePrdStatus(value: string | undefined): RuntimePrdRequirementStatus | undefined {
+  if (!value) return undefined;
+  const normalized = value.toLowerCase();
+  if (["pending", "in_progress", "implemented", "validated", "blocked", "needs_replan"].includes(normalized)) return normalized as RuntimePrdRequirementStatus;
+  return undefined;
 }
 
 function normalizeMemoryValidityFilter(value: string | undefined): MemoryValidity | "any" | undefined {

@@ -61,10 +61,12 @@ import {
   acceptReplanProposal,
   applyExecutionPlanTasks,
   checkExecutionPlanPreservation,
+  formatPlanningReports,
   formatExecutionPlanPreservationCheck,
   formatExecutionPlanSummary,
   formatReplanRequests,
   loadExecutionPlan,
+  loadPlanningReports,
   loadProposedExecutionPlan,
   loadReplanRequests,
   summarizeExecutionPlan,
@@ -624,6 +626,15 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const result = await applyExecutionPlanTasks(ctx.cwd, state, plan);
       if (ctx.hasUI) ctx.ui.notify(result.message, result.rejectedTaskIds.length === 0 ? "info" : "warning");
       else console.log(result.message);
+    },
+  });
+
+  pi.registerCommand("scaler-planning-reports", {
+    description: "List structured planner coverage synchronization reports.",
+    handler: async (_args, ctx) => {
+      const message = formatPlanningReports(await loadPlanningReports(ctx.cwd));
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
     },
   });
 

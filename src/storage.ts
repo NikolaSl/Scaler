@@ -151,6 +151,7 @@ const activeReportLedgerNames = new Set([
   "validation-checklists.json",
   "validation-handoffs.json",
   "commits.json",
+  "planning-reports.json",
   "task-agent-runs.json",
   "task-agent-reports.json",
   "stage-agent-runs.json",

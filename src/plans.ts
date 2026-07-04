@@ -1,15 +1,16 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   getCurrentExecutionPlanPath,
   getExecutionPlansDir,
   getExecutionPlanVersionsDir,
+  getPlanningReportsPath,
   getProposedExecutionPlanPath,
   getReplanDecisionsPath,
   getReplanRequestsPath,
 } from "./paths.js";
-import type { RuntimePrdRequirementsFile } from "./prd.js";
-import { createTask } from "./tasks.js";
+import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, upsertPrdRequirement, type RuntimePrdRequirementStatus, type RuntimePrdRequirementsFile } from "./prd.js";
+import { createTask, updateTask } from "./tasks.js";
 import type { ScalerState } from "./types.js";
 
 export const executionPlanStatuses = ["draft", "active", "superseded", "completed"] as const;
@@ -42,12 +43,69 @@ export interface ExecutionPlanArtifact {
   updatedAt: string;
 }
 
+export interface ExecutionPlanApplyOptions {
+  updateExisting?: boolean;
+}
+
 export interface ExecutionPlanApplyResult {
   state: ScalerState;
   createdTaskIds: string[];
   existingTaskIds: string[];
+  updatedTaskIds: string[];
   rejectedTaskIds: string[];
   message: string;
+}
+
+export interface PlanningReportRequirementInput {
+  id: string;
+  statement: string;
+  title?: string;
+  source?: string;
+  status?: RuntimePrdRequirementStatus;
+  evidenceRefs?: string[];
+  notes?: string;
+}
+
+export interface PlanningReportInput {
+  id?: string;
+  reason?: string;
+  source?: string;
+  requirements: PlanningReportRequirementInput[];
+  plan: Omit<ExecutionPlanArtifact, "version" | "createdAt" | "updatedAt"> & Partial<Pick<ExecutionPlanArtifact, "version" | "createdAt" | "updatedAt">>;
+}
+
+export interface PlanningCoverageDiagnostics {
+  linkedRequirementIds: string[];
+  unlinkedRequirementIds: string[];
+  unknownPlanRequirementIds: string[];
+  planUnlinkedTaskIds: string[];
+}
+
+export interface PlanningReportRecord {
+  id: string;
+  reason: string;
+  source?: string;
+  planVersion: number;
+  requirementIds: string[];
+  createdTaskIds: string[];
+  existingTaskIds: string[];
+  updatedTaskIds: string[];
+  rejectedTaskIds: string[];
+  diagnostics: PlanningCoverageDiagnostics;
+  createdAt: string;
+}
+
+interface PlanningReportIndex {
+  version: 1;
+  reports: PlanningReportRecord[];
+}
+
+export interface PlanningReportResult {
+  accepted: boolean;
+  message: string;
+  state: ScalerState;
+  plan: ExecutionPlanArtifact;
+  report: PlanningReportRecord;
 }
 
 export interface ExecutionPlanSummary {
@@ -287,16 +345,31 @@ export async function applyExecutionPlanTasks(
   cwd: string,
   state: ScalerState,
   plan: ExecutionPlanArtifact,
+  options: ExecutionPlanApplyOptions = {},
 ): Promise<ExecutionPlanApplyResult> {
   validateExecutionPlan(plan);
   let nextState = state;
   const createdTaskIds: string[] = [];
   const existingTaskIds: string[] = [];
+  const updatedTaskIds: string[] = [];
   const rejectedTaskIds: string[] = [];
 
   for (const task of plan.tasks) {
-    if (nextState.tasks.some((candidate) => candidate.id === task.id)) {
+    const existing = nextState.tasks.find((candidate) => candidate.id === task.id);
+    if (existing) {
       existingTaskIds.push(task.id);
+      if (options.updateExisting) {
+        const result = await updateTask(cwd, nextState, {
+          id: task.id,
+          title: existing.status === "validated" ? existing.title : task.title,
+          allowedPathPrefixes: task.allowedPathPrefixes,
+          dependsOn: task.dependsOn,
+          prdRefs: task.prdRefs,
+        });
+        nextState = result.state;
+        if (result.accepted) updatedTaskIds.push(task.id);
+        else rejectedTaskIds.push(task.id);
+      }
       continue;
     }
 
@@ -316,9 +389,96 @@ export async function applyExecutionPlanTasks(
     state: nextState,
     createdTaskIds,
     existingTaskIds,
+    updatedTaskIds,
     rejectedTaskIds,
-    message: `Plan apply: created=${createdTaskIds.length} existing=${existingTaskIds.length} rejected=${rejectedTaskIds.length}`,
+    message: `Plan apply: created=${createdTaskIds.length} existing=${existingTaskIds.length} updated=${updatedTaskIds.length} rejected=${rejectedTaskIds.length}`,
   };
+}
+
+export async function applyPlanningReport(
+  cwd: string,
+  state: ScalerState,
+  input: PlanningReportInput,
+  now = new Date(),
+): Promise<PlanningReportResult> {
+  const timestamp = now.toISOString();
+  const plan: ExecutionPlanArtifact = normalizePlanningReportPlan(input.plan, timestamp);
+  const savedPlan = await saveExecutionPlan(cwd, plan);
+  const applyResult = await applyExecutionPlanTasks(cwd, state, savedPlan, { updateExisting: true });
+  const taskIdsByRequirement = buildPlanTaskIdsByRequirement(savedPlan);
+
+  for (const requirement of input.requirements) {
+    await upsertPrdRequirement(cwd, {
+      id: requirement.id,
+      statement: requirement.statement,
+      title: requirement.title,
+      source: requirement.source ?? input.source ?? "planning_report",
+      status: requirement.status ?? (taskIdsByRequirement.get(requirement.id)?.length ? "in_progress" : "pending"),
+      taskIds: taskIdsByRequirement.get(requirement.id),
+      evidenceRefs: requirement.evidenceRefs,
+      notes: requirement.notes,
+      now,
+    });
+  }
+
+  const requirements = await loadPrdRequirements(cwd);
+  const coverage = await loadPrdCoverage(cwd);
+  const requirementIds = new Set(requirements.requirements.map((requirement) => requirement.id));
+  const planRequirementIds = new Set(savedPlan.tasks.flatMap((task) => task.prdRefs ?? []));
+  const coverageSummary = computePrdCoverageSummary(requirements, coverage, applyResult.state);
+  const diagnostics: PlanningCoverageDiagnostics = {
+    linkedRequirementIds: [...planRequirementIds].filter((id) => requirementIds.has(id)).sort((a, b) => a.localeCompare(b)),
+    unlinkedRequirementIds: coverageSummary.unlinkedRequirementIds.sort((a, b) => a.localeCompare(b)),
+    unknownPlanRequirementIds: [...planRequirementIds].filter((id) => !requirementIds.has(id)).sort((a, b) => a.localeCompare(b)),
+    planUnlinkedTaskIds: savedPlan.tasks.filter((task) => !task.prdRefs || task.prdRefs.length === 0).map((task) => task.id),
+  };
+
+  const report: PlanningReportRecord = {
+    id: input.id?.trim() || `planning-${now.getTime()}`,
+    reason: input.reason?.trim() || "Planner coverage synchronization.",
+    source: input.source,
+    planVersion: savedPlan.planVersion,
+    requirementIds: input.requirements.map((requirement) => requirement.id),
+    createdTaskIds: applyResult.createdTaskIds,
+    existingTaskIds: applyResult.existingTaskIds,
+    updatedTaskIds: applyResult.updatedTaskIds,
+    rejectedTaskIds: applyResult.rejectedTaskIds,
+    diagnostics,
+    createdAt: timestamp,
+  };
+  await writePlanningReports(cwd, [report, ...(await loadPlanningReports(cwd))]);
+
+  const warningCount = diagnostics.unlinkedRequirementIds.length + diagnostics.unknownPlanRequirementIds.length + diagnostics.planUnlinkedTaskIds.length + applyResult.rejectedTaskIds.length;
+  return {
+    accepted: warningCount === 0,
+    message: `Planning report ${report.id}: requirements=${report.requirementIds.length} planTasks=${savedPlan.tasks.length} created=${report.createdTaskIds.length} updated=${report.updatedTaskIds.length} warnings=${warningCount}`,
+    state: applyResult.state,
+    plan: savedPlan,
+    report,
+  };
+}
+
+export async function loadPlanningReports(cwd: string): Promise<PlanningReportRecord[]> {
+  try {
+    const raw = await readFile(getPlanningReportsPath(cwd), "utf8");
+    return (JSON.parse(raw) as PlanningReportIndex).reports;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+export function formatPlanningReports(reports: PlanningReportRecord[], limit = 20): string {
+  if (reports.length === 0) return "No planning reports.";
+  const lines = ["Planning reports:"];
+  for (const report of reports.slice(0, limit)) {
+    const warnings = report.diagnostics.unlinkedRequirementIds.length + report.diagnostics.unknownPlanRequirementIds.length + report.diagnostics.planUnlinkedTaskIds.length + report.rejectedTaskIds.length;
+    lines.push(`- ${report.id}: plan=${report.planVersion} requirements=${report.requirementIds.length} created=${report.createdTaskIds.length} updated=${report.updatedTaskIds.length} warnings=${warnings}`);
+    if (report.diagnostics.unlinkedRequirementIds.length > 0) lines.push(`  unlinked=${report.diagnostics.unlinkedRequirementIds.join(",")}`);
+    if (report.diagnostics.unknownPlanRequirementIds.length > 0) lines.push(`  unknown=${report.diagnostics.unknownPlanRequirementIds.join(",")}`);
+    if (report.diagnostics.planUnlinkedTaskIds.length > 0) lines.push(`  tasksWithoutPrdRefs=${report.diagnostics.planUnlinkedTaskIds.join(",")}`);
+  }
+  return lines.join("\n");
 }
 
 export function summarizeExecutionPlan(
@@ -501,6 +661,35 @@ export async function createExecutionPlanSnapshot(
   const absolutePath = join(versionsDir, fileName);
   await writeFile(absolutePath, `${JSON.stringify(plan, null, 2)}\n`, "utf8");
   return `.scaler/plans/versions/${fileName}`;
+}
+
+async function writePlanningReports(cwd: string, reports: PlanningReportRecord[]): Promise<void> {
+  const path = getPlanningReportsPath(cwd);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify({ version: 1, reports } satisfies PlanningReportIndex, null, 2)}\n`, "utf8");
+}
+
+function normalizePlanningReportPlan(input: PlanningReportInput["plan"], timestamp: string): ExecutionPlanArtifact {
+  return normalizeExecutionPlan({
+    version: 1,
+    planVersion: input.planVersion,
+    status: input.status,
+    title: input.title,
+    source: input.source,
+    tasks: input.tasks,
+    createdAt: input.createdAt ?? timestamp,
+    updatedAt: input.updatedAt ?? timestamp,
+  }, new Date(timestamp));
+}
+
+function buildPlanTaskIdsByRequirement(plan: ExecutionPlanArtifact): Map<string, string[]> {
+  const byRequirement = new Map<string, string[]>();
+  for (const task of plan.tasks) {
+    for (const requirementId of task.prdRefs ?? []) {
+      byRequirement.set(requirementId, [...(byRequirement.get(requirementId) ?? []), task.id]);
+    }
+  }
+  return byRequirement;
 }
 
 async function writeReplanRequestIndex(cwd: string, requests: ReplanRequest[]): Promise<void> {

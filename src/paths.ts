@@ -186,6 +186,10 @@ export function getCommitReportsPath(cwd: string): string {
   return join(getReportsDir(cwd), "commits.json");
 }
 
+export function getPlanningReportsPath(cwd: string): string {
+  return join(getReportsDir(cwd), "planning-reports.json");
+}
+
 export function getTaskAgentRunsPath(cwd: string): string {
   return join(getReportsDir(cwd), "task-agent-runs.json");
 }
