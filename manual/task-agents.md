@@ -5,18 +5,19 @@ Scaler has an experimental task-agent subprocess runner.
 The runner builds isolated Pi invocations using JSON print mode:
 
 ```text
-pi --mode json -p --no-session <task-prompt>
+pi --mode json -p --no-session --no-tools <task-prompt>
 ```
 
 Supported options:
 
+- deny-by-default tools via `--no-tools` when no explicit tool grant exists
 - limited tools via `--tools`
 - model selection via `--model`
 - generated system prompt file via `--append-system-prompt`
 - extension loading via `-e`
 - working directory per task
 
-Child agents must load Scaler safety/logging rules or run inside an approved sandbox before unattended use.
+Child agents now default to `--no-tools` for omitted or empty tool lists. When a child agent is granted tools, SCALER automatically adds the project SCALER extension path unless an explicit extension path is supplied, so parent safety hooks and policy checks are loaded in the child process. Explicit `noTools` suppresses granted tools even if a tool list is present.
 
 Current implementation provides the invocation builder, subprocess runner, persisted run records under `.scaler/reports/task-agent-runs.json`, structured task-agent report records under `.scaler/reports/task-agent-reports.json`, and repo-wide execution locking for task-agent execution.
 

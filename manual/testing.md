@@ -56,7 +56,7 @@ The current mocked integration harness covers:
 - storage maintenance command execution with safe gzip compression, explicit cache cleanup, approved archive/raw-log/memory retention deletion, scheduled maintenance due checks, persisted reports/schedule config, storage budget usage, and audit logs;
 - typed validation gate metadata plus dependency/test-first and CI/sandbox environment policy diagnostics, validation environment lifecycle evidence, and `/scaler-validation-envs` status persisted through `/scaler-validation-add`, validation runs, lifecycle records, and audit logs;
 - deterministic non-software validation checklists persisted through `/scaler-validation-checklist`, task status transitions, evidence-required acceptance/completeness/source policies, and audit logs;
-- rich `scaler_tool_request` metadata, `scaler_tool_schema` discovery ledgers, supervised schema discovery probe ledgers, project-local MCP server enumeration ledgers, compact selected-tool catalog prompts with discovered schema injection, isolated allowed-tool invocation prep, tool transaction prepare/execute/replay ledgers, closed replay approval ledgers, bounded tool-iteration correction ledgers/policy, safe low-risk tool scheduling ledgers, `missing_result`/`missing_schema` handling for free-form child output, and structured `scaler_tool_result` request closure;
+- rich `scaler_tool_request` metadata, `scaler_tool_schema` discovery ledgers, supervised schema discovery probe ledgers, project-local MCP server enumeration ledgers, compact selected-tool catalog prompts with discovered schema injection, child-agent deny-by-default `--no-tools` invocation, automatic SCALER extension loading when child tools are granted, isolated allowed-tool invocation prep, tool transaction prepare/execute/replay ledgers, closed replay approval ledgers, bounded tool-iteration correction ledgers/policy, safe low-risk tool scheduling ledgers, `missing_result`/`missing_schema` handling for free-form child output, and structured `scaler_tool_result` request closure;
 - deterministic context discovery feeding conductor prompts with exactness/compression guidance and automatic context-split artifacts for oversized resolved context;
 - unsafe replan proposal acceptance rejection;
 - debug report → replan request → replanner proposal → acceptance retry-gate clearance;
@@ -105,7 +105,7 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - real chained Stage I-IV conductor flow-parity through persisted stage artifacts and stage-agent run records;
 - real unsafe replan proposal rejection without replacing the current plan;
 - real planner-report listing plus real chained replanner proposal → acceptance flow-parity through proposed/current plan artifacts, snapshots, decisions, and task creation;
-- report-only child agents launched with `--no-tools` for cardinal JSON-output tests;
+- report-only child agents launched with `--no-tools` for cardinal JSON-output tests, plus real subprocess assertions that granted-tool children include the SCALER extension and report-only stage children remain toolless;
 - real Pi extension loading via `-e src/index.ts`;
 - slash-command dispatch and command audit logs;
 - slash-command budget configuration/status persistence, provider usage turn accounting, and audit logs;

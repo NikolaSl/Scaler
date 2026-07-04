@@ -138,7 +138,7 @@ Current real mode has three layers:
 2. real Pi extension integrity tests that launch `pi --mode json -p --no-session -e <src/index.ts>` in a temporary repository and verify extension command dispatch, SCALER tool calls, safety hooks, safety policy/approval persistence, `.scaler/logs/events.jsonl`, detail payload references, and persisted state; and
 3. real flow-parity chains that run real Pi/model child agents through SCALER's normal debug, research, stage, and replanner pathways while asserting persisted ledgers.
 
-Command-dispatch extension tests may avoid model output. Cardinal SCALER-tool and hook tests use the selected real model with restricted `--tools` lists. Report-only child-agent flow tests disable tools with `--no-tools` so the real model cannot mutate the temporary repository outside the expected structured report.
+Command-dispatch extension tests may avoid model output. Cardinal SCALER-tool and hook tests use the selected real model with restricted `--tools` lists. Child-agent invocation is deny-by-default: omitted or empty tool lists become `--no-tools`, and granted-tool child invocations include the SCALER extension unless an explicit extension path is supplied. Report-only child-agent flow tests assert `--no-tools` so the real model cannot mutate the temporary repository outside the expected structured report.
 
 ## Cardinal instruction pattern for real mode
 
@@ -239,7 +239,7 @@ When adding a new integration scenario:
   - multi-query research transactions and source freshness/version review records are persisted.
 - `mock/tool-request-flow.test.ts`
   - rich `scaler_tool_request` metadata persists to `.scaler/tool-requests/`;
-  - isolated invocation includes only explicitly allowed tools and selected compact catalog entries;
+  - isolated invocation includes only explicitly allowed tools and selected compact catalog entries, with no-tool default child invocations when no grant exists;
   - discovered `scaler_tool_schema` metadata is merged into later request/transaction prompts;
   - project-local MCP server declarations are enumerated into `.scaler/tool-requests/mcp-servers.json` without executing servers or storing env secret values;
   - supervised schema discovery probes record prepare/execute runs under `.scaler/tool-requests/schema-runs.json` and require structured `scaler_tool_schema` completion;
@@ -257,7 +257,7 @@ When adding a new integration scenario:
   - command-driven non-software validation checklists persist deterministic checklist records, apply fail/pass rollups, and enforce evidence-required acceptance policy.
 - `mock/research-internet-grant-flow.test.ts`
   - internet-scope research requests withhold child-agent tools until an explicit internet grant is supplied;
-  - explicit grants pass only the listed tools, preserve source URL metadata, raw evidence memory refs, run records, and agent prompt audit details.
+  - explicit grants pass only the listed tools, load the SCALER child extension for safety hooks, preserve source URL metadata, raw evidence memory refs, run records, and agent prompt audit details.
 - `mock/safety-hook-flow.test.ts`
   - extension `tool_call` hook blocks external publish and secret environment exposure commands;
   - persisted safety policy allows configured internet/external command classes while preserving secret blocks;
