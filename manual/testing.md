@@ -51,6 +51,7 @@ The current mocked integration harness covers:
 - command-driven budget configuration feeding later validation hard-stop behavior;
 - storage status inventory indexing plus budget hard-pause behavior;
 - typed validation gate metadata persisted through `/scaler-validation-add`, validation runs, and audit logs;
+- rich `scaler_tool_request` metadata, compact selected-tool catalog prompts, and isolated allowed-tool invocation prep;
 - deterministic context discovery feeding conductor prompts with exactness/compression guidance;
 - unsafe replan proposal acceptance rejection;
 - debug report → replan request → replanner proposal → acceptance retry-gate clearance;
@@ -104,6 +105,7 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - slash-command storage status inventory persistence and audit logs;
 - slash-command typed validation gate metadata persistence and audit logs;
 - cardinal SCALER tool invocation with persisted `.scaler/state.json` mutation;
+- cardinal `scaler_tool_request` invocation with persisted rich metadata;
 - cardinal built-in `bash` invocation blocked by the SCALER safety hook for protected-path and external publish commands, recorded in `.scaler/logs/events.jsonl`.
 
 Real Pi/model tests are intentionally opt-in because they can cost tokens, require local model/provider setup, and may be less deterministic than mock integration tests.

@@ -26,7 +26,7 @@ Current behavior:
 - `scaler_memory_retrieve` retrieves memory by id/path
 - `scaler_research_report` records structured research findings with source quality, confidence, contradictions, and optional raw evidence stored in memory
 - `scaler_spawn_task` prepares a Pi subprocess invocation, or executes it when `execute: true`; executed spawns are refused while the repo-wide execution lock is held
-- `scaler_tool_request` persists isolated tool-agent requests under `.scaler/tool-requests/` and prepares invocations with only explicitly allowed tools
+- `scaler_tool_request` persists isolated tool-agent requests under `.scaler/tool-requests/` and prepares invocations with only explicitly allowed tools, compact selected-tool catalog entries, requester id, expected output, required format, risk level, permission requirement, and safety notes
 - `scaler_task_create` creates supervisor task records, stores optional allowed paths/dependencies/runtime PRD refs, and rejects duplicate ids
 - `scaler_task_update` updates task metadata, including runtime PRD refs, and only accepts valid status transitions
 - `scaler_prd_write` writes `.scaler/prd/current.md` and optionally replaces the runtime PRD requirement catalog
@@ -35,4 +35,6 @@ Current behavior:
 
 Debug-agent subprocesses emit structured `scaler_debug_report` JSON events rather than using a registered tool; accepted reports are stored under `.scaler/debug/reports.json` and can create research or replan requests.
 
-Full supervisor and task execution integration will be added in later tasks.
+Tool request prompts intentionally include only selected catalog entries for the requested/allowed tools. Unknown tools are represented as `unknown` risk with no docs/schema claim so the isolated tool agent must inspect help/schema when available instead of guessing.
+
+Full multi-iteration tool-agent execution and automatic MCP documentation discovery will be added in later tasks.

@@ -189,6 +189,9 @@ When adding a new integration scenario:
 - `mock/storage-status-flow.test.ts`
   - command-driven `.scaler/` storage inventory persistence;
   - configured storage hard limit pauses the run and records budget/state audit events.
+- `mock/tool-request-flow.test.ts`
+  - rich `scaler_tool_request` metadata persists to `.scaler/tool-requests/`;
+  - isolated invocation includes only explicitly allowed tools and selected compact catalog entries.
 - `mock/validation-gates-flow.test.ts`
   - command-driven typed validation gate metadata persisted to manifests;
   - validation run records and audit events preserve gate, required, expected-result, and evidence metadata.
@@ -222,6 +225,7 @@ When adding a new integration scenario:
   - real Pi slash-command storage status inventory persistence;
   - real Pi slash-command typed validation gate metadata persistence;
   - command audit events and detail payload references in `.scaler/logs/events.jsonl`;
+  - cardinal real-model call to `scaler_tool_request` with exact rich metadata and persisted tool-request state;
   - cardinal real-model call to `scaler_task_create` with exact arguments and persisted SCALER task state;
   - cardinal real-model call to built-in `bash` with `npm publish --dry-run`, blocked by SCALER's external safety hook and recorded as a safety audit event;
   - cardinal real-model call to built-in `bash` with `cat .env`, blocked by SCALER's protected-path safety hook and recorded as a safety audit event.
