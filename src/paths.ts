@@ -190,6 +190,10 @@ export function getTaskAgentReportsPath(cwd: string): string {
   return join(getReportsDir(cwd), "task-agent-reports.json");
 }
 
+export function getTaskQualityPath(cwd: string): string {
+  return join(getReportsDir(cwd), "task-quality.json");
+}
+
 export function getStageAgentRunsPath(cwd: string): string {
   return join(getReportsDir(cwd), "stage-agent-runs.json");
 }

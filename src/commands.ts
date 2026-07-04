@@ -6,6 +6,7 @@ export interface ParsedTaskCreateArgs {
   allowedPathPrefixes?: string[];
   dependsOn?: string[];
   prdRefs?: string[];
+  definitionOfDone?: string[];
 }
 
 export interface ParsedTaskUpdateArgs {
@@ -15,6 +16,7 @@ export interface ParsedTaskUpdateArgs {
   allowedPathPrefixes?: string[];
   dependsOn?: string[];
   prdRefs?: string[];
+  definitionOfDone?: string[];
 }
 
 export interface ParsedTaskRetryArgs {
@@ -300,6 +302,7 @@ export function parseTaskCreateArgs(args: string | undefined): ParsedTaskCreateA
     allowedPathPrefixes: parseCommaList(parts[2]),
     dependsOn: parseCommaList(parts[3]),
     prdRefs: parseCommaList(parts[4]),
+    definitionOfDone: parseSemicolonList(parts[5]),
   };
 }
 
@@ -314,6 +317,7 @@ export function parseTaskUpdateArgs(args: string | undefined): ParsedTaskUpdateA
     allowedPathPrefixes: parseCommaList(parts[3]),
     dependsOn: parseCommaList(parts[4]),
     prdRefs: parseCommaList(parts[5]),
+    definitionOfDone: parseSemicolonList(parts[6]),
   };
 }
 
@@ -789,6 +793,14 @@ export function resolveCommitAllowedPaths(state: ScalerState, taskId: string, ex
 export function parseCommaList(value: string | undefined): string[] | undefined {
   const items = (value ?? "")
     .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  return items.length > 0 ? items : undefined;
+}
+
+export function parseSemicolonList(value: string | undefined): string[] | undefined {
+  const items = (value ?? "")
+    .split(";")
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
   return items.length > 0 ? items : undefined;

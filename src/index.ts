@@ -77,6 +77,7 @@ import { formatResearchWebRunResult, formatResearchWebTransactions, loadResearch
 import { applySafetyApproval, assessToolCallSafety, createSafetyApproval, formatSafetyApprovals, formatSafetyPolicy, formatSafetyScanRecords, formatSafetyScanResult, loadSafetyApprovals, loadSafetyPolicy, loadSafetyScanRecords, mergeSafetyPolicy, revokeSafetyApproval, runSafetyScans, saveSafetyPolicy } from "./safety.js";
 import { createTask, formatTaskList, retryTask, updateTask } from "./tasks.js";
 import { formatTaskAgentReportList, loadTaskAgentReports } from "./task-reports.js";
+import { formatTaskDefinitionReviews, loadTaskDefinitionReviews, reviewAllTaskDefinitions, reviewTaskDefinition } from "./task-quality.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
 import { advanceStageAfterReadyArtifact } from "./stage-advancement.js";
 import { formatStageAgentRunList, loadStageAgentRunRecords, runStageAgentStep } from "./stage-agents.js";
@@ -282,6 +283,22 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const taskId = args?.trim() || undefined;
       const message = formatTaskAgentReportList(await loadTaskAgentReports(ctx.cwd), taskId);
       if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-task-quality", {
+    description: "Review task Definition of Done, validation, and allowed-path warnings: /scaler-task-quality [taskId]",
+    handler: async (args, ctx) => {
+      const taskId = args?.trim() || undefined;
+      const state = await ensureState(ctx.cwd);
+      const records = taskId
+        ? [await reviewTaskDefinition(ctx.cwd, state, taskId)]
+        : await reviewAllTaskDefinitions(ctx.cwd, state);
+      const message = records.length > 0
+        ? formatTaskDefinitionReviews(records, taskId)
+        : formatTaskDefinitionReviews(await loadTaskDefinitionReviews(ctx.cwd), taskId);
+      if (ctx.hasUI) ctx.ui.notify(message, records.some((record) => record.warnings.length > 0) ? "warning" : "info");
       else console.log(message);
     },
   });
@@ -503,11 +520,11 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("scaler-task-create", {
-    description: "Create a SCALER task: /scaler-task-create <taskId> | <title> | <allowed paths comma list> | <dependency ids comma list> | <PRD refs comma list>",
+    description: "Create a SCALER task: /scaler-task-create <taskId> | <title> | <allowed paths comma list> | <dependency ids comma list> | <PRD refs comma list> | <DoD items semicolon list>",
     handler: async (args, ctx) => {
       const parsed = parseTaskCreateArgs(args);
       if (!parsed) {
-        const message = "Usage: /scaler-task-create <taskId> | <title> | <allowed paths comma list> | <dependency ids comma list> | <PRD refs comma list>";
+        const message = "Usage: /scaler-task-create <taskId> | <title> | <allowed paths comma list> | <dependency ids comma list> | <PRD refs comma list> | <DoD items semicolon list>";
         if (ctx.hasUI) ctx.ui.notify(message, "warning");
         else console.log(message);
         return;
@@ -520,6 +537,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         allowedPathPrefixes: parsed.allowedPathPrefixes,
         dependsOn: parsed.dependsOn,
         prdRefs: parsed.prdRefs,
+        definitionOfDone: parsed.definitionOfDone,
       });
       if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
       else console.log(result.message);
@@ -527,11 +545,11 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("scaler-task-update", {
-    description: "Update a SCALER task: /scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies> | <PRD refs>",
+    description: "Update a SCALER task: /scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies> | <PRD refs> | <DoD items semicolon list>",
     handler: async (args, ctx) => {
       const parsed = parseTaskUpdateArgs(args);
       if (!parsed) {
-        const message = "Usage: /scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies> | <PRD refs>";
+        const message = "Usage: /scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies> | <PRD refs> | <DoD items semicolon list>";
         if (ctx.hasUI) ctx.ui.notify(message, "warning");
         else console.log(message);
         return;
@@ -545,6 +563,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         allowedPathPrefixes: parsed.allowedPathPrefixes,
         dependsOn: parsed.dependsOn,
         prdRefs: parsed.prdRefs,
+        definitionOfDone: parsed.definitionOfDone,
       });
       if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
       else console.log(result.message);

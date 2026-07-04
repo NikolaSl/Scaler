@@ -1,6 +1,7 @@
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { isScalerTaskStatus } from "./reports.js";
 import { saveState } from "./state.js";
+import { reviewTaskDefinition, type TaskDefinitionReviewRecord } from "./task-quality.js";
 import { addTask, transitionTask } from "./supervisor.js";
 import type { ScalerState, ScalerTaskStatus } from "./types.js";
 
@@ -11,12 +12,14 @@ export interface CreateTaskInput {
   allowedPathPrefixes?: string[];
   dependsOn?: string[];
   prdRefs?: string[];
+  definitionOfDone?: string[];
 }
 
 export interface CreateTaskResult {
   state: ScalerState;
   accepted: boolean;
   message: string;
+  qualityReview?: TaskDefinitionReviewRecord;
 }
 
 export interface UpdateTaskInput {
@@ -26,12 +29,14 @@ export interface UpdateTaskInput {
   allowedPathPrefixes?: string[];
   dependsOn?: string[];
   prdRefs?: string[];
+  definitionOfDone?: string[];
 }
 
 export interface UpdateTaskResult {
   state: ScalerState;
   accepted: boolean;
   message: string;
+  qualityReview?: TaskDefinitionReviewRecord;
 }
 
 export interface RetryTaskResult {
@@ -50,7 +55,8 @@ export function formatTaskList(state: ScalerState): string {
     const paths = task.allowedPathPrefixes && task.allowedPathPrefixes.length > 0 ? ` [paths: ${task.allowedPathPrefixes.join(", ")}]` : "";
     const deps = task.dependsOn && task.dependsOn.length > 0 ? ` [depends: ${task.dependsOn.join(", ")}]` : "";
     const prdRefs = task.prdRefs && task.prdRefs.length > 0 ? ` [prd: ${task.prdRefs.join(", ")}]` : "";
-    lines.push(`- ${task.id}: ${task.status}${current}${title}${paths}${deps}${prdRefs}`);
+    const dod = task.definitionOfDone && task.definitionOfDone.length > 0 ? ` [dod: ${task.definitionOfDone.length}]` : " [dod: missing]";
+    lines.push(`- ${task.id}: ${task.status}${current}${title}${paths}${deps}${prdRefs}${dod}`);
   }
   return lines.join("\n");
 }
@@ -116,6 +122,7 @@ export async function updateTask(cwd: string, state: ScalerState, input: UpdateT
             allowedPathPrefixes: input.allowedPathPrefixes ? normalizeAllowedPaths(input.allowedPathPrefixes) : task.allowedPathPrefixes,
             dependsOn: input.dependsOn ? normalizeIdList(input.dependsOn) : task.dependsOn,
             prdRefs: input.prdRefs ? normalizeIdList(input.prdRefs) : task.prdRefs,
+            definitionOfDone: input.definitionOfDone ? normalizeDefinitionOfDone(input.definitionOfDone) : task.definitionOfDone,
             updatedAt: timestamp,
           }
         : task,
@@ -124,11 +131,13 @@ export async function updateTask(cwd: string, state: ScalerState, input: UpdateT
   };
 
   await saveState(cwd, nextState);
+  const qualityReview = await reviewTaskDefinition(cwd, nextState, input.id);
   await appendLogEvent(
     cwd,
-    createLogEvent(nextState, { eventType: "state", summary: `Task updated: ${input.id}`, taskId: input.id, details: input }),
+    createLogEvent(nextState, { eventType: "state", summary: `Task updated: ${input.id}`, taskId: input.id, details: { input, qualityReview } }),
   );
-  return { state: nextState, accepted: true, message: `Task updated: ${input.id}` };
+  const warningSuffix = qualityReview.warnings.length > 0 ? ` warnings=${qualityReview.warnings.length}` : "";
+  return { state: nextState, accepted: true, message: `Task updated: ${input.id}${warningSuffix}`, qualityReview };
 }
 
 export async function createTask(cwd: string, state: ScalerState, input: CreateTaskInput): Promise<CreateTaskResult> {
@@ -158,24 +167,28 @@ export async function createTask(cwd: string, state: ScalerState, input: CreateT
     allowedPathPrefixes: normalizeAllowedPaths(input.allowedPathPrefixes),
     dependsOn: normalizeIdList(input.dependsOn),
     prdRefs: normalizeIdList(input.prdRefs),
+    definitionOfDone: normalizeDefinitionOfDone(input.definitionOfDone),
   });
   const accepted = nextState.rejectedTransitions.length === beforeRejected;
 
   await saveState(cwd, nextState);
+  const qualityReview = accepted ? await reviewTaskDefinition(cwd, nextState, input.id) : undefined;
   await appendLogEvent(
     cwd,
     createLogEvent(nextState, {
       eventType: "state",
       summary: accepted ? `Task created: ${input.id}` : `Task create rejected: ${input.id}`,
       taskId: input.id,
-      details: input,
+      details: { input, qualityReview },
     }),
   );
 
+  const warningSuffix = qualityReview && qualityReview.warnings.length > 0 ? ` warnings=${qualityReview.warnings.length}` : "";
   return {
     state: nextState,
     accepted,
-    message: accepted ? `Task created: ${input.id}` : `Task create rejected: ${input.id}`,
+    message: accepted ? `Task created: ${input.id}${warningSuffix}` : `Task create rejected: ${input.id}`,
+    qualityReview,
   };
 }
 
@@ -194,5 +207,10 @@ function normalizeAllowedPaths(paths: string[] | undefined): string[] | undefine
 
 function normalizeIdList(ids: string[] | undefined): string[] | undefined {
   const normalized = (ids ?? []).map((id) => id.trim()).filter((id) => id.length > 0);
+  return normalized.length > 0 ? [...new Set(normalized)] : undefined;
+}
+
+function normalizeDefinitionOfDone(items: string[] | undefined): string[] | undefined {
+  const normalized = (items ?? []).map((item) => item.trim()).filter((item) => item.length > 0);
   return normalized.length > 0 ? [...new Set(normalized)] : undefined;
 }
