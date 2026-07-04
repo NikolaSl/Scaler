@@ -186,6 +186,9 @@ When adding a new integration scenario:
 - `mock/budget-command-flow.test.ts`
   - command-driven budget configuration persisted to state;
   - configured validation-loop hard stop before validation command execution, with pause/audit behavior.
+- `mock/validation-gates-flow.test.ts`
+  - command-driven typed validation gate metadata persisted to manifests;
+  - validation run records and audit events preserve gate, required, expected-result, and evidence metadata.
 - `mock/remaining-flows.test.ts`
   - budget hard stops for conductor and validation plus pause/audit behavior;
   - context discovery into conductor prompts, including exactness/compression guidance;
@@ -210,6 +213,7 @@ When adding a new integration scenario:
 - `real/real-pi-extension-integrity.test.ts`
   - real Pi extension load and slash-command dispatch via `/scaler-lock`;
   - real Pi slash-command budget configuration/status persistence;
+  - real Pi slash-command typed validation gate metadata persistence;
   - command audit events and detail payload references in `.scaler/logs/events.jsonl`;
   - cardinal real-model call to `scaler_task_create` with exact arguments and persisted SCALER task state;
   - cardinal real-model call to built-in `bash` with `cat .env`, blocked by SCALER's safety hook and recorded as a safety audit event.

@@ -55,10 +55,10 @@ Tasks may include allowed paths for later commit safety, dependency ids, and run
 ## 3. Optionally add validation commands
 
 ```text
-/scaler-validation-add T-001 | test | npm test | Run tests | required
+/scaler-validation-add T-001 | test | npm test | Run tests | required | unit | exits 0 | tests:T-001
 ```
 
-If no task manifest exists, validation falls back to supported `package.json` scripts (`npm test`, `npm run build`).
+Validation commands can carry typed gate metadata (`unit_tests`, `build_compile`, `static_checks`, `integration_tests`, `security_checks`, `acceptance_smoke`, `regression`, or non-software gates such as `completeness`, `consistency`, `compliance`, `source_validation`, `adversarial_review`, and `uncertainty_report`), expected results, and evidence references. If no task manifest exists, validation falls back to supported `package.json` scripts and classifies common scripts such as `test`, `build`, `lint`, `typecheck`, `format:check`, `test:integration`, `smoke`, and `audit` into typed gates.
 
 ## 4. Run one conductor step
 

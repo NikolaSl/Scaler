@@ -49,6 +49,7 @@ The current mocked integration harness covers:
 - runtime PRD coverage-gap replanning through proposal ingestion, preservation checks, proposal acceptance, current-plan replacement, decisions, snapshots, request resolution, and task creation;
 - budget hard-stop refusal for conductor/validation paths with pause and audit behavior;
 - command-driven budget configuration feeding later validation hard-stop behavior;
+- typed validation gate metadata persisted through `/scaler-validation-add`, validation runs, and audit logs;
 - deterministic context discovery feeding conductor prompts with exactness/compression guidance;
 - unsafe replan proposal acceptance rejection;
 - debug report → replan request → replanner proposal → acceptance retry-gate clearance;
@@ -99,6 +100,7 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - real Pi extension loading via `-e src/index.ts`;
 - slash-command dispatch and command audit logs;
 - slash-command budget configuration/status persistence and audit logs;
+- slash-command typed validation gate metadata persistence and audit logs;
 - cardinal SCALER tool invocation with persisted `.scaler/state.json` mutation;
 - cardinal built-in `bash` invocation blocked by the SCALER safety hook and recorded in `.scaler/logs/events.jsonl`.
 

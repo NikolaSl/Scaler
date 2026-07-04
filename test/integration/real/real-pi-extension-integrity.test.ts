@@ -72,7 +72,7 @@ test("real Pi extension: slash command dispatch persists typed validation gate m
     });
 
     assert.equal(result.exitCode, 0, result.stderr || result.stdout);
-    assert.match(`${result.stdout}\n${result.stderr}`, /Validation command saved: T-REAL-GATE\/unit commands=1 gate=unit_tests/);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Validation command saved: T-REAL-GATE\/unit commands=3 gate=unit_tests/);
     assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
 
     const manifest = (await loadValidationManifests(dir)).find((candidate) => candidate.taskId === "T-REAL-GATE");

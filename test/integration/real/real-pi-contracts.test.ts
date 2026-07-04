@@ -48,7 +48,7 @@ async function runRealPi(request: TaskAgentRequest, cardinalInstruction: string)
     noTools: true,
     tools: undefined,
     model: REAL_PI_MODEL ?? request.model,
-    prompt: `${cardinalInstruction}\n\n${request.prompt}`,
+    prompt: cardinalInstruction,
   }, {
     command: REAL_PI_COMMAND,
     timeoutMs: REAL_PI_TIMEOUT_MS,

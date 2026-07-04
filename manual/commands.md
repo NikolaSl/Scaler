@@ -32,18 +32,18 @@ By default it prepares only. Passing `execute` runs the task-agent subprocess. A
 
 `/scaler-step` runs under the repo-wide execution lock.
 
-## `/scaler-validation-add <taskId> | <id> | <command> | <description> | <required>`
+## `/scaler-validation-add <taskId> | <id> | <command> | <description> | <required> | <gate> | <expected> | <evidence refs>`
 
 Adds or replaces one command in a task validation manifest.
 
 Examples:
 
 ```text
-/scaler-validation-add T-001 | test | npm test | Run tests | required
-/scaler-validation-add T-001 | lint | npm run lint | Run lint | optional
+/scaler-validation-add T-001 | test | npm test | Run tests | required | unit | exits 0 | tests:T-001
+/scaler-validation-add T-001 | lint | npm run lint | Run lint | optional | static_checks | exits 0
 ```
 
-`required` accepts true/yes/required/1 and false/no/optional/0. Unknown or omitted values default to required when saved.
+`required` accepts true/yes/required/1 and false/no/optional/0. Unknown or omitted values default to required when saved. Gate aliases are normalized to typed values such as `unit_tests`, `build_compile`, `static_checks`, `integration_tests`, `security_checks`, `acceptance_smoke`, and non-software evidence gates such as `completeness`, `consistency`, `compliance`, `source_validation`, `adversarial_review`, and `uncertainty_report`.
 
 ## `/scaler-commit [taskId] | [allowed paths comma list]`
 
