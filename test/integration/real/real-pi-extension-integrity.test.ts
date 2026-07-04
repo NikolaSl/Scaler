@@ -262,15 +262,15 @@ test("real Pi extension: cardinal model calls scaler_tool_schema with exact meta
   await withRealPiTempRepo(async (dir) => {
     const args = {
       toolName: "mcp_docs_search",
-      source: "mcp://docs/schema",
+      source: "local-mcp-docs-schema",
       description: "Search docs MCP with a query argument.",
       riskLevel: "low",
       permissionRequirement: "read-only docs access",
       safetyNotes: "Do not mutate files.",
-      docsRef: "docs:mcp-search",
-      schemaRef: "schema:mcp-search-v1",
-      notes: "args: { query: string }",
-      evidenceRefs: ["docs:mcp-search"],
+      docsRef: "docs-mcp-search",
+      schemaRef: "schema-mcp-search-v1",
+      notes: "args query string required",
+      evidenceRefs: ["docs_mcp_search"],
       discoveredByAgentId: "real-schema-agent",
     };
     const result = await runScalerPi({
