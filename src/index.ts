@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { startScalerRun } from "./adaptive.js";
+import { applyAdaptiveOrchestration, assessAdaptiveOrchestration, formatAdaptiveAssessment, startScalerRun } from "./adaptive.js";
 import { formatBudgetStatus, getBudgetState, isBudgetUsageKey, persistBudgetDecision, setBudgetLimits, setBudgetUsage } from "./budgets.js";
 import {
   parseBudgetSetArgs,
@@ -222,6 +222,26 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       } else {
         console.log(message);
       }
+    },
+  });
+
+  pi.registerCommand("scaler-adapt", {
+    description: "Assess or apply adaptive SCALER escalation/de-escalation: /scaler-adapt [apply]",
+    handler: async (args, ctx) => {
+      const state = await ensureState(ctx.cwd);
+      const assessment = assessAdaptiveOrchestration(state);
+      const apply = args?.trim().split(/\s+/).includes("apply") ?? false;
+      const result = apply ? applyAdaptiveOrchestration(state, assessment) : undefined;
+      if (result) await saveState(ctx.cwd, result.state);
+      await logStateEvent(ctx.cwd, result?.state ?? state, apply ? "Scaler adaptive orchestration applied" : "Scaler adaptive orchestration assessed", {
+        assessment,
+        applied: Boolean(result),
+        stageTransitionApplied: result?.stageTransitionApplied ?? false,
+        complexityChanged: result?.complexityChanged ?? false,
+      });
+      const message = `${formatAdaptiveAssessment(assessment)}${result ? `\nApplied: stageTransition=${result.stageTransitionApplied} complexityChanged=${result.complexityChanged}` : ""}`;
+      if (ctx.hasUI) ctx.ui.notify(message, assessment.action === "stay" ? "info" : "warning");
+      else console.log(message);
     },
   });
 
