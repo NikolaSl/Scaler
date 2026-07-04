@@ -147,6 +147,31 @@ test("mock integration: validation gate policy blocks misordered dependency chec
   });
 });
 
+test("mock integration: validation environment policy blocks local-ci host execution", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-ENV";
+    state.tasks = [{ id: "T-ENV", status: "validating", title: "Environment task", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+
+    const commands = registeredCommands();
+    await commands.get("scaler-validation-add")?.handler(
+      "T-ENV | ci | node -e \"require('node:fs').writeFileSync('env-should-not-run.txt','ran')\" | Local CI validation | required | local_ci | local CI exits 0 | manifest:ci",
+      { cwd: dir, hasUI: false },
+    );
+
+    await commands.get("scaler-validate")?.handler("T-ENV", { cwd: dir, hasUI: false });
+
+    const runs = await loadValidationRuns(dir);
+    assert.equal(runs[0]?.status, "failed");
+    assert.equal(runs[0]?.policyDiagnostics?.some((diagnostic) => diagnostic.code === "local_ci_requires_environment"), true);
+    assert.equal(runs[0]?.commandRuns[0]?.command, "SCALER validation manifest policy preflight");
+    assert.equal((await loadState(dir)).tasks[0]?.status, "debugging");
+    await assert.rejects(readFile(join(dir, "env-should-not-run.txt"), "utf8"));
+  });
+});
+
 test("mock integration: validation-add gate metadata persists through validation run and audit", async () => {
   await withTempRepo(async (dir) => {
     const commands = registeredCommands();
