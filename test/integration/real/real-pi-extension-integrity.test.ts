@@ -8,7 +8,7 @@ import { readLogEvents } from "../../../src/logging.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { loadStorageInventory, loadStorageMaintenanceReport } from "../../../src/storage.js";
 import { loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest, runToolRequestAgent } from "../../../src/tool-requests.js";
-import { loadValidationChecklists, loadValidationManifests, runTaskValidation, upsertValidationManifestCommand } from "../../../src/validation.js";
+import { loadValidationChecklists, loadValidationManifests, loadValidationRuns, runTaskValidation, saveValidationManifest, upsertValidationManifestCommand } from "../../../src/validation.js";
 import { REAL_PI_ENABLED, REAL_PI_MODEL, runScalerPi, withRealPiTempRepo } from "./real-pi-harness.js";
 
 test("real Pi extension: slash command dispatch writes SCALER command audit logs", { skip: !REAL_PI_ENABLED }, async () => {
@@ -247,6 +247,41 @@ test("real Pi extension: slash command dispatch persists validation checklist", 
       ["start", "end"],
     );
     assert.ok(events.some((event) => event.eventType === "validation" && event.summary === "Validation summary: T-REAL-CHECKLIST passed"));
+  });
+});
+
+test("real Pi extension: slash command dispatch enforces validation gate policy", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-REAL-POLICY";
+    state.tasks = [{ id: "T-REAL-POLICY", status: "validating", title: "Real policy", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+    await saveValidationManifest(dir, {
+      taskId: "T-REAL-POLICY",
+      createdAt: "",
+      updatedAt: "",
+      commands: [
+        { id: "expensive", command: "node -e \"require('node:fs').writeFileSync('real-policy-should-not-run.txt','ran')\"", required: true, gate: "unit_tests" },
+        { id: "deps", command: "node -e \"process.exit(0)\"", required: true, gate: "dependency_check" },
+      ],
+    });
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-validate T-REAL-POLICY",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /policyFailures=1 policyWarnings=1/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const runs = await loadValidationRuns(dir);
+    assert.equal(runs[0]?.status, "failed");
+    assert.deepEqual(runs[0]?.policyDiagnostics?.map((diagnostic) => diagnostic.code), ["missing_test_first", "dependency_check_order"]);
+    assert.equal(runs[0]?.commandRuns[0]?.command, "SCALER validation manifest policy preflight");
+    assert.equal((await loadState(dir)).tasks.find((task) => task.id === "T-REAL-POLICY")?.status, "debugging");
+    await assert.rejects(stat(join(dir, "real-policy-should-not-run.txt")));
   });
 });
 
