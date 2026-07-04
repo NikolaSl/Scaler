@@ -33,6 +33,23 @@ export interface ParsedValidationAddArgs {
   evidenceRefs?: string[];
 }
 
+export interface ParsedValidationChecklistItemArgs {
+  id: string;
+  status: string;
+  statement: string;
+  required?: boolean;
+  evidenceRefs?: string[];
+  notes?: string;
+}
+
+export interface ParsedValidationChecklistArgs {
+  taskId: string;
+  gate?: string;
+  summary?: string;
+  items: ParsedValidationChecklistItemArgs[];
+  evidenceRefs?: string[];
+}
+
 export interface ParsedValidateLoopArgs {
   taskId?: string;
   execute: boolean;
@@ -214,6 +231,22 @@ export function parseValidationAddArgs(args: string | undefined): ParsedValidati
     gate: parts[5]?.trim() || undefined,
     expectedResult: parts[6]?.trim() || undefined,
     evidenceRefs: parseCommaList(parts[7]),
+  };
+}
+
+export function parseValidationChecklistArgs(args: string | undefined): ParsedValidationChecklistArgs | undefined {
+  const parts = splitPipeArgs(args);
+  const taskId = parts[0]?.trim();
+  const itemPart = parts[3]?.trim();
+  if (!taskId || !itemPart) return undefined;
+  const items = parseValidationChecklistItems(itemPart);
+  if (items.length === 0) return undefined;
+  return {
+    taskId,
+    gate: parts[1]?.trim() || undefined,
+    summary: parts[2]?.trim() || undefined,
+    items,
+    evidenceRefs: parseCommaList(parts[4]),
   };
 }
 
@@ -450,6 +483,25 @@ export function parseCommaList(value: string | undefined): string[] | undefined 
 
 function splitPipeArgs(args: string | undefined): string[] {
   return (args ?? "").split("|").map((part) => part.trim());
+}
+
+function parseValidationChecklistItems(value: string): ParsedValidationChecklistItemArgs[] {
+  return value
+    .split(";")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      const parts = item.split("::").map((part) => part.trim());
+      return {
+        id: parts[0] || "item",
+        status: parts[1] || "failed",
+        required: parseOptionalBoolean(parts[2]),
+        statement: parts[3] || parts[0] || "Checklist item",
+        evidenceRefs: parseCommaList(parts[4]),
+        notes: parts[5] || undefined,
+      };
+    })
+    .filter((item) => item.id.length > 0 && item.statement.length > 0);
 }
 
 function parseOptionalBoolean(value: string | undefined): boolean | undefined {

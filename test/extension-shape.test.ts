@@ -81,6 +81,7 @@ test("extension registers scaler commands", () => {
     "scaler-prd-link",
     "scaler-task-retry",
     "scaler-step",
+    "scaler-validation-checklist",
     "scaler-validation-add",
     "scaler-commit",
     "scaler-validate-loop",

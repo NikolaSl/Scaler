@@ -22,6 +22,7 @@ import {
   parseToolReplayArgs,
   parseToolRunArgs,
   parseValidateLoopArgs,
+  parseValidationChecklistArgs,
   parseStageLoopArgs,
   parseStageRecordArgs,
   parseStorageMaintainArgs,
@@ -96,6 +97,20 @@ test("parseBudgetSetArgs parses key and optional numeric limits", () => {
   assert.deepEqual(parseBudgetSetArgs("estimatedCostMicros | - | 5000"), { key: "estimatedCostMicros", soft: undefined, hard: 5000 });
   assert.deepEqual(parseBudgetSetArgs("toolCalls | nope | -1"), { key: "toolCalls", soft: undefined, hard: undefined });
   assert.equal(parseBudgetSetArgs(" "), undefined);
+});
+
+test("parseValidationChecklistArgs parses checklist fields and items", () => {
+  assert.deepEqual(parseValidationChecklistArgs("T-1 | completeness | Check complete | scope::passed::required::Scope covered::evidence-scope;edge::failed::optional::Edge cases documented::evidence-edge | evidence-root"), {
+    taskId: "T-1",
+    gate: "completeness",
+    summary: "Check complete",
+    items: [
+      { id: "scope", status: "passed", required: true, statement: "Scope covered", evidenceRefs: ["evidence-scope"], notes: undefined },
+      { id: "edge", status: "failed", required: false, statement: "Edge cases documented", evidenceRefs: ["evidence-edge"], notes: undefined },
+    ],
+    evidenceRefs: ["evidence-root"],
+  });
+  assert.equal(parseValidationChecklistArgs("T-1 | completeness | missing items"), undefined);
 });
 
 test("parseValidateLoopArgs parses optional task, execute flag, and max option", () => {

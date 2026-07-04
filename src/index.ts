@@ -27,6 +27,7 @@ import {
   parseToolRunArgs,
   parseValidateLoopArgs,
   parseValidationAddArgs,
+  parseValidationChecklistArgs,
   resolveCommitAllowedPaths,
   selectTaskForCommit,
 } from "./commands.js";
@@ -76,7 +77,7 @@ import {
 import { formatStorageInventory, formatStorageMaintenanceReport, runStorageMaintenance, saveStorageInventory, scanScalerStorageInventory } from "./storage.js";
 import { formatKnownToolCatalog, formatToolSchemaDiscoveryRuns, formatToolTransactions, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, replayToolTransaction, runToolRequestAgent, runToolSchemaDiscoveryAgent } from "./tool-requests.js";
 import { registerScalerTools } from "./tools.js";
-import { upsertValidationManifestCommand } from "./validation.js";
+import { formatValidationChecklist, recordValidationChecklist, upsertValidationManifestCommand } from "./validation.js";
 import { runValidationDebugLoopWorkflow, selectTaskForValidationDebugLoop } from "./validation-debug-loop.js";
 import { formatWorkflowSummary, summarizeWorkflow } from "./workflow.js";
 
@@ -870,6 +871,30 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       } else {
         console.log(message);
       }
+    },
+  });
+
+  pi.registerCommand("scaler-validation-checklist", {
+    description: "Record a deterministic non-software validation checklist: /scaler-validation-checklist <taskId> | <gate> | <summary> | <id::status::required::statement::evidence;...> | <evidence refs>",
+    handler: async (args, ctx) => {
+      const parsed = parseValidationChecklistArgs(args);
+      if (!parsed) {
+        const message = "Usage: /scaler-validation-checklist <taskId> | <gate> | <summary> | <id::status::required::statement::evidence;...> | <evidence refs>";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+      const state = await ensureState(ctx.cwd);
+      const result = await recordValidationChecklist(ctx.cwd, state, {
+        taskId: parsed.taskId,
+        gate: parsed.gate,
+        summary: parsed.summary,
+        items: parsed.items,
+        evidenceRefs: parsed.evidenceRefs,
+      });
+      const message = `${formatValidationChecklist(result.record)}\n${result.applyResult.message}`;
+      if (ctx.hasUI) ctx.ui.notify(message, result.applyResult.accepted ? "info" : "warning");
+      else console.log(message);
     },
   });
 
