@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { getBudgetState } from "../../../src/budgets.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { createDefaultState, loadState } from "../../../src/state.js";
-import { loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolTransactions, prepareToolRequest, recordToolResult, recordToolSchema, replayToolTransaction, runToolRequestAgent, runToolSchemaDiscoveryAgent } from "../../../src/tool-requests.js";
+import { loadToolIterationRuns, loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolTransactions, prepareToolRequest, recordToolResult, recordToolSchema, replayToolTransaction, runToolIterationWorkflow, runToolRequestAgent, runToolSchemaDiscoveryAgent } from "../../../src/tool-requests.js";
 import { registerScalerTools } from "../../../src/tools.js";
 
 const execFileAsync = promisify(execFile);
@@ -137,6 +137,69 @@ test("mock integration: tool transaction execution requires structured scaler_to
     const events = await readLogEvents(dir);
     assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("Tool transaction missing structured result")));
     assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("Tool transaction replay completed")));
+  });
+});
+
+test("mock integration: tool iteration workflow corrects missing structured result with replay", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await recordToolSchema(dir, state, {
+      toolName: "mcp_docs_search",
+      source: "mcp://docs/schema",
+      description: "Search project docs with a query argument.",
+      riskLevel: "low",
+      docsRef: "docs:mcp-search",
+      schemaRef: "schema:mcp-search-v1",
+      notes: "args: { query: string }",
+    });
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "mcp_docs_search",
+      request: "Find the widget lifecycle API.",
+      taskId: "T-TOOL-ITERATE",
+      expectedOutput: "Widget lifecycle API names and source refs.",
+      requiredFormat: "JSON with fields apiNames and refs",
+      riskLevel: "low",
+      allowedTools: ["read"],
+    });
+    assert.ok(prepared.record);
+    let calls = 0;
+
+    const result = await runToolIterationWorkflow(dir, state, { requestId: prepared.record.id, execute: true, maxIterations: 3 }, async (request) => {
+      calls += 1;
+      assert.match(request.prompt, /scaler_tool_result/);
+      assert.match(request.prompt, /schemaRef=mcp-search-v1|schema:mcp-search-v1/);
+      if (calls === 2) {
+        await recordToolResult(dir, state, {
+          requestId: prepared.record!.id,
+          status: "completed",
+          summary: "Widget lifecycle API located after replay.",
+          outputs: { apiNames: ["Widget.create", "Widget.destroy"], refs: ["docs:widget-lifecycle"] },
+          evidenceRefs: ["docs:widget-lifecycle"],
+          validationPerformed: ["checked requested requiredFormat"],
+        });
+      }
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: calls === 1 ? [{ type: "unparsed", text: "Free-form answer only." }] : [],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.run?.status, "completed");
+    assert.deepEqual(result.run?.steps.map((step) => step.action), ["run", "replay"]);
+    assert.deepEqual(result.run?.steps.map((step) => step.transactionStatus), ["missing_result", "completed"]);
+    assert.equal((await loadToolIterationRuns(dir))[0]?.status, "completed");
+    assert.equal((await loadToolRequests(dir))[0]?.status, "completed");
+    const transactions = await loadToolTransactions(dir);
+    assert.equal(transactions.length, 2);
+    assert.equal(transactions[0]?.status, "completed");
+    assert.equal(transactions[1]?.status, "missing_result");
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("Tool iteration completed")));
   });
 });
 

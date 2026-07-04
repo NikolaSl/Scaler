@@ -9,9 +9,13 @@ import {
   buildToolSchemaDiscoveryPrompt,
   formatDiscoveredToolCatalog,
   formatToolCatalog,
+  formatToolIterationPolicy,
+  formatToolIterationRuns,
   formatToolSchemaDiscoveryRuns,
   formatToolTransactions,
   getToolCatalogEntries,
+  loadToolIterationPolicy,
+  loadToolIterationRuns,
   loadToolRequests,
   loadToolResults,
   loadToolSchemaDiscoveryRuns,
@@ -22,8 +26,10 @@ import {
   recordToolResult,
   recordToolSchema,
   replayToolTransaction,
+  runToolIterationWorkflow,
   runToolRequestAgent,
   runToolSchemaDiscoveryAgent,
+  saveToolIterationPolicy,
 } from "../src/tool-requests.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -408,6 +414,97 @@ test("replayToolTransaction treats replay prose without result as missing_result
 
     assert.equal(replay.accepted, false);
     assert.equal(replay.transaction?.status, "missing_result");
+    assert.equal((await loadToolRequests(dir))[0]?.status, "prepared");
+  });
+});
+
+test("tool iteration policy persists bounded replay controls", async () => {
+  await withTempDir(async (dir) => {
+    assert.match(formatToolIterationPolicy(await loadToolIterationPolicy(dir)), /maxIterations=3 autoReplay=true/);
+
+    const saved = await saveToolIterationPolicy(dir, { maxIterations: 12, autoReplay: false }, new Date("2026-01-01T00:00:00.000Z"));
+
+    assert.equal(saved.maxIterations, 10);
+    assert.equal(saved.autoReplay, false);
+    assert.equal((await loadToolIterationPolicy(dir)).maxIterations, 10);
+    assert.match(formatToolIterationPolicy(saved), /updatedAt=2026-01-01T00:00:00.000Z/);
+  });
+});
+
+test("runToolIterationWorkflow prepares a bounded iteration run", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
+    assert.ok(prepared.record);
+
+    const result = await runToolIterationWorkflow(dir, state, { requestId: prepared.record.id, maxIterations: 2 });
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.run?.status, "prepared");
+    assert.equal(result.run?.steps.length, 1);
+    assert.equal(result.run?.maxIterations, 2);
+    assert.equal((await loadToolIterationRuns(dir))[0]?.id, result.run?.id);
+    assert.match(formatToolIterationRuns(await loadToolIterationRuns(dir)), /status=prepared/);
+  });
+});
+
+test("runToolIterationWorkflow replays missing structured results until closure", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
+    assert.ok(prepared.record);
+    let calls = 0;
+
+    const result = await runToolIterationWorkflow(dir, state, { requestId: prepared.record.id, execute: true, maxIterations: 3 }, async (request) => {
+      calls += 1;
+      if (calls === 2) {
+        await recordToolResult(dir, state, {
+          requestId: prepared.record!.id,
+          status: "completed",
+          summary: "Found docs after replay.",
+          outputs: { refs: ["docs:widget"] },
+          validationPerformed: ["checked replay output"],
+        });
+      }
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: calls === 1 ? [{ type: "unparsed", text: "prose only" }] : [],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.run?.status, "completed");
+    assert.equal(result.run?.steps.length, 2);
+    assert.deepEqual(result.run?.steps.map((step) => step.action), ["run", "replay"]);
+    assert.deepEqual(result.run?.steps.map((step) => step.transactionStatus), ["missing_result", "completed"]);
+    assert.equal((await loadToolRequests(dir))[0]?.status, "completed");
+    assert.equal((await loadToolTransactions(dir)).length, 2);
+  });
+});
+
+test("runToolIterationWorkflow records exhaustion after capped missing results", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
+    assert.ok(prepared.record);
+
+    const result = await runToolIterationWorkflow(dir, state, { requestId: prepared.record.id, execute: true, maxIterations: 2 }, async (request) => ({
+      taskId: request.taskId,
+      exitCode: 0,
+      stdoutEvents: [{ type: "unparsed", text: "still prose" }],
+      stderr: "",
+      timedOut: false,
+      aborted: false,
+    }));
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.run?.status, "exhausted");
+    assert.equal(result.run?.steps.length, 2);
+    assert.deepEqual(result.run?.steps.map((step) => step.action), ["run", "replay"]);
     assert.equal((await loadToolRequests(dir))[0]?.status, "prepared");
   });
 });

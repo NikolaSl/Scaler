@@ -25,6 +25,8 @@ import {
   parseTaskRetryArgs,
   parseToolCatalogArgs,
   parseToolDiscoverArgs,
+  parseToolIterateArgs,
+  parseToolIterationPolicyArgs,
   parseToolReplayArgs,
   parseToolRunArgs,
   parseValidateLoopArgs,
@@ -287,6 +289,18 @@ test("parseToolReplayArgs parses optional transaction and execute flag", () => {
   assert.deepEqual(parseToolReplayArgs("TXN-1 execute"), { transactionId: "TXN-1", execute: true });
   assert.deepEqual(parseToolReplayArgs("execute"), { transactionId: undefined, execute: true });
   assert.deepEqual(parseToolReplayArgs(" "), { transactionId: undefined, execute: false });
+});
+
+test("parseToolIterateArgs parses optional request, execute flag, and max cap", () => {
+  assert.deepEqual(parseToolIterateArgs("REQ-1 execute max=4"), { requestId: "REQ-1", execute: true, maxIterations: 4 });
+  assert.deepEqual(parseToolIterateArgs("execute max=2"), { requestId: undefined, execute: true, maxIterations: 2 });
+  assert.deepEqual(parseToolIterateArgs("REQ-2"), { requestId: "REQ-2", execute: false, maxIterations: undefined });
+});
+
+test("parseToolIterationPolicyArgs parses max and auto-replay options", () => {
+  assert.deepEqual(parseToolIterationPolicyArgs("max=5 auto-replay=off"), { maxIterations: 5, autoReplay: false });
+  assert.deepEqual(parseToolIterationPolicyArgs("auto-replay=on"), { maxIterations: undefined, autoReplay: true });
+  assert.deepEqual(parseToolIterationPolicyArgs(" "), { maxIterations: undefined, autoReplay: undefined });
 });
 
 test("parseToolCatalogArgs parses optional tool name", () => {

@@ -11,7 +11,7 @@ import { loadResearchWebTransactions } from "../../../src/research-web.js";
 import { loadSafetyApprovals, loadSafetyPolicy } from "../../../src/safety.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { loadStorageInventory, loadStorageMaintenanceReport, loadStorageMaintenanceSchedule } from "../../../src/storage.js";
-import { loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest, recordToolSchema, runToolRequestAgent } from "../../../src/tool-requests.js";
+import { loadToolIterationPolicy, loadToolIterationRuns, loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest, recordToolSchema, runToolRequestAgent } from "../../../src/tool-requests.js";
 import { loadValidationEnvironmentRecords } from "../../../src/validation-environments.js";
 import { loadValidationChecklists, loadValidationManifests, loadValidationRuns, runTaskValidation, saveValidationManifest, upsertValidationManifestCommand } from "../../../src/validation.js";
 import { REAL_PI_ENABLED, REAL_PI_MODEL, runScalerPi, withRealPiTempRepo } from "./real-pi-harness.js";
@@ -747,6 +747,68 @@ test("real Pi extension: slash command dispatch prepares tool transaction replay
       ["start", "end"],
     );
     assert.ok(events.some((event) => event.eventType === "tool" && event.summary === `Tool transaction replay prepared: ${original.transaction?.id}`));
+  });
+});
+
+test("real Pi extension: slash command dispatch persists tool iteration policy", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-tool-iteration-policy max=4 auto-replay=off",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Tool iteration policy: maxIterations=4 autoReplay=false/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const policy = await loadToolIterationPolicy(dir);
+    assert.equal(policy.maxIterations, 4);
+    assert.equal(policy.autoReplay, false);
+
+    const events = await readLogEvents(dir);
+    assert.deepEqual(
+      events
+        .filter((event) => event.eventType === "command" && isRecord(event.details) && event.details.command === "scaler-tool-iteration-policy")
+        .map((event) => (event.details as { phase: string }).phase),
+      ["start", "end"],
+    );
+  });
+});
+
+test("real Pi extension: slash command dispatch prepares tool iteration workflow", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "docs_search",
+      request: "Find widget lifecycle docs.",
+      taskId: "REAL-TOOL-ITERATE",
+      allowedTools: ["read"],
+    });
+    assert.ok(prepared.record, "expected seeded tool request");
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: `/scaler-tool-iterate ${prepared.record.id} max=2`,
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Tool iteration prepared:/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const run = (await loadToolIterationRuns(dir))[0];
+    assert.equal(run?.requestId, prepared.record.id);
+    assert.equal(run?.status, "prepared");
+    assert.equal(run?.maxIterations, 2);
+    assert.equal(run?.steps[0]?.action, "run");
+    assert.equal(run?.steps[0]?.transactionStatus, "prepared");
+
+    const events = await readLogEvents(dir);
+    assert.deepEqual(
+      events
+        .filter((event) => event.eventType === "command" && isRecord(event.details) && event.details.command === "scaler-tool-iterate")
+        .map((event) => (event.details as { phase: string }).phase),
+      ["start", "end"],
+    );
   });
 });
 
