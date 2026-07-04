@@ -264,7 +264,7 @@ async function resolveManifestItemContent(
 ): Promise<string> {
   if (entry.source === "inline") return entry.content ?? "";
   if (entry.source === "file") return await readFile(resolveContextPath(cwd, entry.path!), "utf8");
-  if (entry.source === "memory") return (await retrieveMemory(cwd, entry.memoryId!)).content;
+  if (entry.source === "memory") return (await retrieveMemory(cwd, entry.memoryId!, { scope: entry.scope })).content;
   if (entry.source === "state") return formatStateContext(state);
   if (entry.source === "task") return formatTaskContext(state, entry.taskId ?? manifest.taskId);
   if (entry.source === "prd_refs") return formatPrdRefsContext(state, entry.taskId ?? manifest.taskId);
@@ -490,7 +490,7 @@ function buildTaskSearchTerms(task: ScalerTaskState): string[] {
 }
 
 function scoreMemoryEntry(entry: MemoryEntry, task: ScalerTaskState, terms: string[]): number {
-  const haystack = [entry.id, entry.title, entry.summary, entry.source, entry.path, entry.taskId].filter(Boolean).join(" ").toLowerCase();
+  const haystack = [entry.id, entry.title, entry.summary, entry.source, entry.path, entry.taskId, ...(entry.tags ?? [])].filter(Boolean).join(" ").toLowerCase();
   let score = entry.taskId === task.id ? 5 : 0;
   for (const term of terms) {
     if (haystack.includes(term)) score += 1;

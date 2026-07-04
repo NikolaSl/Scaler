@@ -67,6 +67,15 @@ export interface ParsedBudgetSetArgs {
   hard?: number;
 }
 
+export interface ParsedMemorySearchArgs {
+  query?: string;
+  tags?: string[];
+  taskId?: string;
+  validity?: string;
+  includeObsolete?: boolean;
+  limit?: number;
+}
+
 export interface ParsedStorageMaintainArgs {
   execute: boolean;
   compress: boolean;
@@ -387,6 +396,36 @@ export function parseBudgetSetArgs(args: string | undefined): ParsedBudgetSetArg
     soft: parseOptionalNumber(parts[1]),
     hard: parseOptionalNumber(parts[2]),
   };
+}
+
+export function parseMemorySearchArgs(args: string | undefined): ParsedMemorySearchArgs {
+  const tokens = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  const query: string[] = [];
+  let tags: string[] | undefined;
+  let taskId: string | undefined;
+  let validity: string | undefined;
+  let includeObsolete = false;
+  let limit: number | undefined;
+
+  for (const token of tokens) {
+    const lower = token.toLowerCase();
+    if (lower === "include-obsolete" || lower === "obsolete=on") {
+      includeObsolete = true;
+    } else if (lower.startsWith("tag=") || lower.startsWith("tags=")) {
+      tags = parseCommaList(token.split("=").slice(1).join("="));
+    } else if (lower.startsWith("task=") || lower.startsWith("taskid=")) {
+      taskId = token.split("=").slice(1).join("=").trim() || undefined;
+    } else if (lower.startsWith("validity=")) {
+      validity = token.split("=").slice(1).join("=").trim() || undefined;
+    } else if (lower.startsWith("limit=")) {
+      const parsed = Number(token.split("=").slice(1).join("="));
+      limit = Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+    } else {
+      query.push(token);
+    }
+  }
+
+  return { query: query.join(" ") || undefined, tags, taskId, validity, includeObsolete, limit };
 }
 
 export function parseStorageMaintainArgs(args: string | undefined): ParsedStorageMaintainArgs {

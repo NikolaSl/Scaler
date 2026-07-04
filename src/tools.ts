@@ -4,7 +4,7 @@ import { incrementBudgetUsage, persistBudgetDecision, recordStorageBudgetUsage, 
 import { recordDebugAttempt } from "./debug.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { logToolAudit } from "./logging.js";
-import { retrieveMemory, writeMemory } from "./memory.js";
+import { formatMemorySearchResults, retrieveMemory, searchMemory, writeMemory, type MemoryValidity } from "./memory.js";
 import { recordProviderUsageBudget } from "./provider-usage.js";
 import {
   createPrdVersionSnapshot,
@@ -28,6 +28,7 @@ export const scalerToolNames = [
   "scaler_report",
   "scaler_memory_write",
   "scaler_memory_retrieve",
+  "scaler_memory_search",
   "scaler_research_report",
   "scaler_task_report",
   "scaler_spawn_task",
@@ -59,12 +60,23 @@ const MemoryWriteParams = Type.Object({
   title: Type.String({ description: "Memory title." }),
   content: Type.String({ description: "Memory content to store later." }),
   taskId: Type.Optional(Type.String()),
+  tags: Type.Optional(Type.Array(Type.String(), { description: "Searchable memory tags." })),
+  summary: Type.Optional(Type.String({ description: "Short summary/reference to keep in active context." })),
 });
 
 const MemoryRetrieveParams = Type.Object({
   memoryIdOrPath: Type.String({ description: "Memory id or path to retrieve later." }),
   reason: Type.String({ description: "Why this memory is needed." }),
-  scope: Type.Optional(Type.String({ description: "Requested section/scope." })),
+  scope: Type.Optional(Type.String({ description: "Requested section/scope: summary, full, or section:<heading>." })),
+});
+
+const MemorySearchParams = Type.Object({
+  query: Type.Optional(Type.String({ description: "Search words to match against memory id/title/summary/source/path/tags." })),
+  tags: Type.Optional(Type.Array(Type.String(), { description: "All tags that must be present." })),
+  taskId: Type.Optional(Type.String({ description: "Task id filter." })),
+  validity: Type.Optional(Type.String({ description: "active, stale, obsolete, unknown, or any." })),
+  includeObsolete: Type.Optional(Type.Boolean({ description: "Include obsolete memories in candidates." })),
+  limit: Type.Optional(Type.Number({ description: "Maximum candidates to return." })),
 });
 
 const TaskAgentReportParams = Type.Object({
@@ -303,6 +315,8 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         title: params.title,
         content: params.content,
         taskId: params.taskId,
+        tags: params.tags,
+        summary: params.summary,
       });
       await recordCurrentStorageUsage(ctx.cwd);
       await logTool(ctx.cwd, "scaler_memory_write", `Memory written: ${entry.id}`, { params, entry });
@@ -316,9 +330,30 @@ export function registerScalerTools(pi: ExtensionAPI): void {
     description: "Retrieve external memory content by id/path and log the operation.",
     parameters: MemoryRetrieveParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const memory = await retrieveMemory(ctx.cwd, params.memoryIdOrPath);
+      const memory = await retrieveMemory(ctx.cwd, params.memoryIdOrPath, { scope: params.scope });
       await logTool(ctx.cwd, "scaler_memory_retrieve", `Memory retrieved: ${memory.entry.id}`, { params, entry: memory.entry });
       return textResult(memory.content, { status: "retrieved", entry: memory.entry, reason: params.reason, scope: params.scope });
+    },
+  });
+
+  pi.registerTool({
+    name: "scaler_memory_search",
+    label: "Scaler Memory Search",
+    description: "Search external memory candidates by query/tag/task/validity and return summaries only.",
+    parameters: MemorySearchParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const validity = normalizeMemoryValidityFilter(params.validity);
+      const results = await searchMemory(ctx.cwd, {
+        query: params.query,
+        tags: params.tags,
+        taskId: params.taskId,
+        validity,
+        includeObsolete: params.includeObsolete,
+        limit: params.limit,
+      });
+      const message = formatMemorySearchResults(results, { query: params.query, tags: params.tags, taskId: params.taskId, validity });
+      await logTool(ctx.cwd, "scaler_memory_search", `Memory search results: ${results.length}`, { params, results: results.map((result) => ({ entry: result.entry, score: result.score, matched: result.matched })) });
+      return textResult(message, { status: "searched", results });
     },
   });
 
@@ -708,6 +743,13 @@ async function recordCurrentStorageUsage(cwd: string): Promise<ScalerState> {
   const state = await ensureState(cwd);
   const { state: budgetedState, decision } = await recordStorageBudgetUsage(cwd, state);
   return await persistBudgetDecision(cwd, budgetedState, decision);
+}
+
+function normalizeMemoryValidityFilter(value: string | undefined): MemoryValidity | "any" | undefined {
+  if (!value) return undefined;
+  const normalized = value.toLowerCase();
+  if (["active", "stale", "obsolete", "unknown", "any"].includes(normalized)) return normalized as MemoryValidity | "any";
+  return undefined;
 }
 
 function textResult(text: string, details: unknown) {

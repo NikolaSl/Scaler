@@ -10,6 +10,7 @@ import {
   parseDebugRetryApprovalArgs,
   parseDebugRetryArgs,
   parseDebugRetryPolicyArgs,
+  parseMemorySearchArgs,
   parsePrdLinkArgs,
   parseReplanRequestArgs,
   parseReplanRunArgs,
@@ -52,7 +53,7 @@ import { approveDebugRetry, formatDebugRetryApprovals, formatDebugRetryPolicy, f
 import { formatCommitReports, loadCommitReports } from "./git.js";
 import { clearExecutionLock, formatExecutionLock, loadExecutionLock } from "./locks.js";
 import { createLogEvent, appendLogEvent, logCommandAudit, logStateEvent, logToolAudit } from "./logging.js";
-import { loadMemoryIndex } from "./memory.js";
+import { formatMemorySearchResults, loadMemoryIndex, searchMemory, type MemoryValidity } from "./memory.js";
 import { commitWithExecutionLock, runValidationWithExecutionLock } from "./operations.js";
 import { getEventLogPath } from "./paths.js";
 import { formatValidationEnvironmentRecords, loadValidationEnvironmentRecords } from "./validation-environments.js";
@@ -342,6 +343,25 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const manifest = taskId ? await loadTaskContextManifest(ctx.cwd, taskId) : undefined;
       const message = manifest ? formatTaskContextManifest(manifest) : `No context manifest${taskId ? ` for ${taskId}` : ""}.`;
       if (ctx.hasUI) ctx.ui.notify(message, manifest ? "info" : "warning");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-memory-search", {
+    description: "Search external memory candidates by query/tag/task/validity without loading full files.",
+    handler: async (args, ctx) => {
+      const parsed = parseMemorySearchArgs(args);
+      const validity = normalizeMemoryValidityFilter(parsed.validity);
+      const results = await searchMemory(ctx.cwd, {
+        query: parsed.query,
+        tags: parsed.tags,
+        taskId: parsed.taskId,
+        validity,
+        includeObsolete: parsed.includeObsolete,
+        limit: parsed.limit,
+      });
+      const message = formatMemorySearchResults(results, { query: parsed.query, tags: parsed.tags, taskId: parsed.taskId, validity });
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
     },
   });
@@ -1631,4 +1651,11 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       }
     },
   });
+}
+
+function normalizeMemoryValidityFilter(value: string | undefined): MemoryValidity | "any" | undefined {
+  if (!value) return undefined;
+  const normalized = value.toLowerCase();
+  if (["active", "stale", "obsolete", "unknown", "any"].includes(normalized)) return normalized as MemoryValidity | "any";
+  return undefined;
 }
