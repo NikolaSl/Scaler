@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
 import { writeCheckpoint } from "./checkpoints.js";
-import { assessCompression, formatCompressionGuidance } from "./compression.js";
+import { assessCompression, formatCompressionGuidance, type CompressionAssessment } from "./compression.js";
 import { assessDebugRetryGate } from "./debug.js";
 import {
   ensureTaskContextManifest,
@@ -11,6 +11,7 @@ import {
   type ContextItem,
   type ResolvedContext,
 } from "./context.js";
+import { recordContextSplitIfNeeded, type ContextSplitRecord } from "./context-splits.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { appendLogEvent, createLogEvent, logAgentPromptAudit } from "./logging.js";
 import { getTaskAgentRunsPath, getValidationHandoffsPath } from "./paths.js";
@@ -93,6 +94,7 @@ export interface ConductorStepResult {
   runResult?: TaskAgentRunResult;
   checkpointPath?: string;
   validationHandoff?: ValidationHandoffRecord;
+  contextSplit?: ContextSplitRecord;
 }
 
 export type TaskAgentRunner = typeof runTaskAgent;
@@ -107,6 +109,7 @@ export interface TaskPromptInput {
 export interface TaskPromptResult {
   prompt: string;
   resolvedContext: ResolvedContext;
+  compressionAssessment: CompressionAssessment;
 }
 
 export function selectNextTask(state: ScalerState): NextTaskSelection {
@@ -189,12 +192,13 @@ export async function runConductorStep(
   const runningTask = nextState.tasks.find((task) => task.id === selection.task!.id)!;
   const contextManifest = options.contextItems ? undefined : await ensureTaskContextManifest(cwd, nextState, runningTask.id);
   const contextItems = options.contextItems ?? (await resolveTaskContextManifest(cwd, nextState, contextManifest!));
-  const { prompt, resolvedContext } = buildTaskAgentPrompt({
+  const { prompt, resolvedContext, compressionAssessment } = buildTaskAgentPrompt({
     state: nextState,
     task: runningTask,
     contextItems,
     tokenBudget: options.tokenBudget ?? contextManifest?.tokenBudget,
   });
+  const contextSplit = await recordContextSplitIfNeeded(cwd, nextState, runningTask.id, resolvedContext, compressionAssessment);
   const budgetUpdates = [
     { key: "contextTokens" as const, amount: resolvedContext.estimatedTokens, mode: "set" as const },
     ...(options.execute ? [{ key: "spawnedAgents" as const, amount: 1, mode: "increment" as const }] : []),
@@ -208,6 +212,7 @@ export async function runConductorStep(
       state: nextState,
       task: runningTask,
       prompt,
+      contextSplit,
     };
   }
   await logAgentPromptAudit(cwd, nextState, {
@@ -248,7 +253,7 @@ export async function runConductorStep(
       eventType: "agent",
       summary: `${options.execute ? "Executed" : "Prepared"} conductor task step: ${runningTask.id}`,
       taskId: runningTask.id,
-      details: { selection, invocation, runResult, taskAgentRunRecord: runRecord, taskAgentReportIngestion: reportIngestion, validationHandoff: handoff?.record },
+      details: { selection, invocation, runResult, taskAgentRunRecord: runRecord, taskAgentReportIngestion: reportIngestion, validationHandoff: handoff?.record, contextSplit },
     }),
   );
   const checkpoint = await writeCheckpoint(cwd, finalState, `conductor-step-${runningTask.id}`, selection.reason);
@@ -263,6 +268,7 @@ export async function runConductorStep(
       runResult,
       checkpointPath: checkpoint.path,
       validationHandoff: handoff?.record,
+      contextSplit,
     };
   } finally {
     await releaseExecutionLock(cwd, lock.lock.id);
@@ -454,11 +460,12 @@ export function buildTaskAgentPrompt(input: TaskPromptInput): TaskPromptResult {
     tokenBudget: input.tokenBudget,
   });
 
-  const compressionGuidance = formatCompressionGuidance(assessCompression({
+  const compressionAssessment = assessCompression({
     items: resolvedContext.included,
     estimatedTokens: resolvedContext.estimatedTokens,
     contextWindowTokens: input.tokenBudget,
-  }));
+  });
+  const compressionGuidance = formatCompressionGuidance(compressionAssessment);
 
   const prompt = [
     "# SCALER Task Agent Request",
@@ -492,7 +499,7 @@ export function buildTaskAgentPrompt(input: TaskPromptInput): TaskPromptResult {
     resolvedContext.text,
   ].join("\n");
 
-  return { prompt, resolvedContext };
+  return { prompt, resolvedContext, compressionAssessment };
 }
 
 async function writeTaskAgentRuns(cwd: string, runs: TaskAgentRunRecord[]): Promise<void> {

@@ -122,6 +122,10 @@ export function getTaskContextManifestPath(cwd: string, taskId: string): string 
   return join(getTaskContextDir(cwd), `${taskId}.json`);
 }
 
+export function getContextSplitsPath(cwd: string): string {
+  return join(getContextDir(cwd), "splits.json");
+}
+
 export function getToolRequestsDir(cwd: string): string {
   return join(getScalerDir(cwd), "tool-requests");
 }

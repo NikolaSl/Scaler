@@ -45,6 +45,7 @@ import {
 } from "./commands.js";
 import { pauseScalerRun, resumeScalerRun } from "./checkpoints.js";
 import { ensureTaskContextManifest, formatTaskContextManifest, loadTaskContextManifest } from "./context.js";
+import { formatContextSplitRecords, loadContextSplitRecords } from "./context-splits.js";
 import { formatTaskAgentRunList, loadTaskAgentRunRecords, runConductorStep } from "./conductor.js";
 import { loadDebugAttempts, loadDebugFailures, loadDebugReports, loadDebugRetries, formatDebugReportSummary } from "./debug.js";
 import { formatDebugAgentRunList, loadDebugAgentRunRecords, runDebugAgentStep } from "./debug-agent.js";
@@ -345,6 +346,16 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const manifest = taskId ? await loadTaskContextManifest(ctx.cwd, taskId) : undefined;
       const message = manifest ? formatTaskContextManifest(manifest) : `No context manifest${taskId ? ` for ${taskId}` : ""}.`;
       if (ctx.hasUI) ctx.ui.notify(message, manifest ? "info" : "warning");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-context-splits", {
+    description: "List automatic context split artifacts: /scaler-context-splits [taskId]",
+    handler: async (args, ctx) => {
+      const taskId = args?.trim() || undefined;
+      const message = formatContextSplitRecords(await loadContextSplitRecords(ctx.cwd), taskId);
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
     },
   });
