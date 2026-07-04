@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { appendLogEvent, createLogEvent } from "./logging.js";
-import { getToolRequestsIndexPath, getToolResultsPath, getToolTransactionsPath } from "./paths.js";
+import { getToolCatalogPath, getToolRequestsIndexPath, getToolResultsPath, getToolTransactionsPath } from "./paths.js";
 import { buildTaskAgentInvocation, runTaskAgent, type RunTaskAgentOptions, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import type { ScalerState } from "./types.js";
 
@@ -14,6 +14,24 @@ export interface ToolCatalogEntry {
   riskLevel: ToolRiskLevel;
   docsAvailable: boolean;
   schemaAvailable: boolean;
+  source?: string;
+  docsRef?: string;
+  schemaRef?: string;
+  notes?: string;
+}
+
+export interface ToolSchemaInput {
+  toolName: string;
+  source: string;
+  description?: string;
+  riskLevel?: ToolRiskLevel | string;
+  permissionRequirement?: string;
+  safetyNotes?: string;
+  docsRef?: string;
+  schemaRef?: string;
+  notes?: string;
+  evidenceRefs?: string[];
+  discoveredByAgentId?: string;
 }
 
 export interface ToolRequestInput {
@@ -50,6 +68,23 @@ export interface ToolRequestRecord {
   status: ToolRequestStatus;
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface ToolSchemaRecord {
+  id: string;
+  toolName: string;
+  source: string;
+  description?: string;
+  riskLevel: ToolRiskLevel;
+  permissionRequirement?: string;
+  safetyNotes?: string;
+  docsRef?: string;
+  schemaRef?: string;
+  notes?: string;
+  evidenceRefs?: string[];
+  discoveredByAgentId?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ToolResultInput {
@@ -136,6 +171,11 @@ interface ToolTransactionIndex {
   transactions: ToolTransactionRecord[];
 }
 
+interface ToolSchemaIndex {
+  version: 1;
+  records: ToolSchemaRecord[];
+}
+
 const toolRiskLevels = new Set<ToolRiskLevel>(["low", "medium", "high", "destructive", "external", "secret", "unknown"]);
 const toolResultStatuses = new Set<ToolResultStatus>(["completed", "failed", "blocked"]);
 
@@ -160,15 +200,31 @@ export function getDefaultToolCatalog(): ToolCatalogEntry[] {
   return defaultToolCatalog.map((entry) => ({ ...entry }));
 }
 
-export function getToolCatalogEntries(toolNames: string[]): ToolCatalogEntry[] {
+export function getToolCatalogEntries(toolNames: string[], discoveredRecords: ToolSchemaRecord[] = []): ToolCatalogEntry[] {
   const catalog = getDefaultToolCatalog();
   const requested = uniqueNonEmpty(toolNames);
-  return requested.map((name) => catalog.find((entry) => entry.name === name) ?? {
-    name,
-    description: "Requested tool/MCP; full docs/schema may be inspected by the isolated tool agent if available.",
-    riskLevel: "unknown",
-    docsAvailable: false,
-    schemaAvailable: false,
+  const latestDiscovered = latestToolSchemaRecords(discoveredRecords);
+  return requested.map((name) => {
+    const discovered = latestDiscovered.get(name);
+    const base = catalog.find((entry) => entry.name === name) ?? {
+      name,
+      description: "Requested tool/MCP; full docs/schema may be inspected by the isolated tool agent if available.",
+      riskLevel: "unknown" as ToolRiskLevel,
+      docsAvailable: false,
+      schemaAvailable: false,
+    };
+    if (!discovered) return { ...base };
+    return {
+      ...base,
+      description: discovered.description ?? base.description,
+      riskLevel: discovered.riskLevel === "unknown" ? base.riskLevel : discovered.riskLevel,
+      docsAvailable: base.docsAvailable || Boolean(discovered.docsRef),
+      schemaAvailable: base.schemaAvailable || Boolean(discovered.schemaRef),
+      source: discovered.source,
+      docsRef: discovered.docsRef,
+      schemaRef: discovered.schemaRef,
+      notes: discovered.notes,
+    };
   });
 }
 
@@ -176,7 +232,11 @@ export function formatToolCatalog(entries: ToolCatalogEntry[]): string {
   if (entries.length === 0) return "Tool catalog: none";
   return [
     "Tool catalog:",
-    ...entries.map((entry) => `- ${entry.name}: ${entry.description} risk=${entry.riskLevel} docs=${entry.docsAvailable ? "yes" : "no"} schema=${entry.schemaAvailable ? "yes" : "no"}`),
+    ...entries.map((entry) => {
+      const refs = [entry.source ? `source=${entry.source}` : undefined, entry.docsRef ? `docsRef=${entry.docsRef}` : undefined, entry.schemaRef ? `schemaRef=${entry.schemaRef}` : undefined].filter(Boolean).join(" ");
+      const notes = entry.notes ? ` notes=${entry.notes}` : "";
+      return `- ${entry.name}: ${entry.description} risk=${entry.riskLevel} docs=${entry.docsAvailable ? "yes" : "no"} schema=${entry.schemaAvailable ? "yes" : "no"}${refs ? ` ${refs}` : ""}${notes}`;
+    }),
   ].join("\n");
 }
 
@@ -210,6 +270,54 @@ export async function loadToolTransactions(cwd: string): Promise<ToolTransaction
   }
 }
 
+export async function loadToolSchemaRecords(cwd: string): Promise<ToolSchemaRecord[]> {
+  try {
+    const raw = await readFile(getToolCatalogPath(cwd), "utf8");
+    return (JSON.parse(raw) as ToolSchemaIndex).records;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+export async function recordToolSchema(cwd: string, state: ScalerState, input: ToolSchemaInput, now = new Date()): Promise<ToolSchemaRecord> {
+  const toolName = input.toolName.trim();
+  const source = input.source.trim();
+  if (!toolName) throw new Error("Tool schema rejected: toolName is required.");
+  if (!source) throw new Error("Tool schema rejected: source is required.");
+  const timestamp = now.toISOString();
+  const evidenceRefs = uniqueNonEmpty(input.evidenceRefs ?? []);
+  const record: ToolSchemaRecord = {
+    id: randomUUID(),
+    toolName,
+    source,
+    description: input.description?.trim() || undefined,
+    riskLevel: normalizeToolRiskLevel(input.riskLevel),
+    permissionRequirement: input.permissionRequirement?.trim() || undefined,
+    safetyNotes: input.safetyNotes?.trim() || undefined,
+    docsRef: input.docsRef?.trim() || undefined,
+    schemaRef: input.schemaRef?.trim() || undefined,
+    notes: input.notes?.trim() || undefined,
+    evidenceRefs: evidenceRefs.length > 0 ? evidenceRefs : undefined,
+    discoveredByAgentId: input.discoveredByAgentId?.trim() || undefined,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  const records = await loadToolSchemaRecords(cwd);
+  await writeToolSchemaIndex(cwd, [record, ...records]);
+  await appendLogEvent(cwd, createLogEvent(state, {
+    eventType: "tool",
+    summary: `Tool schema recorded: ${record.toolName}`,
+    outputRefs: [record.id, ...(record.evidenceRefs ?? [])],
+    details: { record },
+  }));
+  return record;
+}
+
+export function formatDiscoveredToolCatalog(toolNames: string[], discoveredRecords: ToolSchemaRecord[]): string {
+  return formatToolCatalog(getToolCatalogEntries(toolNames, discoveredRecords));
+}
+
 export async function runToolRequestAgent(
   cwd: string,
   state: ScalerState,
@@ -223,7 +331,7 @@ export async function runToolRequestAgent(
     return { accepted: false, message };
   }
 
-  const prompt = buildToolAgentPrompt(request);
+  const prompt = buildToolAgentPrompt(request, await loadToolSchemaRecords(cwd));
   const agentRequest = {
     taskId: `tool-${request.id}`,
     prompt,
@@ -361,7 +469,7 @@ export async function prepareToolRequest(
     status: "prepared",
     createdAt: now.toISOString(),
   };
-  const prompt = buildToolAgentPrompt(record);
+  const prompt = buildToolAgentPrompt(record, await loadToolSchemaRecords(cwd));
   const invocation = buildTaskAgentInvocation({
     taskId: `tool-${record.id}`,
     prompt,
@@ -390,7 +498,7 @@ export async function prepareToolRequest(
   };
 }
 
-export function buildToolAgentPrompt(record: ToolRequestRecord): string {
+export function buildToolAgentPrompt(record: ToolRequestRecord, discoveredRecords: ToolSchemaRecord[] = []): string {
   const context = record.contextSummary ? `\nContext summary:\n${record.contextSummary}\n` : "";
   const metadata = [
     record.requesterAgentId ? `Requester agent id: ${record.requesterAgentId}` : undefined,
@@ -411,7 +519,7 @@ export function buildToolAgentPrompt(record: ToolRequestRecord): string {
     `Tool request id: ${record.id}`,
     `Requested tool/MCP: ${record.toolName}`,
     `Allowed tools: ${record.allowedTools.join(", ")}`,
-    formatToolCatalog(getToolCatalogEntries(record.allowedTools)),
+    formatToolCatalog(getToolCatalogEntries(record.allowedTools, discoveredRecords)),
     metadata.join("\n"),
     context.trimEnd(),
     `Request:\n${record.request}`,
@@ -456,6 +564,22 @@ async function writeToolTransactionIndex(cwd: string, transactions: ToolTransact
   await mkdir(dirname(path), { recursive: true });
   const sorted = [...transactions].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   await writeFile(path, `${JSON.stringify({ version: 1, transactions: sorted } satisfies ToolTransactionIndex, null, 2)}\n`, "utf8");
+}
+
+async function writeToolSchemaIndex(cwd: string, records: ToolSchemaRecord[]): Promise<void> {
+  const path = getToolCatalogPath(cwd);
+  await mkdir(dirname(path), { recursive: true });
+  const sorted = [...records].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  await writeFile(path, `${JSON.stringify({ version: 1, records: sorted } satisfies ToolSchemaIndex, null, 2)}\n`, "utf8");
+}
+
+function latestToolSchemaRecords(records: ToolSchemaRecord[]): Map<string, ToolSchemaRecord> {
+  const sorted = [...records].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  const latest = new Map<string, ToolSchemaRecord>();
+  for (const record of sorted) {
+    if (!latest.has(record.toolName)) latest.set(record.toolName, record);
+  }
+  return latest;
 }
 
 async function selectRunnableToolRequest(cwd: string, requestId?: string): Promise<ToolRequestRecord | undefined> {

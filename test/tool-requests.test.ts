@@ -14,8 +14,11 @@ import {
   normalizeToolRiskLevel,
   prepareToolRequest,
   recordToolResult,
+  recordToolSchema,
   runToolRequestAgent,
+  formatDiscoveredToolCatalog,
   formatToolTransactions,
+  loadToolSchemaRecords,
 } from "../src/tool-requests.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -35,6 +38,63 @@ test("normalizeToolRiskLevel and formatToolCatalog provide compact catalog metad
   assert.deepEqual(catalog.map((entry) => [entry.name, entry.riskLevel]), [["bash", "high"], ["custom_mcp", "unknown"]]);
   assert.match(formatToolCatalog(catalog), /bash: Run a shell command/);
   assert.match(formatToolCatalog(catalog), /custom_mcp: Requested tool\/MCP/);
+});
+
+test("recordToolSchema persists discovered metadata and merges latest catalog entry", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await recordToolSchema(dir, state, {
+      toolName: "mcp_docs_search",
+      source: "mcp://docs/help",
+      description: "Old docs search description.",
+      riskLevel: "medium",
+      docsRef: "docs:old",
+    }, new Date("2026-01-01T00:00:00.000Z"));
+    await recordToolSchema(dir, state, {
+      toolName: "mcp_docs_search",
+      source: "mcp://docs/schema",
+      description: "Search the docs MCP by query string.",
+      riskLevel: "low",
+      docsRef: "docs:mcp-search",
+      schemaRef: "schema:mcp-search-v2",
+      notes: "args: { query: string }",
+      evidenceRefs: ["docs:mcp-search"],
+      discoveredByAgentId: "tool-discovery-agent",
+    }, new Date("2026-01-02T00:00:00.000Z"));
+
+    const records = await loadToolSchemaRecords(dir);
+    assert.equal(records.length, 2);
+    const rendered = formatDiscoveredToolCatalog(["mcp_docs_search"], records);
+    assert.match(rendered, /Search the docs MCP by query string/);
+    assert.match(rendered, /docsRef=docs:mcp-search/);
+    assert.match(rendered, /schemaRef=schema:mcp-search-v2/);
+    assert.match(rendered, /notes=args: \{ query: string \}/);
+  });
+});
+
+test("prepareToolRequest injects discovered tool schema metadata into prompts", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await recordToolSchema(dir, state, {
+      toolName: "mcp_docs_search",
+      source: "mcp://docs/schema",
+      description: "Search the docs MCP by query string.",
+      riskLevel: "low",
+      docsRef: "docs:mcp-search",
+      schemaRef: "schema:mcp-search-v2",
+      notes: "args: { query: string }",
+    });
+
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "mcp_docs_search",
+      request: "Find widget lifecycle docs.",
+      allowedTools: ["read"],
+    });
+
+    assert.equal(prepared.accepted, true);
+    assert.match(prepared.prompt ?? "", /schemaRef=schema:mcp-search-v2/);
+    assert.match(prepared.prompt ?? "", /args: \{ query: string \}/);
+  });
 });
 
 test("prepareToolRequest persists request and limited invocation with metadata", async () => {
