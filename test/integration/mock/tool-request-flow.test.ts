@@ -7,8 +7,8 @@ import { test } from "node:test";
 import { promisify } from "node:util";
 import { getBudgetState } from "../../../src/budgets.js";
 import { readLogEvents } from "../../../src/logging.js";
-import { loadState } from "../../../src/state.js";
-import { loadToolRequests, loadToolResults } from "../../../src/tool-requests.js";
+import { createDefaultState, loadState } from "../../../src/state.js";
+import { loadToolRequests, loadToolResults, loadToolTransactions, prepareToolRequest, recordToolResult, runToolRequestAgent } from "../../../src/tool-requests.js";
 import { registerScalerTools } from "../../../src/tools.js";
 
 const execFileAsync = promisify(execFile);
@@ -29,6 +29,61 @@ async function withTempRepo<T>(fn: (dir: string) => Promise<T>): Promise<T> {
     await rm(dir, { recursive: true, force: true });
   }
 }
+
+test("mock integration: tool transaction execution requires structured scaler_tool_result closure", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "docs_search",
+      request: "Find the widget lifecycle API.",
+      taskId: "T-TOOL-TXN",
+      expectedOutput: "Widget lifecycle API names and source refs.",
+      requiredFormat: "JSON with fields apiNames and refs",
+      riskLevel: "low",
+      allowedTools: ["read"],
+    });
+    assert.ok(prepared.record);
+
+    const missing = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => ({
+      taskId: request.taskId,
+      exitCode: 0,
+      stdoutEvents: [{ type: "unparsed", text: "Free-form answer only." }],
+      stderr: "",
+      timedOut: false,
+      aborted: false,
+    }));
+    assert.equal(missing.accepted, false);
+    assert.equal(missing.transaction?.status, "missing_result");
+    assert.equal((await loadToolRequests(dir))[0]?.status, "prepared");
+
+    const completed = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+      assert.match(request.prompt, /scaler_tool_result/);
+      assert.match(request.prompt, /Required format: JSON with fields apiNames and refs/);
+      await recordToolResult(dir, state, {
+        requestId: prepared.record!.id,
+        status: "completed",
+        summary: "Widget lifecycle API located.",
+        outputs: { apiNames: ["Widget.create", "Widget.destroy"], refs: ["docs:widget-lifecycle"] },
+        evidenceRefs: ["docs:widget-lifecycle"],
+        validationPerformed: ["checked requested requiredFormat"],
+      });
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+
+    assert.equal(completed.accepted, true);
+    assert.equal(completed.transaction?.status, "completed");
+    assert.equal(completed.resultRecord?.status, "completed");
+    assert.equal((await loadToolRequests(dir))[0]?.status, "completed");
+    const transactions = await loadToolTransactions(dir);
+    assert.equal(transactions[0]?.status, "completed");
+    assert.equal(transactions[1]?.status, "missing_result");
+    assert.equal(transactions[0]?.resultId, completed.resultRecord?.id);
+
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("Tool transaction missing structured result")));
+    assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("Tool transaction completed")));
+  });
+});
 
 test("mock integration: scaler_tool_request persists rich metadata and isolated invocation", async () => {
   await withTempRepo(async (dir) => {
