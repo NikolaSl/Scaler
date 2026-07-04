@@ -9,7 +9,7 @@ import scalerExtension from "../../../src/index.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { runValidationWithExecutionLock } from "../../../src/operations.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
-import { loadValidationManifests, loadValidationRuns } from "../../../src/validation.js";
+import { loadValidationChecklists, loadValidationManifests, loadValidationRuns } from "../../../src/validation.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -44,6 +44,48 @@ function registeredCommands(): Map<string, { handler: CommandHandler }> {
   scalerExtension(fakePi as never);
   return commands;
 }
+
+test("mock integration: non-software checklist failure then pass updates task state and audit", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-CHECKLIST";
+    state.tasks = [{
+      id: "T-CHECKLIST",
+      status: "validating",
+      title: "Checklist task",
+      allowedPathPrefixes: ["src/app.js"],
+      prdRefs: ["REQ-CHECKLIST"],
+      updatedAt: state.createdAt,
+    }];
+    await saveState(dir, state);
+
+    const commands = registeredCommands();
+    await commands.get("scaler-validation-checklist")?.handler(
+      "T-CHECKLIST | completeness | Checklist incomplete | scope::passed::required::Scope covered::evidence:scope;edge::failed::required::Edge cases documented::evidence:edge | evidence:root",
+      { cwd: dir, hasUI: false },
+    );
+
+    const failedChecklist = (await loadValidationChecklists(dir))[0];
+    assert.equal(failedChecklist?.status, "failed");
+    assert.equal(failedChecklist?.gate, "completeness");
+    assert.equal((await loadState(dir)).tasks[0]?.status, "debugging");
+
+    await commands.get("scaler-validation-checklist")?.handler(
+      "T-CHECKLIST | source_validation | Sources verified | source::passed::required::Primary source cited::source:primary;optional::not_applicable::optional::Second source not needed:: | evidence:source",
+      { cwd: dir, hasUI: false },
+    );
+
+    const checklists = await loadValidationChecklists(dir);
+    assert.equal(checklists[0]?.status, "passed");
+    assert.equal(checklists[0]?.gate, "source_validation");
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
+
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "validation" && event.summary === "Validation summary: T-CHECKLIST failed"));
+    assert.ok(events.some((event) => event.eventType === "validation" && event.summary === "Validation summary: T-CHECKLIST passed"));
+  });
+});
 
 test("mock integration: validation-add gate metadata persists through validation run and audit", async () => {
   await withTempRepo(async (dir) => {
