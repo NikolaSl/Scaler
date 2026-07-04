@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { getBudgetState } from "../src/budgets.js";
+import { readLogEvents } from "../src/logging.js";
 import { loadMemoryIndex } from "../src/memory.js";
 import { loadExecutionPlan, loadPlanningReports } from "../src/plans.js";
 import { loadCurrentPrd, loadPrdCoverage, loadPrdRequirements } from "../src/prd.js";
@@ -56,6 +57,32 @@ test("registerScalerTools registers all tool definitions", () => {
   registerScalerTools(fakePi as never);
 
   assert.deepEqual(registered, [...scalerToolNames]);
+});
+
+test("scaler_task_create records stable audit summary when quality warnings exist", async () => {
+  await withTempDir(async (dir) => {
+    const registered = new Map<string, { execute: (...args: any[]) => Promise<unknown> }>();
+    registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<unknown> }) { registered.set(definition.name, definition); } } as never);
+
+    await registered.get("scaler_task_create")?.execute(
+      "tool-call",
+      {
+        taskId: "T-AUDIT",
+        title: "Audit stable task create",
+        status: "ready",
+        allowedPathPrefixes: ["src/audit"],
+        dependsOn: [],
+        prdRefs: ["REQ-AUDIT"],
+      },
+      undefined,
+      undefined,
+      { cwd: dir },
+    );
+
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Task created: T-AUDIT"));
+    assert.ok(events.some((event) => event.eventType === "tool" && event.summary === "Task created: T-AUDIT" && Boolean(event.detailsPath)));
+  });
 });
 
 test("scaler_memory_search returns summary candidates without full content", async () => {

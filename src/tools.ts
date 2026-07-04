@@ -547,7 +547,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         dependsOn: params.dependsOn,
         prdRefs: params.prdRefs,
       });
-      await logTool(ctx.cwd, "scaler_task_create", result.message, params);
+      await logTool(ctx.cwd, "scaler_task_create", result.accepted ? `Task created: ${params.taskId}` : `Task create rejected: ${params.taskId}`, { params, result });
       return textResult(result.message, { status: result.accepted ? "created" : "rejected", taskId: params.taskId });
     },
   });
