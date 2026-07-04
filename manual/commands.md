@@ -125,6 +125,10 @@ Examples:
 /scaler-storage-maintain execute no-compress delete-archives max-archive-bytes=50000000 max-archive-age-days=30
 ```
 
+## `/scaler-safety-policy [allow-internet=on/off] [allow-external=on/off]`
+
+Shows or updates persisted safety policy at `.scaler/safety/policy.json`. Persisted `allow-internet` and `allow-external` settings are merged into the tool-call safety hook for internet-transfer and external-mutation command classes. They do not override protected-path, destructive-command, secret-environment, or task allowed-path blocks.
+
 ## `/scaler-budget-status`
 
 Shows state-backed budget usage, soft/hard limits, checkpoint count, and the strongest current budget decision.

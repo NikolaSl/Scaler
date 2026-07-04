@@ -225,7 +225,8 @@ When adding a new integration scenario:
   - explicit grants pass only the listed tools, preserve source URL metadata, raw evidence memory refs, run records, and agent prompt audit details.
 - `mock/safety-hook-flow.test.ts`
   - extension `tool_call` hook blocks external publish and secret environment exposure commands;
-  - persisted safety audit logs record `external` and `secret` risks.
+  - persisted safety policy allows configured internet/external command classes while preserving secret blocks;
+  - persisted safety audit logs record blocked risks.
 - `mock/remaining-flows.test.ts`
   - budget hard stops for conductor and validation plus pause/audit behavior;
   - context discovery into conductor prompts, including exactness/compression guidance;
@@ -253,6 +254,7 @@ When adding a new integration scenario:
   - real Pi slash-command budget configuration/status persistence;
   - real Pi slash-command storage status inventory persistence;
   - real Pi slash-command storage maintenance execution, active-ledger rotation, and approved archive retention deletion with persisted `.scaler/storage/maintenance.json` and audit logs;
+  - real Pi slash-command safety-policy persistence;
   - real Pi slash-command debug next-approach retry prepare mode with persisted `.scaler/debug/retries.json` and prompt audit logs;
   - real Pi slash-command tool transaction and transaction replay prepare modes with persisted `.scaler/tool-requests/transactions.json`;
   - real Pi slash-command typed validation gate metadata, validation gate/environment/disposition policy enforcement, skipped/blocked disposition persistence, non-software checklist persistence, and evidence-policy enforcement;
