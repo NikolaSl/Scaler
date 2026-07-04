@@ -7,6 +7,7 @@ import { getBudgetState } from "../src/budgets.js";
 import { loadCurrentPrd, loadPrdCoverage, loadPrdRequirements } from "../src/prd.js";
 import { loadResearchReports } from "../src/research.js";
 import { loadState } from "../src/state.js";
+import { loadToolRequests } from "../src/tool-requests.js";
 import { scalerToolNames, registerScalerTools } from "../src/tools.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -47,6 +48,45 @@ test("registerScalerTools registers all tool definitions", () => {
   registerScalerTools(fakePi as never);
 
   assert.deepEqual(registered, [...scalerToolNames]);
+});
+
+test("scaler_tool_request persists structured metadata", async () => {
+  await withTempDir(async (dir) => {
+    const registered = new Map<string, { execute: (...args: any[]) => Promise<unknown> }>();
+    registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<unknown> }) { registered.set(definition.name, definition); } } as never);
+
+    await registered.get("scaler_tool_request")?.execute(
+      "tool-call",
+      {
+        toolName: "docs_search",
+        request: "Find widget docs.",
+        taskId: "T-TOOL",
+        requesterAgentId: "agent-tool",
+        contextSummary: "Need docs only.",
+        expectedOutput: "Widget docs summary.",
+        requiredFormat: "json",
+        riskLevel: "low",
+        permissionRequirement: "read-only",
+        safetyNotes: "Do not mutate files.",
+        allowedTools: ["read"],
+      },
+      undefined,
+      undefined,
+      { cwd: dir },
+    );
+
+    const record = (await loadToolRequests(dir))[0];
+    const budgets = getBudgetState(await loadState(dir));
+    assert.equal(record?.toolName, "docs_search");
+    assert.equal(record?.requesterAgentId, "agent-tool");
+    assert.equal(record?.expectedOutput, "Widget docs summary.");
+    assert.equal(record?.requiredFormat, "json");
+    assert.equal(record?.riskLevel, "low");
+    assert.equal(record?.permissionRequirement, "read-only");
+    assert.equal(record?.safetyNotes, "Do not mutate files.");
+    assert.deepEqual(record?.allowedTools, ["docs_search", "read"]);
+    assert.equal(budgets.usage.toolCalls, 1);
+  });
 });
 
 test("scaler_research_report records structured research", async () => {

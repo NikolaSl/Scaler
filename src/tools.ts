@@ -121,7 +121,13 @@ const ToolRequestParams = Type.Object({
   toolName: Type.String({ description: "Exact tool/MCP name requested." }),
   request: Type.String({ description: "Concise free-form request for the isolated tool agent." }),
   taskId: Type.Optional(Type.String()),
+  requesterAgentId: Type.Optional(Type.String({ description: "Requester agent id, if different from task id." })),
   contextSummary: Type.Optional(Type.String()),
+  expectedOutput: Type.Optional(Type.String({ description: "What the requester needs back from the tool agent." })),
+  requiredFormat: Type.Optional(Type.String({ description: "Required response format, if any." })),
+  riskLevel: Type.Optional(Type.String({ description: "low, medium, high, destructive, external, secret, or unknown." })),
+  permissionRequirement: Type.Optional(Type.String({ description: "Approval or policy requirement known to the requester." })),
+  safetyNotes: Type.Optional(Type.String({ description: "Safety constraints for the isolated tool agent." })),
   allowedTools: Type.Optional(Type.Array(Type.String(), { description: "Additional tools explicitly allowed for the isolated tool agent." })),
 });
 
@@ -314,7 +320,13 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         toolName: params.toolName,
         request: params.request,
         taskId: params.taskId,
+        requesterAgentId: params.requesterAgentId,
         contextSummary: params.contextSummary,
+        expectedOutput: params.expectedOutput,
+        requiredFormat: params.requiredFormat,
+        riskLevel: params.riskLevel,
+        permissionRequirement: params.permissionRequirement,
+        safetyNotes: params.safetyNotes,
         allowedTools: params.allowedTools,
       });
       await recordBudgetUsage(ctx.cwd, "toolCalls");
