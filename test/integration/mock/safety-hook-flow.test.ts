@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { promisify } from "node:util";
 import scalerExtension from "../../../src/index.js";
 import { readLogEvents } from "../../../src/logging.js";
+import { loadSafetyApprovals, loadSafetyScanRecords } from "../../../src/safety.js";
 import { createDefaultState, saveState } from "../../../src/state.js";
 
 const execFileAsync = promisify(execFile);
@@ -73,6 +74,66 @@ test("mock integration: persisted safety policy allows configured external and i
     assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Scaler safety policy requested"));
     const safetyEvents = events.filter((event) => event.eventType === "safety");
     assert.deepEqual(safetyEvents.map((event) => (event.details as { risk: string }).risk), ["secret"]);
+  });
+});
+
+test("mock integration: safety approval allows exact external command once", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    await saveState(dir, state);
+    const { hook, commands } = registeredSafetyHarness();
+
+    await commands.get("scaler-safety-approval")?.handler("approve | bash | exact_command | npm publish --dry-run | external | Release dry-run | max-uses=1", { cwd: dir, hasUI: false });
+
+    const first = await hook({ toolName: "bash", input: { command: "npm publish --dry-run" } }, { cwd: dir, hasUI: false });
+    const second = await hook({ toolName: "bash", input: { command: "npm publish --dry-run" } }, { cwd: dir, hasUI: false });
+
+    assert.equal(first, undefined);
+    assert.deepEqual(second, { block: true, reason: "Bash command may mutate remote or published external systems." });
+
+    const approvals = await loadSafetyApprovals(dir);
+    assert.equal(approvals[0]?.status, "used");
+    assert.equal(approvals[0]?.uses, 1);
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Scaler safety approval created"));
+    assert.ok(events.some((event) => event.eventType === "safety" && event.summary.startsWith("Allowed bash by approval")));
+  });
+});
+
+test("mock integration: sandbox policy allows contained destructive commands but blocks host mounts", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    await saveState(dir, state);
+    const { hook, commands } = registeredSafetyHarness();
+
+    await commands.get("scaler-safety-policy")?.handler("allow-sandbox=on", { cwd: dir, hasUI: false });
+
+    const contained = await hook({ toolName: "bash", input: { command: "docker run --rm node:20 sh -lc 'rm -rf /tmp/scaler-work'" } }, { cwd: dir, hasUI: false });
+    const hostMount = await hook({ toolName: "bash", input: { command: "docker run --rm -v /:/host node:20 sh -lc 'rm -rf /host/tmp/scaler-work'" } }, { cwd: dir, hasUI: false });
+
+    assert.equal(contained, undefined);
+    assert.deepEqual(hostMount, { block: true, reason: "Bash command matches a destructive or high-risk pattern." });
+  });
+});
+
+test("mock integration: safety scan command records dry-run scanner candidates", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    await saveState(dir, state);
+    await writeFile(join(dir, "package-lock.json"), JSON.stringify({ lockfileVersion: 3 }), "utf8");
+    const { commands } = registeredSafetyHarness();
+
+    await commands.get("scaler-safety-scan")?.handler("kinds=npm_audit", { cwd: dir, hasUI: false });
+
+    const records = await loadSafetyScanRecords(dir);
+    assert.equal(records.length, 1);
+    assert.equal(records[0]?.kind, "npm_audit");
+    assert.ok(["planned", "unavailable"].includes(records[0]?.status ?? ""));
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Scaler safety scan requested"));
   });
 });
 

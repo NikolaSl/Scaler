@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { getBudgetState } from "../../../src/budgets.js";
 import { loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
 import { readLogEvents } from "../../../src/logging.js";
-import { loadSafetyPolicy } from "../../../src/safety.js";
+import { loadSafetyApprovals, loadSafetyPolicy } from "../../../src/safety.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { loadStorageInventory, loadStorageMaintenanceReport, loadStorageMaintenanceSchedule } from "../../../src/storage.js";
 import { loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest, runToolRequestAgent } from "../../../src/tool-requests.js";
@@ -109,6 +109,35 @@ test("real Pi extension: slash command dispatch persists safety policy", { skip:
     assert.deepEqual(
       events
         .filter((event) => event.eventType === "command" && isRecord(event.details) && event.details.command === "scaler-safety-policy")
+        .map((event) => (event.details as { phase: string }).phase),
+      ["start", "end"],
+    );
+  });
+});
+
+test("real Pi extension: slash command dispatch records safety approval workflow", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-safety-approval approve | bash | exact_command | npm publish --dry-run | external | Release dry run | max-uses=1 ttl-minutes=60",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Safety approval created:/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const approvals = await loadSafetyApprovals(dir);
+    assert.equal(approvals.length, 1);
+    assert.equal(approvals[0]?.toolName, "bash");
+    assert.equal(approvals[0]?.match, "exact_command");
+    assert.equal(approvals[0]?.value, "npm publish --dry-run");
+    assert.equal(approvals[0]?.risk, "external");
+
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Scaler safety approval created"));
+    assert.deepEqual(
+      events
+        .filter((event) => event.eventType === "command" && isRecord(event.details) && event.details.command === "scaler-safety-approval")
         .map((event) => (event.details as { phase: string }).phase),
       ["start", "end"],
     );

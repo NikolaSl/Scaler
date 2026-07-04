@@ -14,7 +14,9 @@ import {
   parseResearchReportArgs,
   parseResearchRequestArgs,
   parseResearchRunArgs,
+  parseSafetyApprovalArgs,
   parseSafetyPolicyArgs,
+  parseSafetyScanArgs,
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
@@ -181,9 +183,30 @@ test("parseStorageScheduleArgs parses schedule toggles and policy", () => {
 });
 
 test("parseSafetyPolicyArgs parses explicit allow toggles", () => {
-  assert.deepEqual(parseSafetyPolicyArgs("allow-internet=on allow-external=off"), { allowInternet: true, allowExternalMutations: false });
-  assert.deepEqual(parseSafetyPolicyArgs("allow-internet=deny allow-external=allowed"), { allowInternet: false, allowExternalMutations: true });
-  assert.deepEqual(parseSafetyPolicyArgs(" "), { allowInternet: undefined, allowExternalMutations: undefined });
+  assert.deepEqual(parseSafetyPolicyArgs("allow-internet=on allow-external=off allow-sandbox=on"), { allowInternet: true, allowExternalMutations: false, allowSandbox: true });
+  assert.deepEqual(parseSafetyPolicyArgs("allow-internet=deny allow-external=allowed allow-sandbox=off"), { allowInternet: false, allowExternalMutations: true, allowSandbox: false });
+  assert.deepEqual(parseSafetyPolicyArgs(" "), { allowInternet: undefined, allowExternalMutations: undefined, allowSandbox: undefined });
+});
+
+test("parseSafetyApprovalArgs parses approval and revocation workflows", () => {
+  assert.deepEqual(parseSafetyApprovalArgs("approve | bash | exact_command | npm publish --dry-run | external | Release dry run | max-uses=2 ttl-minutes=30 sandbox=off"), {
+    action: "approve",
+    toolName: "bash",
+    match: "exact_command",
+    value: "npm publish --dry-run",
+    risk: "external",
+    reason: "Release dry run",
+    sandboxOnly: false,
+    maxUses: 2,
+    ttlMinutes: 30,
+  });
+  assert.deepEqual(parseSafetyApprovalArgs("revoke | approval-1 | no longer needed"), { action: "revoke", id: "approval-1", reason: "no longer needed" });
+  assert.deepEqual(parseSafetyApprovalArgs(" "), { action: "list" });
+});
+
+test("parseSafetyScanArgs parses execute flag and kind filters", () => {
+  assert.deepEqual(parseSafetyScanArgs("execute kinds=npm_audit,trivy_fs"), { execute: true, kinds: ["npm_audit", "trivy_fs"] });
+  assert.deepEqual(parseSafetyScanArgs(" "), { execute: false, kinds: undefined });
 });
 
 test("parseTaskCreateArgs returns undefined without task id", () => {

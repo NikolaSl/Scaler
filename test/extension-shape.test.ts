@@ -93,6 +93,8 @@ test("extension registers scaler commands", () => {
     "scaler-storage-maintain",
     "scaler-storage-schedule",
     "scaler-safety-policy",
+    "scaler-safety-approval",
+    "scaler-safety-scan",
     "scaler-budget-status",
     "scaler-budget-set",
     "scaler-status",
