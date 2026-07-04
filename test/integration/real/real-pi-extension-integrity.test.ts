@@ -3,11 +3,12 @@ import { mkdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { getBudgetState } from "../../../src/budgets.js";
+import { loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
 import { readLogEvents } from "../../../src/logging.js";
-import { createDefaultState, loadState } from "../../../src/state.js";
+import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { loadStorageInventory, loadStorageMaintenanceReport } from "../../../src/storage.js";
 import { loadToolRequests, loadToolResults, prepareToolRequest } from "../../../src/tool-requests.js";
-import { loadValidationManifests } from "../../../src/validation.js";
+import { loadValidationManifests, runTaskValidation, upsertValidationManifestCommand } from "../../../src/validation.js";
 import { REAL_PI_ENABLED, REAL_PI_MODEL, runScalerPi, withRealPiTempRepo } from "./real-pi-harness.js";
 
 test("real Pi extension: slash command dispatch writes SCALER command audit logs", { skip: !REAL_PI_ENABLED }, async () => {
@@ -132,6 +133,62 @@ test("real Pi extension: slash command dispatch executes storage maintenance", {
         .map((event) => (event.details as { phase: string }).phase),
       ["start", "end"],
     );
+  });
+});
+
+test("real Pi extension: slash command dispatch prepares debug next-approach retry", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-REAL-RETRY";
+    state.tasks = [{ id: "T-REAL-RETRY", status: "validating", title: "Real retry", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+    await upsertValidationManifestCommand(dir, {
+      taskId: "T-REAL-RETRY",
+      id: "exact-real",
+      command: "node -e \"process.exit(1)\"",
+      description: "Exact real retry validation",
+      required: true,
+      gate: "unit",
+      expectedResult: "exits 0 after retry",
+      evidenceRefs: ["validation:real-retry"],
+    });
+    const failedRun = await runTaskValidation(dir, state, "T-REAL-RETRY");
+    const debugging = await loadState(dir);
+    assert.equal(debugging.tasks.find((task) => task.id === "T-REAL-RETRY")?.status, "debugging");
+    await recordDebugReport(dir, debugging, {
+      id: "RPT-REAL-RETRY",
+      taskId: "T-REAL-RETRY",
+      status: "next_approach",
+      summary: "Replace the failing marker behavior.",
+      failureId: "F-REAL-RETRY",
+      failureFingerprint: "real retry marker failure",
+      rootCause: "The exact retry validation exits 1.",
+      nextApproach: "Patch the marker behavior and rerun exact-real.",
+      evidenceRefs: [failedRun.id],
+    });
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-debug-retry T-REAL-RETRY",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const retries = await loadDebugRetries(dir);
+    assert.equal(retries[0]?.status, "prepared");
+    assert.equal(retries[0]?.debugReportId, "RPT-REAL-RETRY");
+    assert.equal((await loadState(dir)).tasks.find((task) => task.id === "T-REAL-RETRY")?.status, "debugging");
+
+    const events = await readLogEvents(dir);
+    assert.deepEqual(
+      events
+        .filter((event) => event.eventType === "command" && isRecord(event.details) && event.details.command === "scaler-debug-retry")
+        .map((event) => (event.details as { phase: string }).phase),
+      ["start", "end"],
+    );
+    assert.ok(events.some((event) => event.eventType === "agent" && event.summary === "Agent prompt prepared: debug-retry-task/T-REAL-RETRY"));
   });
 });
 
