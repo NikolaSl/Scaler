@@ -7,6 +7,7 @@ import {
   parseContextTaskArgs,
   parseDebugLoopArgs,
   parseDebugRunArgs,
+  parseDebugRetryArgs,
   parsePrdLinkArgs,
   parseReplanRequestArgs,
   parseReplanRunArgs,
@@ -28,9 +29,10 @@ import {
 import { pauseScalerRun, resumeScalerRun } from "./checkpoints.js";
 import { ensureTaskContextManifest, formatTaskContextManifest, loadTaskContextManifest } from "./context.js";
 import { formatTaskAgentRunList, loadTaskAgentRunRecords, runConductorStep } from "./conductor.js";
-import { loadDebugAttempts, loadDebugFailures, loadDebugReports, formatDebugReportSummary } from "./debug.js";
+import { loadDebugAttempts, loadDebugFailures, loadDebugReports, loadDebugRetries, formatDebugReportSummary } from "./debug.js";
 import { formatDebugAgentRunList, loadDebugAgentRunRecords, runDebugAgentStep } from "./debug-agent.js";
 import { runDebugConductorLoop } from "./debug-conductor.js";
+import { formatDebugRetrySummary, runDebugNextApproachRetry } from "./debug-retry.js";
 import { clearExecutionLock, formatExecutionLock, loadExecutionLock } from "./locks.js";
 import { createLogEvent, appendLogEvent, logCommandAudit, logStateEvent, logToolAudit } from "./logging.js";
 import { loadMemoryIndex } from "./memory.js";
@@ -530,6 +532,19 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     },
   });
 
+  pi.registerCommand("scaler-debug-retry", {
+    description: "Prepare or execute the latest accepted debug next_approach retry: /scaler-debug-retry [taskId] [execute]",
+    handler: async (args, ctx) => {
+      const parsed = parseDebugRetryArgs(args);
+      const state = await ensureState(ctx.cwd);
+      const result = await runDebugNextApproachRetry(ctx.cwd, state, { taskId: parsed.taskId, execute: parsed.execute });
+      const suffix = result.retry ? ` retry=${result.retry.id} status=${result.retry.status}${result.exactValidationRun ? ` exact_validation=${result.exactValidationRun.status}` : ""}` : "";
+      const message = `${result.message}${suffix}`;
+      if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
+      else console.log(message);
+    },
+  });
+
   pi.registerCommand("scaler-debug-loop", {
     description: "Run the bounded SCALER debug/research/replan conductor: /scaler-debug-loop [taskId] [execute] [max=N]",
     handler: async (args, ctx) => {
@@ -560,6 +575,15 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     description: "List recent SCALER debug reports.",
     handler: async (_args, ctx) => {
       const message = formatDebugReportSummary(await loadDebugReports(ctx.cwd));
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-debug-retries", {
+    description: "List recent SCALER debug next-approach retry records.",
+    handler: async (_args, ctx) => {
+      const message = formatDebugRetrySummary(await loadDebugRetries(ctx.cwd));
       if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
     },

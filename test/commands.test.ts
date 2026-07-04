@@ -7,6 +7,7 @@ import {
   parseContextTaskArgs,
   parseDebugLoopArgs,
   parseDebugRunArgs,
+  parseDebugRetryArgs,
   parsePrdLinkArgs,
   parseReplanRequestArgs,
   parseReplanRunArgs,
@@ -170,6 +171,12 @@ test("parseDebugRunArgs parses optional task and execute flag", () => {
   assert.deepEqual(parseDebugRunArgs("T-001 execute"), { taskId: "T-001", execute: true });
   assert.deepEqual(parseDebugRunArgs("execute"), { taskId: undefined, execute: true });
   assert.deepEqual(parseDebugRunArgs(" "), { taskId: undefined, execute: false });
+});
+
+test("parseDebugRetryArgs parses optional task and execute flag", () => {
+  assert.deepEqual(parseDebugRetryArgs("T-001 execute"), { taskId: "T-001", execute: true });
+  assert.deepEqual(parseDebugRetryArgs("execute"), { taskId: undefined, execute: true });
+  assert.deepEqual(parseDebugRetryArgs(" "), { taskId: undefined, execute: false });
 });
 
 test("parseDebugLoopArgs parses optional task, execute flag, and max option", () => {

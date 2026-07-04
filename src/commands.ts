@@ -94,6 +94,11 @@ export interface ParsedDebugRunArgs {
   execute: boolean;
 }
 
+export interface ParsedDebugRetryArgs {
+  taskId?: string;
+  execute: boolean;
+}
+
 export interface ParsedDebugLoopArgs {
   taskId?: string;
   execute: boolean;
@@ -276,6 +281,14 @@ export function parseResearchRunArgs(args: string | undefined): ParsedResearchRu
 }
 
 export function parseDebugRunArgs(args: string | undefined): ParsedDebugRunArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  return {
+    taskId: parts.find((part) => part.toLowerCase() !== "execute"),
+    execute: parts.some((part) => part.toLowerCase() === "execute"),
+  };
+}
+
+export function parseDebugRetryArgs(args: string | undefined): ParsedDebugRetryArgs {
   const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
   return {
     taskId: parts.find((part) => part.toLowerCase() !== "execute"),
