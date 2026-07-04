@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { loadReplanRequests } from "../src/plans.js";
 import { createDefaultState } from "../src/state.js";
 import { addTask } from "../src/supervisor.js";
-import { applyValidationReport } from "../src/validation.js";
+import { applyValidationReport, formatValidationChecklist, loadValidationChecklists, recordValidationChecklist, rollupValidationChecklist } from "../src/validation.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-validation-test-"));
@@ -93,6 +93,58 @@ test("blocked validation creates a replan request and enters replanning when sta
     assert.equal(requests[0]?.trigger, "validation_blocked");
     assert.deepEqual(requests[0]?.evidenceRefs, ["run-1"]);
     assert.deepEqual(requests[0]?.requirementRefs, ["REQ-001"]);
+  });
+});
+
+test("validation checklist rollup passes optional failures and fails required failures", () => {
+  assert.equal(rollupValidationChecklist([
+    { id: "required", statement: "Required evidence exists", status: "passed", required: true },
+    { id: "optional", statement: "Optional extra evidence exists", status: "failed", required: false },
+  ]), "passed");
+  assert.equal(rollupValidationChecklist([
+    { id: "required", statement: "Required evidence exists", status: "failed", required: true },
+  ]), "failed");
+  assert.equal(rollupValidationChecklist([
+    { id: "required", statement: "Required source is unavailable", status: "blocked", required: true },
+  ]), "blocked");
+});
+
+test("recordValidationChecklist persists checklist and applies failed non-software validation", async () => {
+  await withTempDir(async (dir) => {
+    const result = await recordValidationChecklist(dir, stateWithTask("validating"), {
+      taskId: "T-001",
+      gate: "completeness",
+      summary: "Acceptance checklist incomplete.",
+      evidenceRefs: ["artifact:review"],
+      items: [
+        { id: "scope", statement: "All requested sections are covered", status: "passed", evidenceRefs: ["artifact:scope"] },
+        { id: "edge-cases", statement: "Edge cases are documented", status: "failed", evidenceRefs: ["artifact:edge"] },
+      ],
+    });
+
+    const stored = (await loadValidationChecklists(dir))[0];
+    assert.equal(result.record.status, "failed");
+    assert.equal(result.applyResult.state.tasks[0]?.status, "debugging");
+    assert.equal(stored?.gate, "completeness");
+    assert.deepEqual(stored?.evidenceRefs, ["artifact:review"]);
+    assert.match(formatValidationChecklist(result.record), /edge-cases required=true status=failed/);
+  });
+});
+
+test("recordValidationChecklist applies passed non-software validation", async () => {
+  await withTempDir(async (dir) => {
+    const result = await recordValidationChecklist(dir, stateWithTask("validating"), {
+      taskId: "T-001",
+      gate: "source_validation",
+      items: [
+        { id: "primary-source", statement: "Primary source evidence is cited", status: "passed", evidenceRefs: ["source:primary"] },
+        { id: "optional-second", statement: "Optional second source is cited", status: "not_applicable", required: false },
+      ],
+    });
+
+    assert.equal(result.record.status, "passed");
+    assert.equal(result.applyResult.state.tasks[0]?.status, "validated");
+    assert.deepEqual(result.applyResult.state.validatedTaskIds, ["T-001"]);
   });
 });
 

@@ -2,13 +2,15 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { appendLogEvent, createLogEvent, logValidationSummaryAudit } from "./logging.js";
-import { getValidationManifestsPath, getValidationRunsPath } from "./paths.js";
+import { getValidationChecklistsPath, getValidationManifestsPath, getValidationRunsPath } from "./paths.js";
 import { requestReplan } from "./replanning.js";
 import { saveState } from "./state.js";
 import { transitionTask } from "./supervisor.js";
 import type { ScalerState, ScalerTaskStatus } from "./types.js";
 
 export type ValidationStatus = "passed" | "failed" | "partial" | "blocked" | "not_applicable";
+export type ValidationChecklistItemStatus = "passed" | "failed" | "blocked" | "not_applicable";
+export type ValidationChecklistStatus = "passed" | "failed" | "blocked";
 
 export type ValidationGateKind =
   | "dependency_check"
@@ -73,6 +75,48 @@ export interface ValidationManifestCommandInput {
   evidenceRefs?: string[];
 }
 
+export interface ValidationChecklistItemInput {
+  id: string;
+  statement: string;
+  status: ValidationChecklistItemStatus | string;
+  required?: boolean;
+  evidenceRefs?: string[];
+  notes?: string;
+}
+
+export interface ValidationChecklistInput {
+  taskId: string;
+  gate?: ValidationGateKind | string;
+  summary?: string;
+  items: ValidationChecklistItemInput[];
+  evidenceRefs?: string[];
+}
+
+export interface ValidationChecklistItemRecord {
+  id: string;
+  statement: string;
+  status: ValidationChecklistItemStatus;
+  required: boolean;
+  evidenceRefs?: string[];
+  notes?: string;
+}
+
+export interface ValidationChecklistRecord {
+  id: string;
+  taskId: string;
+  gate?: ValidationGateKind;
+  status: ValidationChecklistStatus;
+  summary: string;
+  items: ValidationChecklistItemRecord[];
+  evidenceRefs?: string[];
+  createdAt: string;
+}
+
+export interface ValidationChecklistApplyResult {
+  record: ValidationChecklistRecord;
+  applyResult: ValidationApplyResult;
+}
+
 interface ValidationManifestIndex {
   version: 1;
   manifests: TaskValidationManifest[];
@@ -110,7 +154,14 @@ interface ValidationRunIndex {
   runs: ValidationRunRecord[];
 }
 
+interface ValidationChecklistIndex {
+  version: 1;
+  checklists: ValidationChecklistRecord[];
+}
+
 const validationStatuses = new Set<ValidationStatus>(["passed", "failed", "partial", "blocked", "not_applicable"]);
+
+const validationChecklistItemStatuses = new Set<ValidationChecklistItemStatus>(["passed", "failed", "blocked", "not_applicable"]);
 
 const validationGateKinds = new Set<ValidationGateKind>([
   "dependency_check",
@@ -325,6 +376,78 @@ export async function loadValidationRuns(cwd: string): Promise<ValidationRunReco
   }
 }
 
+export async function loadValidationChecklists(cwd: string): Promise<ValidationChecklistRecord[]> {
+  try {
+    const raw = await readFile(getValidationChecklistsPath(cwd), "utf8");
+    return (JSON.parse(raw) as ValidationChecklistIndex).checklists;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+export function rollupValidationChecklist(items: ValidationChecklistItemRecord[]): ValidationChecklistStatus {
+  const required = items.filter((item) => item.required);
+  if (required.some((item) => item.status === "blocked")) return "blocked";
+  if (required.some((item) => item.status === "failed")) return "failed";
+  return "passed";
+}
+
+export async function recordValidationChecklist(
+  cwd: string,
+  state: ScalerState,
+  input: ValidationChecklistInput,
+  now = new Date(),
+): Promise<ValidationChecklistApplyResult> {
+  const taskId = input.taskId.trim();
+  if (!taskId) throw new Error("Validation checklist rejected: taskId is required.");
+  if (!input.items.length) throw new Error("Validation checklist rejected: at least one item is required.");
+  const items = input.items.map(normalizeValidationChecklistItem);
+  const status = rollupValidationChecklist(items);
+  const evidenceRefs = normalizeStringList(input.evidenceRefs);
+  const record: ValidationChecklistRecord = {
+    id: `${taskId}-checklist-${now.getTime()}`,
+    taskId,
+    gate: normalizeValidationGateKind(input.gate),
+    status,
+    summary: normalizeOptionalString(input.summary) ?? `Validation checklist ${status}: ${taskId}`,
+    items,
+    evidenceRefs,
+    createdAt: now.toISOString(),
+  };
+  await writeValidationChecklistIndex(cwd, [record, ...(await loadValidationChecklists(cwd))]);
+  const applyResult = await applyValidationReport(cwd, state, {
+    taskId,
+    status,
+    summary: record.summary,
+    details: {
+      checklistId: record.id,
+      gate: record.gate,
+      evidenceRefs: collectChecklistEvidenceRefs(record),
+      items,
+    },
+  });
+  await logValidationSummaryAudit(cwd, applyResult.state, {
+    taskId,
+    runId: record.id,
+    status: record.status,
+    commandCount: 0,
+    failedCommandIds: record.items.filter((item) => item.required && item.status !== "passed" && item.status !== "not_applicable").map((item) => item.id),
+    gates: [{ commandId: record.id, gate: record.gate, required: true, status: record.status === "passed" ? "passed" : "failed" }],
+    details: record,
+  });
+  return { record, applyResult };
+}
+
+export function formatValidationChecklist(record: ValidationChecklistRecord): string {
+  const lines = [`Validation checklist ${record.id}: task=${record.taskId} gate=${record.gate ?? "custom"} status=${record.status}`];
+  lines.push(`Summary: ${record.summary}`);
+  for (const item of record.items) {
+    lines.push(`- ${item.id} required=${item.required} status=${item.status}: ${item.statement}${item.evidenceRefs?.length ? ` evidence=${item.evidenceRefs.join(",")}` : ""}`);
+  }
+  return lines.join("\n");
+}
+
 export async function runTaskValidation(cwd: string, state: ScalerState, taskId: string): Promise<ValidationRunRecord> {
   const manifest = await getValidationManifestForTask(cwd, taskId);
   const commandRuns: ValidationCommandRunRecord[] = [];
@@ -501,6 +624,39 @@ function extractEvidenceRefs(details: unknown): string[] | undefined {
   return typeof runId === "string" ? [runId] : undefined;
 }
 
+function normalizeValidationChecklistItem(item: ValidationChecklistItemInput, index: number): ValidationChecklistItemRecord {
+  const id = normalizeOptionalString(item.id) ?? `item-${index + 1}`;
+  const statement = normalizeOptionalString(item.statement);
+  if (!statement) throw new Error(`Validation checklist rejected: item ${id} statement is required.`);
+  const status = normalizeValidationChecklistItemStatus(item.status);
+  return {
+    id,
+    statement,
+    status,
+    required: item.required ?? true,
+    evidenceRefs: normalizeStringList(item.evidenceRefs),
+    notes: normalizeOptionalString(item.notes),
+  };
+}
+
+function normalizeValidationChecklistItemStatus(value: unknown): ValidationChecklistItemStatus {
+  if (typeof value !== "string") throw new Error("Validation checklist rejected: item status is required.");
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (!validationChecklistItemStatuses.has(normalized as ValidationChecklistItemStatus)) {
+    throw new Error(`Validation checklist rejected: invalid item status ${String(value)}.`);
+  }
+  return normalized as ValidationChecklistItemStatus;
+}
+
+function collectChecklistEvidenceRefs(record: ValidationChecklistRecord): string[] | undefined {
+  const refs = normalizeStringList([
+    ...(record.evidenceRefs ?? []),
+    ...record.items.flatMap((item) => item.evidenceRefs ?? []),
+    record.id,
+  ]);
+  return refs;
+}
+
 function getTargetTaskStatus(current: ScalerTaskStatus, validation: ValidationStatus): ScalerTaskStatus | undefined {
   if (validation === "passed" || validation === "not_applicable") {
     if (current === "validating" || current === "debugging") return "validated";
@@ -549,6 +705,13 @@ async function writeValidationRuns(cwd: string, runs: ValidationRunRecord[]): Pr
   const path = getValidationRunsPath(cwd);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify({ version: 1, runs } satisfies ValidationRunIndex, null, 2)}\n`, "utf8");
+}
+
+async function writeValidationChecklistIndex(cwd: string, checklists: ValidationChecklistRecord[]): Promise<void> {
+  const path = getValidationChecklistsPath(cwd);
+  await mkdir(dirname(path), { recursive: true });
+  const sorted = [...checklists].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  await writeFile(path, `${JSON.stringify({ version: 1, checklists: sorted } satisfies ValidationChecklistIndex, null, 2)}\n`, "utf8");
 }
 
 async function executeCommand(
