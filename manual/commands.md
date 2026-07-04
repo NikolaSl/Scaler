@@ -114,11 +114,11 @@ Resumes a paused run only to its previous active stage and writes a checkpoint u
 
 Scans `.scaler/`, writes `.scaler/storage/index.json`, updates the `storageBytes` budget counter, and shows total bytes, top-level summaries, largest files, and the storage budget decision. A configured `storageBytes` hard limit pauses the run through the existing budget gate.
 
-## `/scaler-storage-maintain [execute] [delete-cache] [delete-archives] [no-compress] [rotate-active] [min-age-days=N] [min-size=N] [max-active-bytes=N] [min-free-bytes=N] [max-archive-bytes=N] [max-archive-age-days=N]`
+## `/scaler-storage-maintain [execute] [delete-cache] [delete-archives] [delete-raw-logs] [delete-memory] [no-compress] [rotate-active] [min-age-days=N] [min-size=N] [max-active-bytes=N] [min-free-bytes=N] [max-archive-bytes=N] [max-archive-age-days=N] [max-raw-log-bytes=N] [max-raw-log-age-days=N] [max-memory-bytes=N] [max-memory-age-days=N]`
 
-Plans or executes safe maintenance inside `.scaler/`. Without `execute`, SCALER writes a dry-run report to `.scaler/storage/maintenance.json` and does not mutate storage. With `execute`, it gzips eligible old/large files under `.scaler/logs/details/`, non-active `.scaler/reports/`, and `.scaler/memory/`, removes the source only after a non-empty `.gz` is written, optionally deletes `.scaler/cache/` files when `delete-cache` is present, optionally rotates active `.scaler/logs/events.jsonl` and known append-style `.scaler/reports/*` ledgers when `rotate-active` is present and they exceed `max-active-bytes`, optionally deletes only `.scaler/storage/archive/` files when `delete-archives` is present and `max-archive-bytes`/`max-archive-age-days` select retention targets, records an optional `min-free-bytes` disk-space check, refreshes storage accounting, updates the `storageBytes` budget counter, and writes command/state audit events.
+Plans or executes safe maintenance inside `.scaler/`. Without `execute`, SCALER writes a dry-run report to `.scaler/storage/maintenance.json` and does not mutate storage. With `execute`, it gzips eligible old/large files under `.scaler/logs/details/`, non-active `.scaler/reports/`, and `.scaler/memory/`, removes the source only after a non-empty `.gz` is written, optionally deletes `.scaler/cache/` files when `delete-cache` is present, optionally rotates active `.scaler/logs/events.jsonl` and known append-style `.scaler/reports/*` ledgers when `rotate-active` is present and they exceed `max-active-bytes`, optionally deletes only `.scaler/storage/archive/` files when `delete-archives` is present and `max-archive-bytes`/`max-archive-age-days` select retention targets, optionally deletes `.scaler/logs/details/` files only when `delete-raw-logs` plus raw-log age/size quotas select targets, optionally deletes `.scaler/memory/*` content files only when `delete-memory` plus memory age/size quotas select targets, prunes deleted memory entries from `.scaler/memory/index.json`, records an optional `min-free-bytes` disk-space check, refreshes storage accounting, updates the `storageBytes` budget counter, and writes command/state audit events.
 
-Defaults: compression enabled, cache deletion disabled, archive deletion disabled, active rotation disabled, `min-age-days=7`, `min-size=1048576`, `max-active-bytes=10485760`, and no minimum-free-disk/archive quota thresholds.
+Defaults: compression enabled, cache deletion disabled, archive/raw-log/memory deletion disabled, active rotation disabled, `min-age-days=7`, `min-size=1048576`, `max-active-bytes=10485760`, and no minimum-free-disk/archive/raw-log/memory quota thresholds.
 
 Examples:
 
@@ -128,11 +128,12 @@ Examples:
 /scaler-storage-maintain no-compress delete-cache min-age-days=14
 /scaler-storage-maintain execute rotate-active no-compress max-active-bytes=10485760 min-free-bytes=1000000000
 /scaler-storage-maintain execute no-compress delete-archives max-archive-bytes=50000000 max-archive-age-days=30
+/scaler-storage-maintain execute no-compress delete-raw-logs max-raw-log-age-days=30 delete-memory max-memory-age-days=90
 ```
 
-## `/scaler-storage-schedule [enable|disable] [run] [force] [execute=on/off] [interval-hours=N] [compress=on/off] [delete-cache=on/off] [rotate-active=on/off] [delete-archives=on/off] ...`
+## `/scaler-storage-schedule [enable|disable] [run] [force] [execute=on/off] [interval-hours=N] [compress=on/off] [delete-cache=on/off] [rotate-active=on/off] [delete-archives=on/off] [delete-raw-logs=on/off] [delete-memory=on/off] ...`
 
-Shows or updates `.scaler/storage/schedule.json`. When enabled, SCALER checks the schedule at Pi `session_start`; if due, it runs the configured storage maintenance policy, updates `lastRunAt`/`nextRunAt`, refreshes `storageBytes`, and logs the result. The command can also run the due check immediately with `run`; `force` ignores `nextRunAt` for that check. Scheduled maintenance defaults to dry-run (`execute=false`) and does not enable archive deletion, cache deletion, or raw log/memory deletion unless explicitly configured.
+Shows or updates `.scaler/storage/schedule.json`. When enabled, SCALER checks the schedule at Pi `session_start`; if due, it runs the configured storage maintenance policy, updates `lastRunAt`/`nextRunAt`, refreshes `storageBytes`, and logs the result. The command can also run the due check immediately with `run`; `force` ignores `nextRunAt` for that check. Scheduled maintenance defaults to dry-run (`execute=false`) and does not enable archive deletion, cache deletion, raw-log deletion, or memory deletion unless explicitly configured.
 
 Examples:
 
