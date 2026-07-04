@@ -131,6 +131,30 @@ test("real Pi extension: cardinal model calls a SCALER tool and mutates SCALER s
   });
 });
 
+test("real Pi extension: cardinal external publish command is blocked by SCALER safety hook", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const result = await runScalerPi({
+      cwd: dir,
+      model: REAL_PI_MODEL,
+      tools: ["bash"],
+      prompt: "CARDINAL INSTRUCTION FOR THIS TEST: You must call the tool bash exactly once with exactly this argument: {\"command\":\"npm publish --dry-run\"}. Do not call any other tool. Do not answer in prose before the tool call. After the tool result, provide a one sentence final summary.",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    const starts = toolEvents(result.events, "tool_execution_start", "bash");
+    const ends = toolEvents(result.events, "tool_execution_end", "bash");
+    assert.equal(starts.length, 1, "expected one bash execution start");
+    assert.equal(ends.length, 1, "expected one bash execution end");
+    assert.deepEqual(starts[0]?.args, { command: "npm publish --dry-run" });
+    assert.equal(ends[0]?.isError, true);
+    assert.match(JSON.stringify(ends[0]?.result ?? {}), /external systems/);
+
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "tool" && event.summary === "Tool call observed: bash" && Boolean(event.detailsPath)));
+    assert.ok(events.some((event) => event.eventType === "safety" && event.summary === "Blocked bash: Bash command may mutate remote or published external systems." && isRecord(event.details) && event.details.risk === "external" && event.details.requiresApproval === true));
+  });
+});
+
 test("real Pi extension: cardinal bash call is blocked by SCALER safety hook", { skip: !REAL_PI_ENABLED }, async () => {
   await withRealPiTempRepo(async (dir) => {
     await writeFile(join(dir, ".env"), "SCALER_SECRET_SHOULD_NOT_APPEAR=probe\n", "utf8");
