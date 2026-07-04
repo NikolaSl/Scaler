@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -115,6 +115,35 @@ test("mock integration: evidence-required checklist fails without evidence then 
     assert.equal(checklists[0]?.status, "passed");
     assert.deepEqual(checklists[0]?.evidencePolicy?.missingEvidenceItemIds, []);
     assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
+  });
+});
+
+test("mock integration: validation gate policy blocks misordered dependency checks before command execution", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-POLICY";
+    state.tasks = [{ id: "T-POLICY", status: "validating", title: "Policy task", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+
+    const commands = registeredCommands();
+    await commands.get("scaler-validation-add")?.handler(
+      "T-POLICY | deps | node -e \"process.exit(0)\" | Check dependencies | required | dependency | dependencies verified | manifest:deps",
+      { cwd: dir, hasUI: false },
+    );
+    await commands.get("scaler-validation-add")?.handler(
+      "T-POLICY | expensive | node -e \"require('node:fs').writeFileSync('policy-should-not-run.txt','ran')\" | Expensive validation | required | unit | unit exits 0 | manifest:unit",
+      { cwd: dir, hasUI: false },
+    );
+
+    await commands.get("scaler-validate")?.handler("T-POLICY", { cwd: dir, hasUI: false });
+
+    const runs = await loadValidationRuns(dir);
+    assert.equal(runs[0]?.status, "failed");
+    assert.deepEqual(runs[0]?.policyDiagnostics?.map((diagnostic) => diagnostic.code), ["missing_test_first", "dependency_check_order"]);
+    assert.equal(runs[0]?.commandRuns[0]?.command, "SCALER validation manifest policy preflight");
+    assert.equal((await loadState(dir)).tasks[0]?.status, "debugging");
+    await assert.rejects(readFile(join(dir, "policy-should-not-run.txt"), "utf8"));
   });
 });
 
