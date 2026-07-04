@@ -154,6 +154,10 @@ export function getToolIterationRunsPath(cwd: string): string {
   return join(getToolRequestsDir(cwd), "iteration-runs.json");
 }
 
+export function getToolReplayApprovalsPath(cwd: string): string {
+  return join(getToolRequestsDir(cwd), "replay-approvals.json");
+}
+
 export function getReportsDir(cwd: string): string {
   return join(getScalerDir(cwd), "reports");
 }

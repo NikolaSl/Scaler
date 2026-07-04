@@ -32,6 +32,7 @@ import {
   parseToolDiscoverArgs,
   parseToolIterateArgs,
   parseToolIterationPolicyArgs,
+  parseToolReplayApprovalArgs,
   parseToolReplayArgs,
   parseToolRunArgs,
   parseValidateLoopArgs,
@@ -87,7 +88,7 @@ import {
   validateStageArtifactReadiness,
 } from "./stages.js";
 import { formatStorageInventory, formatStorageMaintenanceReport, formatStorageMaintenanceSchedule, loadStorageMaintenanceSchedule, runScheduledStorageMaintenance, runStorageMaintenance, saveStorageInventory, scanScalerStorageInventory, updateStorageMaintenanceSchedule, type StorageMaintenancePolicy } from "./storage.js";
-import { formatKnownToolCatalog, formatToolIterationPolicy, formatToolIterationRuns, formatToolSchemaDiscoveryRuns, formatToolTransactions, loadToolIterationPolicy, loadToolIterationRuns, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, replayToolTransaction, runToolIterationWorkflow, runToolRequestAgent, runToolSchemaDiscoveryAgent, saveToolIterationPolicy } from "./tool-requests.js";
+import { createToolReplayApproval, formatKnownToolCatalog, formatToolIterationPolicy, formatToolIterationRuns, formatToolReplayApprovals, formatToolSchemaDiscoveryRuns, formatToolTransactions, loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, replayToolTransaction, revokeToolReplayApproval, runToolIterationWorkflow, runToolRequestAgent, runToolSchemaDiscoveryAgent, saveToolIterationPolicy } from "./tool-requests.js";
 import { registerScalerTools } from "./tools.js";
 import { formatValidationChecklist, recordValidationChecklist, upsertValidationManifestCommand } from "./validation.js";
 import { runValidationDebugLoopWorkflow, selectTaskForValidationDebugLoop } from "./validation-debug-loop.js";
@@ -748,14 +749,58 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("scaler-tool-replay", {
-    description: "Prepare or execute a persisted isolated tool-agent transaction replay: /scaler-tool-replay <transactionId> [execute]",
+    description: "Prepare or execute a persisted isolated tool-agent transaction replay: /scaler-tool-replay <transactionId> [execute] [approval=<id>]",
     handler: async (args, ctx) => {
       const parsed = parseToolReplayArgs(args);
       const state = await ensureState(ctx.cwd);
-      const result = await replayToolTransaction(ctx.cwd, state, { transactionId: parsed.transactionId ?? "", execute: parsed.execute });
+      const result = await replayToolTransaction(ctx.cwd, state, { transactionId: parsed.transactionId ?? "", execute: parsed.execute, approvalId: parsed.approvalId });
       const suffix = result.transaction ? ` transaction=${result.transaction.id} status=${result.transaction.status}` : "";
       const message = `${result.message}${suffix}`;
       if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-tool-replay-approval", {
+    description: "List/create/revoke closed tool replay approvals: /scaler-tool-replay-approval [approve|revoke] ...",
+    handler: async (args, ctx) => {
+      const parsed = parseToolReplayApprovalArgs(args);
+      const state = await ensureState(ctx.cwd);
+      if (parsed.action === "approve") {
+        try {
+          const approval = await createToolReplayApproval(ctx.cwd, state, {
+            transactionId: parsed.transactionId ?? "",
+            reason: parsed.reason ?? "",
+            maxUses: parsed.maxUses,
+            ttlMinutes: parsed.ttlMinutes,
+          });
+          const message = `Tool replay approval created: ${approval.id} transaction=${approval.transactionId} uses=${approval.uses}/${approval.maxUses}`;
+          if (ctx.hasUI) ctx.ui.notify(message, "info");
+          else console.log(message);
+          return;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (ctx.hasUI) ctx.ui.notify(message, "warning");
+          else console.log(message);
+          return;
+        }
+      }
+      if (parsed.action === "revoke") {
+        try {
+          const approval = await revokeToolReplayApproval(ctx.cwd, state, { id: parsed.id ?? "", reason: parsed.reason });
+          const message = `Tool replay approval revoked: ${approval.id}`;
+          if (ctx.hasUI) ctx.ui.notify(message, "info");
+          else console.log(message);
+          return;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (ctx.hasUI) ctx.ui.notify(message, "warning");
+          else console.log(message);
+          return;
+        }
+      }
+      const message = formatToolReplayApprovals(await loadToolReplayApprovals(ctx.cwd));
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
     },
   });

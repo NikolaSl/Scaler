@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { appendLogEvent, createLogEvent } from "./logging.js";
-import { getToolCatalogPath, getToolIterationPolicyPath, getToolIterationRunsPath, getToolRequestsIndexPath, getToolResultsPath, getToolSchemaDiscoveryRunsPath, getToolTransactionsPath } from "./paths.js";
+import { getToolCatalogPath, getToolIterationPolicyPath, getToolIterationRunsPath, getToolReplayApprovalsPath, getToolRequestsIndexPath, getToolResultsPath, getToolSchemaDiscoveryRunsPath, getToolTransactionsPath } from "./paths.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { buildTaskAgentInvocation, runTaskAgent, type RunTaskAgentOptions, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import type { ScalerState } from "./types.js";
@@ -55,6 +55,7 @@ export type ToolTransactionStatus = "prepared" | "completed" | "failed" | "block
 export type ToolSchemaDiscoveryRunStatus = "prepared" | "completed" | "missing_schema" | "rejected";
 export type ToolIterationRunStatus = "prepared" | "completed" | "failed" | "blocked" | "missing_result" | "exhausted" | "rejected";
 export type ToolIterationStepAction = "run" | "replay";
+export type ToolReplayApprovalStatus = "active" | "consumed" | "revoked" | "expired";
 
 export interface ToolRequestRecord {
   id: string;
@@ -186,6 +187,22 @@ export interface ToolIterationRunRecord {
   updatedAt: string;
 }
 
+export interface ToolReplayApprovalRecord {
+  id: string;
+  transactionId: string;
+  requestId: string;
+  toolName: string;
+  status: ToolReplayApprovalStatus;
+  reason: string;
+  maxUses: number;
+  uses: number;
+  expiresAt?: string;
+  consumedByTransactionIds?: string[];
+  revokedReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ToolRequestPrepareResult {
   accepted: boolean;
   message: string;
@@ -219,6 +236,19 @@ export interface ToolTransactionReplayOptions {
   execute?: boolean;
   timeoutMs?: number;
   command?: string;
+  approvalId?: string;
+}
+
+export interface ToolReplayApprovalInput {
+  transactionId: string;
+  reason: string;
+  maxUses?: number;
+  ttlMinutes?: number;
+}
+
+export interface ToolReplayApprovalRevokeInput {
+  id: string;
+  reason?: string;
 }
 
 export interface ToolSchemaDiscoveryRunOptions {
@@ -299,6 +329,11 @@ interface ToolSchemaDiscoveryRunIndex {
 interface ToolIterationRunIndex {
   version: 1;
   runs: ToolIterationRunRecord[];
+}
+
+interface ToolReplayApprovalIndex {
+  version: 1;
+  approvals: ToolReplayApprovalRecord[];
 }
 
 const toolRiskLevels = new Set<ToolRiskLevel>(["low", "medium", "high", "destructive", "external", "secret", "unknown"]);
@@ -464,6 +499,78 @@ export function formatToolIterationRuns(records: ToolIterationRunRecord[], reque
   const lines = [requestId ? `Tool iteration runs for ${requestId}:` : "Tool iteration runs:"];
   for (const record of filtered.slice(0, limit)) {
     lines.push(`- ${record.id} request=${record.requestId ?? "n/a"} tool=${record.toolName ?? "n/a"} status=${record.status} executed=${record.executed} steps=${record.steps.length}/${record.maxIterations} final=${record.finalRequestStatus ?? "n/a"}: ${record.message}`);
+  }
+  return lines.join("\n");
+}
+
+export async function loadToolReplayApprovals(cwd: string): Promise<ToolReplayApprovalRecord[]> {
+  try {
+    const raw = await readFile(getToolReplayApprovalsPath(cwd), "utf8");
+    return (JSON.parse(raw) as ToolReplayApprovalIndex).approvals;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+export async function createToolReplayApproval(cwd: string, state: ScalerState, input: ToolReplayApprovalInput, now = new Date()): Promise<ToolReplayApprovalRecord> {
+  const transactionId = input.transactionId.trim();
+  const reason = input.reason.trim();
+  if (!transactionId) throw new Error("Tool replay approval rejected: transactionId is required.");
+  if (!reason) throw new Error("Tool replay approval rejected: reason is required.");
+  const transaction = (await loadToolTransactions(cwd)).find((candidate) => candidate.id === transactionId);
+  if (!transaction) throw new Error(`Tool replay approval rejected: transaction ${transactionId} not found.`);
+  const request = (await loadToolRequests(cwd)).find((candidate) => candidate.id === transaction.requestId);
+  if (!request) throw new Error(`Tool replay approval rejected: request ${transaction.requestId} not found.`);
+  const maxUses = Math.min(10, Math.max(1, Math.trunc(input.maxUses ?? 1)));
+  const ttlMinutes = input.ttlMinutes === undefined ? undefined : Math.max(1, Math.trunc(input.ttlMinutes));
+  const timestamp = now.toISOString();
+  const approval: ToolReplayApprovalRecord = {
+    id: randomUUID(),
+    transactionId: transaction.id,
+    requestId: request.id,
+    toolName: request.toolName,
+    status: "active",
+    reason,
+    maxUses,
+    uses: 0,
+    expiresAt: ttlMinutes === undefined ? undefined : new Date(now.getTime() + ttlMinutes * 60_000).toISOString(),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  await writeToolReplayApprovalIndex(cwd, [approval, ...(await loadToolReplayApprovals(cwd))]);
+  await appendLogEvent(cwd, createLogEvent(state, {
+    eventType: "tool",
+    summary: `Tool replay approval created: ${approval.id}`,
+    taskId: request.taskId,
+    outputRefs: [approval.id, approval.transactionId, approval.requestId],
+    details: { approval },
+  }));
+  return approval;
+}
+
+export async function revokeToolReplayApproval(cwd: string, state: ScalerState, input: ToolReplayApprovalRevokeInput, now = new Date()): Promise<ToolReplayApprovalRecord> {
+  const id = input.id.trim();
+  const approvals = await loadToolReplayApprovals(cwd);
+  const approval = approvals.find((candidate) => candidate.id === id);
+  if (!approval) throw new Error(`Tool replay approval rejected: approval ${id || "<missing>"} not found.`);
+  const updated: ToolReplayApprovalRecord = { ...approval, status: "revoked", revokedReason: input.reason?.trim() || undefined, updatedAt: now.toISOString() };
+  await writeToolReplayApprovalIndex(cwd, approvals.map((candidate) => candidate.id === approval.id ? updated : candidate));
+  await appendLogEvent(cwd, createLogEvent(state, {
+    eventType: "tool",
+    summary: `Tool replay approval revoked: ${updated.id}`,
+    outputRefs: [updated.id, updated.transactionId, updated.requestId],
+    details: { approval: updated },
+  }));
+  return updated;
+}
+
+export function formatToolReplayApprovals(records: ToolReplayApprovalRecord[], transactionId?: string, limit = 10): string {
+  const filtered = transactionId ? records.filter((record) => record.transactionId === transactionId) : records;
+  if (filtered.length === 0) return transactionId ? `No tool replay approvals for ${transactionId}.` : "No tool replay approvals.";
+  const lines = [transactionId ? `Tool replay approvals for ${transactionId}:` : "Tool replay approvals:"];
+  for (const record of filtered.slice(0, limit)) {
+    lines.push(`- ${record.id} transaction=${record.transactionId} request=${record.requestId} tool=${record.toolName} status=${record.status} uses=${record.uses}/${record.maxUses} expiresAt=${record.expiresAt ?? "never"}: ${record.reason}`);
   }
   return lines.join("\n");
 }
@@ -805,16 +912,21 @@ export async function replayToolTransaction(
     return { accepted: true, message: transaction.message, original, request, prompt: replayRequest.prompt, invocation, transaction };
   }
 
+  let approval: ToolReplayApprovalRecord | undefined;
   if (request.status !== "prepared") {
-    const transaction = await recordToolTransaction(cwd, request, {
-      status: "rejected",
-      executed: false,
-      invocation,
-      replayOfTransactionId: original.id,
-      message: `Tool transaction replay rejected: request ${request.id} is ${request.status}`,
-    });
-    await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: transaction.message, taskId: request.taskId, details: { transaction, original, request } }));
-    return { accepted: false, message: transaction.message, original, request, prompt: replayRequest.prompt, invocation, transaction };
+    approval = await findUsableReplayApproval(cwd, original, request, options.approvalId);
+    if (!approval) {
+      const approvalHint = options.approvalId ? ` approval ${options.approvalId} is not usable` : " no approval supplied";
+      const transaction = await recordToolTransaction(cwd, request, {
+        status: "rejected",
+        executed: false,
+        invocation,
+        replayOfTransactionId: original.id,
+        message: `Tool transaction replay rejected: request ${request.id} is ${request.status};${approvalHint}`,
+      });
+      await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: transaction.message, taskId: request.taskId, details: { transaction, original, request, approvalId: options.approvalId } }));
+      return { accepted: false, message: transaction.message, original, request, prompt: replayRequest.prompt, invocation, transaction };
+    }
   }
 
   const beforeResultIds = new Set((await loadToolResults(cwd)).map((record) => record.id));
@@ -841,7 +953,8 @@ export async function replayToolTransaction(
       ? `Tool transaction replay missing structured result: ${original.id}`
       : `Tool transaction replay completed: ${original.id} ${status}`,
   });
-  await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: transaction.message, taskId: request.taskId, details: { transaction, original, runResult, resultRecord } }));
+  const consumedApproval = approval ? await consumeToolReplayApproval(cwd, approval, transaction.id) : undefined;
+  await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: transaction.message, taskId: request.taskId, details: { transaction, original, runResult, resultRecord, approval: consumedApproval } }));
   return {
     accepted: status !== "missing_result",
     message: transaction.message,
@@ -1069,6 +1182,13 @@ async function writeToolIterationRunIndex(cwd: string, runs: ToolIterationRunRec
   await writeFile(path, `${JSON.stringify({ version: 1, runs: sorted } satisfies ToolIterationRunIndex, null, 2)}\n`, "utf8");
 }
 
+async function writeToolReplayApprovalIndex(cwd: string, approvals: ToolReplayApprovalRecord[]): Promise<void> {
+  const path = getToolReplayApprovalsPath(cwd);
+  await mkdir(dirname(path), { recursive: true });
+  const sorted = [...approvals].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  await writeFile(path, `${JSON.stringify({ version: 1, approvals: sorted } satisfies ToolReplayApprovalIndex, null, 2)}\n`, "utf8");
+}
+
 async function recordToolSchemaDiscoveryRun(
   cwd: string,
   input: {
@@ -1228,6 +1348,52 @@ async function latestMissingResultTransaction(cwd: string, requestId: string): P
   return (await loadToolTransactions(cwd))
     .filter((transaction) => transaction.requestId === requestId && transaction.status === "missing_result")
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+}
+
+async function findUsableReplayApproval(
+  cwd: string,
+  transaction: ToolTransactionRecord,
+  request: ToolRequestRecord,
+  approvalId?: string,
+  now = new Date(),
+): Promise<ToolReplayApprovalRecord | undefined> {
+  if (!approvalId?.trim()) return undefined;
+  const approvals = await loadToolReplayApprovals(cwd);
+  for (const approval of approvals) {
+    if (approval.id !== approvalId.trim()) continue;
+    if (approval.transactionId !== transaction.id || approval.requestId !== request.id) continue;
+    if (approval.status !== "active") continue;
+    if (approval.uses >= approval.maxUses) continue;
+    if (approval.expiresAt && approval.expiresAt <= now.toISOString()) continue;
+    return approval;
+  }
+  if (approvalId) {
+    const expired = approvals.find((approval) => approval.id === approvalId.trim() && approval.status === "active" && approval.expiresAt && approval.expiresAt <= now.toISOString());
+    if (expired) await expireToolReplayApproval(cwd, expired, now);
+  }
+  return undefined;
+}
+
+async function expireToolReplayApproval(cwd: string, approval: ToolReplayApprovalRecord, now = new Date()): Promise<ToolReplayApprovalRecord> {
+  const updated: ToolReplayApprovalRecord = { ...approval, status: "expired", updatedAt: now.toISOString() };
+  const approvals = await loadToolReplayApprovals(cwd);
+  await writeToolReplayApprovalIndex(cwd, approvals.map((candidate) => candidate.id === approval.id ? updated : candidate));
+  return updated;
+}
+
+async function consumeToolReplayApproval(cwd: string, approval: ToolReplayApprovalRecord, transactionId: string, now = new Date()): Promise<ToolReplayApprovalRecord> {
+  const approvals = await loadToolReplayApprovals(cwd);
+  const latest = approvals.find((candidate) => candidate.id === approval.id) ?? approval;
+  const uses = latest.uses + 1;
+  const updated: ToolReplayApprovalRecord = {
+    ...latest,
+    uses,
+    status: uses >= latest.maxUses ? "consumed" : latest.status,
+    consumedByTransactionIds: uniqueNonEmpty([...(latest.consumedByTransactionIds ?? []), transactionId]),
+    updatedAt: now.toISOString(),
+  };
+  await writeToolReplayApprovalIndex(cwd, approvals.map((candidate) => candidate.id === latest.id ? updated : candidate));
+  return updated;
 }
 
 function toolIterationStep(

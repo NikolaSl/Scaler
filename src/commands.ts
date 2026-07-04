@@ -196,6 +196,16 @@ export interface ParsedToolIterationPolicyArgs {
 export interface ParsedToolReplayArgs {
   transactionId?: string;
   execute: boolean;
+  approvalId?: string;
+}
+
+export interface ParsedToolReplayApprovalArgs {
+  action: "list" | "approve" | "revoke";
+  id?: string;
+  transactionId?: string;
+  reason?: string;
+  maxUses?: number;
+  ttlMinutes?: number;
 }
 
 export interface ParsedToolCatalogArgs {
@@ -586,10 +596,34 @@ export function parseToolIterationPolicyArgs(args: string | undefined): ParsedTo
 
 export function parseToolReplayArgs(args: string | undefined): ParsedToolReplayArgs {
   const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  const approvalPart = parts.find((part) => /^approval=/i.test(part));
+  const optionParts = new Set(parts.filter((part) => part.toLowerCase() === "execute" || /^approval=/i.test(part)));
   return {
-    transactionId: parts.find((part) => part.toLowerCase() !== "execute"),
+    transactionId: parts.find((part) => !optionParts.has(part)),
     execute: parts.some((part) => part.toLowerCase() === "execute"),
+    approvalId: approvalPart ? approvalPart.split("=").slice(1).join("=").trim() || undefined : undefined,
   };
+}
+
+export function parseToolReplayApprovalArgs(args: string | undefined): ParsedToolReplayApprovalArgs {
+  const parts = splitPipeArgs(args);
+  const action = parts[0]?.trim().toLowerCase();
+  if (action === "approve") {
+    const optionParts = parts.slice(3).flatMap((part) => part.trim().split(/\s+/).filter(Boolean));
+    const maxUsesPart = optionParts.find((part) => /^max-uses=\d+$/i.test(part));
+    const ttlPart = optionParts.find((part) => /^ttl-minutes=\d+$/i.test(part));
+    return {
+      action: "approve",
+      transactionId: parts[1]?.trim() || undefined,
+      reason: parts[2]?.trim() || undefined,
+      maxUses: maxUsesPart ? Number.parseInt(maxUsesPart.split("=")[1] ?? "", 10) : undefined,
+      ttlMinutes: ttlPart ? Number.parseInt(ttlPart.split("=")[1] ?? "", 10) : undefined,
+    };
+  }
+  if (action === "revoke") {
+    return { action: "revoke", id: parts[1]?.trim() || undefined, reason: parts[2]?.trim() || undefined };
+  }
+  return { action: "list" };
 }
 
 export function parseToolCatalogArgs(args: string | undefined): ParsedToolCatalogArgs {
