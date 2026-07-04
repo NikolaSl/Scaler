@@ -59,6 +59,7 @@ Prefer assertions on durable artifacts such as:
 - `.scaler/tool-requests/results.json`
 - `.scaler/tool-requests/transactions.json`
 - `.scaler/tool-requests/catalog.json`
+- `.scaler/tool-requests/schema-runs.json`
 - `.scaler/plans/replan-requests.json`
 - `.scaler/reports/validation-runs.json`
 - `.scaler/reports/*-agent-runs.json`
@@ -209,6 +210,7 @@ When adding a new integration scenario:
   - rich `scaler_tool_request` metadata persists to `.scaler/tool-requests/`;
   - isolated invocation includes only explicitly allowed tools and selected compact catalog entries;
   - discovered `scaler_tool_schema` metadata is merged into later request/transaction prompts;
+  - supervised schema discovery probes record prepare/execute runs under `.scaler/tool-requests/schema-runs.json` and require structured `scaler_tool_schema` completion;
   - tool-agent transactions record prepare/execute runs under `.scaler/tool-requests/transactions.json`;
   - free-form/missing child results become `missing_result` instead of request completion;
   - structured `scaler_tool_result` closes the originating request and persists outputs/evidence/validation metadata.
