@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { getBudgetState } from "../../../src/budgets.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { loadState } from "../../../src/state.js";
-import { loadToolRequests } from "../../../src/tool-requests.js";
+import { loadToolRequests, loadToolResults } from "../../../src/tool-requests.js";
 import { registerScalerTools } from "../../../src/tools.js";
 
 const execFileAsync = promisify(execFile);
@@ -75,8 +75,32 @@ test("mock integration: scaler_tool_request persists rich metadata and isolated 
     assert.match(prompt, /Do not call bash or mutate files/);
     assert.doesNotMatch(prompt, /write: Create or overwrite/);
 
-    assert.equal(getBudgetState(await loadState(dir)).usage.toolCalls, 1);
+    await registered.get("scaler_tool_result")?.execute(
+      "tool-result-call",
+      {
+        requestId: record.id,
+        status: "completed",
+        summary: "Widget lifecycle API located.",
+        outputs: { apiNames: ["Widget.create", "Widget.destroy"], refs: ["docs:widget-lifecycle"] },
+        evidenceRefs: ["docs:widget-lifecycle"],
+        validationPerformed: ["checked requested requiredFormat"],
+        recommendations: ["Use Widget.destroy in cleanup paths."],
+      },
+      undefined,
+      undefined,
+      { cwd: dir },
+    );
+
+    const resultRecord = (await loadToolResults(dir))[0];
+    const updatedRequest = (await loadToolRequests(dir))[0];
+    assert.equal(resultRecord?.requestId, record.id);
+    assert.equal(resultRecord?.status, "completed");
+    assert.deepEqual(resultRecord?.validationPerformed, ["checked requested requiredFormat"]);
+    assert.equal(updatedRequest?.status, "completed");
+
+    assert.equal(getBudgetState(await loadState(dir)).usage.toolCalls, 2);
     const events = await readLogEvents(dir);
     assert.ok(events.some((event) => event.eventType === "tool" && event.summary === "Tool request prepared: docs_search"));
+    assert.ok(events.some((event) => event.eventType === "tool" && event.summary === "Tool result recorded: docs_search completed"));
   });
 });
