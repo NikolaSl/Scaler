@@ -1,0 +1,89 @@
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+import { promisify } from "node:util";
+import scalerExtension from "../../../src/index.js";
+import { readLogEvents } from "../../../src/logging.js";
+import { runValidationWithExecutionLock } from "../../../src/operations.js";
+import { createDefaultState, loadState, saveState } from "../../../src/state.js";
+import { loadValidationManifests, loadValidationRuns } from "../../../src/validation.js";
+
+const execFileAsync = promisify(execFile);
+
+type CommandHandler = (args: string | undefined, ctx: { cwd: string; hasUI: boolean }) => Promise<void>;
+
+async function withTempRepo<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), "scaler-validation-gates-integration-test-"));
+  try {
+    await execFileAsync("git", ["init"], { cwd: dir });
+    await execFileAsync("git", ["config", "user.email", "scaler-test@example.invalid"], { cwd: dir });
+    await execFileAsync("git", ["config", "user.name", "Scaler Test"], { cwd: dir });
+    await mkdir(join(dir, "src"), { recursive: true });
+    await writeFile(join(dir, "package.json"), JSON.stringify({ type: "module" }, null, 2));
+    await writeFile(join(dir, "src/app.js"), "export const value = 1;\n");
+    await execFileAsync("git", ["add", "package.json", "src/app.js"], { cwd: dir });
+    await execFileAsync("git", ["commit", "-m", "initial fixture"], { cwd: dir });
+    return await fn(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+function registeredCommands(): Map<string, { handler: CommandHandler }> {
+  const commands = new Map<string, { handler: CommandHandler }>();
+  const fakePi = {
+    on() {},
+    registerTool() {},
+    registerCommand(name: string, command: { handler: CommandHandler }) {
+      commands.set(name, command);
+    },
+  };
+  scalerExtension(fakePi as never);
+  return commands;
+}
+
+test("mock integration: validation-add gate metadata persists through validation run and audit", async () => {
+  await withTempRepo(async (dir) => {
+    const commands = registeredCommands();
+    await commands.get("scaler-validation-add")?.handler(
+      "T-GATE | unit | node -e \"process.exit(0)\" | Unit validation | required | unit | process exits 0 | evidence:unit",
+      { cwd: dir, hasUI: false },
+    );
+
+    const manifest = (await loadValidationManifests(dir))[0];
+    assert.equal(manifest?.commands[0]?.gate, "unit_tests");
+    assert.equal(manifest?.commands[0]?.expectedResult, "process exits 0");
+    assert.deepEqual(manifest?.commands[0]?.evidenceRefs, ["evidence:unit"]);
+
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-GATE";
+    state.tasks = [{
+      id: "T-GATE",
+      status: "validating",
+      title: "Typed validation gate task",
+      allowedPathPrefixes: ["src/app.js"],
+      prdRefs: ["REQ-VALIDATION-GATES"],
+      updatedAt: state.createdAt,
+    }];
+    await saveState(dir, state);
+
+    const result = await runValidationWithExecutionLock(dir, state, "T-GATE");
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.result?.status, "passed");
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
+    const run = (await loadValidationRuns(dir))[0];
+    assert.equal(run?.commandRuns[0]?.gate, "unit_tests");
+    assert.equal(run?.commandRuns[0]?.required, true);
+    assert.equal(run?.commandRuns[0]?.expectedResult, "process exits 0");
+    assert.deepEqual(run?.commandRuns[0]?.evidenceRefs, ["evidence:unit"]);
+
+    const validationSummary = (await readLogEvents(dir)).find((event) => event.eventType === "validation" && event.summary === "Validation summary: T-GATE passed");
+    assert.ok(validationSummary, "expected validation summary audit event");
+    assert.deepEqual((validationSummary.details as { gates?: unknown }).gates, [{ commandId: "unit", gate: "unit_tests", required: true, status: "passed" }]);
+  });
+});
