@@ -1027,7 +1027,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("scaler-storage-maintain", {
-    description: "Plan or execute safe .scaler/ storage maintenance: /scaler-storage-maintain [execute] [compress] [delete-cache] [rotate-active] [min-age-days=N] [min-size=N] [max-active-bytes=N] [min-free-bytes=N]",
+    description: "Plan or execute safe .scaler/ storage maintenance: /scaler-storage-maintain [execute] [compress] [delete-cache] [rotate-active] [delete-archives] [min-age-days=N] [min-size=N] [max-active-bytes=N] [min-free-bytes=N] [max-archive-bytes=N] [max-archive-age-days=N]",
     handler: async (args, ctx) => {
       const parsed = parseStorageMaintainArgs(args);
       const state = await ensureState(ctx.cwd);
@@ -1040,6 +1040,9 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         rotateActive: parsed.rotateActive,
         maxActiveBytes: parsed.maxActiveBytes,
         minFreeBytes: parsed.minFreeBytes,
+        deleteArchives: parsed.deleteArchives,
+        maxArchiveBytes: parsed.maxArchiveBytes,
+        maxArchiveAgeDays: parsed.maxArchiveAgeDays,
       });
       const inventory = await scanScalerStorageInventory(ctx.cwd);
       const budgetResult = setBudgetUsage(state, "storageBytes", inventory.totalBytes);

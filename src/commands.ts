@@ -74,6 +74,9 @@ export interface ParsedStorageMaintainArgs {
   rotateActive: boolean;
   maxActiveBytes?: number;
   minFreeBytes?: number;
+  deleteArchives: boolean;
+  maxArchiveBytes?: number;
+  maxArchiveAgeDays?: number;
 }
 
 export interface ParsedPrdLinkArgs {
@@ -288,10 +291,14 @@ export function parseStorageMaintainArgs(args: string | undefined): ParsedStorag
   const minSizePart = parts.find((part) => /^min-size=\d+$/i.test(part));
   const maxActivePart = parts.find((part) => /^max-active-bytes=\d+$/i.test(part));
   const minFreePart = parts.find((part) => /^min-free-bytes=\d+$/i.test(part));
+  const maxArchivePart = parts.find((part) => /^max-archive-bytes=\d+$/i.test(part));
+  const maxArchiveAgePart = parts.find((part) => /^max-archive-age-days=\d+$/i.test(part));
   const minAgeDays = minAgePart ? Number.parseInt(minAgePart.split("=")[1] ?? "", 10) : undefined;
   const minSizeBytes = minSizePart ? Number.parseInt(minSizePart.split("=")[1] ?? "", 10) : undefined;
   const maxActiveBytes = maxActivePart ? Number.parseInt(maxActivePart.split("=")[1] ?? "", 10) : undefined;
   const minFreeBytes = minFreePart ? Number.parseInt(minFreePart.split("=")[1] ?? "", 10) : undefined;
+  const maxArchiveBytes = maxArchivePart ? Number.parseInt(maxArchivePart.split("=")[1] ?? "", 10) : undefined;
+  const maxArchiveAgeDays = maxArchiveAgePart ? Number.parseInt(maxArchiveAgePart.split("=")[1] ?? "", 10) : undefined;
   return {
     execute: parts.some((part) => part.toLowerCase() === "execute"),
     compress: !parts.some((part) => part.toLowerCase() === "no-compress"),
@@ -301,6 +308,9 @@ export function parseStorageMaintainArgs(args: string | undefined): ParsedStorag
     rotateActive: parts.some((part) => part.toLowerCase() === "rotate-active"),
     maxActiveBytes: maxActiveBytes === undefined || !Number.isFinite(maxActiveBytes) ? undefined : maxActiveBytes,
     minFreeBytes: minFreeBytes === undefined || !Number.isFinite(minFreeBytes) ? undefined : minFreeBytes,
+    deleteArchives: parts.some((part) => part.toLowerCase() === "delete-archives"),
+    maxArchiveBytes: maxArchiveBytes === undefined || !Number.isFinite(maxArchiveBytes) ? undefined : maxArchiveBytes,
+    maxArchiveAgeDays: maxArchiveAgeDays === undefined || !Number.isFinite(maxArchiveAgeDays) ? undefined : maxArchiveAgeDays,
   };
 }
 

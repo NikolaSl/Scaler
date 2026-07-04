@@ -170,6 +170,44 @@ test("runStorageMaintenance rotates active ledgers into archives and resets acti
   });
 });
 
+test("planStorageMaintenance requires approval before archive retention deletion", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, ".scaler", "storage", "archive", "logs"), { recursive: true });
+    const oldArchive = join(dir, ".scaler", "storage", "archive", "logs", "events-old.jsonl");
+    const newArchive = join(dir, ".scaler", "storage", "archive", "logs", "events-new.jsonl");
+    await writeFile(oldArchive, "o".repeat(5), "utf8");
+    await writeFile(newArchive, "n".repeat(5), "utf8");
+    await utimes(oldArchive, new Date("2025-12-01T00:00:00.000Z"), new Date("2025-12-01T00:00:00.000Z"));
+    await utimes(newArchive, new Date("2025-12-31T00:00:00.000Z"), new Date("2025-12-31T00:00:00.000Z"));
+
+    const unapproved = await planStorageMaintenance(dir, { maxArchiveBytes: 6, minAgeDays: 999, minSizeBytes: 1000, now: new Date("2026-01-01T00:00:00.000Z") });
+    assert.equal(unapproved.actions.some((action) => action.type === "delete_archive"), false);
+
+    const approved = await planStorageMaintenance(dir, { deleteArchives: true, maxArchiveBytes: 6, minAgeDays: 999, minSizeBytes: 1000, now: new Date("2026-01-01T00:00:00.000Z") });
+    assert.deepEqual(approved.actions.map((action) => [action.type, action.path, action.reason]), [
+      ["delete_archive", ".scaler/storage/archive/logs/events-old.jsonl", "archiveBytes>6"],
+    ]);
+  });
+});
+
+test("runStorageMaintenance deletes approved archive retention targets only", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, ".scaler", "storage", "archive", "reports"), { recursive: true });
+    const oldArchive = join(dir, ".scaler", "storage", "archive", "reports", "validation-runs-old.json");
+    const newArchive = join(dir, ".scaler", "storage", "archive", "reports", "validation-runs-new.json");
+    await writeFile(oldArchive, "o".repeat(5), "utf8");
+    await writeFile(newArchive, "n".repeat(5), "utf8");
+    await utimes(oldArchive, new Date("2025-12-01T00:00:00.000Z"), new Date("2025-12-01T00:00:00.000Z"));
+    await utimes(newArchive, new Date("2025-12-31T00:00:00.000Z"), new Date("2025-12-31T00:00:00.000Z"));
+
+    const executed = await runStorageMaintenance(dir, { execute: true, deleteArchives: true, maxArchiveBytes: 6, compress: false, now: new Date("2026-01-01T00:00:00.000Z") });
+
+    assert.equal(executed.actions.filter((action) => action.type === "delete_archive" && action.status === "completed").length, 1);
+    await assert.rejects(access(oldArchive));
+    assert.equal(await readFile(newArchive, "utf8"), "n".repeat(5));
+  });
+});
+
 test("runStorageMaintenance compresses eligible files and deletes cache only when executed", async () => {
   await withTempDir(async (dir) => {
     await mkdir(join(dir, ".scaler", "logs", "details"), { recursive: true });

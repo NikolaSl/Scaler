@@ -35,7 +35,7 @@ export interface StorageInventoryOptions {
   now?: Date;
 }
 
-export type StorageMaintenanceActionType = "compress" | "delete_cache" | "rotate_active" | "check_free_disk";
+export type StorageMaintenanceActionType = "compress" | "delete_cache" | "rotate_active" | "check_free_disk" | "delete_archive";
 export type StorageMaintenanceActionStatus = "planned" | "completed" | "failed" | "skipped";
 
 export interface StorageMaintenanceAction {
@@ -57,6 +57,9 @@ export interface StorageMaintenancePolicy {
   rotateActive: boolean;
   maxActiveBytes: number;
   minFreeBytes?: number;
+  deleteArchives: boolean;
+  maxArchiveBytes?: number;
+  maxArchiveAgeDays?: number;
 }
 
 export interface StorageDiskCheck {
@@ -95,6 +98,9 @@ export interface StorageMaintenanceOptions {
   rotateActive?: boolean;
   maxActiveBytes?: number;
   minFreeBytes?: number;
+  deleteArchives?: boolean;
+  maxArchiveBytes?: number;
+  maxArchiveAgeDays?: number;
   now?: Date;
 }
 
@@ -274,6 +280,7 @@ export async function planStorageMaintenance(cwd: string, options: StorageMainte
   }
 
   await visit(getScalerDir(cwd));
+  actions.push(...(await planArchiveRetentionActions(cwd, policy, generatedAt, actions.length)));
   const disk = policy.minFreeBytes === undefined ? undefined : await checkStorageDisk(cwd, policy.minFreeBytes, generatedAt);
   if (disk) actions.push(createDiskCheckAction(disk, false));
   actions.sort(compareMaintenanceActions);
@@ -300,6 +307,9 @@ export async function runStorageMaintenance(cwd: string, options: StorageMainten
       } else if (action.type === "rotate_active") {
         await rotateActiveStorageFile(cwd, action);
         executedActions.push({ ...action, status: "completed", message: `Rotated to ${action.targetPath}` });
+      } else if (action.type === "delete_archive") {
+        await deleteStorageArchiveFile(cwd, action);
+        executedActions.push({ ...action, status: "completed", message: "Deleted archive file" });
       } else {
         executedActions.push({ ...action, status: "skipped", message: "Unknown action type" });
       }
@@ -337,7 +347,7 @@ export async function loadStorageMaintenanceReport(cwd: string): Promise<Storage
 export function formatStorageMaintenanceReport(report: StorageMaintenanceReport): string {
   const lines = [
     `Storage maintenance: executed=${report.executed} planned=${report.summary.planned} completed=${report.summary.completed} failed=${report.summary.failed} skipped=${report.summary.skipped} bytesEligible=${report.summary.bytesEligible} bytesCompleted=${report.summary.bytesCompleted}`,
-    `Policy: compress=${report.policy.compress} deleteCache=${report.policy.deleteCache} minAgeDays=${report.policy.minAgeDays} minSizeBytes=${report.policy.minSizeBytes} rotateActive=${report.policy.rotateActive} maxActiveBytes=${report.policy.maxActiveBytes}${report.policy.minFreeBytes === undefined ? "" : ` minFreeBytes=${report.policy.minFreeBytes}`}`,
+    `Policy: compress=${report.policy.compress} deleteCache=${report.policy.deleteCache} minAgeDays=${report.policy.minAgeDays} minSizeBytes=${report.policy.minSizeBytes} rotateActive=${report.policy.rotateActive} maxActiveBytes=${report.policy.maxActiveBytes}${report.policy.minFreeBytes === undefined ? "" : ` minFreeBytes=${report.policy.minFreeBytes}`} deleteArchives=${report.policy.deleteArchives}${report.policy.maxArchiveBytes === undefined ? "" : ` maxArchiveBytes=${report.policy.maxArchiveBytes}`}${report.policy.maxArchiveAgeDays === undefined ? "" : ` maxArchiveAgeDays=${report.policy.maxArchiveAgeDays}`}`,
     ...(report.disk ? [`Disk: status=${report.disk.status} freeBytes=${report.disk.freeBytes ?? "unknown"} minFreeBytes=${report.disk.minFreeBytes}${report.disk.message ? ` message=${report.disk.message}` : ""}`] : []),
     ...report.actions.map((action) => `- ${action.status} ${action.type} ${action.path}${action.targetPath ? ` -> ${action.targetPath}` : ""} bytes=${action.sizeBytes} reason=${action.reason}${action.message ? ` message=${action.message}` : ""}`),
   ];
@@ -349,6 +359,8 @@ function normalizeMaintenancePolicy(options: StorageMaintenanceOptions): Storage
   const minSizeBytes = Number.isFinite(options.minSizeBytes) && options.minSizeBytes !== undefined ? Math.max(1, options.minSizeBytes) : 1024 * 1024;
   const maxActiveBytes = Number.isFinite(options.maxActiveBytes) && options.maxActiveBytes !== undefined ? Math.max(1, options.maxActiveBytes) : DEFAULT_MAX_ACTIVE_BYTES;
   const minFreeBytes = Number.isFinite(options.minFreeBytes) && options.minFreeBytes !== undefined ? Math.max(0, options.minFreeBytes) : undefined;
+  const maxArchiveBytes = Number.isFinite(options.maxArchiveBytes) && options.maxArchiveBytes !== undefined ? Math.max(0, options.maxArchiveBytes) : undefined;
+  const maxArchiveAgeDays = Number.isFinite(options.maxArchiveAgeDays) && options.maxArchiveAgeDays !== undefined ? Math.max(0, options.maxArchiveAgeDays) : undefined;
   return {
     compress: options.compress ?? true,
     deleteCache: options.deleteCache ?? false,
@@ -357,6 +369,9 @@ function normalizeMaintenancePolicy(options: StorageMaintenanceOptions): Storage
     rotateActive: options.rotateActive ?? false,
     maxActiveBytes,
     minFreeBytes,
+    deleteArchives: options.deleteArchives ?? false,
+    maxArchiveBytes,
+    maxArchiveAgeDays,
   };
 }
 
@@ -400,6 +415,85 @@ async function compressStorageFile(cwd: string, action: StorageMaintenanceAction
 async function deleteStorageCacheFile(cwd: string, action: StorageMaintenanceAction): Promise<void> {
   if (action.type !== "delete_cache" || !action.path.startsWith(`${SCALER_DIR}/cache/`)) throw new Error("Cache delete action is outside .scaler/cache.");
   await unlink(join(cwd, action.path));
+}
+
+async function deleteStorageArchiveFile(cwd: string, action: StorageMaintenanceAction): Promise<void> {
+  if (action.type !== "delete_archive" || !isStorageArchivePath(action.path)) throw new Error("Archive delete action is outside .scaler/storage/archive.");
+  await unlink(join(cwd, action.path));
+}
+
+interface StorageArchiveFileCandidate {
+  path: string;
+  sizeBytes: number;
+  modifiedAtMs: number;
+}
+
+async function planArchiveRetentionActions(
+  cwd: string,
+  policy: StorageMaintenancePolicy,
+  generatedAt: string,
+  startingIndex: number,
+): Promise<StorageMaintenanceAction[]> {
+  if (!policy.deleteArchives || (policy.maxArchiveBytes === undefined && policy.maxArchiveAgeDays === undefined)) return [];
+  const files = await collectStorageArchiveFiles(cwd);
+  const selected = new Map<string, { file: StorageArchiveFileCandidate; reasons: string[] }>();
+  const addSelected = (file: StorageArchiveFileCandidate, reason: string): void => {
+    const existing = selected.get(file.path);
+    if (existing) existing.reasons.push(reason);
+    else selected.set(file.path, { file, reasons: [reason] });
+  };
+
+  if (policy.maxArchiveAgeDays !== undefined) {
+    const cutoffMs = Date.parse(generatedAt) - policy.maxArchiveAgeDays * 24 * 60 * 60 * 1000;
+    for (const file of files) {
+      if (file.modifiedAtMs <= cutoffMs) addSelected(file, `archiveAge>=${policy.maxArchiveAgeDays}d`);
+    }
+  }
+
+  if (policy.maxArchiveBytes !== undefined) {
+    const totalBytes = files.reduce((total, file) => total + file.sizeBytes, 0);
+    let selectedBytes = Array.from(selected.values()).reduce((total, entry) => total + entry.file.sizeBytes, 0);
+    for (const file of [...files].sort((left, right) => left.modifiedAtMs - right.modifiedAtMs || left.path.localeCompare(right.path))) {
+      if (totalBytes - selectedBytes <= policy.maxArchiveBytes) break;
+      if (selected.has(file.path)) continue;
+      addSelected(file, `archiveBytes>${policy.maxArchiveBytes}`);
+      selectedBytes += file.sizeBytes;
+    }
+  }
+
+  return Array.from(selected.values())
+    .sort((left, right) => left.file.modifiedAtMs - right.file.modifiedAtMs || left.file.path.localeCompare(right.file.path))
+    .map((entry, index) => ({
+      id: `delete-archive-${startingIndex + index + 1}`,
+      type: "delete_archive",
+      path: entry.file.path,
+      sizeBytes: entry.file.sizeBytes,
+      reason: Array.from(new Set(entry.reasons)).join(","),
+      status: "planned",
+    }));
+}
+
+async function collectStorageArchiveFiles(cwd: string): Promise<StorageArchiveFileCandidate[]> {
+  const root = join(cwd, SCALER_DIR, "storage", "archive");
+  const files: StorageArchiveFileCandidate[] = [];
+  async function visit(absolutePath: string): Promise<void> {
+    let info;
+    try {
+      info = await lstat(absolutePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    if (info.isDirectory()) {
+      const entries = await readdir(absolutePath);
+      await Promise.all(entries.map((entry) => visit(join(absolutePath, entry))));
+      return;
+    }
+    if (!info.isFile()) return;
+    files.push({ path: normalizeRelativeStoragePath(cwd, absolutePath), sizeBytes: info.size, modifiedAtMs: info.mtime.getTime() });
+  }
+  await visit(root);
+  return files.filter((file) => isStorageArchivePath(file.path));
 }
 
 async function rotateActiveStorageFile(cwd: string, action: StorageMaintenanceAction): Promise<void> {
@@ -452,7 +546,7 @@ function createDiskCheckAction(disk: StorageDiskCheck, executed: boolean): Stora
 }
 
 function compareMaintenanceActions(left: StorageMaintenanceAction, right: StorageMaintenanceAction): number {
-  const order: Record<StorageMaintenanceActionType, number> = { rotate_active: 0, compress: 1, delete_cache: 2, check_free_disk: 3 };
+  const order: Record<StorageMaintenanceActionType, number> = { rotate_active: 0, compress: 1, delete_cache: 2, delete_archive: 3, check_free_disk: 4 };
   return order[left.type] - order[right.type] || right.sizeBytes - left.sizeBytes || left.path.localeCompare(right.path);
 }
 
