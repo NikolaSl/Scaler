@@ -22,6 +22,14 @@ export function getLogDetailsDir(cwd: string): string {
   return join(getLogsDir(cwd), "details");
 }
 
+export function getStorageDir(cwd: string): string {
+  return join(getScalerDir(cwd), "storage");
+}
+
+export function getStorageIndexPath(cwd: string): string {
+  return join(getStorageDir(cwd), "index.json");
+}
+
 export function getMemoryDir(cwd: string): string {
   return join(getScalerDir(cwd), "memory");
 }
