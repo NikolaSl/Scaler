@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { test } from "node:test";
 import { setBudgetLimits } from "../../../src/budgets.js";
 import { ensureTaskContextManifest, loadTaskContextManifest } from "../../../src/context.js";
+import { loadContextSplitRecords } from "../../../src/context-splits.js";
 import { assessDebugRetryGate, loadDebugReports, recordDebugAttempt } from "../../../src/debug.js";
 import { runDebugAgentStep } from "../../../src/debug-agent.js";
 import { assessGitStatusSafety, loadCommitReports } from "../../../src/git.js";
@@ -162,6 +163,13 @@ test("mock integration: context discovery feeds conductor prompt with local evid
     const manifest = await loadTaskContextManifest(dir, "T-CONTEXT");
     assert.ok(manifest?.items.some((item) => item.source === "file" && item.path === "src/app.js"));
     assert.ok(manifest?.items.some((item) => item.source === "memory"));
+
+    const oversized = await runConductorStep(dir, { ...state, tasks: [{ ...state.tasks[0]!, status: "ready" }] }, {
+      tokenBudget: 100,
+      contextItems: [{ id: "huge", type: "file", reason: "Huge exact context", content: "x".repeat(400), priority: "required", scope: "full", exactness: "exact" }],
+    });
+    assert.equal(oversized.contextSplit?.taskId, "T-CONTEXT");
+    assert.equal((await loadContextSplitRecords(dir))[0]?.id, oversized.contextSplit?.id);
   });
 });
 

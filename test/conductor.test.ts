@@ -16,6 +16,7 @@ import {
   selectNextTask,
 } from "../src/conductor.js";
 import { saveTaskContextManifest } from "../src/context.js";
+import { loadContextSplitRecords } from "../src/context-splits.js";
 import { recordDebugAttempt } from "../src/debug.js";
 import { loadTaskAgentReports } from "../src/task-reports.js";
 import { acquireExecutionLock, loadExecutionLock } from "../src/locks.js";
@@ -213,6 +214,24 @@ test("runConductorStep prepares selected task and writes checkpoint", async () =
     assert.equal(persisted.tasks[0]?.status, "running");
     assert.ok(result.invocation?.args.includes("--tools"));
     assert.ok(result.checkpointPath?.includes("conductor-step-t-001"));
+  });
+});
+
+test("runConductorStep records context split artifacts for oversized resolved context", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.tasks[0]!.title = "Oversized";
+    const result = await runConductorStep(dir, state, {
+      tokenBudget: 100,
+      contextItems: [
+        { id: "huge", type: "file", reason: "Need exact huge data", content: "x".repeat(400), priority: "required", scope: "full", exactness: "exact" },
+      ],
+    });
+
+    const records = await loadContextSplitRecords(dir);
+    assert.equal(result.contextSplit?.taskId, "T-001");
+    assert.equal(records[0]?.id, result.contextSplit?.id);
+    assert.ok(records[0]?.overByTokens && records[0].overByTokens > 0);
   });
 });
 

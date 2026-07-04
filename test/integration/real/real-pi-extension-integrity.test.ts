@@ -3,11 +3,13 @@ import { mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { getBudgetState } from "../../../src/budgets.js";
+import { assessCompression } from "../../../src/compression.js";
 import { loadCommitReports, recordCommitReport } from "../../../src/git.js";
 import { loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
 import { loadDebugRetryPolicy } from "../../../src/debug-retry.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { searchMemory, writeMemory } from "../../../src/memory.js";
+import { loadContextSplitRecords, recordContextSplitIfNeeded } from "../../../src/context-splits.js";
 import { applyPlanningReport, loadPlanningReports } from "../../../src/plans.js";
 import { upsertResearchRequest } from "../../../src/research.js";
 import { loadResearchWebTransactions } from "../../../src/research-web.js";
@@ -78,6 +80,29 @@ test("real Pi extension: slash command dispatch lists planning reports", { skip:
     assert.equal(result.exitCode, 0, result.stderr || result.stdout);
     assert.match(`${result.stdout}\n${result.stderr}`, /PLAN-REAL/);
     assert.equal((await loadPlanningReports(dir))[0]?.id, "PLAN-REAL");
+  });
+});
+
+test("real Pi extension: slash command dispatch lists context split records", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const resolved = {
+      text: "x".repeat(400),
+      estimatedTokens: 100,
+      included: [{ id: "huge", type: "file" as const, reason: "Huge", content: "x".repeat(400), priority: "required" as const, scope: "full" as const, exactness: "exact" as const }],
+      omitted: [],
+    };
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: resolved.estimatedTokens, contextWindowTokens: 100, largeItemThresholdTokens: 10 });
+    await recordContextSplitIfNeeded(dir, state, "T-REAL-SPLIT", resolved, assessment, new Date("2026-01-01T00:00:01.000Z"));
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-context-splits T-REAL-SPLIT",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /T-REAL-SPLIT-context-split/);
+    assert.equal((await loadContextSplitRecords(dir))[0]?.taskId, "T-REAL-SPLIT");
   });
 });
 
