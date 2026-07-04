@@ -182,6 +182,17 @@ export interface ParsedToolRunArgs {
   execute: boolean;
 }
 
+export interface ParsedToolIterateArgs {
+  requestId?: string;
+  execute: boolean;
+  maxIterations?: number;
+}
+
+export interface ParsedToolIterationPolicyArgs {
+  maxIterations?: number;
+  autoReplay?: boolean;
+}
+
 export interface ParsedToolReplayArgs {
   transactionId?: string;
   execute: boolean;
@@ -548,6 +559,28 @@ export function parseToolRunArgs(args: string | undefined): ParsedToolRunArgs {
   return {
     requestId: parts.find((part) => part.toLowerCase() !== "execute"),
     execute: parts.some((part) => part.toLowerCase() === "execute"),
+  };
+}
+
+export function parseToolIterateArgs(args: string | undefined): ParsedToolIterateArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  const maxPart = parts.find((part) => /^max=\d+$/i.test(part));
+  const optionParts = new Set(parts.filter((part) => part.toLowerCase() === "execute" || /^max=/i.test(part)));
+  const maxIterations = maxPart ? Number.parseInt(maxPart.split("=")[1] ?? "", 10) : undefined;
+  return {
+    requestId: parts.find((part) => !optionParts.has(part)),
+    execute: parts.some((part) => part.toLowerCase() === "execute"),
+    maxIterations: maxIterations === undefined || !Number.isFinite(maxIterations) ? undefined : maxIterations,
+  };
+}
+
+export function parseToolIterationPolicyArgs(args: string | undefined): ParsedToolIterationPolicyArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  const maxPart = parts.find((part) => /^max=\d+$/i.test(part));
+  const maxIterations = maxPart ? Number.parseInt(maxPart.split("=")[1] ?? "", 10) : undefined;
+  return {
+    maxIterations: maxIterations === undefined || !Number.isFinite(maxIterations) ? undefined : maxIterations,
+    autoReplay: parseOnOffOption(parts.find((part) => /^auto-replay=/i.test(part))),
   };
 }
 

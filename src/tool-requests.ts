@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { appendLogEvent, createLogEvent } from "./logging.js";
-import { getToolCatalogPath, getToolRequestsIndexPath, getToolResultsPath, getToolSchemaDiscoveryRunsPath, getToolTransactionsPath } from "./paths.js";
+import { getToolCatalogPath, getToolIterationPolicyPath, getToolIterationRunsPath, getToolRequestsIndexPath, getToolResultsPath, getToolSchemaDiscoveryRunsPath, getToolTransactionsPath } from "./paths.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { buildTaskAgentInvocation, runTaskAgent, type RunTaskAgentOptions, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import type { ScalerState } from "./types.js";
@@ -53,6 +53,8 @@ export type ToolRequestStatus = "prepared" | "completed" | "failed" | "blocked";
 export type ToolResultStatus = "completed" | "failed" | "blocked";
 export type ToolTransactionStatus = "prepared" | "completed" | "failed" | "blocked" | "missing_result" | "rejected";
 export type ToolSchemaDiscoveryRunStatus = "prepared" | "completed" | "missing_schema" | "rejected";
+export type ToolIterationRunStatus = "prepared" | "completed" | "failed" | "blocked" | "missing_result" | "exhausted" | "rejected";
+export type ToolIterationStepAction = "run" | "replay";
 
 export interface ToolRequestRecord {
   id: string;
@@ -151,6 +153,39 @@ export interface ToolResultRecord {
   createdAt: string;
 }
 
+export interface ToolIterationPolicy {
+  version: 1;
+  maxIterations: number;
+  autoReplay: boolean;
+  updatedAt?: string;
+}
+
+export interface ToolIterationStepRecord {
+  iteration: number;
+  action: ToolIterationStepAction;
+  accepted: boolean;
+  transactionId?: string;
+  transactionStatus?: ToolTransactionStatus;
+  resultId?: string;
+  message: string;
+}
+
+export interface ToolIterationRunRecord {
+  id: string;
+  requestId?: string;
+  taskId?: string;
+  toolName?: string;
+  status: ToolIterationRunStatus;
+  executed: boolean;
+  maxIterations: number;
+  autoReplay: boolean;
+  steps: ToolIterationStepRecord[];
+  finalRequestStatus?: ToolRequestStatus;
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ToolRequestPrepareResult {
   accepted: boolean;
   message: string;
@@ -164,6 +199,19 @@ export interface ToolRequestRunOptions {
   execute?: boolean;
   timeoutMs?: number;
   command?: string;
+}
+
+export interface ToolIterationWorkflowOptions {
+  requestId?: string;
+  execute?: boolean;
+  maxIterations?: number;
+  timeoutMs?: number;
+  command?: string;
+}
+
+export interface ToolIterationPolicyInput {
+  maxIterations?: number;
+  autoReplay?: boolean;
 }
 
 export interface ToolTransactionReplayOptions {
@@ -215,6 +263,14 @@ export interface ToolSchemaDiscoveryRunResult {
   schemaRecord?: ToolSchemaRecord;
 }
 
+export interface ToolIterationWorkflowResult {
+  accepted: boolean;
+  message: string;
+  request?: ToolRequestRecord;
+  run?: ToolIterationRunRecord;
+  steps: ToolIterationStepRecord[];
+}
+
 interface ToolRequestIndex {
   version: 1;
   requests: ToolRequestRecord[];
@@ -238,6 +294,11 @@ interface ToolSchemaIndex {
 interface ToolSchemaDiscoveryRunIndex {
   version: 1;
   runs: ToolSchemaDiscoveryRunRecord[];
+}
+
+interface ToolIterationRunIndex {
+  version: 1;
+  runs: ToolIterationRunRecord[];
 }
 
 const toolRiskLevels = new Set<ToolRiskLevel>(["low", "medium", "high", "destructive", "external", "secret", "unknown"]);
@@ -352,6 +413,59 @@ export async function loadToolSchemaDiscoveryRuns(cwd: string): Promise<ToolSche
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
   }
+}
+
+export function createDefaultToolIterationPolicy(): ToolIterationPolicy {
+  return { version: 1, maxIterations: 3, autoReplay: true };
+}
+
+export async function loadToolIterationPolicy(cwd: string): Promise<ToolIterationPolicy> {
+  try {
+    const raw = await readFile(getToolIterationPolicyPath(cwd), "utf8");
+    const parsed = JSON.parse(raw) as Partial<ToolIterationPolicy>;
+    return normalizeToolIterationPolicy(parsed);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return createDefaultToolIterationPolicy();
+    throw error;
+  }
+}
+
+export async function saveToolIterationPolicy(cwd: string, input: ToolIterationPolicyInput, now = new Date()): Promise<ToolIterationPolicy> {
+  const current = await loadToolIterationPolicy(cwd);
+  const next = normalizeToolIterationPolicy({
+    ...current,
+    maxIterations: input.maxIterations ?? current.maxIterations,
+    autoReplay: input.autoReplay ?? current.autoReplay,
+    updatedAt: now.toISOString(),
+  });
+  const path = getToolIterationPolicyPath(cwd);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  return next;
+}
+
+export async function loadToolIterationRuns(cwd: string): Promise<ToolIterationRunRecord[]> {
+  try {
+    const raw = await readFile(getToolIterationRunsPath(cwd), "utf8");
+    return (JSON.parse(raw) as ToolIterationRunIndex).runs;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+export function formatToolIterationPolicy(policy: ToolIterationPolicy): string {
+  return `Tool iteration policy: maxIterations=${policy.maxIterations} autoReplay=${policy.autoReplay} updatedAt=${policy.updatedAt ?? "default"}`;
+}
+
+export function formatToolIterationRuns(records: ToolIterationRunRecord[], requestId?: string, limit = 10): string {
+  const filtered = requestId ? records.filter((record) => record.requestId === requestId) : records;
+  if (filtered.length === 0) return requestId ? `No tool iteration runs for ${requestId}.` : "No tool iteration runs.";
+  const lines = [requestId ? `Tool iteration runs for ${requestId}:` : "Tool iteration runs:"];
+  for (const record of filtered.slice(0, limit)) {
+    lines.push(`- ${record.id} request=${record.requestId ?? "n/a"} tool=${record.toolName ?? "n/a"} status=${record.status} executed=${record.executed} steps=${record.steps.length}/${record.maxIterations} final=${record.finalRequestStatus ?? "n/a"}: ${record.message}`);
+  }
+  return lines.join("\n");
 }
 
 export async function recordToolSchema(cwd: string, state: ScalerState, input: ToolSchemaInput, now = new Date()): Promise<ToolSchemaRecord> {
@@ -552,6 +666,107 @@ export function formatToolTransactions(records: ToolTransactionRecord[], request
     lines.push(`- ${record.id} request=${record.requestId} tool=${record.toolName} status=${record.status}${replay} ${run} result=${record.resultId ?? "n/a"}: ${record.message}`);
   }
   return lines.join("\n");
+}
+
+export async function runToolIterationWorkflow(
+  cwd: string,
+  state: ScalerState,
+  options: ToolIterationWorkflowOptions = {},
+  runner: typeof runTaskAgent = runTaskAgent,
+): Promise<ToolIterationWorkflowResult> {
+  const policy = await loadToolIterationPolicy(cwd);
+  const maxIterations = clampIterationLimit(options.maxIterations ?? policy.maxIterations);
+  const request = await selectRunnableToolRequest(cwd, options.requestId);
+  if (!request) {
+    const message = options.requestId ? `Tool iteration rejected: request ${options.requestId} is not prepared.` : "Tool iteration rejected: no prepared tool request.";
+    const run = await recordToolIterationRun(cwd, {
+      status: "rejected",
+      executed: Boolean(options.execute),
+      maxIterations,
+      autoReplay: policy.autoReplay,
+      steps: [],
+      message,
+    });
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: message, details: { options, run } }));
+    return { accepted: false, message, run, steps: [] };
+  }
+
+  if (!options.execute) {
+    const prepared = await runToolRequestAgent(cwd, state, { requestId: request.id, execute: false, timeoutMs: options.timeoutMs, command: options.command }, runner);
+    const step = toolIterationStep(1, "run", prepared);
+    const run = await recordToolIterationRun(cwd, {
+      request,
+      status: prepared.accepted ? "prepared" : "rejected",
+      executed: false,
+      maxIterations,
+      autoReplay: policy.autoReplay,
+      steps: [step],
+      finalRequestStatus: request.status,
+      message: prepared.accepted ? `Tool iteration prepared: ${request.id}` : prepared.message,
+    });
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: run.message, taskId: request.taskId, details: { run } }));
+    return { accepted: prepared.accepted, message: run.message, request, run, steps: [step] };
+  }
+
+  const steps: ToolIterationStepRecord[] = [];
+  let currentRequest = request;
+  let finalStatus: ToolIterationRunStatus = "missing_result";
+  let message = `Tool iteration exhausted: ${request.id}`;
+
+  for (let iteration = 1; iteration <= maxIterations; iteration += 1) {
+    const latestRequest = (await loadToolRequests(cwd)).find((candidate) => candidate.id === request.id);
+    if (!latestRequest || latestRequest.status !== "prepared") {
+      currentRequest = latestRequest ?? currentRequest;
+      finalStatus = mapToolRequestStatusToIterationStatus(latestRequest?.status);
+      message = `Tool iteration stopped: request ${request.id} is ${latestRequest?.status ?? "missing"}`;
+      break;
+    }
+    currentRequest = latestRequest;
+
+    const latestMissing = policy.autoReplay ? await latestMissingResultTransaction(cwd, request.id) : undefined;
+    const action: ToolIterationStepAction = latestMissing ? "replay" : "run";
+    const result = latestMissing
+      ? await replayToolTransaction(cwd, state, { transactionId: latestMissing.id, execute: true, timeoutMs: options.timeoutMs, command: options.command }, runner)
+      : await runToolRequestAgent(cwd, state, { requestId: request.id, execute: true, timeoutMs: options.timeoutMs, command: options.command }, runner);
+    const step = toolIterationStep(iteration, action, result);
+    steps.push(step);
+
+    const afterRequest = (await loadToolRequests(cwd)).find((candidate) => candidate.id === request.id) ?? currentRequest;
+    currentRequest = afterRequest;
+    if (afterRequest.status !== "prepared") {
+      finalStatus = mapToolRequestStatusToIterationStatus(afterRequest.status);
+      message = `Tool iteration completed: request ${request.id} ${afterRequest.status}`;
+      break;
+    }
+    if (step.transactionStatus !== "missing_result") {
+      finalStatus = result.accepted ? "missing_result" : "rejected";
+      message = result.message;
+      break;
+    }
+    if (!policy.autoReplay) {
+      finalStatus = "missing_result";
+      message = `Tool iteration stopped after missing structured result: ${request.id}`;
+      break;
+    }
+  }
+
+  if (currentRequest.status === "prepared" && steps.length >= maxIterations && steps.at(-1)?.transactionStatus === "missing_result") {
+    finalStatus = "exhausted";
+    message = `Tool iteration exhausted after ${maxIterations} iterations: ${request.id}`;
+  }
+
+  const run = await recordToolIterationRun(cwd, {
+    request: currentRequest,
+    status: finalStatus,
+    executed: true,
+    maxIterations,
+    autoReplay: policy.autoReplay,
+    steps,
+    finalRequestStatus: currentRequest.status,
+    message,
+  });
+  await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: run.message, taskId: currentRequest.taskId, details: { run } }));
+  return { accepted: finalStatus === "completed" || finalStatus === "failed" || finalStatus === "blocked", message, request: currentRequest, run, steps };
 }
 
 export async function replayToolTransaction(
@@ -847,6 +1062,13 @@ async function writeToolSchemaDiscoveryRunIndex(cwd: string, runs: ToolSchemaDis
   await writeFile(path, `${JSON.stringify({ version: 1, runs: sorted } satisfies ToolSchemaDiscoveryRunIndex, null, 2)}\n`, "utf8");
 }
 
+async function writeToolIterationRunIndex(cwd: string, runs: ToolIterationRunRecord[]): Promise<void> {
+  const path = getToolIterationRunsPath(cwd);
+  await mkdir(dirname(path), { recursive: true });
+  const sorted = [...runs].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  await writeFile(path, `${JSON.stringify({ version: 1, runs: sorted } satisfies ToolIterationRunIndex, null, 2)}\n`, "utf8");
+}
+
 async function recordToolSchemaDiscoveryRun(
   cwd: string,
   input: {
@@ -879,6 +1101,40 @@ async function recordToolSchemaDiscoveryRun(
     updatedAt: timestamp,
   };
   await writeToolSchemaDiscoveryRunIndex(cwd, [record, ...(await loadToolSchemaDiscoveryRuns(cwd))]);
+  return record;
+}
+
+async function recordToolIterationRun(
+  cwd: string,
+  input: {
+    request?: ToolRequestRecord;
+    status: ToolIterationRunStatus;
+    executed: boolean;
+    maxIterations: number;
+    autoReplay: boolean;
+    steps: ToolIterationStepRecord[];
+    finalRequestStatus?: ToolRequestStatus;
+    message: string;
+  },
+  now = new Date(),
+): Promise<ToolIterationRunRecord> {
+  const timestamp = now.toISOString();
+  const record: ToolIterationRunRecord = {
+    id: randomUUID(),
+    requestId: input.request?.id,
+    taskId: input.request?.taskId,
+    toolName: input.request?.toolName,
+    status: input.status,
+    executed: input.executed,
+    maxIterations: input.maxIterations,
+    autoReplay: input.autoReplay,
+    steps: input.steps,
+    finalRequestStatus: input.finalRequestStatus,
+    message: input.message,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  await writeToolIterationRunIndex(cwd, [record, ...(await loadToolIterationRuns(cwd))]);
   return record;
 }
 
@@ -952,6 +1208,47 @@ function normalizeToolResultStatus(value: unknown): ToolResultStatus {
   const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
   if (!toolResultStatuses.has(normalized as ToolResultStatus)) throw new Error(`Tool result rejected: invalid status ${value}.`);
   return normalized as ToolResultStatus;
+}
+
+function normalizeToolIterationPolicy(value: Partial<ToolIterationPolicy>): ToolIterationPolicy {
+  return {
+    version: 1,
+    maxIterations: clampIterationLimit(value.maxIterations),
+    autoReplay: typeof value.autoReplay === "boolean" ? value.autoReplay : true,
+    updatedAt: value.updatedAt,
+  };
+}
+
+function clampIterationLimit(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 3;
+  return Math.min(10, Math.max(1, Math.trunc(value)));
+}
+
+async function latestMissingResultTransaction(cwd: string, requestId: string): Promise<ToolTransactionRecord | undefined> {
+  return (await loadToolTransactions(cwd))
+    .filter((transaction) => transaction.requestId === requestId && transaction.status === "missing_result")
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+}
+
+function toolIterationStep(
+  iteration: number,
+  action: ToolIterationStepAction,
+  result: ToolRequestRunResult | ToolTransactionReplayResult,
+): ToolIterationStepRecord {
+  return {
+    iteration,
+    action,
+    accepted: result.accepted,
+    transactionId: result.transaction?.id,
+    transactionStatus: result.transaction?.status,
+    resultId: result.resultRecord?.id,
+    message: result.message,
+  };
+}
+
+function mapToolRequestStatusToIterationStatus(status: ToolRequestStatus | undefined): ToolIterationRunStatus {
+  if (status === "completed" || status === "failed" || status === "blocked") return status;
+  return status === "prepared" ? "missing_result" : "rejected";
 }
 
 function uniqueNonEmpty(values: string[]): string[] {

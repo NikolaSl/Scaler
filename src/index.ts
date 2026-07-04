@@ -30,6 +30,8 @@ import {
   parseTaskRetryArgs,
   parseToolCatalogArgs,
   parseToolDiscoverArgs,
+  parseToolIterateArgs,
+  parseToolIterationPolicyArgs,
   parseToolReplayArgs,
   parseToolRunArgs,
   parseValidateLoopArgs,
@@ -85,7 +87,7 @@ import {
   validateStageArtifactReadiness,
 } from "./stages.js";
 import { formatStorageInventory, formatStorageMaintenanceReport, formatStorageMaintenanceSchedule, loadStorageMaintenanceSchedule, runScheduledStorageMaintenance, runStorageMaintenance, saveStorageInventory, scanScalerStorageInventory, updateStorageMaintenanceSchedule, type StorageMaintenancePolicy } from "./storage.js";
-import { formatKnownToolCatalog, formatToolSchemaDiscoveryRuns, formatToolTransactions, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, replayToolTransaction, runToolRequestAgent, runToolSchemaDiscoveryAgent } from "./tool-requests.js";
+import { formatKnownToolCatalog, formatToolIterationPolicy, formatToolIterationRuns, formatToolSchemaDiscoveryRuns, formatToolTransactions, loadToolIterationPolicy, loadToolIterationRuns, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, replayToolTransaction, runToolIterationWorkflow, runToolRequestAgent, runToolSchemaDiscoveryAgent, saveToolIterationPolicy } from "./tool-requests.js";
 import { registerScalerTools } from "./tools.js";
 import { formatValidationChecklist, recordValidationChecklist, upsertValidationManifestCommand } from "./validation.js";
 import { runValidationDebugLoopWorkflow, selectTaskForValidationDebugLoop } from "./validation-debug-loop.js";
@@ -754,6 +756,42 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const suffix = result.transaction ? ` transaction=${result.transaction.id} status=${result.transaction.status}` : "";
       const message = `${result.message}${suffix}`;
       if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-tool-iteration-policy", {
+    description: "Inspect or update tool-agent iteration policy: /scaler-tool-iteration-policy [max=N] [auto-replay=on|off]",
+    handler: async (args, ctx) => {
+      const parsed = parseToolIterationPolicyArgs(args);
+      const policy = parsed.maxIterations !== undefined || parsed.autoReplay !== undefined
+        ? await saveToolIterationPolicy(ctx.cwd, { maxIterations: parsed.maxIterations, autoReplay: parsed.autoReplay })
+        : await loadToolIterationPolicy(ctx.cwd);
+      const message = formatToolIterationPolicy(policy);
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-tool-iterate", {
+    description: "Prepare or execute bounded tool-agent correction iterations: /scaler-tool-iterate [requestId] [execute] [max=N]",
+    handler: async (args, ctx) => {
+      const parsed = parseToolIterateArgs(args);
+      const state = await ensureState(ctx.cwd);
+      const result = await runToolIterationWorkflow(ctx.cwd, state, { requestId: parsed.requestId, execute: parsed.execute, maxIterations: parsed.maxIterations });
+      const suffix = result.run ? ` run=${result.run.id} status=${result.run.status} steps=${result.run.steps.length}` : "";
+      const message = `${result.message}${suffix}`;
+      if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-tool-iteration-runs", {
+    description: "List bounded tool-agent iteration run records: /scaler-tool-iteration-runs [requestId]",
+    handler: async (args, ctx) => {
+      const requestId = args?.trim() || undefined;
+      const message = formatToolIterationRuns(await loadToolIterationRuns(ctx.cwd), requestId);
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
     },
   });

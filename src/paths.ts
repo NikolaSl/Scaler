@@ -146,6 +146,14 @@ export function getToolSchemaDiscoveryRunsPath(cwd: string): string {
   return join(getToolRequestsDir(cwd), "schema-runs.json");
 }
 
+export function getToolIterationPolicyPath(cwd: string): string {
+  return join(getToolRequestsDir(cwd), "iteration-policy.json");
+}
+
+export function getToolIterationRunsPath(cwd: string): string {
+  return join(getToolRequestsDir(cwd), "iteration-runs.json");
+}
+
 export function getReportsDir(cwd: string): string {
   return join(getScalerDir(cwd), "reports");
 }
