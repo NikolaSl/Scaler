@@ -252,7 +252,7 @@ When adding a new integration scenario:
   - real Pi extension load and slash-command dispatch via `/scaler-lock`;
   - real Pi slash-command budget configuration/status persistence;
   - real Pi slash-command storage status inventory persistence;
-  - real Pi slash-command storage maintenance execution and active-ledger rotation with persisted `.scaler/storage/maintenance.json` and audit logs;
+  - real Pi slash-command storage maintenance execution, active-ledger rotation, and approved archive retention deletion with persisted `.scaler/storage/maintenance.json` and audit logs;
   - real Pi slash-command debug next-approach retry prepare mode with persisted `.scaler/debug/retries.json` and prompt audit logs;
   - real Pi slash-command tool transaction and transaction replay prepare modes with persisted `.scaler/tool-requests/transactions.json`;
   - real Pi slash-command typed validation gate metadata, validation gate/environment/disposition policy enforcement, skipped/blocked disposition persistence, non-software checklist persistence, and evidence-policy enforcement;

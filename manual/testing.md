@@ -108,7 +108,7 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - slash-command dispatch and command audit logs;
 - slash-command budget configuration/status persistence and audit logs;
 - slash-command storage status inventory persistence and audit logs;
-- slash-command storage maintenance execution, active-ledger rotation, persisted maintenance reports, and audit logs;
+- slash-command storage maintenance execution, active-ledger rotation, approved archive retention deletion, persisted maintenance reports, and audit logs;
 - slash-command debug next-approach retry prepare mode with persisted retry records and prompt audit logs;
 - slash-command tool transaction, tool transaction replay, and schema discovery prepare modes with persisted transaction/probe records;
 - slash-command typed validation gate metadata, gate/environment/disposition policy enforcement, skipped/blocked disposition persistence, non-software checklist persistence, evidence-policy enforcement, and audit logs;

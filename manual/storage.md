@@ -15,7 +15,8 @@ SCALER-managed data lives under `.scaler/`. The storage inventory feature only s
 - Cache deletion is limited to `.scaler/cache/` files and requires the explicit `delete-cache` flag.
 - Active ledger rotation is opt-in with `rotate-active`; known active ledgers that exceed `max-active-bytes` are archived under `.scaler/storage/archive/` and reset to empty JSONL/JSON-array files.
 - `min-free-bytes=N` records a local filesystem free-space check in the maintenance report and marks it failed when available space is below the threshold.
-- Project files outside `.scaler/`, already compressed files, maintenance/index artifacts, and validation manifests/current configuration ledgers are not cleanup targets.
+- Archive deletion is opt-in with `delete-archives`; only files under `.scaler/storage/archive/` can be deleted, and only when `max-archive-bytes` or `max-archive-age-days` selects retention targets.
+- Project files outside `.scaler/`, active raw logs/reports outside approved rotation/reset paths, memory files, already compressed files outside approved archive retention, maintenance/index artifacts, and validation manifests/current configuration ledgers are not cleanup targets.
 
 Examples:
 
@@ -25,6 +26,7 @@ Examples:
 /scaler-storage-maintain min-age-days=30 min-size=1048576
 /scaler-storage-maintain execute delete-cache min-age-days=30 min-size=1048576
 /scaler-storage-maintain execute rotate-active no-compress max-active-bytes=10485760 min-free-bytes=1000000000
+/scaler-storage-maintain execute no-compress delete-archives max-archive-bytes=50000000 max-archive-age-days=30
 ```
 
-Remaining storage work includes richer retention/deletion approval policies for raw logs or memory, scheduled maintenance policy, and compression/rotation quotas.
+Remaining storage work includes scheduled maintenance policy and optional retention/deletion approval policies for raw logs or memory beyond archive files.
