@@ -7,7 +7,7 @@ import { loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { loadSafetyPolicy } from "../../../src/safety.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
-import { loadStorageInventory, loadStorageMaintenanceReport } from "../../../src/storage.js";
+import { loadStorageInventory, loadStorageMaintenanceReport, loadStorageMaintenanceSchedule } from "../../../src/storage.js";
 import { loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest, runToolRequestAgent } from "../../../src/tool-requests.js";
 import { loadValidationEnvironmentRecords } from "../../../src/validation-environments.js";
 import { loadValidationChecklists, loadValidationManifests, loadValidationRuns, runTaskValidation, saveValidationManifest, upsertValidationManifestCommand } from "../../../src/validation.js";
@@ -181,6 +181,35 @@ test("real Pi extension: slash command dispatch executes storage maintenance", {
         .map((event) => (event.details as { phase: string }).phase),
       ["start", "end"],
     );
+  });
+});
+
+test("real Pi extension: slash command dispatch runs scheduled storage maintenance", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    await mkdir(join(dir, ".scaler", "logs"), { recursive: true });
+    const eventsPath = join(dir, ".scaler", "logs", "events.jsonl");
+    await writeFile(eventsPath, `${JSON.stringify({ eventType: "test", summary: "scheduled real active event" })}\n`, "utf8");
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-storage-schedule enable run force execute=off interval-hours=1 compress=off rotate-active=on max-active-bytes=1",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Storage schedule: enabled=true intervalHours=1 execute=false/);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Run: status=planned due=true/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const schedule = await loadStorageMaintenanceSchedule(dir);
+    const maintenance = await loadStorageMaintenanceReport(dir);
+    assert.equal(schedule.enabled, true);
+    assert.equal(schedule.execute, false);
+    assert.ok(schedule.lastRunAt, "expected schedule last run metadata");
+    assert.ok(schedule.nextRunAt, "expected schedule next run metadata");
+    assert.ok(maintenance, "expected persisted scheduled maintenance report");
+    assert.equal(maintenance.executed, false);
+    assert.ok(maintenance.actions.some((action) => action.type === "rotate_active" && action.status === "planned"));
+    assert.match(await readFile(eventsPath, "utf8"), /scheduled real active event/);
   });
 });
 

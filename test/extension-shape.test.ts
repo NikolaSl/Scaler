@@ -7,7 +7,7 @@ import { getBudgetState } from "../src/budgets.js";
 import scalerExtension from "../src/index.js";
 import { readLogEvents } from "../src/logging.js";
 import { loadState } from "../src/state.js";
-import { loadStorageInventory } from "../src/storage.js";
+import { loadStorageInventory, loadStorageMaintenanceSchedule, updateStorageMaintenanceSchedule } from "../src/storage.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-extension-test-"));
@@ -91,6 +91,7 @@ test("extension registers scaler commands", () => {
     "scaler-resume",
     "scaler-storage-status",
     "scaler-storage-maintain",
+    "scaler-storage-schedule",
     "scaler-safety-policy",
     "scaler-budget-status",
     "scaler-budget-set",
@@ -147,6 +148,31 @@ test("extension turn_end hook records provider usage budgets", async () => {
     assert.equal(budgets.usage.estimatedCostMicros, 62);
     const events = await readLogEvents(dir);
     assert.ok(events.some((event) => event.eventType === "budget" && event.summary.includes("Provider usage recorded")));
+  });
+});
+
+test("extension session_start hook runs due scheduled storage maintenance", async () => {
+  await withTempDir(async (dir) => {
+    const handlers = new Map<string, (event: unknown, ctx: { cwd: string; hasUI: boolean }) => Promise<void>>();
+    const fakePi = {
+      on(name: string, handler: (event: unknown, ctx: { cwd: string; hasUI: boolean }) => Promise<void>) {
+        handlers.set(name, handler);
+      },
+      registerTool() {},
+      registerCommand() {},
+    };
+
+    scalerExtension(fakePi as never);
+    await updateStorageMaintenanceSchedule(dir, { enabled: true, intervalHours: 1, execute: false }, new Date("2026-01-01T00:00:00.000Z"));
+    await handlers.get("session_start")?.({ type: "session_start" }, { cwd: dir, hasUI: false });
+
+    const schedule = await loadStorageMaintenanceSchedule(dir);
+    const state = await loadState(dir);
+    assert.ok(schedule.lastRunAt, "expected scheduled maintenance to run");
+    assert.ok(schedule.nextRunAt, "expected next scheduled run time");
+    assert.ok(Number(getBudgetState(state).usage.storageBytes) > 0);
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Scaler scheduled storage maintenance checked"));
   });
 });
 

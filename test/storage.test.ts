@@ -6,12 +6,16 @@ import { test } from "node:test";
 import {
   formatStorageInventory,
   formatStorageMaintenanceReport,
+  formatStorageMaintenanceSchedule,
   loadStorageInventory,
   loadStorageMaintenanceReport,
+  loadStorageMaintenanceSchedule,
   planStorageMaintenance,
+  runScheduledStorageMaintenance,
   runStorageMaintenance,
   saveStorageInventory,
   scanScalerStorageInventory,
+  updateStorageMaintenanceSchedule,
 } from "../src/storage.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -76,6 +80,58 @@ test("saveStorageInventory and loadStorageInventory round trip", async () => {
     assert.deepEqual(loaded, inventory);
     assert.match(formatStorageInventory(inventory), /Storage: totalBytes=3 files=1 dirs=1/);
     assert.match(formatStorageInventory(inventory), /\.scaler\/logs/);
+  });
+});
+
+test("storage maintenance schedule persists policy and reports not-due state", async () => {
+  await withTempDir(async (dir) => {
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    const schedule = await updateStorageMaintenanceSchedule(dir, {
+      enabled: true,
+      intervalHours: 6,
+      execute: false,
+      policy: { rotateActive: true, maxActiveBytes: 32, compress: false },
+    }, now);
+
+    const loaded = await loadStorageMaintenanceSchedule(dir, now);
+    await runScheduledStorageMaintenance(dir, { now });
+    const notDue = await runScheduledStorageMaintenance(dir, { now: new Date("2026-01-01T01:00:00.000Z") });
+
+    assert.equal(schedule.enabled, true);
+    assert.equal(schedule.intervalHours, 6);
+    assert.equal(schedule.execute, false);
+    assert.equal(schedule.policy.rotateActive, true);
+    assert.equal(schedule.policy.compress, false);
+    assert.deepEqual(loaded, schedule);
+    assert.equal(notDue.status, "not_due");
+    assert.equal(notDue.report, undefined);
+    assert.match(formatStorageMaintenanceSchedule(schedule), /enabled=true intervalHours=6 execute=false/);
+  });
+});
+
+test("runScheduledStorageMaintenance runs due dry-run and advances schedule", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, ".scaler", "logs"), { recursive: true });
+    await writeFile(join(dir, ".scaler", "logs", "events.jsonl"), "scheduled event\n", "utf8");
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    await updateStorageMaintenanceSchedule(dir, {
+      enabled: true,
+      intervalHours: 2,
+      execute: false,
+      policy: { rotateActive: true, maxActiveBytes: 1, compress: false },
+    }, now);
+
+    const result = await runScheduledStorageMaintenance(dir, { now });
+    const saved = await loadStorageMaintenanceSchedule(dir, now);
+
+    assert.equal(result.status, "planned");
+    assert.equal(result.due, true);
+    assert.equal(result.report?.executed, false);
+    assert.equal(result.report?.actions.some((action) => action.type === "rotate_active" && action.status === "planned"), true);
+    assert.equal(saved.lastRunAt, "2026-01-01T00:00:00.000Z");
+    assert.equal(saved.nextRunAt, "2026-01-01T02:00:00.000Z");
+    assert.equal(saved.lastReportGeneratedAt, result.report?.generatedAt);
+    assert.match(formatStorageMaintenanceSchedule(saved, result), /Run: status=planned due=true/);
   });
 });
 

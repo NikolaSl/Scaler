@@ -10,7 +10,7 @@ import { getBudgetState } from "../../../src/budgets.js";
 import scalerExtension from "../../../src/index.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
-import { loadStorageMaintenanceReport } from "../../../src/storage.js";
+import { loadStorageMaintenanceReport, loadStorageMaintenanceSchedule } from "../../../src/storage.js";
 
 const execFileAsync = promisify(execFile);
 const gunzipAsync = promisify(gunzip);
@@ -87,6 +87,36 @@ test("mock integration: storage maintenance rotates active ledgers and checks fr
     assert.doesNotMatch(await readFile(eventsPath, "utf8"), /old active event/);
     assert.equal(await readFile(runsPath, "utf8"), "[]\n");
     assert.ok(Number(getBudgetState(await loadState(dir)).usage.storageBytes) > 0);
+  });
+});
+
+test("mock integration: storage schedule command runs due dry-run maintenance", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    await saveState(dir, state);
+
+    await mkdir(join(dir, ".scaler", "logs"), { recursive: true });
+    await writeFile(join(dir, ".scaler", "logs", "events.jsonl"), `${JSON.stringify({ eventType: "test", summary: "scheduled active event" })}\n`, "utf8");
+
+    const commands = registeredCommands();
+    await commands.get("scaler-storage-schedule")?.handler("enable run force execute=off interval-hours=1 compress=off rotate-active=on max-active-bytes=1", { cwd: dir, hasUI: false });
+
+    const schedule = await loadStorageMaintenanceSchedule(dir);
+    const maintenance = await loadStorageMaintenanceReport(dir);
+    assert.equal(schedule.enabled, true);
+    assert.equal(schedule.intervalHours, 1);
+    assert.equal(schedule.execute, false);
+    assert.ok(schedule.lastRunAt, "expected schedule run metadata");
+    assert.ok(schedule.nextRunAt, "expected next due metadata");
+    assert.ok(maintenance, "expected persisted scheduled maintenance report");
+    assert.equal(maintenance.executed, false);
+    assert.ok(maintenance.actions.some((action) => action.type === "rotate_active" && action.status === "planned"));
+    assert.match(await readFile(join(dir, ".scaler", "logs", "events.jsonl"), "utf8"), /scheduled active event/);
+    assert.ok(Number(getBudgetState(await loadState(dir)).usage.storageBytes) > 0);
+
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Scaler storage schedule requested"));
   });
 });
 
