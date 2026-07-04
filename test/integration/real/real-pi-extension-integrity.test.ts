@@ -10,6 +10,7 @@ import { upsertResearchRequest } from "../../../src/research.js";
 import { loadResearchWebTransactions } from "../../../src/research-web.js";
 import { loadSafetyApprovals, loadSafetyPolicy } from "../../../src/safety.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
+import { addTask } from "../../../src/supervisor.js";
 import { loadStorageInventory, loadStorageMaintenanceReport, loadStorageMaintenanceSchedule } from "../../../src/storage.js";
 import { loadMcpServerRecords, loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolRequests, loadToolResults, loadToolSchedules, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest, recordToolSchema, runToolRequestAgent } from "../../../src/tool-requests.js";
 import { loadValidationEnvironmentRecords } from "../../../src/validation-environments.js";
@@ -36,6 +37,30 @@ test("real Pi extension: slash command dispatch writes SCALER command audit logs
     assert.equal(commandEvents.every((event) => Boolean(event.detailsPath)), true);
     assert.match(commandEvents[0]?.summary ?? "", /Command start: scaler-lock/);
     assert.match(commandEvents[1]?.summary ?? "", /Command end: scaler-lock/);
+  });
+});
+
+test("real Pi extension: slash command dispatch applies adaptive escalation", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const base = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const execution = { ...base, stage: "execution" as const, complexityLevel: 2 };
+    await saveState(dir, addTask(execution, { id: "T-REAL-ADAPT", status: "debugging", title: "Needs debug" }, new Date("2026-01-01T00:00:01.000Z")));
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-adapt apply",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Adaptive orchestration: action=escalate stage=execution->debugging level=2->3/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const state = await loadState(dir);
+    assert.equal(state.stage, "debugging");
+    assert.equal(state.complexityLevel, 3);
+
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Scaler adaptive orchestration applied"));
   });
 });
 
