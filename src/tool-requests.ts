@@ -318,6 +318,13 @@ export function formatDiscoveredToolCatalog(toolNames: string[], discoveredRecor
   return formatToolCatalog(getToolCatalogEntries(toolNames, discoveredRecords));
 }
 
+export function formatKnownToolCatalog(discoveredRecords: ToolSchemaRecord[], toolName?: string): string {
+  const names = toolName
+    ? [toolName]
+    : uniqueNonEmpty([...getDefaultToolCatalog().map((entry) => entry.name), ...discoveredRecords.map((record) => record.toolName)]);
+  return formatDiscoveredToolCatalog(names, discoveredRecords);
+}
+
 export async function runToolRequestAgent(
   cwd: string,
   state: ScalerState,

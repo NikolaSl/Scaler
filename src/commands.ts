@@ -94,6 +94,10 @@ export interface ParsedToolRunArgs {
   execute: boolean;
 }
 
+export interface ParsedToolCatalogArgs {
+  toolName?: string;
+}
+
 export interface ParsedDebugRunArgs {
   taskId?: string;
   execute: boolean;
@@ -291,6 +295,10 @@ export function parseToolRunArgs(args: string | undefined): ParsedToolRunArgs {
     requestId: parts.find((part) => part.toLowerCase() !== "execute"),
     execute: parts.some((part) => part.toLowerCase() === "execute"),
   };
+}
+
+export function parseToolCatalogArgs(args: string | undefined): ParsedToolCatalogArgs {
+  return { toolName: args?.trim() || undefined };
 }
 
 export function parseDebugRunArgs(args: string | undefined): ParsedDebugRunArgs {

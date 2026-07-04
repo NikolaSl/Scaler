@@ -17,6 +17,7 @@ import {
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
+  parseToolCatalogArgs,
   parseToolRunArgs,
   parseValidateLoopArgs,
   parseStageLoopArgs,
@@ -172,6 +173,11 @@ test("parseToolRunArgs parses optional request and execute flag", () => {
   assert.deepEqual(parseToolRunArgs("REQ-1 execute"), { requestId: "REQ-1", execute: true });
   assert.deepEqual(parseToolRunArgs("execute"), { requestId: undefined, execute: true });
   assert.deepEqual(parseToolRunArgs(" "), { requestId: undefined, execute: false });
+});
+
+test("parseToolCatalogArgs parses optional tool name", () => {
+  assert.deepEqual(parseToolCatalogArgs("mcp_docs_search"), { toolName: "mcp_docs_search" });
+  assert.deepEqual(parseToolCatalogArgs(" "), { toolName: undefined });
 });
 
 test("parseDebugRunArgs parses optional task and execute flag", () => {

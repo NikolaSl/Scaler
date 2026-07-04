@@ -21,6 +21,7 @@ import {
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
+  parseToolCatalogArgs,
   parseToolRunArgs,
   parseValidateLoopArgs,
   parseValidationAddArgs,
@@ -71,7 +72,7 @@ import {
   validateStageArtifactReadiness,
 } from "./stages.js";
 import { formatStorageInventory, formatStorageMaintenanceReport, runStorageMaintenance, saveStorageInventory, scanScalerStorageInventory } from "./storage.js";
-import { formatToolTransactions, loadToolTransactions, runToolRequestAgent } from "./tool-requests.js";
+import { formatKnownToolCatalog, formatToolTransactions, loadToolSchemaRecords, loadToolTransactions, runToolRequestAgent } from "./tool-requests.js";
 import { registerScalerTools } from "./tools.js";
 import { upsertValidationManifestCommand } from "./validation.js";
 import { runValidationDebugLoopWorkflow, selectTaskForValidationDebugLoop } from "./validation-debug-loop.js";
@@ -586,6 +587,16 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     description: "List recent SCALER debug next-approach retry records.",
     handler: async (_args, ctx) => {
       const message = formatDebugRetrySummary(await loadDebugRetries(ctx.cwd));
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-tool-catalog", {
+    description: "List static plus discovered Tool/MCP schema metadata: /scaler-tool-catalog [toolName]",
+    handler: async (args, ctx) => {
+      const parsed = parseToolCatalogArgs(args);
+      const message = formatKnownToolCatalog(await loadToolSchemaRecords(ctx.cwd), parsed.toolName);
       if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
     },

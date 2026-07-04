@@ -7,7 +7,7 @@ import { getBudgetState } from "../src/budgets.js";
 import { loadCurrentPrd, loadPrdCoverage, loadPrdRequirements } from "../src/prd.js";
 import { loadResearchReports } from "../src/research.js";
 import { loadState } from "../src/state.js";
-import { loadToolRequests, loadToolResults } from "../src/tool-requests.js";
+import { loadToolRequests, loadToolResults, loadToolSchemaRecords } from "../src/tool-requests.js";
 import { scalerToolNames, registerScalerTools } from "../src/tools.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -27,6 +27,7 @@ test("scalerToolNames lists structured Scaler tools", () => {
     "scaler_research_report",
     "scaler_spawn_task",
     "scaler_tool_request",
+    "scaler_tool_schema",
     "scaler_tool_result",
     "scaler_task_create",
     "scaler_task_update",
@@ -86,6 +87,39 @@ test("scaler_tool_request persists structured metadata", async () => {
     assert.equal(record?.permissionRequirement, "read-only");
     assert.equal(record?.safetyNotes, "Do not mutate files.");
     assert.deepEqual(record?.allowedTools, ["docs_search", "read"]);
+    assert.equal(budgets.usage.toolCalls, 1);
+  });
+});
+
+test("scaler_tool_schema records discovered tool metadata", async () => {
+  await withTempDir(async (dir) => {
+    const registered = new Map<string, { execute: (...args: any[]) => Promise<unknown> }>();
+    registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<unknown> }) { registered.set(definition.name, definition); } } as never);
+
+    await registered.get("scaler_tool_schema")?.execute(
+      "tool-schema-call",
+      {
+        toolName: "mcp_docs_search",
+        source: "mcp://docs/schema",
+        description: "Search docs MCP.",
+        riskLevel: "low",
+        docsRef: "docs:mcp-search",
+        schemaRef: "schema:mcp-search-v1",
+        notes: "args.query required",
+        evidenceRefs: ["docs:mcp-search"],
+        discoveredByAgentId: "schema-agent",
+      },
+      undefined,
+      undefined,
+      { cwd: dir },
+    );
+
+    const record = (await loadToolSchemaRecords(dir))[0];
+    const budgets = getBudgetState(await loadState(dir));
+    assert.equal(record?.toolName, "mcp_docs_search");
+    assert.equal(record?.source, "mcp://docs/schema");
+    assert.equal(record?.schemaRef, "schema:mcp-search-v1");
+    assert.equal(record?.discoveredByAgentId, "schema-agent");
     assert.equal(budgets.usage.toolCalls, 1);
   });
 });

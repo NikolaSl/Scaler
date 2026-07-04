@@ -18,7 +18,7 @@ import { recordResearchReport } from "./research.js";
 import { ensureState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentRunResult } from "./subagents.js";
 import { createTask, updateTask } from "./tasks.js";
-import { prepareToolRequest, recordToolResult } from "./tool-requests.js";
+import { prepareToolRequest, recordToolResult, recordToolSchema } from "./tool-requests.js";
 import type { ScalerState } from "./types.js";
 import { applyValidationReport, saveValidationManifest } from "./validation.js";
 
@@ -29,6 +29,7 @@ export const scalerToolNames = [
   "scaler_research_report",
   "scaler_spawn_task",
   "scaler_tool_request",
+  "scaler_tool_schema",
   "scaler_tool_result",
   "scaler_task_create",
   "scaler_task_update",
@@ -130,6 +131,20 @@ const ToolRequestParams = Type.Object({
   permissionRequirement: Type.Optional(Type.String({ description: "Approval or policy requirement known to the requester." })),
   safetyNotes: Type.Optional(Type.String({ description: "Safety constraints for the isolated tool agent." })),
   allowedTools: Type.Optional(Type.Array(Type.String(), { description: "Additional tools explicitly allowed for the isolated tool agent." })),
+});
+
+const ToolSchemaParams = Type.Object({
+  toolName: Type.String({ description: "Exact tool/MCP name whose schema or docs were discovered." }),
+  source: Type.String({ description: "Where the metadata came from, e.g. help output, MCP schema endpoint, or local docs ref." }),
+  description: Type.Optional(Type.String({ description: "Concise description of what the tool does." })),
+  riskLevel: Type.Optional(Type.String({ description: "low, medium, high, destructive, external, secret, or unknown." })),
+  permissionRequirement: Type.Optional(Type.String({ description: "Known approval or policy requirement." })),
+  safetyNotes: Type.Optional(Type.String({ description: "Safety constraints discovered for this tool." })),
+  docsRef: Type.Optional(Type.String({ description: "Stable docs/reference id or path." })),
+  schemaRef: Type.Optional(Type.String({ description: "Stable schema/reference id or path." })),
+  notes: Type.Optional(Type.String({ description: "Concise schema notes such as required args." })),
+  evidenceRefs: Type.Optional(Type.Array(Type.String(), { description: "Evidence/source/log refs supporting the metadata." })),
+  discoveredByAgentId: Type.Optional(Type.String({ description: "Agent id that discovered the metadata." })),
 });
 
 const ToolResultParams = Type.Object({
@@ -347,6 +362,31 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         record: result.record,
         invocation: result.invocation,
       });
+    },
+  });
+
+  pi.registerTool({
+    name: "scaler_tool_schema",
+    label: "Scaler Tool Schema",
+    description: "Record discovered docs/schema metadata for a Tool/MCP so later isolated tool agents can use verified local metadata.",
+    parameters: ToolSchemaParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const state = await ensureState(ctx.cwd);
+      const result = await recordToolSchema(ctx.cwd, state, {
+        toolName: params.toolName,
+        source: params.source,
+        description: params.description,
+        riskLevel: params.riskLevel,
+        permissionRequirement: params.permissionRequirement,
+        safetyNotes: params.safetyNotes,
+        docsRef: params.docsRef,
+        schemaRef: params.schemaRef,
+        notes: params.notes,
+        evidenceRefs: params.evidenceRefs,
+        discoveredByAgentId: params.discoveredByAgentId,
+      });
+      await recordBudgetUsage(ctx.cwd, "toolCalls");
+      return textResult(`Tool schema recorded: ${result.id}`, { status: "recorded", result });
     },
   });
 
