@@ -55,12 +55,12 @@ Tasks may include allowed paths for later commit safety, dependency ids, and run
 ## 3. Optionally add validation commands
 
 ```text
-/scaler-validation-add T-001 | test | npm test | Run tests | required | unit | exits 0 | tests:T-001
+/scaler-validation-add T-001 | test | npm test | Run tests | required | unit | exits 0 | tests:T-001 | host
 ```
 
 Validation commands can carry typed gate metadata (`dependency_check`, `test_first`, `unit_tests`, `build_compile`, `static_checks`, `integration_tests`, `security_checks`, `acceptance_smoke`, `regression`, or non-software gates such as `completeness`, `consistency`, `compliance`, `source_validation`, `adversarial_review`, and `uncertainty_report`), expected results, and evidence references. If no task manifest exists, validation falls back to supported `package.json` scripts and classifies common scripts such as `test`, `build`, `lint`, `typecheck`, `format:check`, `test:integration`, `smoke`, and `audit` into typed gates.
 
-Before running validation commands, SCALER evaluates manifest ordering policy. Required `dependency_check` commands must appear before non-policy validation gates, and required `test_first` commands must appear before implementation gates. Missing dependency/test-first gates on implementation-only manifests are warnings for compatibility; misordered required gates are failures and create a failed validation run without executing blocked commands.
+Before running validation commands, SCALER evaluates manifest ordering and environment policy. Required `dependency_check` commands must appear before non-policy validation gates, and required `test_first` commands must appear before implementation gates. Missing dependency/test-first gates on implementation-only manifests are warnings for compatibility; misordered required gates are failures and create a failed validation run without executing blocked commands. Required `local_ci` gates and Docker/Compose/dev-container/Minikube commands must declare non-host environment metadata (`docker`, `compose`, `devcontainer`, `minikube`, or `local_ci`) so sandbox-like validation is explicit rather than silently treated as host execution.
 
 For non-software gates, `/scaler-validation-checklist` records deterministic checklist items under `.scaler/reports/validation-checklists.json` and applies the rolled-up result: required failed items fail, required blocked items block, and optional failures remain evidence without failing the checklist. Acceptance/completeness/compliance/source/adversarial gates require evidence for required passed items; missing item-level evidence is allowed only when checklist-level evidence refs are supplied, otherwise the checklist fails deterministically.
 
