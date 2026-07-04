@@ -28,6 +28,9 @@ export interface ParsedValidationAddArgs {
   command: string;
   description?: string;
   required?: boolean;
+  gate?: string;
+  expectedResult?: string;
+  evidenceRefs?: string[];
 }
 
 export interface ParsedValidateLoopArgs {
@@ -173,6 +176,9 @@ export function parseValidationAddArgs(args: string | undefined): ParsedValidati
     command,
     description: parts[3]?.trim() || undefined,
     required: parseOptionalBoolean(parts[4]),
+    gate: parts[5]?.trim() || undefined,
+    expectedResult: parts[6]?.trim() || undefined,
+    evidenceRefs: parseCommaList(parts[7]),
   };
 }
 
