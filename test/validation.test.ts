@@ -109,6 +109,56 @@ test("validation checklist rollup passes optional failures and fails required fa
   ]), "blocked");
 });
 
+test("recordValidationChecklist fails evidence-required gates when required passed items lack evidence", async () => {
+  await withTempDir(async (dir) => {
+    const result = await recordValidationChecklist(dir, stateWithTask("validating"), {
+      taskId: "T-001",
+      gate: "acceptance_smoke",
+      summary: "Acceptance evidence missing.",
+      items: [
+        { id: "acceptance", statement: "Acceptance behavior is demonstrated", status: "passed" },
+      ],
+    });
+
+    assert.equal(result.record.status, "failed");
+    assert.deepEqual(result.record.evidencePolicy?.missingEvidenceItemIds, ["acceptance"]);
+    assert.equal(result.applyResult.state.tasks[0]?.status, "debugging");
+    assert.match(formatValidationChecklist(result.record), /Evidence policy: missing=acceptance/);
+  });
+});
+
+test("recordValidationChecklist accepts evidence-required gates with checklist evidence", async () => {
+  await withTempDir(async (dir) => {
+    const result = await recordValidationChecklist(dir, stateWithTask("validating"), {
+      taskId: "T-001",
+      gate: "acceptance_smoke",
+      evidenceRefs: ["evidence:acceptance"],
+      items: [
+        { id: "acceptance", statement: "Acceptance behavior is demonstrated", status: "passed" },
+      ],
+    });
+
+    assert.equal(result.record.status, "passed");
+    assert.deepEqual(result.record.evidencePolicy?.missingEvidenceItemIds, []);
+    assert.equal(result.applyResult.state.tasks[0]?.status, "validated");
+  });
+});
+
+test("recordValidationChecklist does not require evidence for custom gates", async () => {
+  await withTempDir(async (dir) => {
+    const result = await recordValidationChecklist(dir, stateWithTask("validating"), {
+      taskId: "T-001",
+      gate: "custom",
+      items: [
+        { id: "custom", statement: "Custom reviewer says pass", status: "passed" },
+      ],
+    });
+
+    assert.equal(result.record.status, "passed");
+    assert.equal(result.record.evidencePolicy, undefined);
+  });
+});
+
 test("recordValidationChecklist persists checklist and applies failed non-software validation", async () => {
   await withTempDir(async (dir) => {
     const result = await recordValidationChecklist(dir, stateWithTask("validating"), {

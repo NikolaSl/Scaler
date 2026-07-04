@@ -101,6 +101,12 @@ export interface ValidationChecklistItemRecord {
   notes?: string;
 }
 
+export interface ValidationChecklistEvidencePolicy {
+  enforced: boolean;
+  missingEvidenceItemIds: string[];
+  message?: string;
+}
+
 export interface ValidationChecklistRecord {
   id: string;
   taskId: string;
@@ -109,6 +115,7 @@ export interface ValidationChecklistRecord {
   summary: string;
   items: ValidationChecklistItemRecord[];
   evidenceRefs?: string[];
+  evidencePolicy?: ValidationChecklistEvidencePolicy;
   createdAt: string;
 }
 
@@ -162,6 +169,14 @@ interface ValidationChecklistIndex {
 const validationStatuses = new Set<ValidationStatus>(["passed", "failed", "partial", "blocked", "not_applicable"]);
 
 const validationChecklistItemStatuses = new Set<ValidationChecklistItemStatus>(["passed", "failed", "blocked", "not_applicable"]);
+
+const evidenceRequiredChecklistGates = new Set<ValidationGateKind>([
+  "acceptance_smoke",
+  "completeness",
+  "compliance",
+  "source_validation",
+  "adversarial_review",
+]);
 
 const validationGateKinds = new Set<ValidationGateKind>([
   "dependency_check",
@@ -403,16 +418,20 @@ export async function recordValidationChecklist(
   if (!taskId) throw new Error("Validation checklist rejected: taskId is required.");
   if (!input.items.length) throw new Error("Validation checklist rejected: at least one item is required.");
   const items = input.items.map(normalizeValidationChecklistItem);
-  const status = rollupValidationChecklist(items);
   const evidenceRefs = normalizeStringList(input.evidenceRefs);
+  const gate = normalizeValidationGateKind(input.gate);
+  const evidencePolicy = evaluateValidationChecklistEvidencePolicy(gate, items, evidenceRefs);
+  const rolledUpStatus = rollupValidationChecklist(items);
+  const status: ValidationChecklistStatus = rolledUpStatus === "passed" && evidencePolicy.missingEvidenceItemIds.length > 0 ? "failed" : rolledUpStatus;
   const record: ValidationChecklistRecord = {
     id: `${taskId}-checklist-${now.getTime()}`,
     taskId,
-    gate: normalizeValidationGateKind(input.gate),
+    gate,
     status,
     summary: normalizeOptionalString(input.summary) ?? `Validation checklist ${status}: ${taskId}`,
     items,
     evidenceRefs,
+    evidencePolicy: evidencePolicy.enforced ? evidencePolicy : undefined,
     createdAt: now.toISOString(),
   };
   await writeValidationChecklistIndex(cwd, [record, ...(await loadValidationChecklists(cwd))]);
@@ -442,6 +461,9 @@ export async function recordValidationChecklist(
 export function formatValidationChecklist(record: ValidationChecklistRecord): string {
   const lines = [`Validation checklist ${record.id}: task=${record.taskId} gate=${record.gate ?? "custom"} status=${record.status}`];
   lines.push(`Summary: ${record.summary}`);
+  if (record.evidencePolicy?.missingEvidenceItemIds.length) {
+    lines.push(`Evidence policy: missing=${record.evidencePolicy.missingEvidenceItemIds.join(",")}`);
+  }
   for (const item of record.items) {
     lines.push(`- ${item.id} required=${item.required} status=${item.status}: ${item.statement}${item.evidenceRefs?.length ? ` evidence=${item.evidenceRefs.join(",")}` : ""}`);
   }
@@ -655,6 +677,26 @@ function collectChecklistEvidenceRefs(record: ValidationChecklistRecord): string
     record.id,
   ]);
   return refs;
+}
+
+function evaluateValidationChecklistEvidencePolicy(
+  gate: ValidationGateKind | undefined,
+  items: ValidationChecklistItemRecord[],
+  checklistEvidenceRefs: string[] | undefined,
+): ValidationChecklistEvidencePolicy {
+  const enforced = Boolean(gate && evidenceRequiredChecklistGates.has(gate));
+  if (!enforced) return { enforced: false, missingEvidenceItemIds: [] };
+  const hasChecklistEvidence = Boolean(checklistEvidenceRefs?.length);
+  const missingEvidenceItemIds = items
+    .filter((item) => item.required && item.status === "passed" && !hasChecklistEvidence && !item.evidenceRefs?.length)
+    .map((item) => item.id);
+  return {
+    enforced: true,
+    missingEvidenceItemIds,
+    message: missingEvidenceItemIds.length > 0
+      ? `Required passed checklist items need evidence: ${missingEvidenceItemIds.join(", ")}`
+      : "Required passed checklist items have evidence.",
+  };
 }
 
 function getTargetTaskStatus(current: ScalerTaskStatus, validation: ValidationStatus): ScalerTaskStatus | undefined {
