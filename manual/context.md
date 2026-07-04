@@ -56,6 +56,16 @@ Existing manifests are preserved; discovery only runs when a manifest is created
 
 If a source cannot be resolved, SCALER preserves a `MISSING CONTEXT` item instead of silently dropping it.
 
+## Missing-context lifecycle
+
+Task agents must report missing data instead of guessing. When an accepted `scaler_task_report` uses `status=needs_data`/`blocked` or includes `missingData`, SCALER creates normalized requests under:
+
+```text
+.scaler/context/missing-requests.json
+```
+
+Each request records status, kind (`memory`, `file`, `local_research`, `internet_research`, `user`, or `tool`), task/report links, query, source hint, PRD refs, evidence refs, and result summaries. `/scaler-missing-context-run` can resolve file/memory requests, dispatch local/internet research requests, or mark user/tool requests blocked for explicit action. `/scaler-missing-context-resolve` records an operator/user answer. Once all missing-context requests for a blocked task are resolved, SCALER moves the task back to `ready`; `/scaler-step` also refreshes research-backed missing-context resolutions before selecting the next task.
+
 ## Compression and exact preservation
 
 SCALER uses deterministic compression policy helpers for task-agent prompts:
@@ -77,6 +87,9 @@ Default/discovered manifests mark file snippets, task metadata, validation evide
 /scaler-context-status [taskId]
 /scaler-context-splits [taskId]
 /scaler-memory-search [query] [tag=a,b] [task=T-001]
+/scaler-missing-context [taskId]
+/scaler-missing-context-run [requestId] [execute] [internet]
+/scaler-missing-context-resolve <requestId> | <summary> | <evidence refs>
 ```
 
 `/scaler-context-init` creates a default manifest for the specified task, current task, or first non-terminal task.

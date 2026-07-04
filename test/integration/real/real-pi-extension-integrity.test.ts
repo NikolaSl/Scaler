@@ -21,6 +21,7 @@ import { loadStorageInventory, loadStorageMaintenanceReport, loadStorageMaintena
 import { loadMcpServerRecords, loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolRequests, loadToolResults, loadToolSchedules, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest, recordToolSchema, runToolRequestAgent } from "../../../src/tool-requests.js";
 import { loadValidationEnvironmentRecords } from "../../../src/validation-environments.js";
 import { loadValidationChecklists, loadValidationManifests, loadValidationRuns, runTaskValidation, saveValidationManifest, upsertValidationManifestCommand } from "../../../src/validation.js";
+import { loadMissingContextRequests, upsertMissingContextRequest } from "../../../src/missing-context.js";
 import { loadStageWorkflowRunRecords } from "../../../src/stage-workflow.js";
 import { REAL_PI_ENABLED, REAL_PI_MODEL, runScalerPi, withRealPiTempRepo } from "./real-pi-harness.js";
 
@@ -60,6 +61,27 @@ test("real Pi extension: slash command dispatch searches memory summaries", { sk
     assert.match(`${result.stdout}\n${result.stderr}`, /Auth cache memory/);
     assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /FULL AUTH CACHE DETAIL/);
     assert.equal((await searchMemory(dir, { tags: ["cache"], taskId: "T-MEM" }))[0]?.entry.title, "Auth cache memory");
+  });
+});
+
+test("real Pi extension: slash command dispatch resolves missing context", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    await upsertMissingContextRequest(dir, {
+      id: "MCTX-REAL",
+      taskId: "T-REAL-MISS",
+      kind: "user",
+      query: "Ask user for tenant.",
+      reason: "Real command coverage.",
+    });
+
+    const list = await runScalerPi({ cwd: dir, prompt: "/scaler-missing-context T-REAL-MISS" });
+    assert.equal(list.exitCode, 0, list.stderr || list.stdout);
+    assert.match(`${list.stdout}\n${list.stderr}`, /MCTX-REAL/);
+
+    const resolved = await runScalerPi({ cwd: dir, prompt: "/scaler-missing-context-resolve MCTX-REAL | Tenant is real-test | user:real" });
+    assert.equal(resolved.exitCode, 0, resolved.stderr || resolved.stdout);
+    assert.match(`${resolved.stdout}\n${resolved.stderr}`, /Missing-context request resolved: MCTX-REAL/);
+    assert.equal((await loadMissingContextRequests(dir))[0]?.status, "resolved");
   });
 });
 

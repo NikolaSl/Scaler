@@ -37,7 +37,7 @@ Default integration tests use deterministic mock child-agent runners. They do no
 
 The current mocked integration harness covers:
 
-- conductor task execution into structured task-agent report ingestion before validation handoff, including missing/invalid report blocking;
+- conductor task execution into structured task-agent report ingestion before validation handoff, including missing/invalid report blocking and structured missing-context request creation/resolution/retry;
 - task-definition quality reviews for missing Definition of Done, validation, and allowed path scope;
 - failing validation into debugging;
 - debug attempt cycle detection and retry-gate refusal;
@@ -101,7 +101,7 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - real chained debug → research → next-approach flow-parity through persisted debug/research ledgers;
 - real bounded debug conductor chain from validation failure through debug → research → debug next approach;
 - real validation-debug workflow from actual failing validation into a bounded debug loop next approach;
-- real memory search/context-split command summary output, real autonomous stage-workflow prepare command dispatch, and real research raw-evidence externalization into memory/later task context manifests;
+- real memory search/context-split command summary output, real missing-context list/resolve command dispatch, real autonomous stage-workflow prepare command dispatch, and real research raw-evidence externalization into memory/later task context manifests;
 - real debug-blocked replan request creation plus safe replan acceptance that clears the retry gate;
 - real chained Stage I-IV conductor flow-parity through persisted stage artifacts and stage-agent run records;
 - real unsafe replan proposal rejection without replacing the current plan;

@@ -239,6 +239,18 @@ Lists automatic context split artifacts from `.scaler/context/splits.json`. Reco
 
 Searches `.scaler/memory/index.json` without loading full memory files. Results are concise candidate references with id, title, path, tags, validity, task, score, and summary. Full memory content still requires an explicit `scaler_memory_retrieve` call or a full-scope context item.
 
+## `/scaler-missing-context [taskId]`
+
+Lists structured missing-context requests from `.scaler/context/missing-requests.json`, optionally filtered by task.
+
+## `/scaler-missing-context-run [requestId] [execute] [internet]`
+
+Plans or executes retrieval/investigation for the selected open missing-context request. Supported deterministic actions include memory search, file retrieval evidence, local/internet research-request creation, and blocked user/tool clarification records. Internet investigation requires the explicit `internet` flag. Executed file/memory retrievals mark requests resolved; research dispatch records a linked research request and later research reports can resolve the missing-context request.
+
+## `/scaler-missing-context-resolve <requestId> | <summary> | <evidence refs>`
+
+Manually resolves a missing-context request with an operator/user summary and evidence refs. When all missing-context requests for a blocked task are resolved, SCALER moves that task back to `ready` so `/scaler-step` can retry deterministically.
+
 ## `/scaler-stage-status`
 
 Shows latest Stage I-IV artifact status from `.scaler/stages/stage-artifacts.json`.

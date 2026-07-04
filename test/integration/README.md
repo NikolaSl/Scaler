@@ -58,6 +58,7 @@ Prefer assertions on durable artifacts such as:
 - `.scaler/research/requests.json`
 - `.scaler/research/reports.json`
 - `.scaler/research/transactions.json`
+- `.scaler/context/missing-requests.json`
 - `.scaler/tool-requests/requests.json`
 - `.scaler/tool-requests/results.json`
 - `.scaler/tool-requests/transactions.json`
