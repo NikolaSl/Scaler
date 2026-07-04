@@ -16,6 +16,7 @@ import {
   parseResearchReportArgs,
   parseResearchRequestArgs,
   parseResearchRunArgs,
+  parseResearchWebArgs,
   parseSafetyApprovalArgs,
   parseSafetyPolicyArgs,
   parseSafetyScanArgs,
@@ -269,6 +270,11 @@ test("parseResearchRunArgs parses optional request, execute, internet grant, and
   assert.deepEqual(parseResearchRunArgs("execute internet tools=browser,mcp-docs RESEARCH-002"), { requestId: "RESEARCH-002", execute: true, allowInternet: true, tools: ["browser", "mcp-docs"] });
   assert.deepEqual(parseResearchRunArgs("execute"), { requestId: undefined, execute: true, allowInternet: false, tools: undefined });
   assert.deepEqual(parseResearchRunArgs(" "), { requestId: undefined, execute: false, allowInternet: false, tools: undefined });
+});
+
+test("parseResearchWebArgs parses web research controls", () => {
+  assert.deepEqual(parseResearchWebArgs("RESEARCH-001 execute internet tools=browser,mcp-docs max-queries=2"), { requestId: "RESEARCH-001", execute: true, allowInternet: true, tools: ["browser", "mcp-docs"], maxQueries: 2 });
+  assert.deepEqual(parseResearchWebArgs("internet"), { requestId: undefined, execute: false, allowInternet: true, tools: undefined, maxQueries: undefined });
 });
 
 test("parseToolRunArgs parses optional request and execute flag", () => {

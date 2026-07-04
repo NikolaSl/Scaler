@@ -74,6 +74,8 @@ test("extension registers scaler commands", () => {
     "scaler-tool-run",
     "scaler-tool-transactions",
     "scaler-research-run",
+    "scaler-research-web",
+    "scaler-research-transactions",
     "scaler-research-runs",
     "scaler-research-status",
     "scaler-research-request",

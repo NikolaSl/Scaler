@@ -6,10 +6,12 @@ import { getBudgetState } from "../../../src/budgets.js";
 import { loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
 import { loadDebugRetryPolicy } from "../../../src/debug-retry.js";
 import { readLogEvents } from "../../../src/logging.js";
+import { upsertResearchRequest } from "../../../src/research.js";
+import { loadResearchWebTransactions } from "../../../src/research-web.js";
 import { loadSafetyApprovals, loadSafetyPolicy } from "../../../src/safety.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { loadStorageInventory, loadStorageMaintenanceReport, loadStorageMaintenanceSchedule } from "../../../src/storage.js";
-import { loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest, runToolRequestAgent } from "../../../src/tool-requests.js";
+import { loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest, recordToolSchema, runToolRequestAgent } from "../../../src/tool-requests.js";
 import { loadValidationEnvironmentRecords } from "../../../src/validation-environments.js";
 import { loadValidationChecklists, loadValidationManifests, loadValidationRuns, runTaskValidation, saveValidationManifest, upsertValidationManifestCommand } from "../../../src/validation.js";
 import { REAL_PI_ENABLED, REAL_PI_MODEL, runScalerPi, withRealPiTempRepo } from "./real-pi-harness.js";
@@ -142,6 +144,42 @@ test("real Pi extension: slash command dispatch records safety approval workflow
         .map((event) => (event.details as { phase: string }).phase),
       ["start", "end"],
     );
+  });
+});
+
+test("real Pi extension: slash command dispatch plans web research transactions", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await saveState(dir, state);
+    await upsertResearchRequest(dir, {
+      id: "RESEARCH-REAL-WEB",
+      question: "Which Widget API version should be used?",
+      reason: "Need version-matched docs.",
+      scope: "mixed",
+    });
+    await recordToolSchema(dir, state, {
+      toolName: "mcp_docs_search",
+      source: "mcp://docs/schema",
+      description: "Search official docs.",
+      riskLevel: "external",
+      schemaRef: "schema:mcp-docs-search",
+    });
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-research-web RESEARCH-REAL-WEB internet max-queries=2",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Web research: accepted=true executed=false request=RESEARCH-REAL-WEB queries=2 tools=1/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const transactions = await loadResearchWebTransactions(dir);
+    assert.ok(transactions.some((transaction) => transaction.kind === "tool_discovery" && transaction.status === "completed"));
+    assert.equal(transactions.filter((transaction) => transaction.kind === "query" && transaction.status === "planned").length, 2);
+
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "research" && event.summary.startsWith("Web research planned")));
   });
 });
 
