@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { getBudgetState } from "../src/budgets.js";
 import { loadMemoryIndex } from "../src/memory.js";
+import { loadExecutionPlan, loadPlanningReports } from "../src/plans.js";
 import { loadCurrentPrd, loadPrdCoverage, loadPrdRequirements } from "../src/prd.js";
 import { loadResearchReports } from "../src/research.js";
 import { loadState } from "../src/state.js";
@@ -35,6 +36,7 @@ test("scalerToolNames lists structured Scaler tools", () => {
     "scaler_tool_result",
     "scaler_task_create",
     "scaler_task_update",
+    "scaler_planning_report",
     "scaler_prd_write",
     "scaler_prd_requirement_update",
     "scaler_validation_manifest_write",
@@ -237,6 +239,30 @@ test("scaler_task_report records structured task-agent report", async () => {
     assert.equal(reports[0]?.status, "completed");
     assert.deepEqual(reports[0]?.changedFiles, ["src/app.ts"]);
     assert.ok((getBudgetState(await loadState(dir)).usage.storageBytes ?? 0) > 0);
+  });
+});
+
+test("scaler_planning_report syncs planner output", async () => {
+  await withTempDir(async (dir) => {
+    const registered = new Map<string, { execute: (...args: any[]) => Promise<{ details: any }> }>();
+    registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<{ details: any }> }) { registered.set(definition.name, definition); } } as never);
+
+    const result = await registered.get("scaler_planning_report")?.execute(
+      "tool-call",
+      {
+        id: "PLAN-TOOL",
+        requirements: [{ id: "REQ-TOOL", statement: "Tool requirement" }],
+        plan: { planVersion: 3, status: "active", tasks: [{ id: "T-TOOL-PLAN", title: "Tool task", prdRefs: ["REQ-TOOL"] }] },
+      },
+      undefined,
+      undefined,
+      { cwd: dir },
+    );
+
+    assert.equal(result?.details.status, "accepted");
+    assert.equal((await loadExecutionPlan(dir)).planVersion, 3);
+    assert.equal((await loadPrdRequirements(dir)).requirements[0]?.id, "REQ-TOOL");
+    assert.equal((await loadPlanningReports(dir))[0]?.id, "PLAN-TOOL");
   });
 });
 

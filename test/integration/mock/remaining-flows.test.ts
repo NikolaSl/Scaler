@@ -17,7 +17,9 @@ import { commitWithExecutionLock, runValidationWithExecutionLock } from "../../.
 import {
   acceptReplanProposal,
   appendReplanRequest,
+  applyPlanningReport,
   loadExecutionPlan,
+  loadPlanningReports,
   loadProposedExecutionPlan,
   loadReplanDecisions,
   loadReplanRequests,
@@ -160,6 +162,37 @@ test("mock integration: context discovery feeds conductor prompt with local evid
     const manifest = await loadTaskContextManifest(dir, "T-CONTEXT");
     assert.ok(manifest?.items.some((item) => item.source === "file" && item.path === "src/app.js"));
     assert.ok(manifest?.items.some((item) => item.source === "memory"));
+  });
+});
+
+test("mock integration: planning report syncs runtime PRD coverage before execution", async () => {
+  await withTempRepo(async (dir) => {
+    const state = stateAt("planning");
+    state.tasks = [{ id: "T-PLAN-EXIST", status: "ready", title: "Existing", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+
+    const result = await applyPlanningReport(dir, state, {
+      id: "PLAN-MOCK",
+      requirements: [
+        { id: "REQ-PLAN-1", statement: "First planned requirement" },
+        { id: "REQ-PLAN-2", statement: "Second planned requirement" },
+      ],
+      plan: {
+        planVersion: 2,
+        status: "active",
+        tasks: [
+          { id: "T-PLAN-EXIST", title: "Existing planned", prdRefs: ["REQ-PLAN-1"], allowedPathPrefixes: ["src/app.js"] },
+          { id: "T-PLAN-NEW", title: "New planned", prdRefs: ["REQ-PLAN-2"], allowedPathPrefixes: ["src/app.js"] },
+        ],
+      },
+    });
+
+    assert.equal(result.accepted, true, result.message);
+    assert.equal((await loadExecutionPlan(dir)).planVersion, 2);
+    assert.equal((await loadPlanningReports(dir))[0]?.id, "PLAN-MOCK");
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements.map((requirement) => requirement.id).sort(), ["REQ-PLAN-1", "REQ-PLAN-2"]);
+    assert.deepEqual(result.state.tasks.find((task) => task.id === "T-PLAN-EXIST")?.prdRefs, ["REQ-PLAN-1"]);
+    assert.ok(result.state.tasks.some((task) => task.id === "T-PLAN-NEW"));
   });
 });
 

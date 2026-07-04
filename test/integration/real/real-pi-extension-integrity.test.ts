@@ -8,6 +8,7 @@ import { loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
 import { loadDebugRetryPolicy } from "../../../src/debug-retry.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { searchMemory, writeMemory } from "../../../src/memory.js";
+import { applyPlanningReport, loadPlanningReports } from "../../../src/plans.js";
 import { upsertResearchRequest } from "../../../src/research.js";
 import { loadResearchWebTransactions } from "../../../src/research-web.js";
 import { loadSafetyApprovals, loadSafetyPolicy } from "../../../src/safety.js";
@@ -56,6 +57,27 @@ test("real Pi extension: slash command dispatch searches memory summaries", { sk
     assert.match(`${result.stdout}\n${result.stderr}`, /Auth cache memory/);
     assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /FULL AUTH CACHE DETAIL/);
     assert.equal((await searchMemory(dir, { tags: ["cache"], taskId: "T-MEM" }))[0]?.entry.title, "Auth cache memory");
+  });
+});
+
+test("real Pi extension: slash command dispatch lists planning reports", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await saveState(dir, state);
+    await applyPlanningReport(dir, state, {
+      id: "PLAN-REAL",
+      requirements: [{ id: "REQ-REAL", statement: "Real planning requirement" }],
+      plan: { planVersion: 4, status: "active", tasks: [{ id: "T-REAL-PLAN", title: "Real task", prdRefs: ["REQ-REAL"] }] },
+    }, new Date("2026-01-01T00:00:01.000Z"));
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-planning-reports",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /PLAN-REAL/);
+    assert.equal((await loadPlanningReports(dir))[0]?.id, "PLAN-REAL");
   });
 });
 

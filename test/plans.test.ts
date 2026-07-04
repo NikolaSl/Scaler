@@ -8,13 +8,16 @@ import {
   acceptReplanProposal,
   appendReplanDecision,
   applyExecutionPlanTasks,
+  applyPlanningReport,
   checkExecutionPlanPreservation,
   createExecutionPlanSnapshot,
   formatExecutionPlanPreservationCheck,
   formatExecutionPlanSummary,
   formatReplanDecisions,
   formatReplanRequests,
+  formatPlanningReports,
   loadExecutionPlan,
+  loadPlanningReports,
   loadProposedExecutionPlan,
   loadReplanDecisions,
   loadReplanRequests,
@@ -24,6 +27,7 @@ import {
   validateExecutionPlan,
   validateReplanRequest,
 } from "../src/plans.js";
+import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements } from "../src/prd.js";
 import { createDefaultState } from "../src/state.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -143,6 +147,66 @@ test("applyExecutionPlanTasks creates missing tasks and preserves existing tasks
     assert.deepEqual(created?.prdRefs, ["REQ-001"]);
     assert.deepEqual(created?.allowedPathPrefixes, ["src"]);
     assert.deepEqual(created?.dependsOn, ["T-001"]);
+  });
+});
+
+test("applyPlanningReport syncs requirements plan tasks prd refs and coverage diagnostics", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.tasks = [{ id: "T-EXIST", title: "Existing", status: "ready", updatedAt: state.createdAt }];
+
+    const result = await applyPlanningReport(dir, state, {
+      id: "PLAN-RPT-1",
+      reason: "Initial planner output",
+      source: "unit-test",
+      requirements: [
+        { id: "REQ-1", statement: "Do one" },
+        { id: "REQ-2", statement: "Do two" },
+      ],
+      plan: {
+        planVersion: 7,
+        status: "active",
+        tasks: [
+          { id: "T-EXIST", title: "Existing updated", prdRefs: ["REQ-1"], allowedPathPrefixes: ["src"] },
+          { id: "T-NEW", title: "New", prdRefs: ["REQ-2"], allowedPathPrefixes: ["test"] },
+        ],
+      },
+    }, new Date("2026-01-01T00:00:01.000Z"));
+
+    const requirements = await loadPrdRequirements(dir);
+    const coverage = await loadPrdCoverage(dir);
+    const summary = computePrdCoverageSummary(requirements, coverage, result.state);
+
+    assert.equal(result.accepted, true);
+    assert.deepEqual(result.report.updatedTaskIds, ["T-EXIST"]);
+    assert.deepEqual(result.report.createdTaskIds, ["T-NEW"]);
+    assert.deepEqual(result.state.tasks.find((task) => task.id === "T-EXIST")?.prdRefs, ["REQ-1"]);
+    assert.deepEqual(requirements.requirements.map((requirement) => requirement.id).sort(), ["REQ-1", "REQ-2"]);
+    assert.deepEqual(summary.unlinkedRequirementIds, []);
+    assert.equal((await loadExecutionPlan(dir)).planVersion, 7);
+    assert.match(formatPlanningReports(await loadPlanningReports(dir)), /PLAN-RPT-1/);
+  });
+});
+
+test("applyPlanningReport reports coverage warnings for unlinked and unknown refs", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const result = await applyPlanningReport(dir, state, {
+      requirements: [{ id: "REQ-KNOWN", statement: "Known" }],
+      plan: {
+        planVersion: 1,
+        status: "active",
+        tasks: [
+          { id: "T-LINK", title: "Unknown ref", prdRefs: ["REQ-UNKNOWN"] },
+          { id: "T-NOREF", title: "No ref" },
+        ],
+      },
+    });
+
+    assert.equal(result.accepted, false);
+    assert.deepEqual(result.report.diagnostics.unlinkedRequirementIds, ["REQ-KNOWN"]);
+    assert.deepEqual(result.report.diagnostics.unknownPlanRequirementIds, ["REQ-UNKNOWN"]);
+    assert.deepEqual(result.report.diagnostics.planUnlinkedTaskIds, ["T-NOREF"]);
   });
 });
 
