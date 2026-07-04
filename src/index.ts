@@ -19,6 +19,7 @@ import {
   parseStageRecordArgs,
   parseStageRunArgs,
   parseStorageMaintainArgs,
+  parseStorageScheduleArgs,
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
@@ -77,7 +78,7 @@ import {
   upsertStageArtifact,
   validateStageArtifactReadiness,
 } from "./stages.js";
-import { formatStorageInventory, formatStorageMaintenanceReport, runStorageMaintenance, saveStorageInventory, scanScalerStorageInventory } from "./storage.js";
+import { formatStorageInventory, formatStorageMaintenanceReport, formatStorageMaintenanceSchedule, loadStorageMaintenanceSchedule, runScheduledStorageMaintenance, runStorageMaintenance, saveStorageInventory, scanScalerStorageInventory, updateStorageMaintenanceSchedule, type StorageMaintenancePolicy } from "./storage.js";
 import { formatKnownToolCatalog, formatToolSchemaDiscoveryRuns, formatToolTransactions, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, replayToolTransaction, runToolRequestAgent, runToolSchemaDiscoveryAgent } from "./tool-requests.js";
 import { registerScalerTools } from "./tools.js";
 import { formatValidationChecklist, recordValidationChecklist, upsertValidationManifestCommand } from "./validation.js";
@@ -115,6 +116,23 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     await recordProviderUsageBudget(ctx.cwd, state, usage, {
       source: "parent-turn-end",
       agentType: "parent",
+    });
+    return undefined;
+  });
+
+  pi.on("session_start", async (_event, ctx) => {
+    const scheduled = await runScheduledStorageMaintenance(ctx.cwd);
+    if (!scheduled.report) return undefined;
+    const state = await ensureState(ctx.cwd);
+    const inventory = await scanScalerStorageInventory(ctx.cwd);
+    const budgetResult = setBudgetUsage(state, "storageBytes", inventory.totalBytes);
+    const persisted = await persistBudgetDecision(ctx.cwd, budgetResult.state, budgetResult.decision);
+    await logStateEvent(ctx.cwd, persisted, "Scaler scheduled storage maintenance checked", {
+      schedule: scheduled.config,
+      status: scheduled.status,
+      report: scheduled.report,
+      inventory,
+      budgetDecision: budgetResult.decision,
     });
     return undefined;
   });
@@ -1079,6 +1097,60 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       });
       const message = `${formatStorageMaintenanceReport(report)}\nBudget: ${budgetResult.decision.status} ${budgetResult.decision.reason}`;
       if (ctx.hasUI) ctx.ui.notify(message, report.summary.failed > 0 || budgetResult.decision.status === "hard_limit" ? "warning" : "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-storage-schedule", {
+    description: "Show, update, or run scheduled .scaler/ storage maintenance: /scaler-storage-schedule [enable|disable] [run] [force] [execute=on/off] [interval-hours=N] [compress=on/off] [delete-cache=on/off] [rotate-active=on/off] [delete-archives=on/off] ...",
+    handler: async (args, ctx) => {
+      const parsed = parseStorageScheduleArgs(args);
+      const policy: Partial<StorageMaintenancePolicy> = {};
+      if (parsed.compress !== undefined) policy.compress = parsed.compress;
+      if (parsed.deleteCache !== undefined) policy.deleteCache = parsed.deleteCache;
+      if (parsed.minAgeDays !== undefined) policy.minAgeDays = parsed.minAgeDays;
+      if (parsed.minSizeBytes !== undefined) policy.minSizeBytes = parsed.minSizeBytes;
+      if (parsed.rotateActive !== undefined) policy.rotateActive = parsed.rotateActive;
+      if (parsed.maxActiveBytes !== undefined) policy.maxActiveBytes = parsed.maxActiveBytes;
+      if (parsed.minFreeBytes !== undefined) policy.minFreeBytes = parsed.minFreeBytes;
+      if (parsed.deleteArchives !== undefined) policy.deleteArchives = parsed.deleteArchives;
+      if (parsed.maxArchiveBytes !== undefined) policy.maxArchiveBytes = parsed.maxArchiveBytes;
+      if (parsed.maxArchiveAgeDays !== undefined) policy.maxArchiveAgeDays = parsed.maxArchiveAgeDays;
+      const hasPolicyUpdate = Object.keys(policy).length > 0;
+      const hasUpdate = parsed.enabled !== undefined || parsed.intervalHours !== undefined || parsed.execute !== undefined || hasPolicyUpdate;
+      let schedule = hasUpdate
+        ? await updateStorageMaintenanceSchedule(ctx.cwd, {
+          enabled: parsed.enabled,
+          intervalHours: parsed.intervalHours,
+          execute: parsed.execute,
+          policy: hasPolicyUpdate ? policy : undefined,
+        })
+        : await loadStorageMaintenanceSchedule(ctx.cwd);
+      let runResult = parsed.run ? await runScheduledStorageMaintenance(ctx.cwd, { force: parsed.force }) : undefined;
+      if (runResult) schedule = runResult.config;
+      const state = await ensureState(ctx.cwd);
+      let budgetDecision;
+      let inventory;
+      let persisted = state;
+      if (runResult?.report) {
+        inventory = await scanScalerStorageInventory(ctx.cwd);
+        const budgetResult = setBudgetUsage(state, "storageBytes", inventory.totalBytes);
+        budgetDecision = budgetResult.decision;
+        persisted = await persistBudgetDecision(ctx.cwd, budgetResult.state, budgetResult.decision);
+      }
+      await logStateEvent(ctx.cwd, persisted, "Scaler storage schedule requested", {
+        command: "scaler-storage-schedule",
+        updated: hasUpdate,
+        run: parsed.run,
+        force: parsed.force,
+        schedule,
+        runResult,
+        inventory,
+        budgetDecision,
+      });
+      const baseMessage = formatStorageMaintenanceSchedule(schedule, runResult);
+      const message = budgetDecision ? `${baseMessage}\nBudget: ${budgetDecision.status} ${budgetDecision.reason}` : baseMessage;
+      if (ctx.hasUI) ctx.ui.notify(message, runResult?.report?.summary.failed ? "warning" : "info");
       else console.log(message);
     },
   });

@@ -3,7 +3,7 @@ import { copyFile, lstat, mkdir, readFile, readdir, statfs, unlink, writeFile } 
 import { dirname, join, relative, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
-import { SCALER_DIR, getScalerDir, getStorageIndexPath, getStorageMaintenancePath } from "./paths.js";
+import { SCALER_DIR, getScalerDir, getStorageIndexPath, getStorageMaintenancePath, getStorageSchedulePath } from "./paths.js";
 
 export interface StorageFileInventoryEntry {
   path: string;
@@ -102,6 +102,33 @@ export interface StorageMaintenanceOptions {
   maxArchiveBytes?: number;
   maxArchiveAgeDays?: number;
   now?: Date;
+}
+
+export interface StorageMaintenanceScheduleConfig {
+  version: 1;
+  enabled: boolean;
+  intervalHours: number;
+  execute: boolean;
+  policy: StorageMaintenancePolicy;
+  updatedAt: string;
+  lastRunAt?: string;
+  nextRunAt?: string;
+  lastReportGeneratedAt?: string;
+}
+
+export interface StorageMaintenanceScheduleUpdate {
+  enabled?: boolean;
+  intervalHours?: number;
+  execute?: boolean;
+  policy?: Partial<StorageMaintenancePolicy>;
+}
+
+export interface ScheduledStorageMaintenanceResult {
+  status: "disabled" | "not_due" | "planned" | "executed";
+  due: boolean;
+  config: StorageMaintenanceScheduleConfig;
+  report?: StorageMaintenanceReport;
+  message: string;
 }
 
 interface MutableTopLevelSummary extends StorageTopLevelSummary {}
@@ -211,7 +238,7 @@ export function formatStorageInventory(inventory: StorageInventoryIndex): string
 }
 
 export async function planStorageMaintenance(cwd: string, options: StorageMaintenanceOptions = {}): Promise<StorageMaintenanceReport> {
-  const policy = normalizeMaintenancePolicy(options);
+  const policy = normalizeStorageMaintenancePolicy(options);
   const generatedAt = (options.now ?? new Date()).toISOString();
   const actions: StorageMaintenanceAction[] = [];
   const cutoffMs = Date.parse(generatedAt) - policy.minAgeDays * 24 * 60 * 60 * 1000;
@@ -344,6 +371,107 @@ export async function loadStorageMaintenanceReport(cwd: string): Promise<Storage
   }
 }
 
+export async function loadStorageMaintenanceSchedule(cwd: string, now = new Date()): Promise<StorageMaintenanceScheduleConfig> {
+  try {
+    const stored = JSON.parse(await readFile(getStorageSchedulePath(cwd), "utf8")) as Partial<StorageMaintenanceScheduleConfig>;
+    return normalizeStorageMaintenanceSchedule(stored, now);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return createDefaultStorageMaintenanceSchedule(now);
+    throw error;
+  }
+}
+
+export async function saveStorageMaintenanceSchedule(
+  cwd: string,
+  schedule: StorageMaintenanceScheduleConfig,
+): Promise<StorageMaintenanceScheduleConfig> {
+  const normalized = normalizeStorageMaintenanceSchedule(schedule, new Date(schedule.updatedAt));
+  const path = getStorageSchedulePath(cwd);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
+  return normalized;
+}
+
+export async function updateStorageMaintenanceSchedule(
+  cwd: string,
+  update: StorageMaintenanceScheduleUpdate,
+  now = new Date(),
+): Promise<StorageMaintenanceScheduleConfig> {
+  const current = await loadStorageMaintenanceSchedule(cwd, now);
+  const intervalHours = update.intervalHours === undefined ? current.intervalHours : normalizeScheduleIntervalHours(update.intervalHours);
+  const nextRunAt = current.nextRunAt ?? now.toISOString();
+  const next: StorageMaintenanceScheduleConfig = {
+    version: 1,
+    enabled: update.enabled ?? current.enabled,
+    intervalHours,
+    execute: update.execute ?? current.execute,
+    policy: normalizeStorageMaintenancePolicy({ ...current.policy, ...(update.policy ?? {}) }),
+    updatedAt: now.toISOString(),
+    lastRunAt: current.lastRunAt,
+    nextRunAt,
+    lastReportGeneratedAt: current.lastReportGeneratedAt,
+  };
+  return await saveStorageMaintenanceSchedule(cwd, next);
+}
+
+export async function runScheduledStorageMaintenance(
+  cwd: string,
+  options: { now?: Date; force?: boolean } = {},
+): Promise<ScheduledStorageMaintenanceResult> {
+  const now = options.now ?? new Date();
+  const schedule = await loadStorageMaintenanceSchedule(cwd, now);
+  if (!schedule.enabled) {
+    return { status: "disabled", due: false, config: schedule, message: "Scheduled storage maintenance is disabled." };
+  }
+
+  const due = options.force === true || !schedule.nextRunAt || Date.parse(schedule.nextRunAt) <= now.getTime();
+  if (!due) {
+    return {
+      status: "not_due",
+      due: false,
+      config: schedule,
+      message: `Scheduled storage maintenance is not due until ${schedule.nextRunAt}.`,
+    };
+  }
+
+  const report = await runStorageMaintenance(cwd, {
+    ...schedule.policy,
+    execute: schedule.execute,
+    now,
+  });
+  const updated: StorageMaintenanceScheduleConfig = {
+    ...schedule,
+    updatedAt: now.toISOString(),
+    lastRunAt: now.toISOString(),
+    nextRunAt: new Date(now.getTime() + schedule.intervalHours * 60 * 60 * 1000).toISOString(),
+    lastReportGeneratedAt: report.generatedAt,
+  };
+  const saved = await saveStorageMaintenanceSchedule(cwd, updated);
+  const status = schedule.execute ? "executed" : "planned";
+  return {
+    status,
+    due: true,
+    config: saved,
+    report,
+    message: `Scheduled storage maintenance ${status}: nextRunAt=${saved.nextRunAt}`,
+  };
+}
+
+export function formatStorageMaintenanceSchedule(
+  schedule: StorageMaintenanceScheduleConfig,
+  result?: ScheduledStorageMaintenanceResult,
+): string {
+  const lines = [
+    `Storage schedule: enabled=${schedule.enabled} intervalHours=${schedule.intervalHours} execute=${schedule.execute} nextRunAt=${schedule.nextRunAt ?? "due"} lastRunAt=${schedule.lastRunAt ?? "never"}`,
+    `Policy: compress=${schedule.policy.compress} deleteCache=${schedule.policy.deleteCache} minAgeDays=${schedule.policy.minAgeDays} minSizeBytes=${schedule.policy.minSizeBytes} rotateActive=${schedule.policy.rotateActive} maxActiveBytes=${schedule.policy.maxActiveBytes}${schedule.policy.minFreeBytes === undefined ? "" : ` minFreeBytes=${schedule.policy.minFreeBytes}`} deleteArchives=${schedule.policy.deleteArchives}${schedule.policy.maxArchiveBytes === undefined ? "" : ` maxArchiveBytes=${schedule.policy.maxArchiveBytes}`}${schedule.policy.maxArchiveAgeDays === undefined ? "" : ` maxArchiveAgeDays=${schedule.policy.maxArchiveAgeDays}`}`,
+  ];
+  if (result) {
+    lines.push(`Run: status=${result.status} due=${result.due} message=${result.message}`);
+    if (result.report) lines.push(formatStorageMaintenanceReport(result.report));
+  }
+  return lines.join("\n");
+}
+
 export function formatStorageMaintenanceReport(report: StorageMaintenanceReport): string {
   const lines = [
     `Storage maintenance: executed=${report.executed} planned=${report.summary.planned} completed=${report.summary.completed} failed=${report.summary.failed} skipped=${report.summary.skipped} bytesEligible=${report.summary.bytesEligible} bytesCompleted=${report.summary.bytesCompleted}`,
@@ -354,7 +482,7 @@ export function formatStorageMaintenanceReport(report: StorageMaintenanceReport)
   return lines.join("\n");
 }
 
-function normalizeMaintenancePolicy(options: StorageMaintenanceOptions): StorageMaintenancePolicy {
+export function normalizeStorageMaintenancePolicy(options: StorageMaintenanceOptions): StorageMaintenancePolicy {
   const minAgeDays = Number.isFinite(options.minAgeDays) && options.minAgeDays !== undefined ? Math.max(0, options.minAgeDays) : 7;
   const minSizeBytes = Number.isFinite(options.minSizeBytes) && options.minSizeBytes !== undefined ? Math.max(1, options.minSizeBytes) : 1024 * 1024;
   const maxActiveBytes = Number.isFinite(options.maxActiveBytes) && options.maxActiveBytes !== undefined ? Math.max(1, options.maxActiveBytes) : DEFAULT_MAX_ACTIVE_BYTES;
@@ -373,6 +501,38 @@ function normalizeMaintenancePolicy(options: StorageMaintenanceOptions): Storage
     maxArchiveBytes,
     maxArchiveAgeDays,
   };
+}
+
+function createDefaultStorageMaintenanceSchedule(now: Date): StorageMaintenanceScheduleConfig {
+  return {
+    version: 1,
+    enabled: false,
+    intervalHours: 24,
+    execute: false,
+    policy: normalizeStorageMaintenancePolicy({}),
+    updatedAt: now.toISOString(),
+  };
+}
+
+function normalizeStorageMaintenanceSchedule(
+  schedule: Partial<StorageMaintenanceScheduleConfig>,
+  now: Date,
+): StorageMaintenanceScheduleConfig {
+  return {
+    version: 1,
+    enabled: schedule.enabled ?? false,
+    intervalHours: normalizeScheduleIntervalHours(schedule.intervalHours),
+    execute: schedule.execute ?? false,
+    policy: normalizeStorageMaintenancePolicy(schedule.policy ?? {}),
+    updatedAt: typeof schedule.updatedAt === "string" && schedule.updatedAt.trim() ? schedule.updatedAt : now.toISOString(),
+    lastRunAt: typeof schedule.lastRunAt === "string" && schedule.lastRunAt.trim() ? schedule.lastRunAt : undefined,
+    nextRunAt: typeof schedule.nextRunAt === "string" && schedule.nextRunAt.trim() ? schedule.nextRunAt : undefined,
+    lastReportGeneratedAt: typeof schedule.lastReportGeneratedAt === "string" && schedule.lastReportGeneratedAt.trim() ? schedule.lastReportGeneratedAt : undefined,
+  };
+}
+
+function normalizeScheduleIntervalHours(value: unknown): number {
+  return Number.isFinite(value) && typeof value === "number" ? Math.max(1, Math.min(24 * 365, value)) : 24;
 }
 
 function buildMaintenanceReport(

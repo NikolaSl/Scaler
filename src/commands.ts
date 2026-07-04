@@ -79,6 +79,24 @@ export interface ParsedStorageMaintainArgs {
   maxArchiveAgeDays?: number;
 }
 
+export interface ParsedStorageScheduleArgs {
+  enabled?: boolean;
+  run: boolean;
+  force: boolean;
+  intervalHours?: number;
+  execute?: boolean;
+  compress?: boolean;
+  deleteCache?: boolean;
+  minAgeDays?: number;
+  minSizeBytes?: number;
+  rotateActive?: boolean;
+  maxActiveBytes?: number;
+  minFreeBytes?: number;
+  deleteArchives?: boolean;
+  maxArchiveBytes?: number;
+  maxArchiveAgeDays?: number;
+}
+
 export interface ParsedSafetyPolicyArgs {
   allowInternet?: boolean;
   allowExternalMutations?: boolean;
@@ -316,6 +334,37 @@ export function parseStorageMaintainArgs(args: string | undefined): ParsedStorag
     deleteArchives: parts.some((part) => part.toLowerCase() === "delete-archives"),
     maxArchiveBytes: maxArchiveBytes === undefined || !Number.isFinite(maxArchiveBytes) ? undefined : maxArchiveBytes,
     maxArchiveAgeDays: maxArchiveAgeDays === undefined || !Number.isFinite(maxArchiveAgeDays) ? undefined : maxArchiveAgeDays,
+  };
+}
+
+export function parseStorageScheduleArgs(args: string | undefined): ParsedStorageScheduleArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  const findNumber = (name: string): number | undefined => {
+    const part = parts.find((candidate) => candidate.toLowerCase().startsWith(`${name.toLowerCase()}=`));
+    if (!part) return undefined;
+    const parsed = Number.parseInt(part.split("=")[1] ?? "", 10);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  };
+  const findBoolean = (name: string): boolean | undefined => {
+    const part = parts.find((candidate) => candidate.toLowerCase().startsWith(`${name.toLowerCase()}=`));
+    return parseOnOffOption(part);
+  };
+  return {
+    enabled: parts.some((part) => part.toLowerCase() === "enable") ? true : parts.some((part) => part.toLowerCase() === "disable") ? false : undefined,
+    run: parts.some((part) => part.toLowerCase() === "run"),
+    force: parts.some((part) => part.toLowerCase() === "force"),
+    intervalHours: findNumber("interval-hours"),
+    execute: findBoolean("execute"),
+    compress: findBoolean("compress"),
+    deleteCache: findBoolean("delete-cache"),
+    minAgeDays: findNumber("min-age-days"),
+    minSizeBytes: findNumber("min-size"),
+    rotateActive: findBoolean("rotate-active"),
+    maxActiveBytes: findNumber("max-active-bytes"),
+    minFreeBytes: findNumber("min-free-bytes"),
+    deleteArchives: findBoolean("delete-archives"),
+    maxArchiveBytes: findNumber("max-archive-bytes"),
+    maxArchiveAgeDays: findNumber("max-archive-age-days"),
   };
 }
 
