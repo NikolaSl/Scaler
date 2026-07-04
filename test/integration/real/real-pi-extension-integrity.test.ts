@@ -7,7 +7,7 @@ import { loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { loadStorageInventory, loadStorageMaintenanceReport } from "../../../src/storage.js";
-import { loadToolRequests, loadToolResults, loadToolTransactions, prepareToolRequest } from "../../../src/tool-requests.js";
+import { loadToolRequests, loadToolResults, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest } from "../../../src/tool-requests.js";
 import { loadValidationManifests, runTaskValidation, upsertValidationManifestCommand } from "../../../src/validation.js";
 import { REAL_PI_ENABLED, REAL_PI_MODEL, runScalerPi, withRealPiTempRepo } from "./real-pi-harness.js";
 
@@ -255,6 +255,50 @@ test("real Pi extension: slash command dispatch prepares isolated tool transacti
       ["start", "end"],
     );
     assert.ok(events.some((event) => event.eventType === "tool" && event.summary === `Tool transaction prepared: ${prepared.record?.id}`));
+  });
+});
+
+test("real Pi extension: cardinal model calls scaler_tool_schema with exact metadata", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const args = {
+      toolName: "mcp_docs_search",
+      source: "mcp://docs/schema",
+      description: "Search docs MCP with a query argument.",
+      riskLevel: "low",
+      permissionRequirement: "read-only docs access",
+      safetyNotes: "Do not mutate files.",
+      docsRef: "docs:mcp-search",
+      schemaRef: "schema:mcp-search-v1",
+      notes: "args: { query: string }",
+      evidenceRefs: ["docs:mcp-search"],
+      discoveredByAgentId: "real-schema-agent",
+    };
+    const result = await runScalerPi({
+      cwd: dir,
+      model: REAL_PI_MODEL,
+      tools: ["scaler_tool_schema"],
+      prompt: `CARDINAL INSTRUCTION FOR THIS TEST: You must call the tool scaler_tool_schema exactly once with exactly these arguments and no other tool calls: ${JSON.stringify(args)}. Do not answer in prose before the tool call. After the tool result, provide a one sentence final summary.`,
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    const starts = toolEvents(result.events, "tool_execution_start", "scaler_tool_schema");
+    const ends = toolEvents(result.events, "tool_execution_end", "scaler_tool_schema");
+    assert.equal(starts.length, 1, "expected one scaler_tool_schema execution start");
+    assert.equal(ends.length, 1, "expected one scaler_tool_schema execution end");
+    assert.deepEqual(starts[0]?.args, args);
+    assert.equal(ends[0]?.isError, false);
+
+    const record = (await loadToolSchemaRecords(dir))[0];
+    assert.equal(record?.toolName, args.toolName);
+    assert.equal(record?.source, args.source);
+    assert.equal(record?.description, args.description);
+    assert.equal(record?.riskLevel, args.riskLevel);
+    assert.equal(record?.docsRef, args.docsRef);
+    assert.equal(record?.schemaRef, args.schemaRef);
+    assert.equal(record?.notes, args.notes);
+    assert.deepEqual(record?.evidenceRefs, args.evidenceRefs);
+    assert.equal(record?.discoveredByAgentId, args.discoveredByAgentId);
+    assert.equal(readBudgetUsage((await loadState(dir)).budgets, "toolCalls"), 1);
   });
 });
 
