@@ -45,6 +45,16 @@ Examples:
 
 `required` accepts true/yes/required/1 and false/no/optional/0. Unknown or omitted values default to required when saved. Gate aliases are normalized to typed values such as `unit_tests`, `build_compile`, `static_checks`, `integration_tests`, `security_checks`, `acceptance_smoke`, and non-software evidence gates such as `completeness`, `consistency`, `compliance`, `source_validation`, `adversarial_review`, and `uncertainty_report`.
 
+## `/scaler-validation-checklist <taskId> | <gate> | <summary> | <id::status::required::statement::evidence;...> | <evidence refs>`
+
+Records a deterministic non-software validation checklist under `.scaler/reports/validation-checklists.json` and applies the rolled-up result to the task. Item statuses are `passed`, `failed`, `blocked`, or `not_applicable`; required failed items fail the checklist, required blocked items block it, and optional failures are recorded without failing the checklist.
+
+Example:
+
+```text
+/scaler-validation-checklist T-001 | completeness | Acceptance checklist complete | scope::passed::required::Scope covered::docs:scope;edge::failed::optional::Edge cases documented::docs:edge | review:T-001
+```
+
 ## `/scaler-commit [taskId] | [allowed paths comma list]`
 
 Commits a validated task using the git safety helper. Commits run under the repo-wide execution lock.

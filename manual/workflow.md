@@ -60,6 +60,8 @@ Tasks may include allowed paths for later commit safety, dependency ids, and run
 
 Validation commands can carry typed gate metadata (`unit_tests`, `build_compile`, `static_checks`, `integration_tests`, `security_checks`, `acceptance_smoke`, `regression`, or non-software gates such as `completeness`, `consistency`, `compliance`, `source_validation`, `adversarial_review`, and `uncertainty_report`), expected results, and evidence references. If no task manifest exists, validation falls back to supported `package.json` scripts and classifies common scripts such as `test`, `build`, `lint`, `typecheck`, `format:check`, `test:integration`, `smoke`, and `audit` into typed gates.
 
+For non-software gates, `/scaler-validation-checklist` records deterministic checklist items under `.scaler/reports/validation-checklists.json` and applies the rolled-up result: required failed items fail, required blocked items block, and optional failures remain evidence without failing the checklist.
+
 ## 4. Run one conductor step
 
 ```text
