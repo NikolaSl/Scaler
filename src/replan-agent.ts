@@ -17,6 +17,7 @@ import {
   type ReplanRequest,
 } from "./plans.js";
 import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdCoverageSummary, type RuntimePrdRequirementsFile } from "./prd.js";
+import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
 import type { ScalerState } from "./types.js";
@@ -75,6 +76,7 @@ export interface ReplanAgentRunRecord {
   ingestionStatus?: "not_attempted" | "ingested" | "rejected";
   proposedPlanVersion?: number;
   createdAt: string;
+  usage?: ProviderUsage;
 }
 
 export interface ReplanAgentRunIndex {
@@ -202,6 +204,13 @@ export async function runReplanAgentStep(
       details: { invocation: preparation.invocation, currentPlanVersion: context.currentPlan.planVersion },
     });
     const runResult = options.execute ? await runner(preparation.request, { timeoutMs: options.timeoutMs }) : undefined;
+    if (runResult?.usage) {
+      await recordProviderUsageBudget(cwd, state, runResult.usage, {
+        source: "replan-agent-run",
+        agentId: "replan-agent",
+        agentType: "replan",
+      });
+    }
     const ingestion = runResult?.exitCode === 0 ? await ingestReplanProposalReport(cwd, runResult.stdoutEvents, state) : { attempted: false, ingested: false };
     if (ingestion.attempted) {
       await logStructuredReportAudit(cwd, state, {
@@ -317,6 +326,7 @@ export async function recordReplanAgentRun(
     ingestionStatus: ingestion?.attempted ? (ingestion.ingested ? "ingested" : "rejected") : "not_attempted",
     proposedPlanVersion: ingestion?.plan?.planVersion,
     createdAt: timestamp,
+    usage: runResult.usage,
   } : {
     id: `replan-agent-${now.getTime()}`,
     status: preparedStatus ?? "prepared",

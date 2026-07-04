@@ -57,6 +57,7 @@ import {
   summarizeExecutionPlan,
 } from "./plans.js";
 import { computePrdCoverageSummary, formatPrdCoverageSummary, loadPrdCoverage, loadPrdRequirements } from "./prd.js";
+import { extractProviderUsage, recordProviderUsageBudget } from "./provider-usage.js";
 import { requestReplan } from "./replanning.js";
 import { formatReplanAgentRunList, loadReplanAgentRunRecords, runReplanAgentStep } from "./replan-agent.js";
 import { formatResearchAgentRunList, loadResearchAgentRunRecords, runResearchAgentStep } from "./research-agent.js";
@@ -105,6 +106,17 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     },
   });
   (pi as unknown as { registerCommand: ExtensionAPI["registerCommand"] }).registerCommand = auditedRegisterCommand;
+
+  pi.on("turn_end", async (event, ctx) => {
+    const usage = extractProviderUsage([event]);
+    if (!usage) return undefined;
+    const state = await ensureState(ctx.cwd);
+    await recordProviderUsageBudget(ctx.cwd, state, usage, {
+      source: "parent-turn-end",
+      agentType: "parent",
+    });
+    return undefined;
+  });
 
   pi.on("tool_call", async (event, ctx) => {
     const state = await ensureState(ctx.cwd);

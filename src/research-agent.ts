@@ -5,6 +5,7 @@ import { logAgentPromptAudit, logStructuredReportAudit } from "./logging.js";
 import { loadExecutionPlan, summarizeExecutionPlan, formatExecutionPlanSummary, type ExecutionPlanArtifact } from "./plans.js";
 import { getResearchAgentRunsPath } from "./paths.js";
 import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdCoverageSummary, type RuntimePrdRequirementsFile } from "./prd.js";
+import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import {
   formatResearchSummary,
   loadResearchReports,
@@ -80,6 +81,7 @@ export interface ResearchAgentRunRecord {
   ingestionStatus?: "not_attempted" | "ingested" | "rejected";
   reportId?: string;
   createdAt: string;
+  usage?: ProviderUsage;
 }
 
 export interface ResearchAgentRunIndex {
@@ -236,6 +238,14 @@ export async function runResearchAgentStep(
       details: { invocation: preparation.invocation, scope: context.request.scope },
     });
     const runResult = options.execute ? await runner(preparation.request, { timeoutMs: options.timeoutMs }) : undefined;
+    if (runResult?.usage) {
+      await recordProviderUsageBudget(cwd, state, runResult.usage, {
+        source: "research-agent-run",
+        taskId: context.request.taskId,
+        agentId: context.request.id,
+        agentType: "research",
+      });
+    }
     const ingestion = runResult?.exitCode === 0 ? await ingestResearchReport(cwd, runResult.stdoutEvents) : { attempted: false, ingested: false };
     if (ingestion.attempted) {
       await logStructuredReportAudit(cwd, state, {
@@ -380,6 +390,7 @@ export async function recordResearchAgentRun(
     ingestionStatus: ingestion?.attempted ? (ingestion.ingested ? "ingested" : "rejected") : "not_attempted",
     reportId: ingestion?.report?.id,
     createdAt: timestamp,
+    usage: runResult.usage,
   } : {
     id: `research-agent-${now.getTime()}`,
     requestId,

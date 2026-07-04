@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { getToolCatalogPath, getToolRequestsIndexPath, getToolResultsPath, getToolSchemaDiscoveryRunsPath, getToolTransactionsPath } from "./paths.js";
+import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { buildTaskAgentInvocation, runTaskAgent, type RunTaskAgentOptions, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import type { ScalerState } from "./types.js";
 
@@ -85,6 +86,7 @@ export interface ToolSchemaDiscoveryRunRecord {
   message: string;
   createdAt: string;
   updatedAt: string;
+  usage?: ProviderUsage;
 }
 
 export interface ToolSchemaRecord {
@@ -131,6 +133,7 @@ export interface ToolTransactionRecord {
   message: string;
   createdAt: string;
   updatedAt: string;
+  usage?: ProviderUsage;
 }
 
 export interface ToolResultRecord {
@@ -435,6 +438,13 @@ export async function runToolSchemaDiscoveryAgent(
 
   const beforeIds = new Set(existingRecords.map((record) => record.id));
   const runResult = await runner(agentRequest, { timeoutMs: options.timeoutMs, command: options.command } satisfies RunTaskAgentOptions);
+  if (runResult.usage) {
+    await recordProviderUsageBudget(cwd, state, runResult.usage, {
+      source: "tool-schema-discovery-run",
+      agentId: `tool-schema-${toolName}`,
+      agentType: "tool-schema",
+    });
+  }
   const schemaRecord = (await loadToolSchemaRecords(cwd)).find((record) => record.toolName === toolName && !beforeIds.has(record.id));
   const status: ToolSchemaDiscoveryRunStatus = schemaRecord ? "completed" : "missing_schema";
   const run = await recordToolSchemaDiscoveryRun(cwd, {
@@ -498,6 +508,14 @@ export async function runToolRequestAgent(
   }
 
   const runResult = await runner(agentRequest, { timeoutMs: options.timeoutMs, command: options.command } satisfies RunTaskAgentOptions);
+  if (runResult.usage) {
+    await recordProviderUsageBudget(cwd, state, runResult.usage, {
+      source: "tool-agent-run",
+      taskId: request.taskId,
+      agentId: request.id,
+      agentType: "tool",
+    });
+  }
   const updatedRequest = (await loadToolRequests(cwd)).find((candidate) => candidate.id === request.id) ?? request;
   const resultRecord = (await loadToolResults(cwd)).find((candidate) => candidate.requestId === request.id);
   const status: ToolTransactionStatus = resultRecord && updatedRequest.status !== "prepared" ? updatedRequest.status : "missing_result";
@@ -586,6 +604,14 @@ export async function replayToolTransaction(
 
   const beforeResultIds = new Set((await loadToolResults(cwd)).map((record) => record.id));
   const runResult = await runner(replayRequest, { timeoutMs: options.timeoutMs, command: options.command ?? original.invocation.command } satisfies RunTaskAgentOptions);
+  if (runResult.usage) {
+    await recordProviderUsageBudget(cwd, state, runResult.usage, {
+      source: "tool-replay-run",
+      taskId: request.taskId,
+      agentId: request.id,
+      agentType: "tool-replay",
+    });
+  }
   const updatedRequest = (await loadToolRequests(cwd)).find((candidate) => candidate.id === request.id) ?? request;
   const resultRecord = (await loadToolResults(cwd)).find((candidate) => candidate.requestId === request.id && !beforeResultIds.has(candidate.id));
   const status: ToolTransactionStatus = resultRecord && updatedRequest.status !== "prepared" ? updatedRequest.status : "missing_result";
@@ -847,6 +873,7 @@ async function recordToolSchemaDiscoveryRun(
     stdoutEventCount: input.runResult?.stdoutEvents.length,
     stderrSummary: input.runResult ? summarizeOutput(input.runResult.stderr) : undefined,
     schemaRecordId: input.schemaRecordId,
+    usage: input.runResult?.usage,
     message: input.message,
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -898,6 +925,7 @@ async function recordToolTransaction(
     stdoutEventCount: input.runResult?.stdoutEvents.length,
     stderrSummary: input.runResult ? summarizeOutput(input.runResult.stderr) : undefined,
     resultId: input.resultId,
+    usage: input.runResult?.usage,
     replayOfTransactionId: input.replayOfTransactionId,
     message: input.message,
     createdAt: timestamp,

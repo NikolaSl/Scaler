@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { extractProviderUsage, type ProviderUsage } from "./provider-usage.js";
 
 export interface TaskAgentRequest {
   taskId: string;
@@ -24,6 +25,7 @@ export interface TaskAgentRunResult {
   stderr: string;
   timedOut: boolean;
   aborted: boolean;
+  usage?: ProviderUsage;
 }
 
 export interface RunTaskAgentOptions {
@@ -138,6 +140,7 @@ export async function runTaskAgent(
         stderr,
         timedOut,
         aborted,
+        usage: extractProviderUsage(stdoutEvents),
       });
     });
 

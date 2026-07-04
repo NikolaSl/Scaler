@@ -14,6 +14,7 @@ import {
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { appendLogEvent, createLogEvent, logAgentPromptAudit } from "./logging.js";
 import { getTaskAgentRunsPath, getValidationHandoffsPath } from "./paths.js";
+import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { saveState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import { transitionTask } from "./supervisor.js";
@@ -59,6 +60,7 @@ export interface TaskAgentRunRecord {
   timedOut: boolean;
   aborted: boolean;
   createdAt: string;
+  usage?: ProviderUsage;
 }
 
 export interface TaskAgentRunIndex {
@@ -210,6 +212,14 @@ export async function runConductorStep(
   };
   const invocation = buildTaskAgentInvocation(request);
   const runResult = options.execute ? await runner(request, { timeoutMs: options.timeoutMs }) : undefined;
+  if (runResult?.usage) {
+    nextState = (await recordProviderUsageBudget(cwd, nextState, runResult.usage, {
+      source: "task-agent-run",
+      taskId: runningTask.id,
+      agentId: runningTask.id,
+      agentType: "task",
+    })).state;
+  }
   const runRecord = runResult ? await recordTaskAgentRun(cwd, runResult) : undefined;
   const handoff = runResult ? await applyTaskRunHandoff(cwd, nextState, runningTask.id, runResult) : undefined;
   const finalState = handoff?.state ?? nextState;
@@ -275,6 +285,7 @@ export async function recordTaskAgentRun(cwd: string, runResult: TaskAgentRunRes
     timedOut: runResult.timedOut,
     aborted: runResult.aborted,
     createdAt: now.toISOString(),
+    usage: runResult.usage,
   };
   await writeTaskAgentRuns(cwd, [record, ...(await loadTaskAgentRunRecords(cwd))]);
   return record;

@@ -15,6 +15,7 @@ import {
 } from "./debug.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { appendLogEvent, createLogEvent, logAgentPromptAudit, logValidationSummaryAudit } from "./logging.js";
+import { recordProviderUsageBudget } from "./provider-usage.js";
 import { saveState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import { transitionTask } from "./supervisor.js";
@@ -139,6 +140,14 @@ export async function runDebugNextApproachRetry(
     }
 
     const runResult = await runner(request, { timeoutMs: options.timeoutMs });
+    if (runResult.usage) {
+      workingState = (await recordProviderUsageBudget(cwd, workingState, runResult.usage, {
+        source: "debug-retry-task-agent-run",
+        taskId: runningTask.id,
+        agentId: runningTask.id,
+        agentType: "debug-retry-task",
+      })).state;
+    }
     const runRecord = await recordTaskAgentRun(cwd, runResult);
     if (runResult.exitCode !== 0) {
       const handoff = await applyTaskRunHandoff(cwd, workingState, runningTask.id, runResult);

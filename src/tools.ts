@@ -5,6 +5,7 @@ import { recordDebugAttempt } from "./debug.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { logToolAudit } from "./logging.js";
 import { retrieveMemory, writeMemory } from "./memory.js";
+import { recordProviderUsageBudget } from "./provider-usage.js";
 import {
   createPrdVersionSnapshot,
   saveCurrentPrd,
@@ -621,6 +622,15 @@ export async function prepareOrRunSpawnTask(
 
   try {
     const runResult: TaskAgentRunResult = await runner(request, { signal, timeoutMs: params.timeoutMs });
+    if (runResult.usage) {
+      const state = await ensureState(cwd);
+      await recordProviderUsageBudget(cwd, state, runResult.usage, {
+        source: "spawn-task-tool-run",
+        taskId: params.taskId,
+        agentId: params.taskId,
+        agentType: "spawn-task",
+      });
+    }
     return {
       text: `Task spawn executed: ${params.taskId} exit=${runResult.exitCode}`,
       summary: `Task spawn executed: ${params.taskId}`,

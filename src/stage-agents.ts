@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { logAgentPromptAudit, logStructuredReportAudit } from "./logging.js";
 import { getStageAgentRunsPath } from "./paths.js";
+import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
 import { loadStageArtifacts, stageArtifactStatuses, stageArtifactStages, upsertStageArtifact, type StageArtifact, type StageArtifactInput, type StageArtifactStage } from "./stages.js";
@@ -40,6 +41,7 @@ export interface StageAgentRunRecord {
   timedOut?: boolean;
   aborted?: boolean;
   createdAt: string;
+  usage?: ProviderUsage;
 }
 
 export interface StageAgentRunIndex {
@@ -170,6 +172,13 @@ export async function runStageAgentStep(
       details: { invocation: preparation.invocation },
     });
     const runResult = options.execute ? await runner(preparation.request, { timeoutMs: options.timeoutMs }) : undefined;
+    if (runResult?.usage) {
+      await recordProviderUsageBudget(cwd, state, runResult.usage, {
+        source: "stage-agent-run",
+        agentId: stage,
+        agentType: "stage",
+      });
+    }
     const runRecord = await recordStageAgentRun(cwd, stage, runResult, options.execute ? undefined : "prepared");
     const ingestion = runResult?.exitCode === 0 ? await ingestStageAgentArtifactReport(cwd, stage, runResult.stdoutEvents) : { attempted: false, ingested: false };
     if (ingestion.attempted) {
@@ -226,6 +235,7 @@ export async function recordStageAgentRun(
     timedOut: runResult.timedOut,
     aborted: runResult.aborted,
     createdAt: timestamp,
+    usage: runResult.usage,
   } : {
     id: `stage-${stage}-${now.getTime()}`,
     stage,

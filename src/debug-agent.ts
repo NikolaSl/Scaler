@@ -17,6 +17,7 @@ import {
 } from "./debug.js";
 import { getDebugAgentRunsPath } from "./paths.js";
 import { loadReplanRequests } from "./plans.js";
+import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { formatResearchSummary, loadResearchReports, loadResearchRequests } from "./research.js";
 import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
@@ -82,6 +83,7 @@ export interface DebugAgentRunRecord {
   ingestionStatus?: "not_attempted" | "ingested" | "rejected";
   reportId?: string;
   createdAt: string;
+  usage?: ProviderUsage;
 }
 
 export interface DebugAgentRunIndex {
@@ -216,6 +218,14 @@ export async function runDebugAgentStep(
       details: { invocation: preparation.invocation },
     });
     const runResult = options.execute ? await runner(preparation.request, { timeoutMs: options.timeoutMs }) : undefined;
+    if (runResult?.usage) {
+      await recordProviderUsageBudget(cwd, state, runResult.usage, {
+        source: "debug-agent-run",
+        taskId: context.task.id,
+        agentId: context.task.id,
+        agentType: "debug",
+      });
+    }
     const ingestion = runResult?.exitCode === 0 ? await ingestDebugReport(cwd, state, runResult.stdoutEvents) : { attempted: false, ingested: false };
     if (ingestion.attempted) {
       await logStructuredReportAudit(cwd, state, {
@@ -323,6 +333,7 @@ export async function recordDebugAgentRun(
     ingestionStatus: ingestion?.attempted ? (ingestion.ingested ? "ingested" : "rejected") : "not_attempted",
     reportId: ingestion?.report?.id,
     createdAt: timestamp,
+    usage: runResult.usage,
   } : {
     id: `debug-agent-${now.getTime()}`,
     taskId,
