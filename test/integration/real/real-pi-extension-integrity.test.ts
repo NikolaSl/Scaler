@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { getBudgetState } from "../../../src/budgets.js";
@@ -133,6 +133,40 @@ test("real Pi extension: slash command dispatch executes storage maintenance", {
         .map((event) => (event.details as { phase: string }).phase),
       ["start", "end"],
     );
+  });
+});
+
+test("real Pi extension: slash command dispatch rotates active storage ledgers", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    await mkdir(join(dir, ".scaler", "logs"), { recursive: true });
+    await mkdir(join(dir, ".scaler", "reports"), { recursive: true });
+    const eventsPath = join(dir, ".scaler", "logs", "events.jsonl");
+    const runsPath = join(dir, ".scaler", "reports", "validation-runs.json");
+    await writeFile(eventsPath, "old real active event\n", "utf8");
+    await writeFile(runsPath, "[{\"id\":\"real-run-old\"}]\n", "utf8");
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-storage-maintain execute rotate-active no-compress max-active-bytes=1 min-free-bytes=1",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /rotate_active/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const maintenance = await loadStorageMaintenanceReport(dir);
+    assert.ok(maintenance, "expected persisted maintenance report");
+    assert.equal(maintenance.executed, true);
+    assert.equal(maintenance.summary.failed, 0);
+    assert.equal(maintenance.disk?.status, "ok");
+    const eventRotation = maintenance.actions.find((action) => action.type === "rotate_active" && action.path === ".scaler/logs/events.jsonl");
+    const runRotation = maintenance.actions.find((action) => action.type === "rotate_active" && action.path === ".scaler/reports/validation-runs.json");
+    assert.equal(eventRotation?.status, "completed");
+    assert.equal(runRotation?.status, "completed");
+    assert.match(await readFile(join(dir, eventRotation?.targetPath ?? "missing"), "utf8"), /old real active event/);
+    assert.equal(await readFile(join(dir, runRotation?.targetPath ?? "missing"), "utf8"), "[{\"id\":\"real-run-old\"}]\n");
+    assert.doesNotMatch(await readFile(eventsPath, "utf8"), /old real active event/);
+    assert.equal(await readFile(runsPath, "utf8"), "[]\n");
   });
 });
 

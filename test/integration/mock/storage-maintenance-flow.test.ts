@@ -57,6 +57,39 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
+test("mock integration: storage maintenance rotates active ledgers and checks free disk", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    await saveState(dir, state);
+
+    await mkdir(join(dir, ".scaler", "logs"), { recursive: true });
+    await mkdir(join(dir, ".scaler", "reports"), { recursive: true });
+    const eventsPath = join(dir, ".scaler", "logs", "events.jsonl");
+    const runsPath = join(dir, ".scaler", "reports", "validation-runs.json");
+    await writeFile(eventsPath, "old active event\n", "utf8");
+    await writeFile(runsPath, "[{\"id\":\"run-old\"}]\n", "utf8");
+
+    const commands = registeredCommands();
+    await commands.get("scaler-storage-maintain")?.handler("execute rotate-active no-compress max-active-bytes=1 min-free-bytes=1", { cwd: dir, hasUI: false });
+
+    const maintenance = await loadStorageMaintenanceReport(dir);
+    assert.ok(maintenance, "expected persisted maintenance report");
+    assert.equal(maintenance.executed, true);
+    assert.equal(maintenance.summary.failed, 0);
+    assert.equal(maintenance.disk?.status, "ok");
+    const eventRotation = maintenance.actions.find((action) => action.type === "rotate_active" && action.path === ".scaler/logs/events.jsonl");
+    const runRotation = maintenance.actions.find((action) => action.type === "rotate_active" && action.path === ".scaler/reports/validation-runs.json");
+    assert.equal(eventRotation?.status, "completed");
+    assert.equal(runRotation?.status, "completed");
+    assert.match(await readFile(join(dir, eventRotation?.targetPath ?? "missing"), "utf8"), /old active event/);
+    assert.equal(await readFile(join(dir, runRotation?.targetPath ?? "missing"), "utf8"), "[{\"id\":\"run-old\"}]\n");
+    assert.doesNotMatch(await readFile(eventsPath, "utf8"), /old active event/);
+    assert.equal(await readFile(runsPath, "utf8"), "[]\n");
+    assert.ok(Number(getBudgetState(await loadState(dir)).usage.storageBytes) > 0);
+  });
+});
+
 test("mock integration: storage maintenance executes compression, explicit cache deletion, and audit persistence", async () => {
   await withTempRepo(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
