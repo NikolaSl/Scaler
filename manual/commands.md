@@ -231,6 +231,10 @@ Creates a default task context manifest under `.scaler/context/tasks/<taskId>.js
 
 Shows the task context manifest summary for a task.
 
+## `/scaler-context-splits [taskId]`
+
+Lists automatic context split artifacts from `.scaler/context/splits.json`. Records are created by conductor prompt preparation/execution when resolved active context exceeds the compression target, and include overage, externalization refs, and minimal-context handoff recommendations.
+
 ## `/scaler-memory-search [query] [tag=a,b] [task=T-001] [validity=active|stale|obsolete|unknown|any] [limit=N] [include-obsolete]`
 
 Searches `.scaler/memory/index.json` without loading full memory files. Results are concise candidate references with id, title, path, tags, validity, task, score, and summary. Full memory content still requires an explicit `scaler_memory_retrieve` call or a full-scope context item.

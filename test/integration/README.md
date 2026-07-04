@@ -264,7 +264,7 @@ When adding a new integration scenario:
   - persisted safety audit logs record blocked risks.
 - `mock/remaining-flows.test.ts`
   - budget hard stops for conductor and validation plus pause/audit behavior;
-  - context discovery into conductor prompts, including exactness/compression guidance;
+  - context discovery into conductor prompts, including exactness/compression guidance and automatic context-split artifacts;
   - structured-only rejection for stage, replan, and research agents;
   - unsafe replan proposal acceptance rejection;
   - debug report to replan request to acceptance retry-gate clearance;
@@ -308,7 +308,7 @@ When adding a new integration scenario:
   - real debug-agent `needs_research` report → research request ledger;
   - real research-agent complete report → request resolution;
   - real debug-agent `next_approach` report → debug report ledger;
-  - real `/scaler-memory-search` summary output and real research raw evidence → memory entry → later task context manifest reference;
+  - real `/scaler-memory-search` and `/scaler-context-splits` summary output plus real research raw evidence → memory entry → later task context manifest reference;
   - real debug-agent `needs_replan` report → debug-blocked replan request → safe replan acceptance → retry-gate clearance;
   - real Stage I-IV conductor loop using cardinal stage artifacts, readiness/semantic/consistency advancement, and final completed state;
   - real unsafe replanner proposal → failed preservation check → rejected acceptance with current plan unchanged;

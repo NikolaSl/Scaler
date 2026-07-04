@@ -66,7 +66,7 @@ SCALER uses deterministic compression policy helpers for task-agent prompts:
   - `summary-ok`: may be compressed into task-relevant conclusions with evidence refs.
   - `reference-only`: keep ids/paths/refs unless retrieval is explicitly needed.
 - Large exact items are recommended for externalization to memory/files with stable references instead of lossy summary.
-- If resolved active context exceeds the 75% target, the prompt recommends splitting work or spawning a fresh minimal-context agent after exact data has been externalized.
+- If resolved active context exceeds the 75% target, the prompt recommends splitting work or spawning a fresh minimal-context agent after exact data has been externalized. Conductor preparation/execution records `.scaler/context/splits.json` artifacts for these oversized contexts with exact refs, summary/reference refs, externalization candidates, and minimal-context handoff recommendations.
 
 Default/discovered manifests mark file snippets, task metadata, validation evidence, execution-plan entries, changed paths, and PRD coverage as `exact`; memory summaries are `summary-ok`; PRD id-only links are `reference-only`. Summary/reference-only memory items inject id/title/path/tags/summary only; full memory content is injected only when a context item or retrieval request asks for `full`, and `section:<heading>` retrieval injects the matching Markdown section when found.
 
@@ -75,6 +75,7 @@ Default/discovered manifests mark file snippets, task metadata, validation evide
 ```text
 /scaler-context-init [taskId]
 /scaler-context-status [taskId]
+/scaler-context-splits [taskId]
 /scaler-memory-search [query] [tag=a,b] [task=T-001]
 ```
 
