@@ -16,7 +16,7 @@ import { createDefaultState, loadState, saveState } from "../../../src/state.js"
 import { runStageAgentStep } from "../../../src/stage-agents.js";
 import { loadStageArtifacts } from "../../../src/stages.js";
 import { loadTaskAgentReports } from "../../../src/task-reports.js";
-import { runTaskAgent, type TaskAgentRequest, type TaskAgentRunResult } from "../../../src/subagents.js";
+import { getDefaultScalerChildExtensionPath, runTaskAgent, type TaskAgentRequest, type TaskAgentRunResult } from "../../../src/subagents.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -186,6 +186,8 @@ test("real integration: internet research grant passes explicit tools to cardina
     }, realRunner);
 
     assert.equal(result.accepted, true);
+    assert.ok(result.invocation?.args.includes("-e"));
+    assert.ok(result.invocation?.args.includes(getDefaultScalerChildExtensionPath()));
     assert.ok(result.invocation?.args.includes("--tools"));
     assert.ok(result.invocation?.args.includes("read"));
     assert.equal(result.ingestion?.ingested, true, result.ingestion?.reason);
@@ -214,6 +216,7 @@ test("real integration: stage agent obeys cardinal structured artifact instructi
     }, realRunner);
 
     assert.equal(result.accepted, true);
+    assert.ok(result.invocation?.args.includes("--no-tools"));
     assert.equal(result.ingestion?.ingested, true, result.ingestion?.reason);
     assert.equal(result.ingestion?.artifact?.stage, "execution");
     assert.equal((await loadStageArtifacts(dir))[0]?.title, "Real Pi execution artifact");

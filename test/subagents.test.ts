@@ -3,7 +3,7 @@ import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent } from "../src/subagents.js";
+import { buildTaskAgentInvocation, extractStructuredReportPayloads, getDefaultScalerChildExtensionPath, runTaskAgent } from "../src/subagents.js";
 
 async function withScript<T>(content: string, fn: (script: string, dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-subagent-test-"));
@@ -17,14 +17,14 @@ async function withScript<T>(content: string, fn: (script: string, dir: string) 
   }
 }
 
-test("buildTaskAgentInvocation creates minimal isolated pi invocation", () => {
+test("buildTaskAgentInvocation creates deny-by-default isolated pi invocation", () => {
   const invocation = buildTaskAgentInvocation({ taskId: "T-001", prompt: "Do task" });
 
   assert.equal(invocation.command, "pi");
-  assert.deepEqual(invocation.args, ["--mode", "json", "-p", "--no-session", "Do task"]);
+  assert.deepEqual(invocation.args, ["--mode", "json", "-p", "--no-session", "--no-tools", "Do task"]);
 });
 
-test("buildTaskAgentInvocation includes tools, model, cwd, prompt file, and extensions", () => {
+test("buildTaskAgentInvocation includes tools, model, cwd, prompt file, and explicit extensions", () => {
   const invocation = buildTaskAgentInvocation(
     {
       taskId: "T-002",
@@ -57,10 +57,18 @@ test("buildTaskAgentInvocation includes tools, model, cwd, prompt file, and exte
   ]);
 });
 
-test("buildTaskAgentInvocation omits empty optional arrays", () => {
+test("buildTaskAgentInvocation treats empty optional arrays as no tools", () => {
   const invocation = buildTaskAgentInvocation({ taskId: "T-003", prompt: "Task", tools: [], extensionPaths: [] });
 
-  assert.deepEqual(invocation.args, ["--mode", "json", "-p", "--no-session", "Task"]);
+  assert.deepEqual(invocation.args, ["--mode", "json", "-p", "--no-session", "--no-tools", "Task"]);
+});
+
+ test("buildTaskAgentInvocation loads default SCALER extension when granting tools", () => {
+  const invocation = buildTaskAgentInvocation({ taskId: "T-tools", prompt: "Use read", tools: ["read", "read", " "] });
+
+  assert.deepEqual(invocation.args.slice(0, 6), ["--mode", "json", "-p", "--no-session", "-e", getDefaultScalerChildExtensionPath()]);
+  assert.ok(invocation.args.includes("--tools"));
+  assert.ok(invocation.args.includes("read"));
 });
 
 test("buildTaskAgentInvocation can disable all tools for report-only child agents", () => {
