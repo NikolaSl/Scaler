@@ -193,6 +193,11 @@ export interface ParsedToolIterationPolicyArgs {
   autoReplay?: boolean;
 }
 
+export interface ParsedToolScheduleArgs {
+  execute: boolean;
+  parallelism?: number;
+}
+
 export interface ParsedToolReplayArgs {
   transactionId?: string;
   execute: boolean;
@@ -591,6 +596,16 @@ export function parseToolIterationPolicyArgs(args: string | undefined): ParsedTo
   return {
     maxIterations: maxIterations === undefined || !Number.isFinite(maxIterations) ? undefined : maxIterations,
     autoReplay: parseOnOffOption(parts.find((part) => /^auto-replay=/i.test(part))),
+  };
+}
+
+export function parseToolScheduleArgs(args: string | undefined): ParsedToolScheduleArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  const parallelPart = parts.find((part) => /^parallel=\d+$/i.test(part));
+  const parallelism = parallelPart ? Number.parseInt(parallelPart.split("=")[1] ?? "", 10) : undefined;
+  return {
+    execute: parts.some((part) => part.toLowerCase() === "execute"),
+    parallelism: parallelism === undefined || !Number.isFinite(parallelism) ? undefined : parallelism,
   };
 }
 

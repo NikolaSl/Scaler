@@ -35,6 +35,7 @@ import {
   parseToolReplayApprovalArgs,
   parseToolReplayArgs,
   parseToolRunArgs,
+  parseToolScheduleArgs,
   parseValidateLoopArgs,
   parseValidationAddArgs,
   parseValidationChecklistArgs,
@@ -88,7 +89,7 @@ import {
   validateStageArtifactReadiness,
 } from "./stages.js";
 import { formatStorageInventory, formatStorageMaintenanceReport, formatStorageMaintenanceSchedule, loadStorageMaintenanceSchedule, runScheduledStorageMaintenance, runStorageMaintenance, saveStorageInventory, scanScalerStorageInventory, updateStorageMaintenanceSchedule, type StorageMaintenancePolicy } from "./storage.js";
-import { createToolReplayApproval, formatKnownToolCatalog, formatMcpEnumerationRuns, formatMcpServerRecords, formatToolIterationPolicy, formatToolIterationRuns, formatToolReplayApprovals, formatToolSchemaDiscoveryRuns, formatToolTransactions, loadMcpEnumerationRuns, loadMcpServerRecords, loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, replayToolTransaction, revokeToolReplayApproval, runMcpServerEnumeration, runToolIterationWorkflow, runToolRequestAgent, runToolSchemaDiscoveryAgent, saveToolIterationPolicy } from "./tool-requests.js";
+import { createToolReplayApproval, formatKnownToolCatalog, formatMcpEnumerationRuns, formatMcpServerRecords, formatToolIterationPolicy, formatToolIterationRuns, formatToolReplayApprovals, formatToolSchedules, formatToolSchemaDiscoveryRuns, formatToolTransactions, loadMcpEnumerationRuns, loadMcpServerRecords, loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolSchedules, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, replayToolTransaction, revokeToolReplayApproval, runMcpServerEnumeration, runToolIterationWorkflow, runToolRequestAgent, runToolSchedule, runToolSchemaDiscoveryAgent, saveToolIterationPolicy } from "./tool-requests.js";
 import { registerScalerTools } from "./tools.js";
 import { formatValidationChecklist, recordValidationChecklist, upsertValidationManifestCommand } from "./validation.js";
 import { runValidationDebugLoopWorkflow, selectTaskForValidationDebugLoop } from "./validation-debug-loop.js";
@@ -859,6 +860,28 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       const requestId = args?.trim() || undefined;
       const message = formatToolIterationRuns(await loadToolIterationRuns(ctx.cwd), requestId);
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-tool-schedule", {
+    description: "Plan or execute safe scheduling for prepared tool requests: /scaler-tool-schedule [execute] [parallel=N]",
+    handler: async (args, ctx) => {
+      const parsed = parseToolScheduleArgs(args);
+      const state = await ensureState(ctx.cwd);
+      const result = await runToolSchedule(ctx.cwd, state, { execute: parsed.execute, parallelism: parsed.parallelism });
+      const message = `${result.message} schedule=${result.schedule.id} status=${result.schedule.status}`;
+      if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-tool-schedules", {
+    description: "List tool scheduling records: /scaler-tool-schedules [requestId]",
+    handler: async (args, ctx) => {
+      const requestId = args?.trim() || undefined;
+      const message = formatToolSchedules(await loadToolSchedules(ctx.cwd), requestId);
       if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
     },

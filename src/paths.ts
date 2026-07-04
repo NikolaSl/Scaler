@@ -162,6 +162,10 @@ export function getMcpServersPath(cwd: string): string {
   return join(getToolRequestsDir(cwd), "mcp-servers.json");
 }
 
+export function getToolSchedulesPath(cwd: string): string {
+  return join(getToolRequestsDir(cwd), "schedules.json");
+}
+
 export function getReportsDir(cwd: string): string {
   return join(getScalerDir(cwd), "reports");
 }

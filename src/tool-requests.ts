@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { appendLogEvent, createLogEvent } from "./logging.js";
-import { getMcpServersPath, getToolCatalogPath, getToolIterationPolicyPath, getToolIterationRunsPath, getToolReplayApprovalsPath, getToolRequestsIndexPath, getToolResultsPath, getToolSchemaDiscoveryRunsPath, getToolTransactionsPath } from "./paths.js";
+import { getMcpServersPath, getToolCatalogPath, getToolIterationPolicyPath, getToolIterationRunsPath, getToolReplayApprovalsPath, getToolRequestsIndexPath, getToolResultsPath, getToolSchedulesPath, getToolSchemaDiscoveryRunsPath, getToolTransactionsPath } from "./paths.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { buildTaskAgentInvocation, runTaskAgent, type RunTaskAgentOptions, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import type { ScalerState } from "./types.js";
@@ -59,6 +59,8 @@ export type ToolReplayApprovalStatus = "active" | "consumed" | "revoked" | "expi
 export type McpServerStatus = "discovered" | "invalid";
 export type McpServerTransport = "stdio" | "http" | "sse" | "unknown";
 export type McpEnumerationRunStatus = "completed" | "no_candidates" | "failed";
+export type ToolScheduleStatus = "planned" | "completed" | "partial" | "rejected";
+export type ToolScheduleStepMode = "parallel" | "serial";
 
 export interface ToolRequestRecord {
   id: string;
@@ -234,6 +236,30 @@ export interface McpEnumerationRunRecord {
   updatedAt: string;
 }
 
+export interface ToolScheduleStepRecord {
+  requestId: string;
+  toolName: string;
+  mode: ToolScheduleStepMode;
+  reason: string;
+  accepted?: boolean;
+  transactionId?: string;
+  transactionStatus?: ToolTransactionStatus;
+  message?: string;
+}
+
+export interface ToolScheduleRecord {
+  id: string;
+  status: ToolScheduleStatus;
+  executed: boolean;
+  parallelism: number;
+  parallelRequestIds: string[];
+  serialRequestIds: string[];
+  steps: ToolScheduleStepRecord[];
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ToolRequestPrepareResult {
   accepted: boolean;
   message: string;
@@ -253,6 +279,13 @@ export interface ToolIterationWorkflowOptions {
   requestId?: string;
   execute?: boolean;
   maxIterations?: number;
+  timeoutMs?: number;
+  command?: string;
+}
+
+export interface ToolScheduleOptions {
+  execute?: boolean;
+  parallelism?: number;
   timeoutMs?: number;
   command?: string;
 }
@@ -345,6 +378,12 @@ export interface McpEnumerationResult {
   records: McpServerRecord[];
 }
 
+export interface ToolScheduleResult {
+  accepted: boolean;
+  message: string;
+  schedule: ToolScheduleRecord;
+}
+
 interface ToolRequestIndex {
   version: 1;
   requests: ToolRequestRecord[];
@@ -380,8 +419,14 @@ interface ToolReplayApprovalIndex {
   approvals: ToolReplayApprovalRecord[];
 }
 
+interface ToolScheduleIndex {
+  version: 1;
+  schedules: ToolScheduleRecord[];
+}
+
 const toolRiskLevels = new Set<ToolRiskLevel>(["low", "medium", "high", "destructive", "external", "secret", "unknown"]);
 const toolResultStatuses = new Set<ToolResultStatus>(["completed", "failed", "blocked"]);
+const toolLedgerWriteQueues = new Map<string, Promise<void>>();
 
 const defaultToolCatalog: ToolCatalogEntry[] = [
   { name: "read", description: "Read a project file or image from the working tree.", riskLevel: "low", docsAvailable: false, schemaAvailable: true },
@@ -691,6 +736,84 @@ export function formatMcpEnumerationRuns(records: McpEnumerationRunRecord[], lim
     lines.push(`- ${record.id} status=${record.status} discovered=${record.discoveredCount} invalid=${record.invalidCount} sources=${record.sourcePaths.join(",") || "none"}: ${record.message}`);
   }
   return lines.join("\n");
+}
+
+export async function loadToolSchedules(cwd: string): Promise<ToolScheduleRecord[]> {
+  try {
+    const raw = await readFile(getToolSchedulesPath(cwd), "utf8");
+    return (JSON.parse(raw) as ToolScheduleIndex).schedules;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+export function formatToolSchedules(records: ToolScheduleRecord[], requestId?: string, limit = 10): string {
+  const filtered = requestId ? records.filter((record) => record.steps.some((step) => step.requestId === requestId)) : records;
+  if (filtered.length === 0) return requestId ? `No tool schedules for ${requestId}.` : "No tool schedules.";
+  const lines = [requestId ? `Tool schedules for ${requestId}:` : "Tool schedules:"];
+  for (const record of filtered.slice(0, limit)) {
+    lines.push(`- ${record.id} status=${record.status} executed=${record.executed} parallel=${record.parallelRequestIds.length} serial=${record.serialRequestIds.length} parallelism=${record.parallelism}: ${record.message}`);
+  }
+  return lines.join("\n");
+}
+
+export async function runToolSchedule(
+  cwd: string,
+  state: ScalerState,
+  options: ToolScheduleOptions = {},
+  runner: typeof runTaskAgent = runTaskAgent,
+  now = new Date(),
+): Promise<ToolScheduleResult> {
+  const requests = (await loadToolRequests(cwd)).filter((request) => request.status === "prepared");
+  const parallelism = clampParallelism(options.parallelism);
+  const discoveredRecords = await loadToolSchemaRecords(cwd);
+  const steps = requests.map((request) => classifyToolScheduleStep(request, discoveredRecords));
+  if (requests.length === 0) {
+    const schedule = await recordToolSchedule(cwd, {
+      status: "rejected",
+      executed: Boolean(options.execute),
+      parallelism,
+      steps: [],
+      message: "Tool schedule rejected: no prepared tool requests.",
+    }, now);
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: schedule.message, details: { schedule } }));
+    return { accepted: false, message: schedule.message, schedule };
+  }
+
+  if (!options.execute) {
+    const schedule = await recordToolSchedule(cwd, {
+      status: "planned",
+      executed: false,
+      parallelism,
+      steps,
+      message: `Tool schedule planned: parallel=${steps.filter((step) => step.mode === "parallel").length} serial=${steps.filter((step) => step.mode === "serial").length}`,
+    }, now);
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: schedule.message, details: { schedule } }));
+    return { accepted: true, message: schedule.message, schedule };
+  }
+
+  const executedSteps: ToolScheduleStepRecord[] = [];
+  const parallelSteps = steps.filter((step) => step.mode === "parallel");
+  for (let index = 0; index < parallelSteps.length; index += parallelism) {
+    const batch = parallelSteps.slice(index, index + parallelism);
+    const results = await Promise.all(batch.map((step) => runToolRequestAgent(cwd, state, { requestId: step.requestId, execute: true, timeoutMs: options.timeoutMs, command: options.command }, runner)));
+    executedSteps.push(...results.map((result, resultIndex) => toolScheduleExecutedStep(batch[resultIndex]!, result)));
+  }
+  for (const step of steps.filter((candidate) => candidate.mode === "serial")) {
+    const result = await runToolRequestAgent(cwd, state, { requestId: step.requestId, execute: true, timeoutMs: options.timeoutMs, command: options.command }, runner);
+    executedSteps.push(toolScheduleExecutedStep(step, result));
+  }
+  const status: ToolScheduleStatus = executedSteps.every((step) => step.accepted) ? "completed" : "partial";
+  const schedule = await recordToolSchedule(cwd, {
+    status,
+    executed: true,
+    parallelism,
+    steps: executedSteps,
+    message: `Tool schedule ${status}: parallel=${parallelSteps.length} serial=${steps.length - parallelSteps.length}`,
+  }, now);
+  await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: schedule.message, details: { schedule } }));
+  return { accepted: status === "completed", message: schedule.message, schedule };
 }
 
 export async function recordToolSchema(cwd: string, state: ScalerState, input: ToolSchemaInput, now = new Date()): Promise<ToolSchemaRecord> {
@@ -1087,54 +1210,56 @@ export async function replayToolTransaction(
 }
 
 export async function recordToolResult(cwd: string, state: ScalerState, input: ToolResultInput, now = new Date()): Promise<ToolResultRecord> {
-  const requests = await loadToolRequests(cwd);
-  const request = requests.find((candidate) => candidate.id === input.requestId.trim());
-  if (!request) throw new Error(`Tool result rejected: request ${input.requestId.trim() || "<missing>"} not found.`);
+  return withToolLedgerWriteQueue(cwd, async () => {
+    const requests = await loadToolRequests(cwd);
+    const request = requests.find((candidate) => candidate.id === input.requestId.trim());
+    if (!request) throw new Error(`Tool result rejected: request ${input.requestId.trim() || "<missing>"} not found.`);
 
-  const status = normalizeToolResultStatus(input.status);
-  const summary = input.summary.trim();
-  if (!summary) throw new Error("Tool result rejected: summary is required.");
-  const evidenceRefs = uniqueNonEmpty(input.evidenceRefs ?? []);
-  const validationPerformed = uniqueNonEmpty(input.validationPerformed ?? []);
-  const errors = uniqueNonEmpty(input.errors ?? []);
-  const recommendations = uniqueNonEmpty(input.recommendations ?? []);
-  if (status === "completed" && input.outputs === undefined && evidenceRefs.length === 0 && validationPerformed.length === 0) {
-    throw new Error("Tool result rejected: completed results require outputs, evidenceRefs, or validationPerformed.");
-  }
-  if ((status === "failed" || status === "blocked") && errors.length === 0 && recommendations.length === 0) {
-    throw new Error("Tool result rejected: failed/blocked results require errors or recommendations.");
-  }
+    const status = normalizeToolResultStatus(input.status);
+    const summary = input.summary.trim();
+    if (!summary) throw new Error("Tool result rejected: summary is required.");
+    const evidenceRefs = uniqueNonEmpty(input.evidenceRefs ?? []);
+    const validationPerformed = uniqueNonEmpty(input.validationPerformed ?? []);
+    const errors = uniqueNonEmpty(input.errors ?? []);
+    const recommendations = uniqueNonEmpty(input.recommendations ?? []);
+    if (status === "completed" && input.outputs === undefined && evidenceRefs.length === 0 && validationPerformed.length === 0) {
+      throw new Error("Tool result rejected: completed results require outputs, evidenceRefs, or validationPerformed.");
+    }
+    if ((status === "failed" || status === "blocked") && errors.length === 0 && recommendations.length === 0) {
+      throw new Error("Tool result rejected: failed/blocked results require errors or recommendations.");
+    }
 
-  const record: ToolResultRecord = {
-    id: randomUUID(),
-    requestId: request.id,
-    taskId: request.taskId,
-    toolName: request.toolName,
-    status,
-    summary,
-    outputs: input.outputs,
-    evidenceRefs: evidenceRefs.length > 0 ? evidenceRefs : undefined,
-    validationPerformed: validationPerformed.length > 0 ? validationPerformed : undefined,
-    errors: errors.length > 0 ? errors : undefined,
-    recommendations: recommendations.length > 0 ? recommendations : undefined,
-    createdAt: now.toISOString(),
-  };
+    const record: ToolResultRecord = {
+      id: randomUUID(),
+      requestId: request.id,
+      taskId: request.taskId,
+      toolName: request.toolName,
+      status,
+      summary,
+      outputs: input.outputs,
+      evidenceRefs: evidenceRefs.length > 0 ? evidenceRefs : undefined,
+      validationPerformed: validationPerformed.length > 0 ? validationPerformed : undefined,
+      errors: errors.length > 0 ? errors : undefined,
+      recommendations: recommendations.length > 0 ? recommendations : undefined,
+      createdAt: now.toISOString(),
+    };
 
-  const updatedRequests = requests.map((candidate) => candidate.id === request.id ? { ...candidate, status, updatedAt: record.createdAt } : candidate);
-  const results = await loadToolResults(cwd);
-  await writeToolRequestIndex(cwd, updatedRequests);
-  await writeToolResultIndex(cwd, [record, ...results]);
-  await appendLogEvent(
-    cwd,
-    createLogEvent(state, {
-      eventType: "tool",
-      summary: `Tool result recorded: ${record.toolName} ${record.status}`,
-      taskId: record.taskId,
-      outputRefs: [record.id, record.requestId],
-      details: { record },
-    }),
-  );
-  return record;
+    const updatedRequests = requests.map((candidate) => candidate.id === request.id ? { ...candidate, status, updatedAt: record.createdAt } : candidate);
+    const results = await loadToolResults(cwd);
+    await writeToolRequestIndex(cwd, updatedRequests);
+    await writeToolResultIndex(cwd, [record, ...results]);
+    await appendLogEvent(
+      cwd,
+      createLogEvent(state, {
+        eventType: "tool",
+        summary: `Tool result recorded: ${record.toolName} ${record.status}`,
+        taskId: record.taskId,
+        outputRefs: [record.id, record.requestId],
+        details: { record },
+      }),
+    );
+    return record;
+  });
 }
 
 export async function prepareToolRequest(
@@ -1315,6 +1440,13 @@ async function writeMcpServerCatalog(cwd: string, catalog: McpServerCatalog): Pr
   await writeFile(path, `${JSON.stringify({ version: 1, records, runs } satisfies McpServerCatalog, null, 2)}\n`, "utf8");
 }
 
+async function writeToolScheduleIndex(cwd: string, schedules: ToolScheduleRecord[]): Promise<void> {
+  const path = getToolSchedulesPath(cwd);
+  await mkdir(dirname(path), { recursive: true });
+  const sorted = [...schedules].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  await writeFile(path, `${JSON.stringify({ version: 1, schedules: sorted } satisfies ToolScheduleIndex, null, 2)}\n`, "utf8");
+}
+
 async function recordToolSchemaDiscoveryRun(
   cwd: string,
   input: {
@@ -1381,6 +1513,34 @@ async function recordToolIterationRun(
     updatedAt: timestamp,
   };
   await writeToolIterationRunIndex(cwd, [record, ...(await loadToolIterationRuns(cwd))]);
+  return record;
+}
+
+async function recordToolSchedule(
+  cwd: string,
+  input: {
+    status: ToolScheduleStatus;
+    executed: boolean;
+    parallelism: number;
+    steps: ToolScheduleStepRecord[];
+    message: string;
+  },
+  now = new Date(),
+): Promise<ToolScheduleRecord> {
+  const timestamp = now.toISOString();
+  const record: ToolScheduleRecord = {
+    id: randomUUID(),
+    status: input.status,
+    executed: input.executed,
+    parallelism: input.parallelism,
+    parallelRequestIds: input.steps.filter((step) => step.mode === "parallel").map((step) => step.requestId),
+    serialRequestIds: input.steps.filter((step) => step.mode === "serial").map((step) => step.requestId),
+    steps: input.steps,
+    message: input.message,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  await writeToolScheduleIndex(cwd, [record, ...(await loadToolSchedules(cwd))]);
   return record;
 }
 
@@ -1548,6 +1708,23 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+async function withToolLedgerWriteQueue<T>(cwd: string, fn: () => Promise<T>): Promise<T> {
+  const previous = toolLedgerWriteQueues.get(cwd) ?? Promise.resolve();
+  let releaseCurrent = (): void => undefined;
+  const currentSlot = new Promise<void>((resolve) => {
+    releaseCurrent = resolve;
+  });
+  const current = previous.catch(() => undefined).then(() => currentSlot);
+  toolLedgerWriteQueues.set(cwd, current);
+  await previous.catch(() => undefined);
+  try {
+    return await fn();
+  } finally {
+    releaseCurrent();
+    if (toolLedgerWriteQueues.get(cwd) === current) toolLedgerWriteQueues.delete(cwd);
+  }
+}
+
 function normalizeToolResultStatus(value: unknown): ToolResultStatus {
   if (typeof value !== "string") throw new Error("Tool result rejected: status is required.");
   const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
@@ -1640,6 +1817,35 @@ function toolIterationStep(
 function mapToolRequestStatusToIterationStatus(status: ToolRequestStatus | undefined): ToolIterationRunStatus {
   if (status === "completed" || status === "failed" || status === "blocked") return status;
   return status === "prepared" ? "missing_result" : "rejected";
+}
+
+function clampParallelism(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 2;
+  return Math.min(8, Math.max(1, Math.trunc(value)));
+}
+
+function classifyToolScheduleStep(request: ToolRequestRecord, discoveredRecords: ToolSchemaRecord[]): ToolScheduleStepRecord {
+  const entries = getToolCatalogEntries(request.allowedTools, discoveredRecords);
+  const allAllowedLowRisk = entries.length > 0 && entries.every((entry) => entry.riskLevel === "low");
+  const requestLowRisk = request.riskLevel === "low";
+  const mode: ToolScheduleStepMode = requestLowRisk && allAllowedLowRisk ? "parallel" : "serial";
+  const riskSummary = entries.map((entry) => `${entry.name}:${entry.riskLevel}`).join(",") || "no catalog entries";
+  return {
+    requestId: request.id,
+    toolName: request.toolName,
+    mode,
+    reason: mode === "parallel" ? `low-risk request and allowed tools (${riskSummary})` : `serialized due to request/tool risk (${request.riskLevel}; ${riskSummary})`,
+  };
+}
+
+function toolScheduleExecutedStep(step: ToolScheduleStepRecord, result: ToolRequestRunResult): ToolScheduleStepRecord {
+  return {
+    ...step,
+    accepted: result.accepted,
+    transactionId: result.transaction?.id,
+    transactionStatus: result.transaction?.status,
+    message: result.message,
+  };
 }
 
 function uniqueNonEmpty(values: string[]): string[] {
