@@ -7,7 +7,7 @@ import { getBudgetState } from "../src/budgets.js";
 import { loadCurrentPrd, loadPrdCoverage, loadPrdRequirements } from "../src/prd.js";
 import { loadResearchReports } from "../src/research.js";
 import { loadState } from "../src/state.js";
-import { loadToolRequests } from "../src/tool-requests.js";
+import { loadToolRequests, loadToolResults } from "../src/tool-requests.js";
 import { scalerToolNames, registerScalerTools } from "../src/tools.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -27,6 +27,7 @@ test("scalerToolNames lists structured Scaler tools", () => {
     "scaler_research_report",
     "scaler_spawn_task",
     "scaler_tool_request",
+    "scaler_tool_result",
     "scaler_task_create",
     "scaler_task_update",
     "scaler_prd_write",
@@ -86,6 +87,46 @@ test("scaler_tool_request persists structured metadata", async () => {
     assert.equal(record?.safetyNotes, "Do not mutate files.");
     assert.deepEqual(record?.allowedTools, ["docs_search", "read"]);
     assert.equal(budgets.usage.toolCalls, 1);
+  });
+});
+
+test("scaler_tool_result records structured result and updates request", async () => {
+  await withTempDir(async (dir) => {
+    const registered = new Map<string, { execute: (...args: any[]) => Promise<unknown> }>();
+    registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<unknown> }) { registered.set(definition.name, definition); } } as never);
+
+    await registered.get("scaler_tool_request")?.execute(
+      "tool-call",
+      { toolName: "docs_search", request: "Find widget docs.", taskId: "T-TOOL", allowedTools: ["read"] },
+      undefined,
+      undefined,
+      { cwd: dir },
+    );
+    const request = (await loadToolRequests(dir))[0];
+    assert.ok(request);
+
+    await registered.get("scaler_tool_result")?.execute(
+      "tool-result-call",
+      {
+        requestId: request.id,
+        status: "completed",
+        summary: "Found widget docs.",
+        outputs: { api: "Widget.create" },
+        evidenceRefs: ["docs:widgets"],
+        validationPerformed: ["checked schema"],
+      },
+      undefined,
+      undefined,
+      { cwd: dir },
+    );
+
+    const result = (await loadToolResults(dir))[0];
+    const updatedRequest = (await loadToolRequests(dir))[0];
+    const budgets = getBudgetState(await loadState(dir));
+    assert.equal(result?.requestId, request.id);
+    assert.equal(result?.status, "completed");
+    assert.equal(updatedRequest?.status, "completed");
+    assert.equal(budgets.usage.toolCalls, 2);
   });
 });
 

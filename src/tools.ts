@@ -18,7 +18,7 @@ import { recordResearchReport } from "./research.js";
 import { ensureState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentRunResult } from "./subagents.js";
 import { createTask, updateTask } from "./tasks.js";
-import { prepareToolRequest } from "./tool-requests.js";
+import { prepareToolRequest, recordToolResult } from "./tool-requests.js";
 import type { ScalerState } from "./types.js";
 import { applyValidationReport, saveValidationManifest } from "./validation.js";
 
@@ -29,6 +29,7 @@ export const scalerToolNames = [
   "scaler_research_report",
   "scaler_spawn_task",
   "scaler_tool_request",
+  "scaler_tool_result",
   "scaler_task_create",
   "scaler_task_update",
   "scaler_prd_write",
@@ -129,6 +130,17 @@ const ToolRequestParams = Type.Object({
   permissionRequirement: Type.Optional(Type.String({ description: "Approval or policy requirement known to the requester." })),
   safetyNotes: Type.Optional(Type.String({ description: "Safety constraints for the isolated tool agent." })),
   allowedTools: Type.Optional(Type.Array(Type.String(), { description: "Additional tools explicitly allowed for the isolated tool agent." })),
+});
+
+const ToolResultParams = Type.Object({
+  requestId: Type.String({ description: "The scaler_tool_request id being completed." }),
+  status: Type.String({ description: "completed, failed, or blocked." }),
+  summary: Type.String({ description: "Concise result summary." }),
+  outputs: Type.Optional(Type.Unknown({ description: "Structured output payload returned to the requester." })),
+  evidenceRefs: Type.Optional(Type.Array(Type.String(), { description: "Evidence/source/log refs supporting the result." })),
+  validationPerformed: Type.Optional(Type.Array(Type.String(), { description: "Checks performed by the isolated tool agent." })),
+  errors: Type.Optional(Type.Array(Type.String(), { description: "Errors or blockers encountered." })),
+  recommendations: Type.Optional(Type.Array(Type.String(), { description: "Follow-up recommendations." })),
 });
 
 const TaskCreateParams = Type.Object({
@@ -335,6 +347,28 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         record: result.record,
         invocation: result.invocation,
       });
+    },
+  });
+
+  pi.registerTool({
+    name: "scaler_tool_result",
+    label: "Scaler Tool Result",
+    description: "Record the structured result of an isolated Tool/MCP agent request.",
+    parameters: ToolResultParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const state = await ensureState(ctx.cwd);
+      const result = await recordToolResult(ctx.cwd, state, {
+        requestId: params.requestId,
+        status: params.status,
+        summary: params.summary,
+        outputs: params.outputs,
+        evidenceRefs: params.evidenceRefs,
+        validationPerformed: params.validationPerformed,
+        errors: params.errors,
+        recommendations: params.recommendations,
+      });
+      await recordBudgetUsage(ctx.cwd, "toolCalls");
+      return textResult(`Tool result recorded: ${result.id}`, { status: "recorded", result });
     },
   });
 
