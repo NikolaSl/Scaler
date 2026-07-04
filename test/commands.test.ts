@@ -30,6 +30,7 @@ import {
   parseToolReplayApprovalArgs,
   parseToolReplayArgs,
   parseToolRunArgs,
+  parseToolScheduleArgs,
   parseValidateLoopArgs,
   parseValidationChecklistArgs,
   parseStageLoopArgs,
@@ -309,6 +310,12 @@ test("parseToolIterationPolicyArgs parses max and auto-replay options", () => {
   assert.deepEqual(parseToolIterationPolicyArgs("max=5 auto-replay=off"), { maxIterations: 5, autoReplay: false });
   assert.deepEqual(parseToolIterationPolicyArgs("auto-replay=on"), { maxIterations: undefined, autoReplay: true });
   assert.deepEqual(parseToolIterationPolicyArgs(" "), { maxIterations: undefined, autoReplay: undefined });
+});
+
+test("parseToolScheduleArgs parses execute and parallelism", () => {
+  assert.deepEqual(parseToolScheduleArgs("execute parallel=4"), { execute: true, parallelism: 4 });
+  assert.deepEqual(parseToolScheduleArgs("parallel=2"), { execute: false, parallelism: 2 });
+  assert.deepEqual(parseToolScheduleArgs(" "), { execute: false, parallelism: undefined });
 });
 
 test("parseToolCatalogArgs parses optional tool name", () => {

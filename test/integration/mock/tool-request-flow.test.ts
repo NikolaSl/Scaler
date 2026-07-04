@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { getBudgetState } from "../../../src/budgets.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { createDefaultState, loadState } from "../../../src/state.js";
-import { createToolReplayApproval, loadMcpServerRecords, loadToolIterationRuns, loadToolReplayApprovals, loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolTransactions, prepareToolRequest, recordToolResult, recordToolSchema, replayToolTransaction, runMcpServerEnumeration, runToolIterationWorkflow, runToolRequestAgent, runToolSchemaDiscoveryAgent } from "../../../src/tool-requests.js";
+import { createToolReplayApproval, loadMcpServerRecords, loadToolIterationRuns, loadToolReplayApprovals, loadToolRequests, loadToolResults, loadToolSchedules, loadToolSchemaDiscoveryRuns, loadToolTransactions, prepareToolRequest, recordToolResult, recordToolSchema, replayToolTransaction, runMcpServerEnumeration, runToolIterationWorkflow, runToolRequestAgent, runToolSchedule, runToolSchemaDiscoveryAgent } from "../../../src/tool-requests.js";
 import { registerScalerTools } from "../../../src/tools.js";
 
 const execFileAsync = promisify(execFile);
@@ -51,6 +51,33 @@ test("mock integration: MCP enumeration records local server declarations", asyn
     assert.doesNotMatch(JSON.stringify(records), /do-not-store|key=secret/);
     const events = await readLogEvents(dir);
     assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("MCP enumeration completed")));
+  });
+});
+
+test("mock integration: tool schedule executes safe parallel batch and serial risky request", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await recordToolSchema(dir, state, { toolName: "docs_search", source: "mock", riskLevel: "low", description: "Read-only docs search." });
+    const a = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find A.", taskId: "T-SCHED-A", riskLevel: "low" });
+    const b = await prepareToolRequest(dir, state, { toolName: "read", request: "Read file.", taskId: "T-SCHED-B", riskLevel: "low" });
+    const c = await prepareToolRequest(dir, state, { toolName: "bash", request: "Run command.", taskId: "T-SCHED-C", riskLevel: "high" });
+    assert.ok(a.record && b.record && c.record);
+
+    const result = await runToolSchedule(dir, state, { execute: true, parallelism: 2 }, async (request) => {
+      const requestId = request.taskId.replace(/^tool-/, "");
+      await recordToolResult(dir, state, { requestId, status: "completed", summary: `Completed ${requestId}`, outputs: { ok: true } });
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.schedule.status, "completed");
+    assert.deepEqual(result.schedule.parallelRequestIds.sort(), [a.record.id, b.record.id].sort());
+    assert.deepEqual(result.schedule.serialRequestIds, [c.record.id]);
+    assert.equal((await loadToolSchedules(dir))[0]?.id, result.schedule.id);
+    assert.equal((await loadToolTransactions(dir)).length, 3);
+    assert.equal((await loadToolRequests(dir)).every((request) => request.status === "completed"), true);
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("Tool schedule completed")));
   });
 });
 

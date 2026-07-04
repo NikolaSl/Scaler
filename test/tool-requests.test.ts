@@ -15,6 +15,7 @@ import {
   formatToolIterationPolicy,
   formatToolIterationRuns,
   formatToolReplayApprovals,
+  formatToolSchedules,
   formatToolSchemaDiscoveryRuns,
   formatToolTransactions,
   getToolCatalogEntries,
@@ -24,6 +25,7 @@ import {
   loadToolIterationRuns,
   loadToolReplayApprovals,
   loadToolRequests,
+  loadToolSchedules,
   loadToolResults,
   loadToolSchemaDiscoveryRuns,
   loadToolSchemaRecords,
@@ -37,6 +39,7 @@ import {
   runMcpServerEnumeration,
   runToolIterationWorkflow,
   runToolRequestAgent,
+  runToolSchedule,
   runToolSchemaDiscoveryAgent,
   saveToolIterationPolicy,
 } from "../src/tool-requests.js";
@@ -245,6 +248,52 @@ test("prepareToolRequest persists request and limited invocation with metadata",
     assert.ok(result.invocation?.args.includes("--tools"));
     assert.ok(result.invocation?.args.includes("docs_search,read"));
     assert.ok(!result.invocation?.args.includes("bash"));
+  });
+});
+
+test("runToolSchedule plans parallel low-risk requests and serializes risky requests", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await recordToolSchema(dir, state, { toolName: "docs_search", source: "mock", riskLevel: "low", description: "Read-only docs search." });
+    const low = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs A.", riskLevel: "low" });
+    const low2 = await prepareToolRequest(dir, state, { toolName: "read", request: "Read docs file.", riskLevel: "low" });
+    const risky = await prepareToolRequest(dir, state, { toolName: "bash", request: "Run command.", riskLevel: "high" });
+    assert.ok(low.record && low2.record && risky.record);
+
+    const result = await runToolSchedule(dir, state, { parallelism: 4 }, undefined, new Date("2026-01-01T00:00:00.000Z"));
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.schedule.status, "planned");
+    assert.deepEqual(result.schedule.parallelRequestIds.sort(), [low.record.id, low2.record.id].sort());
+    assert.deepEqual(result.schedule.serialRequestIds, [risky.record.id]);
+    assert.match(result.schedule.steps.find((step) => step.requestId === risky.record!.id)?.reason ?? "", /serialized/);
+    assert.match(formatToolSchedules(await loadToolSchedules(dir)), /parallel=2 serial=1/);
+  });
+});
+
+test("runToolSchedule executes parallel then serial requests with structured results", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await recordToolSchema(dir, state, { toolName: "docs_search", source: "mock", riskLevel: "low", description: "Read-only docs search." });
+    const low = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs A.", riskLevel: "low" });
+    const low2 = await prepareToolRequest(dir, state, { toolName: "read", request: "Read docs file.", riskLevel: "low" });
+    const serial = await prepareToolRequest(dir, state, { toolName: "write", request: "Write result.", riskLevel: "medium" });
+    assert.ok(low.record && low2.record && serial.record);
+    const order: string[] = [];
+
+    const result = await runToolSchedule(dir, state, { execute: true, parallelism: 2 }, async (request) => {
+      order.push(request.taskId);
+      const requestId = request.taskId.replace(/^tool-/, "");
+      await recordToolResult(dir, state, { requestId, status: "completed", summary: `Completed ${requestId}`, outputs: { ok: true } });
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    }, new Date("2026-01-01T00:00:00.000Z"));
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.schedule.status, "completed");
+    assert.equal(result.schedule.steps.length, 3);
+    assert.deepEqual(result.schedule.steps.map((step) => step.transactionStatus), ["completed", "completed", "completed"]);
+    assert.equal(order.at(-1), `tool-${serial.record.id}`);
+    assert.equal((await loadToolRequests(dir)).every((request) => request.status === "completed"), true);
   });
 });
 

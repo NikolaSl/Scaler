@@ -11,7 +11,7 @@ import { loadResearchWebTransactions } from "../../../src/research-web.js";
 import { loadSafetyApprovals, loadSafetyPolicy } from "../../../src/safety.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { loadStorageInventory, loadStorageMaintenanceReport, loadStorageMaintenanceSchedule } from "../../../src/storage.js";
-import { loadMcpServerRecords, loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest, recordToolSchema, runToolRequestAgent } from "../../../src/tool-requests.js";
+import { loadMcpServerRecords, loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolRequests, loadToolResults, loadToolSchedules, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest, recordToolSchema, runToolRequestAgent } from "../../../src/tool-requests.js";
 import { loadValidationEnvironmentRecords } from "../../../src/validation-environments.js";
 import { loadValidationChecklists, loadValidationManifests, loadValidationRuns, runTaskValidation, saveValidationManifest, upsertValidationManifestCommand } from "../../../src/validation.js";
 import { REAL_PI_ENABLED, REAL_PI_MODEL, runScalerPi, withRealPiTempRepo } from "./real-pi-harness.js";
@@ -705,6 +705,39 @@ test("real Pi extension: slash command dispatch enumerates MCP servers", { skip:
       ["start", "end"],
     );
     assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("MCP enumeration completed")));
+  });
+});
+
+test("real Pi extension: slash command dispatch plans tool scheduling", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await recordToolSchema(dir, state, { toolName: "docs_search", source: "mock", riskLevel: "low", description: "Read-only docs search." });
+    const low = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", taskId: "REAL-SCHED-A", riskLevel: "low" });
+    const risky = await prepareToolRequest(dir, state, { toolName: "bash", request: "Run command.", taskId: "REAL-SCHED-B", riskLevel: "high" });
+    assert.ok(low.record && risky.record);
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-tool-schedule parallel=3",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Tool schedule planned: parallel=1 serial=1/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const schedule = (await loadToolSchedules(dir))[0];
+    assert.equal(schedule?.status, "planned");
+    assert.deepEqual(schedule?.parallelRequestIds, [low.record.id]);
+    assert.deepEqual(schedule?.serialRequestIds, [risky.record.id]);
+
+    const events = await readLogEvents(dir);
+    assert.deepEqual(
+      events
+        .filter((event) => event.eventType === "command" && isRecord(event.details) && event.details.command === "scaler-tool-schedule")
+        .map((event) => (event.details as { phase: string }).phase),
+      ["start", "end"],
+    );
+    assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("Tool schedule planned")));
   });
 });
 
