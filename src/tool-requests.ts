@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { appendLogEvent, createLogEvent } from "./logging.js";
-import { getToolCatalogPath, getToolIterationPolicyPath, getToolIterationRunsPath, getToolReplayApprovalsPath, getToolRequestsIndexPath, getToolResultsPath, getToolSchemaDiscoveryRunsPath, getToolTransactionsPath } from "./paths.js";
+import { getMcpServersPath, getToolCatalogPath, getToolIterationPolicyPath, getToolIterationRunsPath, getToolReplayApprovalsPath, getToolRequestsIndexPath, getToolResultsPath, getToolSchemaDiscoveryRunsPath, getToolTransactionsPath } from "./paths.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { buildTaskAgentInvocation, runTaskAgent, type RunTaskAgentOptions, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import type { ScalerState } from "./types.js";
@@ -56,6 +56,9 @@ export type ToolSchemaDiscoveryRunStatus = "prepared" | "completed" | "missing_s
 export type ToolIterationRunStatus = "prepared" | "completed" | "failed" | "blocked" | "missing_result" | "exhausted" | "rejected";
 export type ToolIterationStepAction = "run" | "replay";
 export type ToolReplayApprovalStatus = "active" | "consumed" | "revoked" | "expired";
+export type McpServerStatus = "discovered" | "invalid";
+export type McpServerTransport = "stdio" | "http" | "sse" | "unknown";
+export type McpEnumerationRunStatus = "completed" | "no_candidates" | "failed";
 
 export interface ToolRequestRecord {
   id: string;
@@ -203,6 +206,34 @@ export interface ToolReplayApprovalRecord {
   updatedAt: string;
 }
 
+export interface McpServerRecord {
+  id: string;
+  name: string;
+  sourcePath: string;
+  status: McpServerStatus;
+  transport: McpServerTransport;
+  riskLevel: ToolRiskLevel;
+  command?: string;
+  args?: string[];
+  url?: string;
+  envKeys?: string[];
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface McpEnumerationRunRecord {
+  id: string;
+  status: McpEnumerationRunStatus;
+  sourcePaths: string[];
+  discoveredCount: number;
+  invalidCount: number;
+  recordIds: string[];
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ToolRequestPrepareResult {
   accepted: boolean;
   message: string;
@@ -299,6 +330,19 @@ export interface ToolIterationWorkflowResult {
   request?: ToolRequestRecord;
   run?: ToolIterationRunRecord;
   steps: ToolIterationStepRecord[];
+}
+
+export interface McpServerCatalog {
+  version: 1;
+  records: McpServerRecord[];
+  runs: McpEnumerationRunRecord[];
+}
+
+export interface McpEnumerationResult {
+  accepted: boolean;
+  message: string;
+  run: McpEnumerationRunRecord;
+  records: McpServerRecord[];
 }
 
 interface ToolRequestIndex {
@@ -571,6 +615,80 @@ export function formatToolReplayApprovals(records: ToolReplayApprovalRecord[], t
   const lines = [transactionId ? `Tool replay approvals for ${transactionId}:` : "Tool replay approvals:"];
   for (const record of filtered.slice(0, limit)) {
     lines.push(`- ${record.id} transaction=${record.transactionId} request=${record.requestId} tool=${record.toolName} status=${record.status} uses=${record.uses}/${record.maxUses} expiresAt=${record.expiresAt ?? "never"}: ${record.reason}`);
+  }
+  return lines.join("\n");
+}
+
+export async function loadMcpServerCatalog(cwd: string): Promise<McpServerCatalog> {
+  try {
+    const raw = await readFile(getMcpServersPath(cwd), "utf8");
+    const parsed = JSON.parse(raw) as Partial<McpServerCatalog>;
+    return { version: 1, records: parsed.records ?? [], runs: parsed.runs ?? [] };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { version: 1, records: [], runs: [] };
+    throw error;
+  }
+}
+
+export async function loadMcpServerRecords(cwd: string): Promise<McpServerRecord[]> {
+  return (await loadMcpServerCatalog(cwd)).records;
+}
+
+export async function loadMcpEnumerationRuns(cwd: string): Promise<McpEnumerationRunRecord[]> {
+  return (await loadMcpServerCatalog(cwd)).runs;
+}
+
+export async function runMcpServerEnumeration(cwd: string, state: ScalerState, now = new Date()): Promise<McpEnumerationResult> {
+  const discovered = await discoverMcpServerCandidates(cwd, now);
+  const catalog = await loadMcpServerCatalog(cwd);
+  const existingByKey = new Map(catalog.records.map((record) => [`${record.sourcePath}:${record.name}`, record]));
+  const records = discovered.map((record) => existingByKey.has(`${record.sourcePath}:${record.name}`)
+    ? { ...record, id: existingByKey.get(`${record.sourcePath}:${record.name}`)!.id, createdAt: existingByKey.get(`${record.sourcePath}:${record.name}`)!.createdAt }
+    : record);
+  const merged = mergeMcpServerRecords(records, catalog.records);
+  const sourcePaths = uniqueNonEmpty(discovered.map((record) => record.sourcePath));
+  const discoveredCount = discovered.filter((record) => record.status === "discovered").length;
+  const invalidCount = discovered.filter((record) => record.status === "invalid").length;
+  const status: McpEnumerationRunStatus = discovered.length === 0 ? "no_candidates" : invalidCount > 0 && discoveredCount === 0 ? "failed" : "completed";
+  const timestamp = now.toISOString();
+  const run: McpEnumerationRunRecord = {
+    id: randomUUID(),
+    status,
+    sourcePaths,
+    discoveredCount,
+    invalidCount,
+    recordIds: records.map((record) => record.id),
+    message: status === "no_candidates" ? "No project MCP server declarations found." : `MCP enumeration ${status}: discovered=${discoveredCount} invalid=${invalidCount}`,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  await writeMcpServerCatalog(cwd, { version: 1, records: merged, runs: [run, ...catalog.runs] });
+  await appendLogEvent(cwd, createLogEvent(state, {
+    eventType: "tool",
+    summary: run.message,
+    outputRefs: [run.id, ...run.recordIds],
+    details: { run, records },
+  }));
+  return { accepted: status !== "failed", message: run.message, run, records };
+}
+
+export function formatMcpServerRecords(records: McpServerRecord[], name?: string, limit = 20): string {
+  const filtered = name ? records.filter((record) => record.name === name) : records;
+  if (filtered.length === 0) return name ? `No MCP server records for ${name}.` : "No MCP server records.";
+  const lines = [name ? `MCP server records for ${name}:` : "MCP server records:"];
+  for (const record of filtered.slice(0, limit)) {
+    const target = record.url ? ` url=${redactSecretLikeValue(record.url)}` : record.command ? ` command=${record.command}` : "";
+    const env = record.envKeys && record.envKeys.length > 0 ? ` envKeys=${record.envKeys.join(",")}` : "";
+    lines.push(`- ${record.name} source=${record.sourcePath} status=${record.status} transport=${record.transport} risk=${record.riskLevel}${target}${env}: ${record.message}`);
+  }
+  return lines.join("\n");
+}
+
+export function formatMcpEnumerationRuns(records: McpEnumerationRunRecord[], limit = 10): string {
+  if (records.length === 0) return "No MCP enumeration runs.";
+  const lines = ["MCP enumeration runs:"];
+  for (const record of records.slice(0, limit)) {
+    lines.push(`- ${record.id} status=${record.status} discovered=${record.discoveredCount} invalid=${record.invalidCount} sources=${record.sourcePaths.join(",") || "none"}: ${record.message}`);
   }
   return lines.join("\n");
 }
@@ -1189,6 +1307,14 @@ async function writeToolReplayApprovalIndex(cwd: string, approvals: ToolReplayAp
   await writeFile(path, `${JSON.stringify({ version: 1, approvals: sorted } satisfies ToolReplayApprovalIndex, null, 2)}\n`, "utf8");
 }
 
+async function writeMcpServerCatalog(cwd: string, catalog: McpServerCatalog): Promise<void> {
+  const path = getMcpServersPath(cwd);
+  await mkdir(dirname(path), { recursive: true });
+  const records = [...catalog.records].sort((left, right) => `${left.sourcePath}:${left.name}`.localeCompare(`${right.sourcePath}:${right.name}`));
+  const runs = [...catalog.runs].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  await writeFile(path, `${JSON.stringify({ version: 1, records, runs } satisfies McpServerCatalog, null, 2)}\n`, "utf8");
+}
+
 async function recordToolSchemaDiscoveryRun(
   cwd: string,
   input: {
@@ -1321,6 +1447,105 @@ function reconstructReplayTaskRequest(transaction: ToolTransactionRecord, cwd: s
     tools,
     cwd: transaction.invocation.cwd ?? cwd,
   };
+}
+
+async function discoverMcpServerCandidates(cwd: string, now = new Date()): Promise<McpServerRecord[]> {
+  const records: McpServerRecord[] = [];
+  for (const sourcePath of [".mcp.json", "mcp.json", ".cursor/mcp.json", ".vscode/mcp.json", ".claude/mcp.json", "claude_desktop_config.json", "package.json"]) {
+    const raw = await readOptionalText(join(cwd, sourcePath));
+    if (raw === undefined) continue;
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      const servers = extractMcpServerMap(parsed, sourcePath);
+      if (!servers || Object.keys(servers).length === 0) continue;
+      for (const [name, value] of Object.entries(servers)) {
+        records.push(normalizeMcpServerRecord(name, sourcePath, value, now));
+      }
+    } catch (error) {
+      records.push(createInvalidMcpServerRecord(sourcePath, sourcePath, error instanceof Error ? error.message : String(error), now));
+    }
+  }
+  return records;
+}
+
+async function readOptionalText(path: string): Promise<string | undefined> {
+  try {
+    return await readFile(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+function extractMcpServerMap(parsed: unknown, sourcePath: string): Record<string, unknown> | undefined {
+  if (!isPlainObject(parsed)) return undefined;
+  if (sourcePath === "package.json") {
+    if (isPlainObject(parsed.mcpServers)) return parsed.mcpServers;
+    if (isPlainObject(parsed.mcp) && isPlainObject(parsed.mcp.servers)) return parsed.mcp.servers;
+    return undefined;
+  }
+  if (isPlainObject(parsed.mcpServers)) return parsed.mcpServers;
+  if (isPlainObject(parsed.servers)) return parsed.servers;
+  return undefined;
+}
+
+function normalizeMcpServerRecord(nameInput: string, sourcePath: string, value: unknown, now = new Date()): McpServerRecord {
+  const timestamp = now.toISOString();
+  const name = nameInput.trim() || "<unnamed>";
+  if (!isPlainObject(value)) return createInvalidMcpServerRecord(name, sourcePath, "Server declaration is not an object.", now);
+  const command = typeof value.command === "string" ? value.command.trim() || undefined : undefined;
+  const url = typeof value.url === "string" ? value.url.trim() || undefined : typeof value.serverUrl === "string" ? value.serverUrl.trim() || undefined : undefined;
+  const args = Array.isArray(value.args) ? uniqueNonEmpty(value.args.filter((arg): arg is string => typeof arg === "string")) : undefined;
+  const envKeys = isPlainObject(value.env) ? Object.keys(value.env).sort() : undefined;
+  const explicitTransport = typeof value.transport === "string" ? value.transport.trim().toLowerCase() : undefined;
+  const transport: McpServerTransport = explicitTransport === "sse" ? "sse" : url ? (url.includes("/sse") || explicitTransport === "sse" ? "sse" : "http") : command ? "stdio" : "unknown";
+  const riskLevel: ToolRiskLevel = url ? "external" : command ? "high" : "unknown";
+  const status: McpServerStatus = command || url ? "discovered" : "invalid";
+  return {
+    id: randomUUID(),
+    name,
+    sourcePath,
+    status,
+    transport,
+    riskLevel,
+    command,
+    args: args && args.length > 0 ? args : undefined,
+    url: url ? redactSecretLikeValue(url) : undefined,
+    envKeys: envKeys && envKeys.length > 0 ? envKeys : undefined,
+    message: status === "discovered" ? "MCP server declaration discovered; not executed." : "MCP server declaration missing command or url.",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
+function createInvalidMcpServerRecord(name: string, sourcePath: string, message: string, now = new Date()): McpServerRecord {
+  const timestamp = now.toISOString();
+  return {
+    id: randomUUID(),
+    name: name.trim() || sourcePath,
+    sourcePath,
+    status: "invalid",
+    transport: "unknown",
+    riskLevel: "unknown",
+    message,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
+function mergeMcpServerRecords(newRecords: McpServerRecord[], existingRecords: McpServerRecord[]): McpServerRecord[] {
+  const byKey = new Map<string, McpServerRecord>();
+  for (const record of existingRecords) byKey.set(`${record.sourcePath}:${record.name}`, record);
+  for (const record of newRecords) byKey.set(`${record.sourcePath}:${record.name}`, record);
+  return [...byKey.values()];
+}
+
+function redactSecretLikeValue(value: string): string {
+  return value.replace(/([?&](?:token|key|secret|password)=)[^&\s]+/gi, "$1<redacted>");
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function normalizeToolResultStatus(value: unknown): ToolResultStatus {

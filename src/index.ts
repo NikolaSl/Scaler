@@ -88,7 +88,7 @@ import {
   validateStageArtifactReadiness,
 } from "./stages.js";
 import { formatStorageInventory, formatStorageMaintenanceReport, formatStorageMaintenanceSchedule, loadStorageMaintenanceSchedule, runScheduledStorageMaintenance, runStorageMaintenance, saveStorageInventory, scanScalerStorageInventory, updateStorageMaintenanceSchedule, type StorageMaintenancePolicy } from "./storage.js";
-import { createToolReplayApproval, formatKnownToolCatalog, formatToolIterationPolicy, formatToolIterationRuns, formatToolReplayApprovals, formatToolSchemaDiscoveryRuns, formatToolTransactions, loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, replayToolTransaction, revokeToolReplayApproval, runToolIterationWorkflow, runToolRequestAgent, runToolSchemaDiscoveryAgent, saveToolIterationPolicy } from "./tool-requests.js";
+import { createToolReplayApproval, formatKnownToolCatalog, formatMcpEnumerationRuns, formatMcpServerRecords, formatToolIterationPolicy, formatToolIterationRuns, formatToolReplayApprovals, formatToolSchemaDiscoveryRuns, formatToolTransactions, loadMcpEnumerationRuns, loadMcpServerRecords, loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, replayToolTransaction, revokeToolReplayApproval, runMcpServerEnumeration, runToolIterationWorkflow, runToolRequestAgent, runToolSchemaDiscoveryAgent, saveToolIterationPolicy } from "./tool-requests.js";
 import { registerScalerTools } from "./tools.js";
 import { formatValidationChecklist, recordValidationChecklist, upsertValidationManifestCommand } from "./validation.js";
 import { runValidationDebugLoopWorkflow, selectTaskForValidationDebugLoop } from "./validation-debug-loop.js";
@@ -716,6 +716,29 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       const parsed = parseToolCatalogArgs(args);
       const message = formatKnownToolCatalog(await loadToolSchemaRecords(ctx.cwd), parsed.toolName);
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-mcp-enumerate", {
+    description: "Enumerate project-declared MCP servers from local config files: /scaler-mcp-enumerate",
+    handler: async (_args, ctx) => {
+      const state = await ensureState(ctx.cwd);
+      const result = await runMcpServerEnumeration(ctx.cwd, state);
+      const message = `${result.message} run=${result.run.id}`;
+      if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-mcp-servers", {
+    description: "List project-declared MCP server enumeration records: /scaler-mcp-servers [name|runs]",
+    handler: async (args, ctx) => {
+      const value = args?.trim() || undefined;
+      const message = value === "runs"
+        ? formatMcpEnumerationRuns(await loadMcpEnumerationRuns(ctx.cwd))
+        : formatMcpServerRecords(await loadMcpServerRecords(ctx.cwd), value);
       if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
     },
