@@ -74,6 +74,10 @@ export function getResearchReportsPath(cwd: string): string {
   return join(getResearchDir(cwd), "reports.json");
 }
 
+export function getResearchTransactionsPath(cwd: string): string {
+  return join(getResearchDir(cwd), "transactions.json");
+}
+
 export function getDebugDir(cwd: string): string {
   return join(getScalerDir(cwd), "debug");
 }

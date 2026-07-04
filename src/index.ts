@@ -16,6 +16,7 @@ import {
   parseResearchReportArgs,
   parseResearchRequestArgs,
   parseResearchRunArgs,
+  parseResearchWebArgs,
   parseSafetyApprovalArgs,
   parseSafetyPolicyArgs,
   parseSafetyScanArgs,
@@ -68,6 +69,7 @@ import { requestReplan } from "./replanning.js";
 import { formatReplanAgentRunList, loadReplanAgentRunRecords, runReplanAgentStep } from "./replan-agent.js";
 import { formatResearchAgentRunList, loadResearchAgentRunRecords, runResearchAgentStep } from "./research-agent.js";
 import { formatResearchSummary, loadResearchReports, loadResearchRequests, recordResearchReport, upsertResearchRequest } from "./research.js";
+import { formatResearchWebRunResult, formatResearchWebTransactions, loadResearchWebTransactions, runResearchWebWorkflow } from "./research-web.js";
 import { applySafetyApproval, assessToolCallSafety, createSafetyApproval, formatSafetyApprovals, formatSafetyPolicy, formatSafetyScanRecords, formatSafetyScanResult, loadSafetyApprovals, loadSafetyPolicy, loadSafetyScanRecords, mergeSafetyPolicy, revokeSafetyApproval, runSafetyScans, saveSafetyPolicy } from "./safety.js";
 import { createTask, formatTaskList, retryTask, updateTask } from "./tasks.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
@@ -790,6 +792,34 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         : "";
       const message = result.accepted ? `${result.message}${ingestion}` : result.message;
       if (ctx.hasUI) ctx.ui.notify(message, result.accepted && result.ingestion?.ingested !== false ? "info" : "warning");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-research-web", {
+    description: "Plan or execute multi-query web research: /scaler-research-web [requestId] [execute] [internet] [tools=a,b] [max-queries=N]",
+    handler: async (args, ctx) => {
+      const parsed = parseResearchWebArgs(args);
+      const state = await ensureState(ctx.cwd);
+      const result = await runResearchWebWorkflow(ctx.cwd, state, {
+        requestId: parsed.requestId,
+        execute: parsed.execute,
+        allowInternet: parsed.allowInternet,
+        tools: parsed.tools,
+        maxQueries: parsed.maxQueries,
+      });
+      const message = formatResearchWebRunResult(result);
+      if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-research-transactions", {
+    description: "List web research transaction records: /scaler-research-transactions [requestId]",
+    handler: async (args, ctx) => {
+      const requestId = args?.trim() || undefined;
+      const message = formatResearchWebTransactions(await loadResearchWebTransactions(ctx.cwd), requestId);
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
     },
   });

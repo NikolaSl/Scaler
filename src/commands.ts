@@ -169,6 +169,14 @@ export interface ParsedResearchRunArgs {
   tools?: string[];
 }
 
+export interface ParsedResearchWebArgs {
+  requestId?: string;
+  execute: boolean;
+  allowInternet: boolean;
+  tools?: string[];
+  maxQueries?: number;
+}
+
 export interface ParsedToolRunArgs {
   requestId?: string;
   execute: boolean;
@@ -517,6 +525,21 @@ export function parseResearchRunArgs(args: string | undefined): ParsedResearchRu
     execute: parts.some((part) => part.toLowerCase() === "execute"),
     allowInternet: parts.some((part) => part.toLowerCase() === "internet"),
     tools: parseCommaList(toolsPart?.slice(toolsPart.indexOf("=") + 1)),
+  };
+}
+
+export function parseResearchWebArgs(args: string | undefined): ParsedResearchWebArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  const toolsPart = parts.find((part) => /^tools=/i.test(part));
+  const maxPart = parts.find((part) => /^max-queries=\d+$/i.test(part));
+  const optionParts = new Set(parts.filter((part) => part.toLowerCase() === "execute" || part.toLowerCase() === "internet" || /^tools=/i.test(part) || /^max-queries=/i.test(part)));
+  const maxQueries = maxPart ? Number.parseInt(maxPart.split("=")[1] ?? "", 10) : undefined;
+  return {
+    requestId: parts.find((part) => !optionParts.has(part)),
+    execute: parts.some((part) => part.toLowerCase() === "execute"),
+    allowInternet: parts.some((part) => part.toLowerCase() === "internet"),
+    tools: parseCommaList(toolsPart?.slice(toolsPart.indexOf("=") + 1)),
+    maxQueries: maxQueries === undefined || !Number.isFinite(maxQueries) ? undefined : maxQueries,
   };
 }
 
