@@ -18,6 +18,7 @@ import { ingestReport } from "./reports.js";
 import { recordResearchReport } from "./research.js";
 import { ensureState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentRunResult } from "./subagents.js";
+import { recordTaskAgentReport } from "./task-reports.js";
 import { createTask, updateTask } from "./tasks.js";
 import { prepareToolRequest, recordToolResult, recordToolSchema } from "./tool-requests.js";
 import type { ScalerState } from "./types.js";
@@ -28,6 +29,7 @@ export const scalerToolNames = [
   "scaler_memory_write",
   "scaler_memory_retrieve",
   "scaler_research_report",
+  "scaler_task_report",
   "scaler_spawn_task",
   "scaler_tool_request",
   "scaler_tool_schema",
@@ -63,6 +65,28 @@ const MemoryRetrieveParams = Type.Object({
   memoryIdOrPath: Type.String({ description: "Memory id or path to retrieve later." }),
   reason: Type.String({ description: "Why this memory is needed." }),
   scope: Type.Optional(Type.String({ description: "Requested section/scope." })),
+});
+
+const TaskAgentReportParams = Type.Object({
+  taskId: Type.String(),
+  status: Type.String({ description: "completed, needs_data, blocked, failed, or needs_replan." }),
+  summary: Type.String(),
+  outputs: Type.Optional(Type.Unknown()),
+  artifacts: Type.Optional(Type.Array(Type.String())),
+  changedFiles: Type.Optional(Type.Array(Type.String())),
+  memoryRefs: Type.Optional(Type.Array(Type.String())),
+  validations: Type.Optional(Type.Array(Type.Object({
+    id: Type.Optional(Type.String()),
+    command: Type.Optional(Type.String()),
+    status: Type.Optional(Type.String()),
+    summary: Type.Optional(Type.String()),
+    evidenceRefs: Type.Optional(Type.Array(Type.String())),
+  }))),
+  validationRefs: Type.Optional(Type.Array(Type.String())),
+  evidenceRefs: Type.Optional(Type.Array(Type.String())),
+  blockers: Type.Optional(Type.Array(Type.String())),
+  missingData: Type.Optional(Type.Array(Type.String())),
+  recommendedNextAction: Type.Optional(Type.String()),
 });
 
 const ResearchReportParams = Type.Object({
@@ -321,6 +345,34 @@ export function registerScalerTools(pi: ExtensionAPI): void {
       await recordCurrentStorageUsage(ctx.cwd);
       await logTool(ctx.cwd, "scaler_research_report", `Research report recorded: ${report.id}`, { params, report });
       return textResult(`Research report recorded: ${report.id}`, { status: "recorded", report });
+    },
+  });
+
+  pi.registerTool({
+    name: "scaler_task_report",
+    label: "Scaler Task Report",
+    description: "Record the required structured completion report for a task-agent run.",
+    parameters: TaskAgentReportParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const report = await recordTaskAgentReport(ctx.cwd, {
+        taskId: params.taskId,
+        status: params.status,
+        summary: params.summary,
+        outputs: params.outputs,
+        artifacts: params.artifacts,
+        changedFiles: params.changedFiles,
+        memoryRefs: params.memoryRefs,
+        validations: params.validations,
+        validationRefs: params.validationRefs,
+        evidenceRefs: params.evidenceRefs,
+        blockers: params.blockers,
+        missingData: params.missingData,
+        recommendedNextAction: params.recommendedNextAction,
+        source: "tool",
+      });
+      await recordCurrentStorageUsage(ctx.cwd);
+      await logTool(ctx.cwd, "scaler_task_report", `Task-agent report recorded: ${report.id}`, { params, report });
+      return textResult(`Task-agent report recorded: ${report.id}`, { status: "recorded", report });
     },
   });
 

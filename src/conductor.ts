@@ -17,6 +17,7 @@ import { getTaskAgentRunsPath, getValidationHandoffsPath } from "./paths.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { saveState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
+import { ingestTaskAgentReportFromRun, type TaskAgentReportIngestionResult } from "./task-reports.js";
 import { transitionTask } from "./supervisor.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
 
@@ -39,9 +40,18 @@ export interface ConductorStepOptions {
 
 export interface ValidationHandoffRecord {
   taskId: string;
-  status: "validation_required" | "task_agent_failed";
+  status:
+    | "validation_required"
+    | "task_agent_failed"
+    | "task_agent_report_missing"
+    | "task_agent_report_invalid"
+    | "task_agent_report_blocked"
+    | "task_agent_report_failed";
   runExitCode: number;
   summary: string;
+  reportId?: string;
+  reportStatus?: string;
+  diagnostics?: string[];
   createdAt: string;
 }
 
@@ -49,6 +59,8 @@ export interface ValidationHandoffIndex {
   version: 1;
   handoffs: ValidationHandoffRecord[];
 }
+
+export type TaskAgentRunReportStatus = "accepted" | "missing" | "invalid" | "not_required";
 
 export interface TaskAgentRunRecord {
   id: string;
@@ -61,6 +73,9 @@ export interface TaskAgentRunRecord {
   aborted: boolean;
   createdAt: string;
   usage?: ProviderUsage;
+  reportStatus?: TaskAgentRunReportStatus;
+  reportId?: string;
+  reportDiagnostics?: string[];
 }
 
 export interface TaskAgentRunIndex {
@@ -220,8 +235,11 @@ export async function runConductorStep(
       agentType: "task",
     })).state;
   }
-  const runRecord = runResult ? await recordTaskAgentRun(cwd, runResult) : undefined;
-  const handoff = runResult ? await applyTaskRunHandoff(cwd, nextState, runningTask.id, runResult) : undefined;
+  const reportIngestion = runResult?.exitCode === 0
+    ? await ingestTaskAgentReportFromRun(cwd, nextState, runningTask.id, runResult)
+    : undefined;
+  const runRecord = runResult ? await recordTaskAgentRun(cwd, runResult, new Date(), summarizeTaskAgentReportIngestion(reportIngestion, runResult)) : undefined;
+  const handoff = runResult ? await applyTaskRunHandoff(cwd, nextState, runningTask.id, runResult, reportIngestion) : undefined;
   const finalState = handoff?.state ?? nextState;
 
   await appendLogEvent(
@@ -230,7 +248,7 @@ export async function runConductorStep(
       eventType: "agent",
       summary: `${options.execute ? "Executed" : "Prepared"} conductor task step: ${runningTask.id}`,
       taskId: runningTask.id,
-      details: { selection, invocation, runResult, taskAgentRunRecord: runRecord, validationHandoff: handoff?.record },
+      details: { selection, invocation, runResult, taskAgentRunRecord: runRecord, taskAgentReportIngestion: reportIngestion, validationHandoff: handoff?.record },
     }),
   );
   const checkpoint = await writeCheckpoint(cwd, finalState, `conductor-step-${runningTask.id}`, selection.reason);
@@ -259,7 +277,8 @@ export function formatTaskAgentRunList(records: TaskAgentRunRecord[], taskId?: s
   for (const record of filtered.slice(0, limit)) {
     const flags = [record.timedOut && "timed_out", record.aborted && "aborted"].filter(Boolean).join(",") || "none";
     const stderr = record.stderrSummary ? ` stderr=${record.stderrSummary}` : "";
-    lines.push(`- ${record.taskId}: ${record.status} exit=${record.exitCode} flags=${flags} stdout_events=${record.stdoutEventCount}${stderr}`);
+    const report = record.reportStatus ? ` report=${record.reportStatus}${record.reportId ? `:${record.reportId}` : ""}` : "";
+    lines.push(`- ${record.taskId}: ${record.status} exit=${record.exitCode} flags=${flags} stdout_events=${record.stdoutEventCount}${report}${stderr}`);
   }
   return lines.join("\n");
 }
@@ -274,7 +293,12 @@ export async function loadTaskAgentRunRecords(cwd: string): Promise<TaskAgentRun
   }
 }
 
-export async function recordTaskAgentRun(cwd: string, runResult: TaskAgentRunResult, now = new Date()): Promise<TaskAgentRunRecord> {
+export async function recordTaskAgentRun(
+  cwd: string,
+  runResult: TaskAgentRunResult,
+  now = new Date(),
+  report?: Pick<TaskAgentRunRecord, "reportStatus" | "reportId" | "reportDiagnostics">,
+): Promise<TaskAgentRunRecord> {
   const record: TaskAgentRunRecord = {
     id: `${runResult.taskId}-${now.getTime()}`,
     taskId: runResult.taskId,
@@ -286,6 +310,9 @@ export async function recordTaskAgentRun(cwd: string, runResult: TaskAgentRunRes
     aborted: runResult.aborted,
     createdAt: now.toISOString(),
     usage: runResult.usage,
+    reportStatus: report?.reportStatus,
+    reportId: report?.reportId,
+    reportDiagnostics: report?.reportDiagnostics,
   };
   await writeTaskAgentRuns(cwd, [record, ...(await loadTaskAgentRunRecords(cwd))]);
   return record;
@@ -306,23 +333,24 @@ export async function applyTaskRunHandoff(
   state: ScalerState,
   taskId: string,
   runResult: TaskAgentRunResult,
+  reportIngestion?: TaskAgentReportIngestionResult,
   now = new Date(),
 ): Promise<{ state: ScalerState; record: ValidationHandoffRecord }> {
-  const passedAgentRun = runResult.exitCode === 0;
-  const targetStatus = passedAgentRun ? "validating" : "failed";
-  const nextState = transitionTask(state, taskId, targetStatus, {
-    reason: passedAgentRun ? "Task agent completed; validation required." : "Task agent failed before validation.",
+  const handoffDecision = selectTaskRunHandoff(runResult, reportIngestion);
+  const nextState = transitionTask(state, taskId, handoffDecision.targetTaskStatus, {
+    reason: handoffDecision.reason,
     now,
   });
   await saveState(cwd, nextState);
 
   const record: ValidationHandoffRecord = {
     taskId,
-    status: passedAgentRun ? "validation_required" : "task_agent_failed",
+    status: handoffDecision.status,
     runExitCode: runResult.exitCode,
-    summary: passedAgentRun
-      ? `Task ${taskId} is ready for validation.`
-      : `Task ${taskId} task-agent run failed before validation.`,
+    summary: handoffDecision.summary(taskId),
+    reportId: reportIngestion?.report?.id,
+    reportStatus: reportIngestion?.report?.status,
+    diagnostics: reportIngestion?.diagnostics,
     createdAt: now.toISOString(),
   };
   const handoffs = await loadValidationHandoffs(cwd);
@@ -337,6 +365,84 @@ export async function applyTaskRunHandoff(
     }),
   );
   return { state: nextState, record };
+}
+
+function selectTaskRunHandoff(
+  runResult: TaskAgentRunResult,
+  reportIngestion: TaskAgentReportIngestionResult | undefined,
+): {
+  targetTaskStatus: "validating" | "blocked" | "failed";
+  status: ValidationHandoffRecord["status"];
+  reason: string;
+  summary: (taskId: string) => string;
+} {
+  if (runResult.exitCode !== 0) {
+    return {
+      targetTaskStatus: "failed",
+      status: "task_agent_failed",
+      reason: "Task agent failed before validation.",
+      summary: (taskId) => `Task ${taskId} task-agent run failed before validation.`,
+    };
+  }
+
+  if (!reportIngestion?.accepted) {
+    const status = reportIngestion?.status === "invalid" ? "task_agent_report_invalid" : "task_agent_report_missing";
+    return {
+      targetTaskStatus: "blocked",
+      status,
+      reason: "Task agent did not provide a valid structured scaler_task_report before validation.",
+      summary: (taskId) => `Task ${taskId} is blocked before validation: ${reportIngestion?.diagnostics.join(" ") ?? "missing scaler_task_report"}`,
+    };
+  }
+
+  const report = reportIngestion.report;
+  if (!report) {
+    return {
+      targetTaskStatus: "blocked",
+      status: "task_agent_report_invalid",
+      reason: "Task agent report ingestion was accepted without a persisted report.",
+      summary: (taskId) => `Task ${taskId} is blocked before validation: accepted report was not persisted.`,
+    };
+  }
+
+  switch (report.status) {
+    case "completed":
+      return {
+        targetTaskStatus: "validating",
+        status: "validation_required",
+        reason: "Task agent completed with structured report; validation required.",
+        summary: (taskId) => `Task ${taskId} is ready for validation after structured task-agent report ${report.id}.`,
+      };
+    case "failed":
+      return {
+        targetTaskStatus: "failed",
+        status: "task_agent_report_failed",
+        reason: "Task agent reported failure before validation.",
+        summary: (taskId) => `Task ${taskId} task-agent report marked the task failed before validation.`,
+      };
+    case "blocked":
+    case "needs_data":
+    case "needs_replan":
+      return {
+        targetTaskStatus: "blocked",
+        status: "task_agent_report_blocked",
+        reason: `Task agent reported ${report.status}; validation is blocked.`,
+        summary: (taskId) => `Task ${taskId} validation blocked by task-agent report status ${report.status}.`,
+      };
+  }
+}
+
+export function summarizeTaskAgentReportIngestion(
+  reportIngestion: TaskAgentReportIngestionResult | undefined,
+  runResult: TaskAgentRunResult,
+): Pick<TaskAgentRunRecord, "reportStatus" | "reportId" | "reportDiagnostics"> {
+  if (runResult.exitCode !== 0) return { reportStatus: "not_required" };
+  if (!reportIngestion) return { reportStatus: "missing", reportDiagnostics: ["Report ingestion did not run."] };
+  return {
+    reportStatus: reportIngestion.status,
+    reportId: reportIngestion.report?.id,
+    reportDiagnostics: reportIngestion.diagnostics,
+  };
 }
 
 export function buildTaskAgentPrompt(input: TaskPromptInput): TaskPromptResult {
@@ -376,8 +482,10 @@ export function buildTaskAgentPrompt(input: TaskPromptInput): TaskPromptResult {
     "- Do not run destructive commands such as rm -rf, git reset --hard, git clean -f, sudo, docker system prune, or kubectl delete.",
     "",
     "## Required final report",
-    "Report task result, files changed, validation run, validation outcome, blockers, and memory references.",
-    "If implementation is complete, request task transition to validating or submit a validation report.",
+    "Finish with exactly one structured task-agent report. A successful subprocess run is not eligible for validation until SCALER ingests this report.",
+    "Emit either a direct JSON event or an exact assistant JSON object with this shape:",
+    '{"type":"scaler_task_report","taskId":"' + input.task.id + '","status":"completed|needs_data|blocked|failed|needs_replan","summary":"...","changedFiles":["path"],"memoryRefs":[],"validations":[{"command":"npm test","status":"passed|failed|skipped","summary":"..."}],"validationRefs":[],"evidenceRefs":[],"blockers":[],"missingData":[],"recommendedNextAction":"validate"}',
+    "Use status=completed only when implementation is ready for supervisor validation. Use blockers/missingData for blocked or needs_data outcomes.",
     "",
     compressionGuidance,
     "",

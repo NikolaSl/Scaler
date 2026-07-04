@@ -76,6 +76,7 @@ import { formatResearchSummary, loadResearchReports, loadResearchRequests, recor
 import { formatResearchWebRunResult, formatResearchWebTransactions, loadResearchWebTransactions, runResearchWebWorkflow } from "./research-web.js";
 import { applySafetyApproval, assessToolCallSafety, createSafetyApproval, formatSafetyApprovals, formatSafetyPolicy, formatSafetyScanRecords, formatSafetyScanResult, loadSafetyApprovals, loadSafetyPolicy, loadSafetyScanRecords, mergeSafetyPolicy, revokeSafetyApproval, runSafetyScans, saveSafetyPolicy } from "./safety.js";
 import { createTask, formatTaskList, retryTask, updateTask } from "./tasks.js";
+import { formatTaskAgentReportList, loadTaskAgentReports } from "./task-reports.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
 import { advanceStageAfterReadyArtifact } from "./stage-advancement.js";
 import { formatStageAgentRunList, loadStageAgentRunRecords, runStageAgentStep } from "./stage-agents.js";
@@ -270,6 +271,16 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const taskId = args?.trim() || undefined;
       const records = await loadTaskAgentRunRecords(ctx.cwd);
       const message = formatTaskAgentRunList(records, taskId);
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-task-reports", {
+    description: "List structured task-agent reports. Optional arg filters by task id.",
+    handler: async (args, ctx) => {
+      const taskId = args?.trim() || undefined;
+      const message = formatTaskAgentReportList(await loadTaskAgentReports(ctx.cwd), taskId);
       if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
     },

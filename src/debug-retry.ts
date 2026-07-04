@@ -5,6 +5,7 @@ import {
   applyTaskRunHandoff,
   buildTaskAgentPrompt,
   recordTaskAgentRun,
+  summarizeTaskAgentReportIngestion,
   type TaskAgentRunner,
 } from "./conductor.js";
 import { ensureTaskContextManifest, resolveTaskContextManifest, type ContextItem } from "./context.js";
@@ -22,6 +23,7 @@ import { getDebugRetryApprovalsPath, getDebugRetryPolicyPath } from "./paths.js"
 import { recordProviderUsageBudget } from "./provider-usage.js";
 import { loadState, saveState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
+import { ingestTaskAgentReportFromRun } from "./task-reports.js";
 import { transitionTask } from "./supervisor.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
 import {
@@ -318,9 +320,12 @@ export async function runDebugNextApproachRetry(
         agentType: "debug-retry-task",
       })).state;
     }
-    const runRecord = await recordTaskAgentRun(cwd, runResult);
+    const reportIngestion = runResult.exitCode === 0
+      ? await ingestTaskAgentReportFromRun(cwd, workingState, runningTask.id, runResult)
+      : undefined;
+    const runRecord = await recordTaskAgentRun(cwd, runResult, new Date(), summarizeTaskAgentReportIngestion(reportIngestion, runResult));
     if (runResult.exitCode !== 0) {
-      const handoff = await applyTaskRunHandoff(cwd, workingState, runningTask.id, runResult);
+      const handoff = await applyTaskRunHandoff(cwd, workingState, runningTask.id, runResult, reportIngestion);
       const attempt = await recordDebugAttempt(cwd, handoff.state, {
         taskId: runningTask.id,
         failureId: selection.report.failureId ?? selection.failedValidationRun.id,
@@ -342,7 +347,29 @@ export async function runDebugNextApproachRetry(
       return { accepted: false, message: retry.message, status: "task_agent_failed", state: handoff.state, task: runningTask, retry, prompt, invocation, runResult };
     }
 
-    const handoff = await applyTaskRunHandoff(cwd, workingState, runningTask.id, runResult);
+    const handoff = await applyTaskRunHandoff(cwd, workingState, runningTask.id, runResult, reportIngestion);
+    if (handoff.record.status !== "validation_required") {
+      const attempt = await recordDebugAttempt(cwd, handoff.state, {
+        taskId: runningTask.id,
+        failureId: selection.report.failureId ?? selection.failedValidationRun.id,
+        hypothesis: selection.report.rootCause ?? selection.report.summary,
+        actionSummary: `Task-agent retry for debug report ${selection.report.id} did not provide a completed structured task report before exact validation.`,
+        result: "blocked",
+        failureFingerprint: selection.report.failureFingerprint,
+        resultingFailureFingerprint: selection.report.failureFingerprint,
+        attemptSignature: `debug-retry-report ${selection.report.id}`,
+        commands: selection.exactCommands.map((command) => command.command),
+        evidence: selection.report.evidenceRefs,
+        logRefs: [runRecord.id, ...(handoff.record.reportId ? [handoff.record.reportId] : [])],
+        failureSummary: handoff.record.summary,
+      });
+      const retry = await upsertRetryRecord(cwd, buildRetryRecord(selection, "task_agent_failed", true, `Debug retry task-agent report blocked validation: ${runningTask.id}.`, {
+        taskAgentRunId: runRecord.id,
+        debugAttemptId: attempt.attempt?.id,
+      }));
+      return { accepted: false, message: retry.message, status: "task_agent_failed", state: handoff.state, task: runningTask, retry, prompt, invocation, runResult };
+    }
+
     const exactValidationRun = await runValidationCommandSet(cwd, runningTask.id, selection.exactCommands, "debug-retry-exact");
     await logValidationSummaryAudit(cwd, handoff.state, {
       taskId: runningTask.id,
