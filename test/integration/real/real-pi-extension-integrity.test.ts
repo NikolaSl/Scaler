@@ -7,7 +7,7 @@ import { loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { loadStorageInventory, loadStorageMaintenanceReport } from "../../../src/storage.js";
-import { loadToolRequests, loadToolResults, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest } from "../../../src/tool-requests.js";
+import { loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest } from "../../../src/tool-requests.js";
 import { loadValidationManifests, runTaskValidation, upsertValidationManifestCommand } from "../../../src/validation.js";
 import { REAL_PI_ENABLED, REAL_PI_MODEL, runScalerPi, withRealPiTempRepo } from "./real-pi-harness.js";
 
@@ -255,6 +255,35 @@ test("real Pi extension: slash command dispatch prepares isolated tool transacti
       ["start", "end"],
     );
     assert.ok(events.some((event) => event.eventType === "tool" && event.summary === `Tool transaction prepared: ${prepared.record?.id}`));
+  });
+});
+
+test("real Pi extension: slash command dispatch prepares schema discovery probe", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-tool-discover mcp_docs_search tools=read",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const run = (await loadToolSchemaDiscoveryRuns(dir))[0];
+    assert.equal(run?.toolName, "mcp_docs_search");
+    assert.equal(run?.status, "prepared");
+    assert.equal(run?.executed, false);
+    assert.deepEqual(run?.allowedTools, ["scaler_tool_schema", "read"]);
+    assert.ok(run?.invocation.args.includes("--tools"));
+    assert.ok(run?.invocation.args.includes("scaler_tool_schema,read"));
+
+    const events = await readLogEvents(dir);
+    assert.deepEqual(
+      events
+        .filter((event) => event.eventType === "command" && isRecord(event.details) && event.details.command === "scaler-tool-discover")
+        .map((event) => (event.details as { phase: string }).phase),
+      ["start", "end"],
+    );
+    assert.ok(events.some((event) => event.eventType === "tool" && event.summary === "Tool schema discovery prepared: mcp_docs_search"));
   });
 });
 
