@@ -247,6 +247,14 @@ Lists debug reports from `.scaler/debug/reports.json`.
 
 Lists next-approach retry records from `.scaler/debug/retries.json`.
 
+## `/scaler-tool-run [requestId] [execute]`
+
+Prepares or executes an isolated tool-agent transaction for a prepared `scaler_tool_request`. Prepare mode rebuilds the stored request prompt/invocation and writes `.scaler/tool-requests/transactions.json`. With `execute`, SCALER runs the child agent with only the request's allowed tools, reloads request/result ledgers, and marks the transaction complete only when a structured `scaler_tool_result` closed the request. Child prose without `scaler_tool_result` becomes `missing_result` and is not treated as completion.
+
+## `/scaler-tool-transactions [requestId]`
+
+Lists isolated tool-agent transaction records from `.scaler/tool-requests/transactions.json`, optionally filtered to one request id.
+
 ## `/scaler-research-run [requestId] [execute] [internet] [tools=a,b]`
 
 Prepares or executes the focused research agent for a selected request or the oldest open request. With `execute`, SCALER ingests a valid `scaler_research_report` JSON event and stores the report under `.scaler/research/reports.json`.

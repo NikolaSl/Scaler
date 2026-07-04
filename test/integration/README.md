@@ -55,6 +55,9 @@ Prefer assertions on durable artifacts such as:
 - `.scaler/debug/retries.json`
 - `.scaler/research/requests.json`
 - `.scaler/research/reports.json`
+- `.scaler/tool-requests/requests.json`
+- `.scaler/tool-requests/results.json`
+- `.scaler/tool-requests/transactions.json`
 - `.scaler/plans/replan-requests.json`
 - `.scaler/reports/validation-runs.json`
 - `.scaler/reports/*-agent-runs.json`
@@ -204,6 +207,8 @@ When adding a new integration scenario:
 - `mock/tool-request-flow.test.ts`
   - rich `scaler_tool_request` metadata persists to `.scaler/tool-requests/`;
   - isolated invocation includes only explicitly allowed tools and selected compact catalog entries;
+  - tool-agent transactions record prepare/execute runs under `.scaler/tool-requests/transactions.json`;
+  - free-form/missing child results become `missing_result` instead of request completion;
   - structured `scaler_tool_result` closes the originating request and persists outputs/evidence/validation metadata.
 - `mock/validation-gates-flow.test.ts`
   - command-driven typed validation gate metadata persisted to manifests;
@@ -242,6 +247,7 @@ When adding a new integration scenario:
   - real Pi slash-command storage status inventory persistence;
   - real Pi slash-command storage maintenance execution with persisted `.scaler/storage/maintenance.json` and audit logs;
   - real Pi slash-command debug next-approach retry prepare mode with persisted `.scaler/debug/retries.json` and prompt audit logs;
+  - real Pi slash-command tool transaction prepare mode with persisted `.scaler/tool-requests/transactions.json`;
   - real Pi slash-command typed validation gate metadata persistence;
   - command audit events and detail payload references in `.scaler/logs/events.jsonl`;
   - cardinal real-model call to `scaler_tool_request` with exact rich metadata and persisted tool-request state;
