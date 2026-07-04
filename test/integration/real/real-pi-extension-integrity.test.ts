@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { getBudgetState } from "../../../src/budgets.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { loadState } from "../../../src/state.js";
+import { loadStorageInventory } from "../../../src/storage.js";
 import { loadValidationManifests } from "../../../src/validation.js";
 import { REAL_PI_ENABLED, REAL_PI_MODEL, runScalerPi, withRealPiTempRepo } from "./real-pi-harness.js";
 
@@ -60,6 +61,34 @@ test("real Pi extension: slash command dispatch persists budget limits", { skip:
         .filter((event) => event.eventType === "command" && isRecord(event.details) && ["scaler-budget-set", "scaler-budget-status"].includes(String(event.details.command)))
         .map((event) => `${(event.details as { command: string; phase: string }).command}:${(event.details as { command: string; phase: string }).phase}`),
       ["scaler-budget-set:start", "scaler-budget-set:end", "scaler-budget-status:start", "scaler-budget-status:end"],
+    );
+  });
+});
+
+test("real Pi extension: slash command dispatch persists storage inventory", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-storage-status",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Storage: totalBytes=\d+ files=\d+ dirs=\d+/);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Budget: ok storageBytes within budget/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const inventory = await loadStorageInventory(dir);
+    const state = await loadState(dir);
+    assert.ok(inventory, "expected persisted storage inventory");
+    assert.equal(getBudgetState(state).usage.storageBytes, inventory.totalBytes);
+
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Scaler storage status requested"));
+    assert.deepEqual(
+      events
+        .filter((event) => event.eventType === "command" && isRecord(event.details) && event.details.command === "scaler-storage-status")
+        .map((event) => (event.details as { phase: string }).phase),
+      ["start", "end"],
     );
   });
 });
