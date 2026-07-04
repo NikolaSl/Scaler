@@ -213,7 +213,7 @@ When adding a new integration scenario:
   - runtime PRD requirements plus coverage-gap replan request;
   - replanner-agent structured proposal ingestion, preservation checks, proposed-plan persistence, run records, and audit logs;
   - replan proposal acceptance, current-plan replacement, version snapshot, replan decision, request resolution, and task creation;
-  - validated-task git commit through the execution lock while preserving `.scaler/` runtime artifacts and recording git audit logs.
+  - validated-task git commit through the execution lock while preserving `.scaler/` runtime artifacts and recording git audit logs plus post-commit report artifacts.
 - `mock/budget-command-flow.test.ts`
   - provider usage turn metadata increments token/cost budget counters and writes budget audit events;
   - command-driven budget configuration persisted to state;

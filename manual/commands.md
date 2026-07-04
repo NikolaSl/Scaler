@@ -91,7 +91,11 @@ Examples:
 /scaler-commit
 ```
 
-The command refuses commits when unrelated changes are detected, the task is not validated, or the project is not a git repository.
+The command refuses commits when unrelated changes are detected, the task is not validated, or the project is not a git repository. Successful commits record `.scaler/reports/commits.json` with the commit id, task id, included paths, git safety summary, and latest validation summary.
+
+## `/scaler-commits [taskId]`
+
+Lists post-commit report records from `.scaler/reports/commits.json`. Optional `taskId` filters records.
 
 ## `/scaler-validate-loop [taskId] [execute] [max=N]`
 

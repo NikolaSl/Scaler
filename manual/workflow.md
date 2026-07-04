@@ -120,7 +120,7 @@ After a `next_approach`, use:
 /scaler-commit
 ```
 
-Commits are allowed only for validated tasks. The git helper refuses commits when unrelated changes are present, when a task is not validated, or when the project is not a git repository. Allowed paths come from task metadata or explicit command arguments.
+Commits are allowed only for validated tasks. The git helper refuses commits when unrelated changes are present, when a task is not validated, or when the project is not a git repository. Allowed paths come from task metadata or explicit command arguments. Successful commits record post-commit artifacts in `.scaler/reports/commits.json`; inspect them with `/scaler-commits [taskId]`.
 
 ## Useful maintenance commands
 

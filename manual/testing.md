@@ -70,7 +70,7 @@ The current mocked integration harness covers:
 - research raw evidence externalization to memory and later context references;
 - stage consistency rejection;
 - dependency-blocked task selection and release after dependency validation;
-- validated-task git commits through execution locks while `.scaler/` runtime artifacts remain uncommitted and git audit logs are recorded.
+- validated-task git commits through execution locks while `.scaler/` runtime artifacts remain uncommitted and git audit logs plus `.scaler/reports/commits.json` post-commit reports are recorded.
 
 ## Optional real Pi/model mode
 
