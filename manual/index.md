@@ -7,7 +7,7 @@ Design requirements live in `assignement.md` and `specs/`. Compliance reviews mu
 ## Current implemented behavior
 
 - Pi extension entrypoint: `src/index.ts`.
-- Commands: `/scaler`, `/scaler-lock`, `/scaler-lock-clear`, `/scaler-runs`, `/scaler-tasks`, `/scaler-context-init`, `/scaler-context-status`, `/scaler-stage-status`, `/scaler-stage-validate`, `/scaler-stage-advance`, `/scaler-stage-step`, `/scaler-stage-loop`, `/scaler-stage-run`, `/scaler-stage-runs`, `/scaler-stage-record`, `/scaler-task-create`, `/scaler-task-update`, `/scaler-prd-status`, `/scaler-plan-status`, `/scaler-plan-apply`, `/scaler-replans`, `/scaler-replan-run`, `/scaler-replan-runs`, `/scaler-debug-run`, `/scaler-debug-runs`, `/scaler-debug-reports`, `/scaler-research-run`, `/scaler-research-runs`, `/scaler-research-status`, `/scaler-research-request`, `/scaler-research-report`, `/scaler-replan-proposal-status`, `/scaler-replan-accept`, `/scaler-replan-request`, `/scaler-prd-link`, `/scaler-task-retry`, `/scaler-step`, `/scaler-validation-add`, `/scaler-validate`, `/scaler-commit`, `/scaler-pause`, `/scaler-resume`, `/scaler-status`.
+- Commands: `/scaler`, `/scaler-lock`, `/scaler-lock-clear`, `/scaler-runs`, `/scaler-tasks`, `/scaler-context-init`, `/scaler-context-status`, `/scaler-stage-status`, `/scaler-stage-validate`, `/scaler-stage-advance`, `/scaler-stage-step`, `/scaler-stage-loop`, `/scaler-stage-run`, `/scaler-stage-runs`, `/scaler-stage-record`, `/scaler-task-create`, `/scaler-task-update`, `/scaler-prd-status`, `/scaler-plan-status`, `/scaler-plan-apply`, `/scaler-replans`, `/scaler-replan-run`, `/scaler-replan-runs`, `/scaler-debug-run`, `/scaler-debug-loop`, `/scaler-debug-runs`, `/scaler-debug-reports`, `/scaler-research-run`, `/scaler-research-runs`, `/scaler-research-status`, `/scaler-research-request`, `/scaler-research-report`, `/scaler-replan-proposal-status`, `/scaler-replan-accept`, `/scaler-replan-request`, `/scaler-prd-link`, `/scaler-task-retry`, `/scaler-step`, `/scaler-validation-add`, `/scaler-validate-loop`, `/scaler-validate`, `/scaler-storage-status`, `/scaler-budget-status`, `/scaler-budget-set`, `/scaler-commit`, `/scaler-pause`, `/scaler-resume`, `/scaler-status`.
 - State file: `.scaler/state.json`.
 - Basic deterministic supervisor transition helpers.
 - Audit log: `.scaler/logs/events.jsonl` with detail payload files under `.scaler/logs/details/` for commands, prompts, tools, reports, validation summaries, and commits.
@@ -15,6 +15,7 @@ Design requirements live in `assignement.md` and `specs/`. Compliance reviews mu
 - Experimental task-agent subprocess invocation builder.
 - Structured Scaler tool skeletons registered with Pi.
 - External memory write/retrieve under `.scaler/memory/`.
+- Storage inventory indexes under `.scaler/storage/index.json` via `/scaler-storage-status`, coupled to the `storageBytes` budget gate.
 - Research request/report ledgers under `.scaler/research/` with source quality, confidence, contradictions, raw evidence storage in memory, and focused research-agent run records/structured ingestion.
 - Task context manifests under `.scaler/context/tasks/` with file, memory, state, task, PRD ref, validation-manifest resolution, exactness metadata, compression guidance, and relevance discovery from changed files, plans, PRD coverage, validation history, and memory matches.
 - Minimal adaptive `/scaler` entrypoint.
@@ -47,6 +48,7 @@ Design requirements live in `assignement.md` and `specs/`. Compliance reviews mu
 - `manual/context.md`
 - `manual/logging.md`
 - `manual/memory.md`
+- `manual/storage.md`
 - `manual/safety.md`
 - `manual/task-agents.md`
 - `manual/tools.md`

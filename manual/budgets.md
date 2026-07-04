@@ -13,7 +13,7 @@ Current behavior:
 - Scaler tool executions increment `toolCalls`; executed task spawns increment `spawnedAgents`; accepted debug attempts increment `debugAttempts`.
 - Task-agent conductor prompts record estimated `contextTokens`; executed conductor task agents increment `spawnedAgents` and are refused on hard limits before the child process runs.
 - Locked validation runs increment `validationLoops` and are refused on hard limits before validation commands run.
-- Memory/research tool writes scan `.scaler/` and record `storageBytes`; research reports increment `researchReports`.
+- Memory/research tool writes scan `.scaler/` and record `storageBytes`; `/scaler-storage-status` writes `.scaler/storage/index.json`, records `storageBytes`, and pauses on configured hard storage limits; research reports increment `researchReports`.
 - Checkpoints record wall-clock usage and checkpoint counts.
 
 Examples:

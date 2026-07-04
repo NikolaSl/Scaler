@@ -90,6 +90,10 @@ Pauses the current Scaler run through the supervisor transition rules and writes
 
 Resumes a paused run only to its previous active stage and writes a checkpoint under `.scaler/checkpoints/`.
 
+## `/scaler-storage-status`
+
+Scans `.scaler/`, writes `.scaler/storage/index.json`, updates the `storageBytes` budget counter, and shows total bytes, top-level summaries, largest files, and the storage budget decision. A configured `storageBytes` hard limit pauses the run through the existing budget gate.
+
 ## `/scaler-budget-status`
 
 Shows state-backed budget usage, soft/hard limits, checkpoint count, and the strongest current budget decision.

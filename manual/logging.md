@@ -25,7 +25,7 @@ Implemented audit coverage includes:
 - transitions: report-driven accepted/rejected transitions are logged as `transition` or `rejected_transition` events.
 - validation: validation runs record command summaries and append validation audit detail files.
 - git commits: commit attempts and accepted commit ids are logged with detail refs and commit hashes in `outputRefs`.
-- safety/budget/state/debug/memory events continue to use the same JSONL log.
+- safety/budget/state/debug/memory/storage status events continue to use the same JSONL log.
 
 ## Event types
 
