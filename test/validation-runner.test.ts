@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
+import { loadValidationEnvironmentRecords } from "../src/validation-environments.js";
 import { loadValidationRuns, runTaskValidation, runValidationCommand, saveValidationManifest } from "../src/validation.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -33,6 +34,53 @@ test("runValidationCommand captures passing command", async () => {
     assert.equal(result.gate, "unit_tests");
     assert.equal(result.expectedResult, "prints ok");
     assert.deepEqual(result.evidenceRefs, ["manifest:ok"]);
+  });
+});
+
+test("runValidationCommand records local-CI prepare and cleanup lifecycle evidence", async () => {
+  await withTempDir(async (dir) => {
+    const result = await runValidationCommand(dir, {
+      id: "ci",
+      command: "node -e \"require('node:fs').writeFileSync('ci-ran.txt','ok')\"",
+      required: true,
+      gate: "local_ci",
+      expectedResult: "local CI exits 0",
+      environment: "local_ci",
+    }, { taskId: "T-CI" });
+
+    const records = await loadValidationEnvironmentRecords(dir);
+    assert.equal(result.status, "passed");
+    assert.equal(result.environment, "local_ci");
+    assert.deepEqual(new Set(result.environmentLifecycleRefs), new Set(records.map((record) => record.id)));
+    assert.deepEqual(records.map((record) => record.phase), ["cleanup", "prepare"]);
+    assert.deepEqual(records.map((record) => record.status), ["cleanup_completed", "prepared"]);
+    assert.equal(records.every((record) => record.taskId === "T-CI" && record.commandId === "ci"), true);
+    assert.equal(await readFile(join(dir, "ci-ran.txt"), "utf8"), "ok");
+  });
+});
+
+test("runValidationCommand blocks unavailable declared sandbox before command execution", async () => {
+  await withTempDir(async (dir) => {
+    const result = await runValidationCommand(dir, {
+      id: "docker-ci",
+      command: "node -e \"require('node:fs').writeFileSync('docker-should-not-run.txt','ran')\"",
+      required: true,
+      gate: "local_ci",
+      environment: "docker",
+    }, {
+      taskId: "T-DOCKER",
+      environmentProbe: async () => ({ available: false, tool: "docker", command: "docker --version", message: "docker missing in test" }),
+    });
+
+    const records = await loadValidationEnvironmentRecords(dir);
+    assert.equal(result.status, "blocked");
+    assert.equal(result.exitCode, null);
+    assert.equal(result.disposition, "blocked");
+    assert.match(result.dispositionReason ?? "", /docker missing in test/);
+    assert.deepEqual(result.environmentLifecycleRefs, [records[0]?.id]);
+    assert.equal(records[0]?.status, "unavailable");
+    assert.equal(records[0]?.environment, "docker");
+    await assert.rejects(readFile(join(dir, "docker-should-not-run.txt"), "utf8"));
   });
 });
 

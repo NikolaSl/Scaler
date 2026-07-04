@@ -9,6 +9,7 @@ import { loadSafetyPolicy } from "../../../src/safety.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { loadStorageInventory, loadStorageMaintenanceReport } from "../../../src/storage.js";
 import { loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest, runToolRequestAgent } from "../../../src/tool-requests.js";
+import { loadValidationEnvironmentRecords } from "../../../src/validation-environments.js";
 import { loadValidationChecklists, loadValidationManifests, loadValidationRuns, runTaskValidation, saveValidationManifest, upsertValidationManifestCommand } from "../../../src/validation.js";
 import { REAL_PI_ENABLED, REAL_PI_MODEL, runScalerPi, withRealPiTempRepo } from "./real-pi-harness.js";
 
@@ -426,6 +427,38 @@ test("real Pi extension: slash command dispatch enforces validation environment 
     assert.equal(runs[0]?.policyDiagnostics?.some((diagnostic) => diagnostic.code === "local_ci_requires_environment"), true);
     assert.equal(runs[0]?.commandRuns[0]?.command, "SCALER validation manifest policy preflight");
     await assert.rejects(stat(join(dir, "real-env-should-not-run.txt")));
+  });
+});
+
+test("real Pi extension: slash command dispatch records validation environment lifecycle", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-REAL-LIFECYCLE";
+    state.tasks = [{ id: "T-REAL-LIFECYCLE", status: "validating", title: "Real lifecycle", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+
+    const addResult = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-validation-add T-REAL-LIFECYCLE | ci | node -e \"require('node:fs').writeFileSync('real-lifecycle-ran.txt','ok')\" | Local CI validation | required | local_ci | exits 0 | evidence:ci | local_ci",
+    });
+    assert.equal(addResult.exitCode, 0, addResult.stderr || addResult.stdout);
+
+    const result = await runScalerPi({ cwd: dir, prompt: "/scaler-validate T-REAL-LIFECYCLE" });
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Validation passed: T-REAL-LIFECYCLE/);
+
+    const statusResult = await runScalerPi({ cwd: dir, prompt: "/scaler-validation-envs" });
+    assert.equal(statusResult.exitCode, 0, statusResult.stderr || statusResult.stdout);
+    assert.match(`${statusResult.stdout}\n${statusResult.stderr}`, /Validation environments: records=2/);
+
+    const runs = await loadValidationRuns(dir);
+    const lifecycle = await loadValidationEnvironmentRecords(dir);
+    assert.equal(runs[0]?.commandRuns[0]?.environment, "local_ci");
+    assert.equal(runs[0]?.commandRuns[0]?.environmentLifecycleRefs?.length, 2);
+    assert.deepEqual(lifecycle.map((record) => record.phase), ["cleanup", "prepare"]);
+    assert.deepEqual(lifecycle.map((record) => record.status), ["cleanup_completed", "prepared"]);
+    assert.equal(await readFile(join(dir, "real-lifecycle-ran.txt"), "utf8"), "ok");
   });
 });
 

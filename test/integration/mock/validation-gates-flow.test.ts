@@ -9,6 +9,7 @@ import scalerExtension from "../../../src/index.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { runValidationWithExecutionLock } from "../../../src/operations.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
+import { loadValidationEnvironmentRecords } from "../../../src/validation-environments.js";
 import { loadValidationChecklists, loadValidationManifests, loadValidationRuns } from "../../../src/validation.js";
 
 const execFileAsync = promisify(execFile);
@@ -169,6 +170,35 @@ test("mock integration: validation environment policy blocks local-ci host execu
     assert.equal(runs[0]?.commandRuns[0]?.command, "SCALER validation manifest policy preflight");
     assert.equal((await loadState(dir)).tasks[0]?.status, "debugging");
     await assert.rejects(readFile(join(dir, "env-should-not-run.txt"), "utf8"));
+  });
+});
+
+test("mock integration: validation records local-CI lifecycle evidence and status command", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-LIFECYCLE";
+    state.tasks = [{ id: "T-LIFECYCLE", status: "validating", title: "Lifecycle task", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+
+    const commands = registeredCommands();
+    await commands.get("scaler-validation-add")?.handler(
+      "T-LIFECYCLE | ci | node -e \"require('node:fs').writeFileSync('lifecycle-ran.txt','ok')\" | Local CI validation | required | local_ci | local CI exits 0 | manifest:ci | local_ci",
+      { cwd: dir, hasUI: false },
+    );
+
+    await commands.get("scaler-validate")?.handler("T-LIFECYCLE", { cwd: dir, hasUI: false });
+    await commands.get("scaler-validation-envs")?.handler(undefined, { cwd: dir, hasUI: false });
+
+    const runs = await loadValidationRuns(dir);
+    const lifecycle = await loadValidationEnvironmentRecords(dir);
+    assert.equal(runs[0]?.status, "passed");
+    assert.equal(runs[0]?.commandRuns[0]?.environment, "local_ci");
+    assert.equal(runs[0]?.commandRuns[0]?.environmentLifecycleRefs?.length, 2);
+    assert.deepEqual(lifecycle.map((record) => record.phase), ["cleanup", "prepare"]);
+    assert.deepEqual(lifecycle.map((record) => record.status), ["cleanup_completed", "prepared"]);
+    assert.equal(await readFile(join(dir, "lifecycle-ran.txt"), "utf8"), "ok");
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
   });
 });
 

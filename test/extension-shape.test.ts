@@ -86,6 +86,7 @@ test("extension registers scaler commands", () => {
     "scaler-commit",
     "scaler-validate-loop",
     "scaler-validate",
+    "scaler-validation-envs",
     "scaler-pause",
     "scaler-resume",
     "scaler-storage-status",
