@@ -44,6 +44,7 @@ import { createLogEvent, appendLogEvent, logCommandAudit, logStateEvent, logTool
 import { loadMemoryIndex } from "./memory.js";
 import { commitWithExecutionLock, runValidationWithExecutionLock } from "./operations.js";
 import { getEventLogPath } from "./paths.js";
+import { formatValidationEnvironmentRecords, loadValidationEnvironmentRecords } from "./validation-environments.js";
 import {
   acceptReplanProposal,
   applyExecutionPlanTasks,
@@ -995,6 +996,15 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       } else {
         console.log(result.message);
       }
+    },
+  });
+
+  pi.registerCommand("scaler-validation-envs", {
+    description: "Show recent validation environment prepare/cleanup lifecycle records.",
+    handler: async (_args, ctx) => {
+      const message = formatValidationEnvironmentRecords(await loadValidationEnvironmentRecords(ctx.cwd));
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
     },
   });
 

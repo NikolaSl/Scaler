@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { appendLogEvent, createLogEvent, logValidationSummaryAudit } from "./logging.js";
 import { getValidationChecklistsPath, getValidationManifestsPath, getValidationRunsPath } from "./paths.js";
+import { cleanupValidationEnvironment, prepareValidationEnvironment, type ValidationEnvironmentProbe } from "./validation-environments.js";
 import { requestReplan } from "./replanning.js";
 import { saveState } from "./state.js";
 import { transitionTask } from "./supervisor.js";
@@ -157,6 +158,12 @@ export interface ValidationCommandRunRecord {
   environment?: ValidationEnvironmentKind;
   disposition?: ValidationGateDisposition;
   dispositionReason?: string;
+  environmentLifecycleRefs?: string[];
+}
+
+export interface ValidationCommandRunOptions {
+  taskId?: string;
+  environmentProbe?: ValidationEnvironmentProbe;
 }
 
 export type ValidationManifestPolicySeverity = "warning" | "failure";
@@ -785,7 +792,7 @@ export async function runTaskValidation(cwd: string, state: ScalerState, taskId:
     commandRuns.push(...createValidationPolicyFailureRuns(policy.diagnostics));
   } else {
     for (const command of manifest.commands) {
-      commandRuns.push((await runValidationCommandOrDisposition(cwd, command)));
+      commandRuns.push((await runValidationCommandOrDisposition(cwd, command, { taskId })));
     }
   }
 
@@ -821,10 +828,11 @@ export async function runValidationCommandSet(
   taskId: string,
   commands: ValidationCommandManifest[],
   idPrefix = "validation",
+  options: Omit<ValidationCommandRunOptions, "taskId"> = {},
 ): Promise<ValidationRunRecord> {
   const commandRuns: ValidationCommandRunRecord[] = [];
   for (const command of commands) {
-    commandRuns.push(await runValidationCommandOrDisposition(cwd, command));
+    commandRuns.push(await runValidationCommandOrDisposition(cwd, command, { ...options, taskId }));
   }
   const record: ValidationRunRecord = {
     id: `${taskId}-${idPrefix}-${Date.now()}`,
@@ -837,15 +845,65 @@ export async function runValidationCommandSet(
   return record;
 }
 
-async function runValidationCommandOrDisposition(cwd: string, command: ValidationCommandManifest): Promise<ValidationCommandRunRecord> {
-  return createValidationDispositionRun(command) ?? (await runValidationCommand(cwd, command));
+async function runValidationCommandOrDisposition(
+  cwd: string,
+  command: ValidationCommandManifest,
+  options: ValidationCommandRunOptions = {},
+): Promise<ValidationCommandRunRecord> {
+  return createValidationDispositionRun(command) ?? (await runValidationCommand(cwd, command, options));
 }
 
-export async function runValidationCommand(cwd: string, command: ValidationCommandManifest): Promise<ValidationCommandRunRecord> {
+export async function runValidationCommand(
+  cwd: string,
+  command: ValidationCommandManifest,
+  options: ValidationCommandRunOptions = {},
+): Promise<ValidationCommandRunRecord> {
+  const environment = normalizeValidationEnvironmentKind(command.environment);
+  const lifecycleRefs: string[] = [];
+  if (environment && environment !== "host") {
+    const preparation = await prepareValidationEnvironment(cwd, environment, {
+      taskId: options.taskId,
+      commandId: command.id,
+      probe: options.environmentProbe,
+    });
+    lifecycleRefs.push(preparation.prepareRecord.id);
+    if (!preparation.prepared) {
+      const now = new Date();
+      return {
+        id: `${command.id}-environment-blocked-${now.getTime()}`,
+        commandId: command.id,
+        command: command.command,
+        status: "blocked",
+        exitCode: null,
+        stdoutSummary: preparation.blockedReason ?? `Validation environment ${environment} unavailable.`,
+        stderrSummary: "",
+        startedAt: now.toISOString(),
+        finishedAt: now.toISOString(),
+        required: command.required,
+        description: command.description,
+        gate: normalizeValidationGateKind(command.gate),
+        expectedResult: normalizeOptionalString(command.expectedResult),
+        evidenceRefs: normalizeStringList(command.evidenceRefs),
+        environment,
+        disposition: "blocked",
+        dispositionReason: preparation.blockedReason,
+        environmentLifecycleRefs: lifecycleRefs,
+      };
+    }
+  }
+
   const startedAt = new Date();
   const result = await executeCommand(cwd, command.command, command.timeoutMs);
   const finishedAt = new Date();
   const status: ValidationCommandStatus = result.timedOut ? "timed_out" : result.exitCode === 0 ? "passed" : "failed";
+  if (environment && environment !== "host") {
+    const cleanup = await cleanupValidationEnvironment(cwd, environment, {
+      taskId: options.taskId,
+      commandId: command.id,
+      probe: options.environmentProbe,
+    });
+    lifecycleRefs.push(cleanup.id);
+  }
   return {
     id: `${command.id}-${startedAt.getTime()}`,
     commandId: command.id,
@@ -861,9 +919,10 @@ export async function runValidationCommand(cwd: string, command: ValidationComma
     gate: normalizeValidationGateKind(command.gate),
     expectedResult: normalizeOptionalString(command.expectedResult),
     evidenceRefs: normalizeStringList(command.evidenceRefs),
-    environment: normalizeValidationEnvironmentKind(command.environment),
+    environment,
     disposition: normalizeValidationGateDisposition(command.disposition) ?? "run",
     dispositionReason: normalizeOptionalString(command.dispositionReason),
+    environmentLifecycleRefs: lifecycleRefs.length ? lifecycleRefs : undefined,
   };
 }
 

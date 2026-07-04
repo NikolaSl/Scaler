@@ -170,6 +170,10 @@ export function getValidationChecklistsPath(cwd: string): string {
   return join(getReportsDir(cwd), "validation-checklists.json");
 }
 
+export function getValidationEnvironmentsPath(cwd: string): string {
+  return join(getReportsDir(cwd), "validation-environments.json");
+}
+
 export function getPrdDir(cwd: string): string {
   return join(getScalerDir(cwd), "prd");
 }
