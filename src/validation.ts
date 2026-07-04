@@ -359,6 +359,28 @@ export async function runTaskValidation(cwd: string, state: ScalerState, taskId:
   return record;
 }
 
+export async function runValidationCommandSet(
+  cwd: string,
+  taskId: string,
+  commands: ValidationCommandManifest[],
+  idPrefix = "validation",
+): Promise<ValidationRunRecord> {
+  const commandRuns: ValidationCommandRunRecord[] = [];
+  for (const command of commands) {
+    commandRuns.push(await runValidationCommand(cwd, command));
+  }
+  const failedRequired = commandRuns.some((run) => run.required && run.status !== "passed");
+  const record: ValidationRunRecord = {
+    id: `${taskId}-${idPrefix}-${Date.now()}`,
+    taskId,
+    status: failedRequired ? "failed" : "passed",
+    commandRuns,
+    createdAt: new Date().toISOString(),
+  };
+  await writeValidationRuns(cwd, [record, ...(await loadValidationRuns(cwd))]);
+  return record;
+}
+
 export async function runValidationCommand(cwd: string, command: ValidationCommandManifest): Promise<ValidationCommandRunRecord> {
   const startedAt = new Date();
   const result = await executeCommand(cwd, command.command, command.timeoutMs);

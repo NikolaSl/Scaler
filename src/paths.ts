@@ -70,6 +70,10 @@ export function getDebugReportsPath(cwd: string): string {
   return join(getDebugDir(cwd), "reports.json");
 }
 
+export function getDebugRetriesPath(cwd: string): string {
+  return join(getDebugDir(cwd), "retries.json");
+}
+
 export function getCheckpointsDir(cwd: string): string {
   return join(getScalerDir(cwd), "checkpoints");
 }

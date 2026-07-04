@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { appendLogEvent, createLogEvent } from "./logging.js";
-import { getDebugAttemptsPath, getDebugFailuresPath, getDebugReportsPath } from "./paths.js";
+import { getDebugAttemptsPath, getDebugFailuresPath, getDebugReportsPath, getDebugRetriesPath } from "./paths.js";
 import { loadReplanDecisions, loadReplanRequests } from "./plans.js";
 import { requestReplan } from "./replanning.js";
 import { upsertResearchRequest, type ResearchScope } from "./research.js";
@@ -100,6 +100,25 @@ export interface DebugReportRecord {
   updatedAt: string;
 }
 
+export type DebugNextApproachRetryStatus = "prepared" | "task_agent_failed" | "exact_validation_passed" | "exact_validation_failed" | "rejected";
+
+export interface DebugNextApproachRetryRecord {
+  id: string;
+  taskId: string;
+  debugReportId: string;
+  nextApproach: string;
+  previousValidationRunId: string;
+  exactCommandIds: string[];
+  executed: boolean;
+  status: DebugNextApproachRetryStatus;
+  taskAgentRunId?: string;
+  validationRunId?: string;
+  debugAttemptId?: string;
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface DebugReportInput {
   id?: string;
   taskId: string;
@@ -161,6 +180,11 @@ interface DebugReportIndex {
   reports: DebugReportRecord[];
 }
 
+interface DebugRetryIndex {
+  version: 1;
+  retries: DebugNextApproachRetryRecord[];
+}
+
 const debugAttemptResults = new Set<DebugAttemptResult>([
   "fixed",
   "same_failure",
@@ -185,6 +209,17 @@ export async function loadDebugAttempts(cwd: string): Promise<DebugAttemptRecord
 
 export async function loadDebugReports(cwd: string): Promise<DebugReportRecord[]> {
   return (await readJsonFile<DebugReportIndex>(getDebugReportsPath(cwd), { version: 1, reports: [] })).reports;
+}
+
+export async function loadDebugRetries(cwd: string): Promise<DebugNextApproachRetryRecord[]> {
+  return (await readJsonFile<DebugRetryIndex>(getDebugRetriesPath(cwd), { version: 1, retries: [] })).retries;
+}
+
+export async function saveDebugRetries(cwd: string, retries: DebugNextApproachRetryRecord[]): Promise<DebugNextApproachRetryRecord[]> {
+  for (const retry of retries) validateDebugRetry(retry);
+  const sorted = [...retries].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
+  await writeJsonFile(getDebugRetriesPath(cwd), { version: 1, retries: sorted } satisfies DebugRetryIndex);
+  return sorted;
 }
 
 export async function saveDebugReports(cwd: string, reports: DebugReportRecord[]): Promise<DebugReportRecord[]> {
@@ -593,6 +628,19 @@ function normalizeDebugReportStatus(value: DebugReportStatus | string): DebugRep
 
 function normalizeResearchScope(value: ResearchScope | string): ResearchScope {
   return value === "internet" || value === "mixed" ? value : "local";
+}
+
+function validateDebugRetry(retry: DebugNextApproachRetryRecord): void {
+  cleanRequired(retry.id, "Debug retry id is required.");
+  cleanRequired(retry.taskId, "Debug retry taskId is required.");
+  cleanRequired(retry.debugReportId, "Debug retry debugReportId is required.");
+  cleanRequired(retry.previousValidationRunId, "Debug retry previousValidationRunId is required.");
+  if (!["prepared", "task_agent_failed", "exact_validation_passed", "exact_validation_failed", "rejected"].includes(retry.status)) {
+    throw new Error(`Invalid debug retry status: ${String(retry.status)}`);
+  }
+  if (!Array.isArray(retry.exactCommandIds) || retry.exactCommandIds.length === 0) {
+    throw new Error("Debug retry exactCommandIds are required.");
+  }
 }
 
 function validateDebugReport(report: DebugReportRecord): void {

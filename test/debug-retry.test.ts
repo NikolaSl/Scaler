@@ -1,0 +1,125 @@
+import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+import { loadDebugAttempts, loadDebugRetries, recordDebugReport } from "../src/debug.js";
+import { buildNextApproachContextItem, runDebugNextApproachRetry, selectDebugRetryWork } from "../src/debug-retry.js";
+import { createDefaultState, loadState, saveState } from "../src/state.js";
+import type { TaskAgentRequest, TaskAgentRunResult, RunTaskAgentOptions } from "../src/subagents.js";
+import type { ScalerState } from "../src/types.js";
+import { runTaskValidation, upsertValidationManifestCommand } from "../src/validation.js";
+
+async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), "scaler-debug-retry-test-"));
+  try {
+    return await fn(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+async function seedDebuggingTask(dir: string): Promise<ScalerState> {
+  const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+  const updatedAt = new Date("2026-01-01T00:00:00.000Z").toISOString();
+  state.stage = "execution";
+  state.currentTaskId = "T-RETRY";
+  state.tasks = [{ id: "T-RETRY", status: "validating", title: "Retry task", updatedAt }];
+  await saveState(dir, state);
+  await upsertValidationManifestCommand(dir, {
+    taskId: "T-RETRY",
+    id: "exact",
+    command: "node -e \"process.exit(require('fs').existsSync('fixed.txt') ? 0 : 1)\"",
+    description: "Exact failing validation",
+    required: true,
+    gate: "unit",
+    expectedResult: "fixed.txt exists",
+    evidenceRefs: ["validation:exact"],
+  });
+  await runTaskValidation(dir, state, "T-RETRY");
+  const debugging = await loadState(dir);
+  await recordDebugReport(dir, debugging, {
+    id: "RPT-RETRY",
+    taskId: "T-RETRY",
+    status: "next_approach",
+    summary: "Create the missing marker file.",
+    failureId: "F-RETRY",
+    failureFingerprint: "missing fixed marker",
+    rootCause: "The implementation did not write fixed.txt.",
+    nextApproach: "Write fixed.txt and rerun the exact marker validation.",
+    evidenceRefs: ["validation:exact"],
+  });
+  return await loadState(dir);
+}
+
+function passingRun(request: TaskAgentRequest): TaskAgentRunResult {
+  return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+}
+
+test("selectDebugRetryWork finds latest next approach and failed exact validation command", async () => {
+  await withTempDir(async (dir) => {
+    const state = await seedDebuggingTask(dir);
+    const selection = await selectDebugRetryWork(dir, state, "T-RETRY");
+
+    assert.ok(selection, "expected retry selection");
+    assert.equal(selection.report.id, "RPT-RETRY");
+    assert.equal(selection.failedValidationRun.status, "failed");
+    assert.deepEqual(selection.exactCommands.map((command) => command.id), ["exact"]);
+    assert.match(buildNextApproachContextItem(selection).content, /Write fixed\.txt/);
+  });
+});
+
+test("runDebugNextApproachRetry prepare mode records prompt without changing debugging task", async () => {
+  await withTempDir(async (dir) => {
+    const state = await seedDebuggingTask(dir);
+    const result = await runDebugNextApproachRetry(dir, state, { taskId: "T-RETRY" });
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.status, "prepared");
+    assert.match(result.prompt ?? "", /Debug next approach report: RPT-RETRY/);
+    assert.equal((await loadState(dir)).tasks.find((task) => task.id === "T-RETRY")?.status, "debugging");
+    const retries = await loadDebugRetries(dir);
+    assert.equal(retries[0]?.status, "prepared");
+    assert.equal(retries[0]?.debugReportId, "RPT-RETRY");
+  });
+});
+
+test("runDebugNextApproachRetry executes next approach and leaves exact-pass task validating", async () => {
+  await withTempDir(async (dir) => {
+    const state = await seedDebuggingTask(dir);
+    const runner = async (request: TaskAgentRequest, _options?: RunTaskAgentOptions): Promise<TaskAgentRunResult> => {
+      await writeFile(join(request.cwd ?? dir, "fixed.txt"), "ok\n", "utf8");
+      return passingRun(request);
+    };
+
+    const result = await runDebugNextApproachRetry(dir, state, { taskId: "T-RETRY", execute: true }, runner);
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.status, "exact_validation_passed");
+    assert.equal(result.exactValidationRun?.status, "passed");
+    assert.equal((await loadState(dir)).tasks.find((task) => task.id === "T-RETRY")?.status, "validating");
+    const retries = await loadDebugRetries(dir);
+    assert.equal(retries[0]?.status, "exact_validation_passed");
+    assert.equal(retries[0]?.validationRunId, result.exactValidationRun?.id);
+    const attempts = await loadDebugAttempts(dir);
+    assert.equal(attempts.at(-1)?.result, "fixed");
+    assert.equal(attempts.at(-1)?.validationRun, result.exactValidationRun?.id);
+  });
+});
+
+test("runDebugNextApproachRetry returns task to debugging when exact validation still fails", async () => {
+  await withTempDir(async (dir) => {
+    const state = await seedDebuggingTask(dir);
+    const result = await runDebugNextApproachRetry(dir, state, { taskId: "T-RETRY", execute: true }, async (request) => passingRun(request));
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.status, "exact_validation_failed");
+    assert.equal(result.exactValidationRun?.status, "failed");
+    assert.equal((await loadState(dir)).tasks.find((task) => task.id === "T-RETRY")?.status, "debugging");
+    const retries = await loadDebugRetries(dir);
+    assert.equal(retries[0]?.status, "exact_validation_failed");
+    const attempts = await loadDebugAttempts(dir);
+    assert.equal(attempts.at(-1)?.result, "same_failure");
+    assert.equal(attempts.at(-1)?.validationRun, result.exactValidationRun?.id);
+  });
+});
