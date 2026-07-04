@@ -7,6 +7,7 @@ import { loadCommitReports, recordCommitReport } from "../../../src/git.js";
 import { loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
 import { loadDebugRetryPolicy } from "../../../src/debug-retry.js";
 import { readLogEvents } from "../../../src/logging.js";
+import { searchMemory, writeMemory } from "../../../src/memory.js";
 import { upsertResearchRequest } from "../../../src/research.js";
 import { loadResearchWebTransactions } from "../../../src/research-web.js";
 import { loadSafetyApprovals, loadSafetyPolicy } from "../../../src/safety.js";
@@ -39,6 +40,22 @@ test("real Pi extension: slash command dispatch writes SCALER command audit logs
     assert.equal(commandEvents.every((event) => Boolean(event.detailsPath)), true);
     assert.match(commandEvents[0]?.summary ?? "", /Command start: scaler-lock/);
     assert.match(commandEvents[1]?.summary ?? "", /Command end: scaler-lock/);
+  });
+});
+
+test("real Pi extension: slash command dispatch searches memory summaries", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    await writeMemory(dir, { title: "Auth cache memory", content: "FULL AUTH CACHE DETAIL", summary: "Auth cache summary", taskId: "T-MEM", tags: ["auth", "cache"] });
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-memory-search auth tag=cache task=T-MEM",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Auth cache memory/);
+    assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /FULL AUTH CACHE DETAIL/);
+    assert.equal((await searchMemory(dir, { tags: ["cache"], taskId: "T-MEM" }))[0]?.entry.title, "Auth cache memory");
   });
 });
 

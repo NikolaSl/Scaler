@@ -12,7 +12,7 @@ import { runDebugAgentStep } from "../../../src/debug-agent.js";
 import { assessGitStatusSafety, loadCommitReports } from "../../../src/git.js";
 import { acquireExecutionLock, releaseExecutionLock } from "../../../src/locks.js";
 import { readLogEvents } from "../../../src/logging.js";
-import { loadMemoryIndex, writeMemory } from "../../../src/memory.js";
+import { loadMemoryIndex, searchMemory, writeMemory } from "../../../src/memory.js";
 import { commitWithExecutionLock, runValidationWithExecutionLock } from "../../../src/operations.js";
 import {
   acceptReplanProposal,
@@ -135,7 +135,7 @@ test("mock integration: budget hard stops pause conductor and validation before 
 test("mock integration: context discovery feeds conductor prompt with local evidence and compression guidance", async () => {
   await withTempRepo(async (dir) => {
     await writeFile(join(dir, "src/app.js"), "export const value = 2;\n");
-    await writeMemory(dir, { title: "Adapter memory", content: "Use the adapter evidence exactly.", taskId: "T-CONTEXT" });
+    await writeMemory(dir, { title: "Adapter memory", content: "Use the adapter evidence exactly. FULL MEMORY DETAIL", summary: "Adapter evidence summary", taskId: "T-CONTEXT", tags: ["adapter", "context"] });
     await upsertPrdRequirement(dir, { id: "REQ-CONTEXT", statement: "Context must include discovered evidence.", status: "pending" });
     const state = stateAt("execution");
     state.tasks = [{ id: "T-CONTEXT", status: "ready", title: "Use discovered context", allowedPathPrefixes: ["src/app.js"], prdRefs: ["REQ-CONTEXT"], updatedAt: state.createdAt }];
@@ -154,6 +154,9 @@ test("mock integration: context discovery feeds conductor prompt with local evid
     assert.match(result.prompt ?? "", /Compression and Exact-Preservation Policy/);
     assert.match(result.prompt ?? "", /REQ-CONTEXT/);
     assert.match(result.prompt ?? "", /src\/app\.js/);
+    assert.match(result.prompt ?? "", /Adapter evidence summary/);
+    assert.doesNotMatch(result.prompt ?? "", /FULL MEMORY DETAIL/);
+    assert.equal((await searchMemory(dir, { tags: ["adapter"], taskId: "T-CONTEXT" }))[0]?.entry.title, "Adapter memory");
     const manifest = await loadTaskContextManifest(dir, "T-CONTEXT");
     assert.ok(manifest?.items.some((item) => item.source === "file" && item.path === "src/app.js"));
     assert.ok(manifest?.items.some((item) => item.source === "memory"));

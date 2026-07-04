@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { getBudgetState } from "../src/budgets.js";
+import { loadMemoryIndex } from "../src/memory.js";
 import { loadCurrentPrd, loadPrdCoverage, loadPrdRequirements } from "../src/prd.js";
 import { loadResearchReports } from "../src/research.js";
 import { loadState } from "../src/state.js";
@@ -25,6 +26,7 @@ test("scalerToolNames lists structured Scaler tools", () => {
     "scaler_report",
     "scaler_memory_write",
     "scaler_memory_retrieve",
+    "scaler_memory_search",
     "scaler_research_report",
     "scaler_task_report",
     "scaler_spawn_task",
@@ -52,6 +54,21 @@ test("registerScalerTools registers all tool definitions", () => {
   registerScalerTools(fakePi as never);
 
   assert.deepEqual(registered, [...scalerToolNames]);
+});
+
+test("scaler_memory_search returns summary candidates without full content", async () => {
+  await withTempDir(async (dir) => {
+    const registered = new Map<string, { execute: (...args: any[]) => Promise<{ content: Array<{ text: string }>; details: any }> }>();
+    registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<{ content: Array<{ text: string }>; details: any }> }) { registered.set(definition.name, definition); } } as never);
+
+    await registered.get("scaler_memory_write")?.execute("tool-call", { title: "Auth memory", content: "FULL SECRET DETAIL", summary: "Auth summary", taskId: "T-MEM", tags: ["auth", "api"] }, undefined, undefined, { cwd: dir });
+    const result = await registered.get("scaler_memory_search")?.execute("tool-call", { query: "auth", tags: ["api"], taskId: "T-MEM" }, undefined, undefined, { cwd: dir });
+
+    assert.equal((await loadMemoryIndex(dir)).entries[0]?.tags?.includes("api"), true);
+    assert.match(result?.content[0]?.text ?? "", /Auth memory/);
+    assert.doesNotMatch(result?.content[0]?.text ?? "", /FULL SECRET DETAIL/);
+    assert.equal(result?.details.status, "searched");
+  });
 });
 
 test("scaler_tool_request persists structured metadata", async () => {

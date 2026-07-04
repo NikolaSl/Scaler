@@ -263,7 +263,7 @@ test("resolveTaskContextManifest resolves inline, file, memory, state, task, prd
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     state.tasks = [{ id: "T-001", status: "ready", title: "Do task", prdRefs: ["REQ-001"], updatedAt: state.createdAt }];
     await writeFile(join(dir, "README.md"), "File context", "utf8");
-    const memory = await writeMemory(dir, { title: "Prior note", content: "Memory context", now: new Date("2026-01-01T00:00:01.000Z") });
+    const memory = await writeMemory(dir, { title: "Prior note", content: "Memory context FULL ONLY TOKEN", summary: "Memory summary", now: new Date("2026-01-01T00:00:01.000Z") });
     await saveValidationManifest(dir, {
       taskId: "T-001",
       commands: [{ id: "test", command: "npm test", required: true }],
@@ -289,7 +289,8 @@ test("resolveTaskContextManifest resolves inline, file, memory, state, task, prd
 
     assert.match(items.find((item) => item.id === "inline")?.content ?? "", /Inline context/);
     assert.match(items.find((item) => item.id === "file")?.content ?? "", /File context/);
-    assert.match(items.find((item) => item.id === "memory")?.content ?? "", /Memory context/);
+    assert.match(items.find((item) => item.id === "memory")?.content ?? "", /Memory summary/);
+    assert.doesNotMatch(items.find((item) => item.id === "memory")?.content ?? "", /FULL ONLY TOKEN/);
     assert.match(items.find((item) => item.id === "state")?.content ?? "", /"stage": "idle"/);
     assert.match(items.find((item) => item.id === "task")?.content ?? "", /"title": "Do task"/);
     assert.match(items.find((item) => item.id === "prd")?.content ?? "", /REQ-001/);

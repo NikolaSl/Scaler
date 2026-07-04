@@ -11,6 +11,7 @@ import {
   parseDebugRetryApprovalArgs,
   parseDebugRetryArgs,
   parseDebugRetryPolicyArgs,
+  parseMemorySearchArgs,
   parsePrdLinkArgs,
   parseReplanRequestArgs,
   parseReplanRunArgs,
@@ -108,6 +109,17 @@ test("parseValidationAddArgs parses manifest command fields", () => {
 
 test("parseValidationAddArgs requires task, id, and command", () => {
   assert.equal(parseValidationAddArgs("T-001 | test"), undefined);
+});
+
+test("parseMemorySearchArgs parses query and filters", () => {
+  assert.deepEqual(parseMemorySearchArgs("refresh token tag=api,auth task=T-1 validity=active limit=3 include-obsolete"), {
+    query: "refresh token",
+    tags: ["api", "auth"],
+    taskId: "T-1",
+    validity: "active",
+    includeObsolete: true,
+    limit: 3,
+  });
 });
 
 test("parseBudgetSetArgs parses key and optional numeric limits", () => {
