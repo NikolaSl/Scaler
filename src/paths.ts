@@ -126,6 +126,10 @@ export function getContextSplitsPath(cwd: string): string {
   return join(getContextDir(cwd), "splits.json");
 }
 
+export function getMissingContextRequestsPath(cwd: string): string {
+  return join(getContextDir(cwd), "missing-requests.json");
+}
+
 export function getToolRequestsDir(cwd: string): string {
   return join(getScalerDir(cwd), "tool-requests");
 }

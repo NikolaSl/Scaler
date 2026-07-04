@@ -76,6 +76,18 @@ export interface ParsedMemorySearchArgs {
   limit?: number;
 }
 
+export interface ParsedMissingContextRunArgs {
+  requestId?: string;
+  execute: boolean;
+  allowInternet: boolean;
+}
+
+export interface ParsedMissingContextResolveArgs {
+  requestId: string;
+  summary: string;
+  evidenceRefs?: string[];
+}
+
 export interface ParsedStorageMaintainArgs {
   execute: boolean;
   compress: boolean;
@@ -790,6 +802,24 @@ export function parseResearchReportArgs(args: string | undefined): ParsedResearc
 
 export function parseContextTaskArgs(args: string | undefined): ParsedContextTaskArgs {
   return { taskId: args?.trim() || undefined };
+}
+
+export function parseMissingContextRunArgs(args: string | undefined): ParsedMissingContextRunArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  const requestId = parts.find((part) => !["execute", "internet"].includes(part.toLowerCase()) && !part.includes("="));
+  return {
+    requestId,
+    execute: parts.some((part) => part.toLowerCase() === "execute"),
+    allowInternet: parts.some((part) => part.toLowerCase() === "internet"),
+  };
+}
+
+export function parseMissingContextResolveArgs(args: string | undefined): ParsedMissingContextResolveArgs | undefined {
+  const parts = splitPipeArgs(args);
+  const requestId = parts[0]?.trim();
+  const summary = parts[1]?.trim();
+  if (!requestId || !summary) return undefined;
+  return { requestId, summary, evidenceRefs: parseCommaList(parts[2]) };
 }
 
 export function parseStageRunArgs(args: string | undefined): ParsedStageRunArgs {

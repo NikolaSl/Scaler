@@ -11,6 +11,8 @@ import {
   parseDebugRetryArgs,
   parseDebugRetryPolicyArgs,
   parseMemorySearchArgs,
+  parseMissingContextResolveArgs,
+  parseMissingContextRunArgs,
   parsePrdLinkArgs,
   parseReplanRequestArgs,
   parseReplanRunArgs,
@@ -56,6 +58,7 @@ import { formatCommitReports, loadCommitReports } from "./git.js";
 import { clearExecutionLock, formatExecutionLock, loadExecutionLock } from "./locks.js";
 import { createLogEvent, appendLogEvent, logCommandAudit, logStateEvent, logToolAudit } from "./logging.js";
 import { formatMemorySearchResults, loadMemoryIndex, searchMemory, type MemoryValidity } from "./memory.js";
+import { dispatchMissingContextRequest, formatMissingContextRequests, loadMissingContextRequests, resolveMissingContextRequest, unblockTasksWithResolvedMissingContext } from "./missing-context.js";
 import { commitWithExecutionLock, runValidationWithExecutionLock } from "./operations.js";
 import { getEventLogPath } from "./paths.js";
 import { formatValidationEnvironmentRecords, loadValidationEnvironmentRecords } from "./validation-environments.js";
@@ -377,6 +380,50 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       });
       const message = formatMemorySearchResults(results, { query: parsed.query, tags: parsed.tags, taskId: parsed.taskId, validity });
       if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-missing-context", {
+    description: "List structured missing-context requests: /scaler-missing-context [taskId]",
+    handler: async (args, ctx) => {
+      const taskId = args?.trim() || undefined;
+      const message = formatMissingContextRequests(await loadMissingContextRequests(ctx.cwd), taskId);
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-missing-context-run", {
+    description: "Plan or execute a missing-context retrieval/investigation: /scaler-missing-context-run [requestId] [execute] [internet]",
+    handler: async (args, ctx) => {
+      const parsed = parseMissingContextRunArgs(args);
+      const state = await ensureState(ctx.cwd);
+      const result = await dispatchMissingContextRequest(ctx.cwd, state, parsed.requestId, { execute: parsed.execute, allowInternet: parsed.allowInternet });
+      const unblocked = result.accepted ? await unblockTasksWithResolvedMissingContext(ctx.cwd, await ensureState(ctx.cwd)) : undefined;
+      const suffix = unblocked && unblocked.unblockedTaskIds.length > 0 ? `\nUnblocked tasks: ${unblocked.unblockedTaskIds.join(", ")}` : "";
+      const message = `${result.message}${suffix}`;
+      if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-missing-context-resolve", {
+    description: "Manually resolve a missing-context request: /scaler-missing-context-resolve <requestId> | <summary> | <evidence refs>",
+    handler: async (args, ctx) => {
+      const parsed = parseMissingContextResolveArgs(args);
+      if (!parsed) {
+        const message = "Usage: /scaler-missing-context-resolve <requestId> | <summary> | <evidence refs comma list>";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+      const state = await ensureState(ctx.cwd);
+      const result = await resolveMissingContextRequest(ctx.cwd, state, parsed);
+      const unblocked = result.accepted ? await unblockTasksWithResolvedMissingContext(ctx.cwd, await ensureState(ctx.cwd)) : undefined;
+      const suffix = unblocked && unblocked.unblockedTaskIds.length > 0 ? `\nUnblocked tasks: ${unblocked.unblockedTaskIds.join(", ")}` : "";
+      const message = `${result.message}${suffix}`;
+      if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
       else console.log(message);
     },
   });

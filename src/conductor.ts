@@ -14,6 +14,7 @@ import {
 import { recordContextSplitIfNeeded, type ContextSplitRecord } from "./context-splits.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { appendLogEvent, createLogEvent, logAgentPromptAudit } from "./logging.js";
+import { createMissingContextRequestsFromTaskReport, refreshAndUnblockMissingContext } from "./missing-context.js";
 import { getTaskAgentRunsPath, getValidationHandoffsPath } from "./paths.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { saveState } from "./state.js";
@@ -159,6 +160,7 @@ export async function runConductorStep(
   options: ConductorStepOptions = {},
   runner: TaskAgentRunner = runTaskAgent,
 ): Promise<ConductorStepResult> {
+  state = (await refreshAndUnblockMissingContext(cwd, state)).state;
   const selection = selectNextTask(state);
   if (!selection.task) {
     await appendLogEvent(cwd, createLogEvent(state, { eventType: "system", summary: selection.reason }));
@@ -348,6 +350,9 @@ export async function applyTaskRunHandoff(
     now,
   });
   await saveState(cwd, nextState);
+  const missingContext = reportIngestion?.report && (reportIngestion.report.missingData.length > 0 || reportIngestion.report.status === "needs_data" || reportIngestion.report.status === "blocked")
+    ? await createMissingContextRequestsFromTaskReport(cwd, nextState, reportIngestion.report, now)
+    : undefined;
 
   const record: ValidationHandoffRecord = {
     taskId,
@@ -367,7 +372,7 @@ export async function applyTaskRunHandoff(
       eventType: "validation",
       summary: record.summary,
       taskId,
-      details: { record, runResult },
+      details: { record, runResult, missingContext },
     }),
   );
   return { state: nextState, record };
