@@ -27,11 +27,14 @@ export interface ResearchAgentPromptInput {
   currentPlan: ExecutionPlanArtifact;
   requirements: RuntimePrdRequirementsFile;
   coverageSummary: RuntimePrdCoverageSummary;
+  grantedTools?: string[];
+  allowInternet?: boolean;
   extraInstructions?: string;
 }
 
 export interface ResearchAgentInvocationOptions {
   tools?: string[];
+  allowInternet?: boolean;
   model?: string;
   appendSystemPromptPath?: string;
   extensionPaths?: string[];
@@ -121,7 +124,8 @@ export function buildResearchAgentPrompt(input: ResearchAgentPromptInput): strin
     "Answer exactly one research request using only reliable local/project evidence and any explicitly granted tools.",
     "Preserve raw evidence through the structured report's rawEvidence field; SCALER will store it in memory.",
     "Do not mutate project files. Do not mark stage artifacts or execution plans. Do not ingest free-form prose.",
-    "If internet/browser tools are not available for an internet-scope request, record the limitation as a partial or blocked report with unresolvedUnknowns.",
+    "If internet/browser tools are not explicitly granted for an internet-scope request, record the limitation as a partial or blocked report with unresolvedUnknowns.",
+    formatResearchToolPolicy(request, input.grantedTools, input.allowInternet),
     "Prefer project, official, and primary sources over weak sources. Resolve or explicitly list contradictions.",
     "",
     `Supervisor: ${formatStateStatus(input.state)}`,
@@ -171,18 +175,37 @@ export function prepareResearchAgentInvocation(
   input: ResearchAgentPromptInput,
   options: ResearchAgentInvocationOptions = {},
 ): ResearchAgentPreparation {
-  const prompt = buildResearchAgentPrompt(input);
+  const grantedTools = resolveResearchAgentGrantedTools(input.request, options);
+  const prompt = buildResearchAgentPrompt({ ...input, grantedTools, allowInternet: options.allowInternet });
   const request: TaskAgentRequest = {
     taskId: `research-agent-${input.request.id}`,
     prompt,
     cwd,
-    tools: options.tools,
+    tools: grantedTools.length > 0 ? grantedTools : undefined,
     model: options.model,
     appendSystemPromptPath: options.appendSystemPromptPath,
     extensionPaths: options.extensionPaths,
   };
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");
   return { prompt, request, invocation, researchRequest: input.request };
+}
+
+export function resolveResearchAgentGrantedTools(request: ResearchRequest, options: ResearchAgentInvocationOptions = {}): string[] {
+  const tools = uniqueNonEmpty(options.tools ?? []);
+  if (request.scope === "local") return tools;
+  return options.allowInternet ? tools : [];
+}
+
+export function formatResearchToolPolicy(request: ResearchRequest, grantedTools: string[] = [], allowInternet = false): string {
+  if (request.scope === "local") {
+    return grantedTools.length > 0
+      ? `Research tool policy: local-scope request; granted tools=${grantedTools.join(", ")}. Do not use internet/network behavior.`
+      : "Research tool policy: local-scope request; no internet tools are required or granted.";
+  }
+  if (!allowInternet || grantedTools.length === 0) {
+    return `Research tool policy: ${request.scope}-scope request, but internet tools are not explicitly granted. Use local/project evidence only and report missing internet capability as partial or blocked.`;
+  }
+  return `Research tool policy: ${request.scope}-scope request with explicit internet grant. Granted tools=${grantedTools.join(", ")}. Use only these tools, do not upload private code/secrets, prefer official/primary sources, and cite every source.`;
 }
 
 export async function runResearchAgentStep(
@@ -412,6 +435,10 @@ function intersects(left: string[] | undefined, right: string[] | undefined): bo
   if (!left?.length || !right?.length) return false;
   const set = new Set(left);
   return right.some((item) => set.has(item));
+}
+
+function uniqueNonEmpty(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))];
 }
 
 function stringField(record: Record<string, unknown>, key: string): string | undefined {

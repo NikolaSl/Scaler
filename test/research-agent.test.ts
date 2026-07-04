@@ -9,10 +9,12 @@ import {
   buildResearchAgentPrompt,
   extractResearchReport,
   formatResearchAgentRunList,
+  formatResearchToolPolicy,
   ingestResearchReport,
   loadResearchAgentRunRecords,
   prepareResearchAgentInvocation,
   recordResearchAgentRun,
+  resolveResearchAgentGrantedTools,
   runResearchAgentStep,
 } from "../src/research-agent.js";
 import { readLogEvents } from "../src/logging.js";
@@ -108,6 +110,47 @@ test("prepareResearchAgentInvocation builds isolated Pi invocation", async () =>
   assert.ok(preparation.invocation.args.includes("--model"));
   assert.ok(preparation.invocation.args.includes("test-model"));
   assert.match(preparation.prompt, /Required final response/);
+  assert.match(preparation.prompt, /local-scope request/);
+});
+
+test("research internet grant policy withholds tools until explicitly allowed", () => {
+  const createdAt = "2026-01-01T00:00:00.000Z";
+  const request = {
+    id: "RESEARCH-WEB",
+    status: "open" as const,
+    question: "Which external API is current?",
+    reason: "Need official docs.",
+    scope: "internet" as const,
+    createdAt,
+    updatedAt: createdAt,
+  };
+
+  assert.deepEqual(resolveResearchAgentGrantedTools(request, { tools: ["browser", "browser", " "] }), []);
+  assert.deepEqual(resolveResearchAgentGrantedTools(request, { allowInternet: true, tools: ["browser", "mcp-docs", "browser"] }), ["browser", "mcp-docs"]);
+  assert.match(formatResearchToolPolicy(request, [], false), /not explicitly granted/);
+  assert.match(formatResearchToolPolicy(request, ["browser"], true), /explicit internet grant/);
+
+  const state = createDefaultState(new Date(createdAt));
+  const baseInput = {
+    state,
+    request,
+    requests: [request],
+    reports: [],
+    currentPlan: { version: 1 as const, planVersion: 0, status: "draft" as const, tasks: [], createdAt, updatedAt: createdAt },
+    requirements: { version: 1 as const, requirements: [] },
+    coverageSummary: { entries: [], countsByStatus: { pending: 0, in_progress: 0, implemented: 0, validated: 0, blocked: 0, needs_replan: 0 }, unlinkedRequirementIds: [], linkedRequirementIds: [] },
+  };
+
+  const withoutGrant = prepareResearchAgentInvocation("/repo", baseInput, { command: "pi-test", tools: ["browser"] });
+  assert.equal(withoutGrant.request.tools, undefined);
+  assert.equal(withoutGrant.invocation.args.includes("--tools"), false);
+  assert.match(withoutGrant.prompt, /not explicitly granted/);
+
+  const withGrant = prepareResearchAgentInvocation("/repo", baseInput, { command: "pi-test", allowInternet: true, tools: ["browser", "mcp-docs"] });
+  assert.deepEqual(withGrant.request.tools, ["browser", "mcp-docs"]);
+  assert.ok(withGrant.invocation.args.includes("--tools"));
+  assert.ok(withGrant.invocation.args.includes("browser,mcp-docs"));
+  assert.match(withGrant.prompt, /Granted tools=browser, mcp-docs/);
 });
 
 test("extractResearchReport validates latest structured research report", () => {
