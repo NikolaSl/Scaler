@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { extname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { extractProviderUsage, type ProviderUsage } from "./provider-usage.js";
 
 export interface TaskAgentRequest {
@@ -36,8 +38,10 @@ export interface RunTaskAgentOptions {
 
 export function buildTaskAgentInvocation(request: TaskAgentRequest, command = "pi"): TaskAgentInvocation {
   const args = ["--mode", "json", "-p", "--no-session"];
+  const grantedTools = normalizeGrantedTools(request);
+  const extensionPaths = resolveChildAgentExtensionPaths(request, grantedTools.length > 0);
 
-  for (const extensionPath of request.extensionPaths ?? []) {
+  for (const extensionPath of extensionPaths) {
     args.push("-e", extensionPath);
   }
 
@@ -45,10 +49,10 @@ export function buildTaskAgentInvocation(request: TaskAgentRequest, command = "p
     args.push("--model", request.model);
   }
 
-  if (request.noTools) {
+  if (grantedTools.length === 0) {
     args.push("--no-tools");
-  } else if (request.tools && request.tools.length > 0) {
-    args.push("--tools", request.tools.join(","));
+  } else {
+    args.push("--tools", grantedTools.join(","));
   }
 
   if (request.appendSystemPromptPath) {
@@ -62,6 +66,23 @@ export function buildTaskAgentInvocation(request: TaskAgentRequest, command = "p
     args,
     cwd: request.cwd,
   };
+}
+
+export function getDefaultScalerChildExtensionPath(): string {
+  const currentPath = fileURLToPath(import.meta.url);
+  const extension = extname(currentPath) || ".js";
+  return fileURLToPath(new URL(`./index${extension}`, import.meta.url));
+}
+
+export function normalizeGrantedTools(request: TaskAgentRequest): string[] {
+  if (request.noTools) return [];
+  return uniqueStrings(request.tools ?? []);
+}
+
+export function resolveChildAgentExtensionPaths(request: TaskAgentRequest, toolsGranted = normalizeGrantedTools(request).length > 0): string[] {
+  const provided = uniqueStrings(request.extensionPaths ?? []);
+  if (!toolsGranted || provided.length > 0) return provided;
+  return [getDefaultScalerChildExtensionPath()];
 }
 
 export function extractStructuredReportPayloads(stdoutEvents: unknown[], reportType: string): Record<string, unknown>[] {
@@ -168,6 +189,10 @@ export async function runTaskAgent(
       }, options.timeoutMs);
     }
   });
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }
 
 function extractDirectReportPayload(event: unknown, reportType: string): Record<string, unknown> | undefined {
