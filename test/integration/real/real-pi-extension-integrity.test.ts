@@ -8,7 +8,7 @@ import { readLogEvents } from "../../../src/logging.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { loadStorageInventory, loadStorageMaintenanceReport } from "../../../src/storage.js";
 import { loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest, runToolRequestAgent } from "../../../src/tool-requests.js";
-import { loadValidationManifests, runTaskValidation, upsertValidationManifestCommand } from "../../../src/validation.js";
+import { loadValidationChecklists, loadValidationManifests, runTaskValidation, upsertValidationManifestCommand } from "../../../src/validation.js";
 import { REAL_PI_ENABLED, REAL_PI_MODEL, runScalerPi, withRealPiTempRepo } from "./real-pi-harness.js";
 
 test("real Pi extension: slash command dispatch writes SCALER command audit logs", { skip: !REAL_PI_ENABLED }, async () => {
@@ -189,6 +189,40 @@ test("real Pi extension: slash command dispatch prepares debug next-approach ret
       ["start", "end"],
     );
     assert.ok(events.some((event) => event.eventType === "agent" && event.summary === "Agent prompt prepared: debug-retry-task/T-REAL-RETRY"));
+  });
+});
+
+test("real Pi extension: slash command dispatch persists validation checklist", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-REAL-CHECKLIST";
+    state.tasks = [{ id: "T-REAL-CHECKLIST", status: "validating", title: "Real checklist", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-validation-checklist T-REAL-CHECKLIST | completeness | Checklist passed | scope::passed::required::Scope covered::evidence-real | evidence-root",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Validation checklist T-REAL-CHECKLIST-checklist-/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const checklist = (await loadValidationChecklists(dir))[0];
+    assert.equal(checklist?.taskId, "T-REAL-CHECKLIST");
+    assert.equal(checklist?.status, "passed");
+    assert.equal(checklist?.gate, "completeness");
+    assert.equal((await loadState(dir)).tasks.find((task) => task.id === "T-REAL-CHECKLIST")?.status, "validated");
+
+    const events = await readLogEvents(dir);
+    assert.deepEqual(
+      events
+        .filter((event) => event.eventType === "command" && isRecord(event.details) && event.details.command === "scaler-validation-checklist")
+        .map((event) => (event.details as { phase: string }).phase),
+      ["start", "end"],
+    );
+    assert.ok(events.some((event) => event.eventType === "validation" && event.summary === "Validation summary: T-REAL-CHECKLIST passed"));
   });
 });
 
