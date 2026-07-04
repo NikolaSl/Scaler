@@ -48,7 +48,7 @@ The current mocked integration harness covers:
 - next-approach debug reports and retry-gate clearance by later `newEvidence`;
 - rejection of child free-form text for debug, stage, replan, and research agents;
 - stage conductor artifact ingestion and advancement from PRD through knowledge, planning, execution, and completion;
-- runtime PRD coverage-gap replanning through proposal ingestion, preservation checks, proposal acceptance, current-plan replacement, decisions, snapshots, request resolution, and task creation;
+- runtime PRD coverage-gap replanning through proposal ingestion, preservation checks, proposal acceptance, current-plan replacement, decisions, snapshots, request resolution, task creation, and planner-report PRD/plan/task coverage synchronization;
 - budget hard-stop refusal for conductor/validation paths with pause and audit behavior;
 - command-driven budget configuration feeding later validation hard-stop behavior;
 - provider usage metadata from Pi turn events updating token/cost budget counters and audit logs;
@@ -104,7 +104,7 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - real debug-blocked replan request creation plus safe replan acceptance that clears the retry gate;
 - real chained Stage I-IV conductor flow-parity through persisted stage artifacts and stage-agent run records;
 - real unsafe replan proposal rejection without replacing the current plan;
-- real chained replanner proposal → acceptance flow-parity through proposed/current plan artifacts, snapshots, decisions, and task creation;
+- real planner-report listing plus real chained replanner proposal → acceptance flow-parity through proposed/current plan artifacts, snapshots, decisions, and task creation;
 - report-only child agents launched with `--no-tools` for cardinal JSON-output tests;
 - real Pi extension loading via `-e src/index.ts`;
 - slash-command dispatch and command audit logs;

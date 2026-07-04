@@ -279,6 +279,10 @@ Shows execution plan summary from `.scaler/plans/current-plan.json`, runtime PRD
 
 Creates missing supervisor task records from `.scaler/plans/current-plan.json`. Existing tasks are preserved.
 
+## `/scaler-planning-reports`
+
+Lists structured planner coverage synchronization records from `.scaler/reports/planning-reports.json`. Records are written by `scaler_planning_report`, which ingests planner-provided runtime requirements and execution-plan tasks, saves the current plan, creates/updates task PRD refs, links coverage, and reports unlinked/unknown PRD diagnostics before execution.
+
 ## `/scaler-replans`
 
 Lists replan requests from `.scaler/plans/replan-requests.json`.

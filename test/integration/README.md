@@ -210,7 +210,7 @@ When adding a new integration scenario:
 - `mock/stage-replan-plan-flow.test.ts`
   - stage conductor loop from PRD through knowledge, planning, execution, and completion;
   - stage-agent structured artifact ingestion, readiness, semantic, consistency, advancement, run records, and audit logs;
-  - runtime PRD requirements plus coverage-gap replan request;
+  - runtime PRD requirements plus planner-report PRD/plan/task synchronization and coverage-gap replan request;
   - replanner-agent structured proposal ingestion, preservation checks, proposed-plan persistence, run records, and audit logs;
   - replan proposal acceptance, current-plan replacement, version snapshot, replan decision, request resolution, and task creation;
   - validated-task git commit through the execution lock while preserving `.scaler/` runtime artifacts and recording git audit logs plus post-commit report artifacts.
@@ -312,6 +312,6 @@ When adding a new integration scenario:
   - real debug-agent `needs_replan` report → debug-blocked replan request → safe replan acceptance → retry-gate clearance;
   - real Stage I-IV conductor loop using cardinal stage artifacts, readiness/semantic/consistency advancement, and final completed state;
   - real unsafe replanner proposal → failed preservation check → rejected acceptance with current plan unchanged;
-  - real replanner proposal ingestion → preservation check → proposal acceptance → current-plan replacement, version snapshot, replan decision, request resolution, and task creation.
+  - real `/scaler-planning-reports` inspection and real replanner proposal ingestion → preservation check → proposal acceptance → current-plan replacement, version snapshot, replan decision, request resolution, and task creation.
 - `real/real-pi-harness.ts`
   - shared temp-repository and `pi --mode json -p --no-session -e <src/index.ts>` harness for opt-in real extension tests.

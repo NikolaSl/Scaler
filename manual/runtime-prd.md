@@ -28,7 +28,7 @@ Implemented requirement statuses:
 
 `/scaler-prd-status` loads the runtime PRD requirements, explicit coverage entries, and current task state, then prints deterministic coverage counts and requirement/task links.
 
-`/scaler-prd-link` updates an existing task's `prdRefs` metadata. A task list shows PRD refs when present.
+`/scaler-prd-link` updates an existing task's `prdRefs` metadata. A task list shows PRD refs when present. Structured `scaler_planning_report` output can also create/update runtime requirements, save the execution plan, create/update planned tasks, align task `prdRefs`, and write coverage diagnostics before execution.
 
 ## Task linkage
 
@@ -47,5 +47,6 @@ Implemented runtime PRD tools:
 
 - `scaler_prd_write` writes `.scaler/prd/current.md` and optionally replaces `requirements.json`. It can snapshot the previous current PRD first.
 - `scaler_prd_requirement_update` upserts one requirement and optionally updates its explicit coverage entry.
+- `scaler_planning_report` ingests planner output, links requirements to plan tasks, and records `.scaler/reports/planning-reports.json` diagnostics.
 
 These tools are intended for PRD/polishing or planning agents to keep the runtime PRD ledger current while execution progresses.

@@ -13,6 +13,7 @@ Scaler currently registers structured tool skeletons:
 - `scaler_tool_result`
 - `scaler_task_create`
 - `scaler_task_update`
+- `scaler_planning_report`
 - `scaler_prd_write`
 - `scaler_prd_requirement_update`
 - `scaler_validation_manifest_write`
@@ -50,6 +51,7 @@ Current behavior:
 - `/scaler-tool-transactions [requestId]` lists transaction records, including `missing_result` runs where a child exited without the structured result signal and replay linkage where present
 - `scaler_task_create` creates supervisor task records, stores optional allowed paths/dependencies/runtime PRD refs, and rejects duplicate ids
 - `scaler_task_update` updates task metadata, including runtime PRD refs, and only accepts valid status transitions
+- `scaler_planning_report` ingests structured planner output, writes runtime requirements/current execution plan, creates or updates planned tasks and task `prdRefs`, links coverage, and records `.scaler/reports/planning-reports.json` diagnostics
 - `scaler_prd_write` writes `.scaler/prd/current.md` and optionally replaces the runtime PRD requirement catalog
 - `scaler_prd_requirement_update` upserts one runtime PRD requirement and optional explicit coverage status
 - `scaler_validation_manifest_write` persists task validation commands under `.scaler/reports/validation-manifests.json`
