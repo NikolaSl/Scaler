@@ -330,9 +330,24 @@ Prepares or executes a supervised Tool/MCP schema discovery probe. SCALER grants
 
 Lists schema discovery probe records from `.scaler/tool-requests/schema-runs.json`.
 
-## `/scaler-tool-replay <transactionId> [execute]`
+## `/scaler-tool-replay <transactionId> [execute] [approval=<id>]`
 
-Prepares or executes a replay of a persisted isolated tool-agent transaction. Replay uses the stored prompt/tools invocation and writes a new transaction linked by `replayOfTransactionId`. Execute mode is refused for requests already closed as `completed`, `failed`, or `blocked`; free-form/no-result output is recorded as `missing_result`.
+Prepares or executes a replay of a persisted isolated tool-agent transaction. Replay uses the stored prompt/tools invocation and writes a new transaction linked by `replayOfTransactionId`. Execute mode is allowed for open `prepared` requests. Requests already closed as `completed`, `failed`, or `blocked` remain refused unless `approval=<id>` names an active exact replay approval for the original transaction/request; successful approved closed replay consumes one approval use. Free-form/no-result output is recorded as `missing_result`.
+
+## `/scaler-tool-replay-approval [approve|revoke] ...`
+
+Lists, creates, or revokes exact closed-replay approvals from `.scaler/tool-requests/replay-approvals.json`.
+
+Examples:
+
+```text
+/scaler-tool-replay-approval
+/scaler-tool-replay-approval approve | <transactionId> | Re-run closed docs lookup for audit | max-uses=1 ttl-minutes=60
+/scaler-tool-replay-approval revoke | <approvalId> | No longer needed
+/scaler-tool-replay <transactionId> execute approval=<approvalId>
+```
+
+Approvals are not auto-selected by `/scaler-tool-replay`; closed replay execution requires the explicit approval id.
 
 ## `/scaler-tool-run [requestId] [execute]`
 

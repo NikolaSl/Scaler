@@ -55,7 +55,7 @@ The current mocked integration harness covers:
 - storage maintenance command execution with safe gzip compression, explicit cache cleanup, approved archive/raw-log/memory retention deletion, scheduled maintenance due checks, persisted reports/schedule config, storage budget usage, and audit logs;
 - typed validation gate metadata plus dependency/test-first and CI/sandbox environment policy diagnostics, validation environment lifecycle evidence, and `/scaler-validation-envs` status persisted through `/scaler-validation-add`, validation runs, lifecycle records, and audit logs;
 - deterministic non-software validation checklists persisted through `/scaler-validation-checklist`, task status transitions, evidence-required acceptance/completeness/source policies, and audit logs;
-- rich `scaler_tool_request` metadata, `scaler_tool_schema` discovery ledgers, supervised schema discovery probe ledgers, compact selected-tool catalog prompts with discovered schema injection, isolated allowed-tool invocation prep, tool transaction prepare/execute/replay ledgers, bounded tool-iteration correction ledgers/policy, `missing_result`/`missing_schema` handling for free-form child output, and structured `scaler_tool_result` request closure;
+- rich `scaler_tool_request` metadata, `scaler_tool_schema` discovery ledgers, supervised schema discovery probe ledgers, compact selected-tool catalog prompts with discovered schema injection, isolated allowed-tool invocation prep, tool transaction prepare/execute/replay ledgers, closed replay approval ledgers, bounded tool-iteration correction ledgers/policy, `missing_result`/`missing_schema` handling for free-form child output, and structured `scaler_tool_result` request closure;
 - deterministic context discovery feeding conductor prompts with exactness/compression guidance;
 - unsafe replan proposal acceptance rejection;
 - debug report → replan request → replanner proposal → acceptance retry-gate clearance;
@@ -111,7 +111,7 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - slash-command storage status inventory persistence and audit logs;
 - slash-command storage maintenance execution, scheduled maintenance due checks, active-ledger rotation, approved archive/raw-log/memory retention deletion, persisted maintenance/schedule reports, and audit logs;
 - slash-command debug next-approach retry prepare mode plus retry-policy persistence with persisted retry records and prompt audit logs;
-- slash-command tool transaction, tool transaction replay, tool iteration policy/prepare mode, and schema discovery prepare modes with persisted transaction/probe/iteration records;
+- slash-command tool transaction, tool transaction replay, tool replay approval, tool iteration policy/prepare mode, and schema discovery prepare modes with persisted transaction/probe/iteration/approval records;
 - slash-command typed validation gate metadata, gate/environment/disposition policy enforcement, validation environment lifecycle records/status, skipped/blocked disposition persistence, non-software checklist persistence, evidence-policy enforcement, and audit logs;
 - cardinal SCALER tool invocation with persisted `.scaler/state.json` mutation;
 - cardinal `scaler_tool_schema` invocation with persisted discovered metadata;

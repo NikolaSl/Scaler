@@ -34,7 +34,8 @@ Current behavior:
 - `/scaler-tool-discover <toolName> [execute] [tools=a,b]` prepares or executes a supervised schema discovery probe under `.scaler/tool-requests/schema-runs.json`; the target tool is not granted implicitly, and execute mode completes only when a new structured `scaler_tool_schema` record appears
 - `/scaler-tool-discovery-runs [toolName]` lists schema discovery probe runs
 - `/scaler-tool-run [requestId] [execute]` records isolated tool-agent transactions under `.scaler/tool-requests/transactions.json`; prepare mode persists the invocation, execute mode runs only the request's allowed tools and marks completion only if a structured `scaler_tool_result` closes the request
-- `/scaler-tool-replay <transactionId> [execute]` reuses a persisted transaction invocation and links the new transaction with `replayOfTransactionId`; execute mode is allowed only while the originating request is still `prepared`
+- `/scaler-tool-replay <transactionId> [execute] [approval=<id>]` reuses a persisted transaction invocation and links the new transaction with `replayOfTransactionId`; execute mode is allowed while the originating request is still `prepared`, or for a closed request only when an exact active replay approval id is supplied
+- `/scaler-tool-replay-approval [approve|revoke] ...` lists, creates, and revokes exact transaction approvals under `.scaler/tool-requests/replay-approvals.json` for closed-request replays
 - `/scaler-tool-iteration-policy [max=N] [auto-replay=on|off]` shows or updates bounded correction-loop defaults under `.scaler/tool-requests/iteration-policy.json`
 - `/scaler-tool-iterate [requestId] [execute] [max=N]` prepares or runs a bounded open-request correction loop, replaying the latest `missing_result` transaction until a structured `scaler_tool_result` closes the request or the iteration cap is exhausted
 - `/scaler-tool-iteration-runs [requestId]` lists correction-loop ledgers from `.scaler/tool-requests/iteration-runs.json`
@@ -49,4 +50,4 @@ Debug-agent subprocesses emit structured `scaler_debug_report` JSON events rathe
 
 Tool request prompts intentionally include only selected catalog entries for the requested/allowed tools. Unknown tools are represented as `unknown` risk unless a prior `scaler_tool_schema` record supplied local docs/schema metadata. Tool-agent prompts require a structured `scaler_tool_result` completion; free-form prose is not the durable completion signal.
 
-Remaining tool/MCP work includes automatic MCP server enumeration, replay approval controls for closed requests, and parallel scheduling.
+Remaining tool/MCP work includes automatic MCP server enumeration and parallel scheduling.
