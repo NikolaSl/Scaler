@@ -9,8 +9,10 @@ import {
   formatToolCatalog,
   getToolCatalogEntries,
   loadToolRequests,
+  loadToolResults,
   normalizeToolRiskLevel,
   prepareToolRequest,
+  recordToolResult,
 } from "../src/tool-requests.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -80,6 +82,8 @@ test("buildToolAgentPrompt includes request and excludes unrelated tools", () =>
   });
 
   assert.match(prompt, /isolated SCALER tool agent/);
+  assert.match(prompt, /Tool request id: REQ-001/);
+  assert.match(prompt, /scaler_tool_result/);
   assert.match(prompt, /Requested tool\/MCP: browser/);
   assert.match(prompt, /Allowed tools: browser/);
   assert.match(prompt, /Expected output: Install summary/);
@@ -102,5 +106,58 @@ test("prepareToolRequest rejects missing request without persistence", async () 
     assert.equal(result.accepted, false);
     assert.match(result.message, /request is required/);
     assert.deepEqual(await loadToolRequests(dir), []);
+  });
+});
+
+test("recordToolResult stores structured results and closes the request", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "docs_search",
+      request: "Find widget docs.",
+      taskId: "T-TOOL",
+      allowedTools: ["read"],
+    }, new Date("2026-01-01T00:00:00.000Z"));
+    assert.ok(prepared.record);
+
+    const result = await recordToolResult(dir, state, {
+      requestId: prepared.record.id,
+      status: "completed",
+      summary: "Found widget docs.",
+      outputs: { url: "https://example.invalid/widgets", api: "Widget.create" },
+      evidenceRefs: ["docs:widgets", "docs:widgets", " "],
+      validationPerformed: ["checked version banner"],
+      recommendations: ["Use Widget.create"],
+    }, new Date("2026-01-01T00:00:01.000Z"));
+
+    assert.equal(result.requestId, prepared.record.id);
+    assert.equal(result.toolName, "docs_search");
+    assert.equal(result.taskId, "T-TOOL");
+    assert.equal(result.status, "completed");
+    assert.deepEqual(result.evidenceRefs, ["docs:widgets"]);
+    assert.equal((await loadToolResults(dir))[0]?.id, result.id);
+    const requests = await loadToolRequests(dir);
+    assert.equal(requests[0]?.status, "completed");
+    assert.equal(requests[0]?.updatedAt, "2026-01-01T00:00:01.000Z");
+  });
+});
+
+test("recordToolResult rejects missing request and incomplete status payloads", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await assert.rejects(
+      recordToolResult(dir, state, { requestId: "missing", status: "completed", summary: "Done", outputs: { ok: true } }),
+      /request missing not found/,
+    );
+    const prepared = await prepareToolRequest(dir, state, { toolName: "browser", request: "Open docs." });
+    assert.ok(prepared.record);
+    await assert.rejects(
+      recordToolResult(dir, state, { requestId: prepared.record.id, status: "completed", summary: "Done" }),
+      /completed results require/,
+    );
+    await assert.rejects(
+      recordToolResult(dir, state, { requestId: prepared.record.id, status: "blocked", summary: "Blocked" }),
+      /failed\/blocked results require/,
+    );
   });
 });

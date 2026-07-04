@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { appendLogEvent, createLogEvent } from "./logging.js";
-import { getToolRequestsIndexPath } from "./paths.js";
+import { getToolRequestsIndexPath, getToolResultsPath } from "./paths.js";
 import { buildTaskAgentInvocation, type TaskAgentInvocation } from "./subagents.js";
 import type { ScalerState } from "./types.js";
 
@@ -30,6 +30,9 @@ export interface ToolRequestInput {
   allowedTools?: string[];
 }
 
+export type ToolRequestStatus = "prepared" | "completed" | "failed" | "blocked";
+export type ToolResultStatus = "completed" | "failed" | "blocked";
+
 export interface ToolRequestRecord {
   id: string;
   taskId?: string;
@@ -43,7 +46,34 @@ export interface ToolRequestRecord {
   permissionRequirement?: string;
   safetyNotes?: string;
   allowedTools: string[];
-  status: "prepared";
+  status: ToolRequestStatus;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ToolResultInput {
+  requestId: string;
+  status: ToolResultStatus | string;
+  summary: string;
+  outputs?: unknown;
+  evidenceRefs?: string[];
+  validationPerformed?: string[];
+  errors?: string[];
+  recommendations?: string[];
+}
+
+export interface ToolResultRecord {
+  id: string;
+  requestId: string;
+  taskId?: string;
+  toolName: string;
+  status: ToolResultStatus;
+  summary: string;
+  outputs?: unknown;
+  evidenceRefs?: string[];
+  validationPerformed?: string[];
+  errors?: string[];
+  recommendations?: string[];
   createdAt: string;
 }
 
@@ -60,7 +90,13 @@ interface ToolRequestIndex {
   requests: ToolRequestRecord[];
 }
 
+interface ToolResultIndex {
+  version: 1;
+  results: ToolResultRecord[];
+}
+
 const toolRiskLevels = new Set<ToolRiskLevel>(["low", "medium", "high", "destructive", "external", "secret", "unknown"]);
+const toolResultStatuses = new Set<ToolResultStatus>(["completed", "failed", "blocked"]);
 
 const defaultToolCatalog: ToolCatalogEntry[] = [
   { name: "read", description: "Read a project file or image from the working tree.", riskLevel: "low", docsAvailable: false, schemaAvailable: true },
@@ -111,6 +147,67 @@ export async function loadToolRequests(cwd: string): Promise<ToolRequestRecord[]
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
   }
+}
+
+export async function loadToolResults(cwd: string): Promise<ToolResultRecord[]> {
+  try {
+    const raw = await readFile(getToolResultsPath(cwd), "utf8");
+    return (JSON.parse(raw) as ToolResultIndex).results;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+export async function recordToolResult(cwd: string, state: ScalerState, input: ToolResultInput, now = new Date()): Promise<ToolResultRecord> {
+  const requests = await loadToolRequests(cwd);
+  const request = requests.find((candidate) => candidate.id === input.requestId.trim());
+  if (!request) throw new Error(`Tool result rejected: request ${input.requestId.trim() || "<missing>"} not found.`);
+
+  const status = normalizeToolResultStatus(input.status);
+  const summary = input.summary.trim();
+  if (!summary) throw new Error("Tool result rejected: summary is required.");
+  const evidenceRefs = uniqueNonEmpty(input.evidenceRefs ?? []);
+  const validationPerformed = uniqueNonEmpty(input.validationPerformed ?? []);
+  const errors = uniqueNonEmpty(input.errors ?? []);
+  const recommendations = uniqueNonEmpty(input.recommendations ?? []);
+  if (status === "completed" && input.outputs === undefined && evidenceRefs.length === 0 && validationPerformed.length === 0) {
+    throw new Error("Tool result rejected: completed results require outputs, evidenceRefs, or validationPerformed.");
+  }
+  if ((status === "failed" || status === "blocked") && errors.length === 0 && recommendations.length === 0) {
+    throw new Error("Tool result rejected: failed/blocked results require errors or recommendations.");
+  }
+
+  const record: ToolResultRecord = {
+    id: randomUUID(),
+    requestId: request.id,
+    taskId: request.taskId,
+    toolName: request.toolName,
+    status,
+    summary,
+    outputs: input.outputs,
+    evidenceRefs: evidenceRefs.length > 0 ? evidenceRefs : undefined,
+    validationPerformed: validationPerformed.length > 0 ? validationPerformed : undefined,
+    errors: errors.length > 0 ? errors : undefined,
+    recommendations: recommendations.length > 0 ? recommendations : undefined,
+    createdAt: now.toISOString(),
+  };
+
+  const updatedRequests = requests.map((candidate) => candidate.id === request.id ? { ...candidate, status, updatedAt: record.createdAt } : candidate);
+  const results = await loadToolResults(cwd);
+  await writeToolRequestIndex(cwd, updatedRequests);
+  await writeToolResultIndex(cwd, [record, ...results]);
+  await appendLogEvent(
+    cwd,
+    createLogEvent(state, {
+      eventType: "tool",
+      summary: `Tool result recorded: ${record.toolName} ${record.status}`,
+      taskId: record.taskId,
+      outputRefs: [record.id, record.requestId],
+      details: { record },
+    }),
+  );
+  return record;
 }
 
 export async function prepareToolRequest(
@@ -187,7 +284,9 @@ export function buildToolAgentPrompt(record: ToolRequestRecord): string {
     "Do not assume access to unrelated tools or MCP servers.",
     "If tool usage is uncertain, inspect available schema/help first.",
     "Prefer dry-run/read-only behavior for risky actions when possible.",
-    "Return a concise report with exact tool request, result, validation performed, and any failure.",
+    "Complete the request by calling the structured `scaler_tool_result` tool exactly once with requestId, status, summary, outputs/evidence, validation performed, and any errors.",
+    "Do not rely on free-form prose as the completion signal; SCALER ingests only structured tool results.",
+    `Tool request id: ${record.id}`,
     `Requested tool/MCP: ${record.toolName}`,
     `Allowed tools: ${record.allowedTools.join(", ")}`,
     formatToolCatalog(getToolCatalogEntries(record.allowedTools)),
@@ -221,6 +320,20 @@ async function writeToolRequestIndex(cwd: string, requests: ToolRequestRecord[])
   const path = getToolRequestsIndexPath(cwd);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify({ version: 1, requests } satisfies ToolRequestIndex, null, 2)}\n`, "utf8");
+}
+
+async function writeToolResultIndex(cwd: string, results: ToolResultRecord[]): Promise<void> {
+  const path = getToolResultsPath(cwd);
+  await mkdir(dirname(path), { recursive: true });
+  const sorted = [...results].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  await writeFile(path, `${JSON.stringify({ version: 1, results: sorted } satisfies ToolResultIndex, null, 2)}\n`, "utf8");
+}
+
+function normalizeToolResultStatus(value: unknown): ToolResultStatus {
+  if (typeof value !== "string") throw new Error("Tool result rejected: status is required.");
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (!toolResultStatuses.has(normalized as ToolResultStatus)) throw new Error(`Tool result rejected: invalid status ${value}.`);
+  return normalized as ToolResultStatus;
 }
 
 function uniqueNonEmpty(values: string[]): string[] {
