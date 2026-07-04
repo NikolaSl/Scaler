@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { getBudgetState } from "../../../src/budgets.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { loadState } from "../../../src/state.js";
+import { loadValidationManifests } from "../../../src/validation.js";
 import { REAL_PI_ENABLED, REAL_PI_MODEL, runScalerPi, withRealPiTempRepo } from "./real-pi-harness.js";
 
 test("real Pi extension: slash command dispatch writes SCALER command audit logs", { skip: !REAL_PI_ENABLED }, async () => {
@@ -59,6 +60,32 @@ test("real Pi extension: slash command dispatch persists budget limits", { skip:
         .filter((event) => event.eventType === "command" && isRecord(event.details) && ["scaler-budget-set", "scaler-budget-status"].includes(String(event.details.command)))
         .map((event) => `${(event.details as { command: string; phase: string }).command}:${(event.details as { command: string; phase: string }).phase}`),
       ["scaler-budget-set:start", "scaler-budget-set:end", "scaler-budget-status:start", "scaler-budget-status:end"],
+    );
+  });
+});
+
+test("real Pi extension: slash command dispatch persists typed validation gate metadata", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-validation-add T-REAL-GATE | unit | node -e \"process.exit(0)\" | Unit validation | required | unit | exits 0 | evidence:real",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Validation command saved: T-REAL-GATE\/unit commands=1 gate=unit_tests/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const manifest = (await loadValidationManifests(dir)).find((candidate) => candidate.taskId === "T-REAL-GATE");
+    assert.equal(manifest?.commands[0]?.gate, "unit_tests");
+    assert.equal(manifest?.commands[0]?.expectedResult, "exits 0");
+    assert.deepEqual(manifest?.commands[0]?.evidenceRefs, ["evidence:real"]);
+
+    const events = await readLogEvents(dir);
+    assert.deepEqual(
+      events
+        .filter((event) => event.eventType === "command" && isRecord(event.details) && event.details.command === "scaler-validation-add")
+        .map((event) => (event.details as { phase: string }).phase),
+      ["start", "end"],
     );
   });
 });
