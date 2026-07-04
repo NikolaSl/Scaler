@@ -199,6 +199,18 @@ export interface ParsedDebugRetryArgs {
   execute: boolean;
 }
 
+export interface ParsedDebugRetryPolicyArgs {
+  autoStart?: boolean;
+  requireApproval?: boolean;
+  postExactPass?: string;
+}
+
+export interface ParsedDebugRetryApprovalArgs {
+  debugReportId?: string;
+  taskId?: string;
+  reason?: string;
+}
+
 export interface ParsedDebugLoopArgs {
   taskId?: string;
   execute: boolean;
@@ -551,6 +563,27 @@ export function parseDebugRetryArgs(args: string | undefined): ParsedDebugRetryA
   return {
     taskId: parts.find((part) => part.toLowerCase() !== "execute"),
     execute: parts.some((part) => part.toLowerCase() === "execute"),
+  };
+}
+
+export function parseDebugRetryPolicyArgs(args: string | undefined): ParsedDebugRetryPolicyArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  const postPart = parts.find((part) => /^post-exact-pass=/i.test(part));
+  return {
+    autoStart: parseOnOffOption(parts.find((part) => /^auto-start=/i.test(part))),
+    requireApproval: parseOnOffOption(parts.find((part) => /^require-approval=/i.test(part))),
+    postExactPass: postPart ? postPart.split("=").slice(1).join("=").trim() || undefined : undefined,
+  };
+}
+
+export function parseDebugRetryApprovalArgs(args: string | undefined): ParsedDebugRetryApprovalArgs | undefined {
+  const parts = splitPipeArgs(args);
+  const debugReportId = parts[0]?.trim();
+  if (!debugReportId) return undefined;
+  return {
+    debugReportId,
+    taskId: parts[1]?.trim() || undefined,
+    reason: parts[2]?.trim() || undefined,
   };
 }
 

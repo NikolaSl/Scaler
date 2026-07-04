@@ -94,6 +94,14 @@ export function getDebugRetriesPath(cwd: string): string {
   return join(getDebugDir(cwd), "retries.json");
 }
 
+export function getDebugRetryPolicyPath(cwd: string): string {
+  return join(getDebugDir(cwd), "retry-policy.json");
+}
+
+export function getDebugRetryApprovalsPath(cwd: string): string {
+  return join(getDebugDir(cwd), "retry-approvals.json");
+}
+
 export function getCheckpointsDir(cwd: string): string {
   return join(getScalerDir(cwd), "checkpoints");
 }

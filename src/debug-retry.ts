@@ -1,3 +1,5 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
 import {
   applyTaskRunHandoff,
@@ -15,8 +17,10 @@ import {
 } from "./debug.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { appendLogEvent, createLogEvent, logAgentPromptAudit, logValidationSummaryAudit } from "./logging.js";
+import { commitWithExecutionLock, runValidationWithExecutionLock, type LockedOperationResult } from "./operations.js";
+import { getDebugRetryApprovalsPath, getDebugRetryPolicyPath } from "./paths.js";
 import { recordProviderUsageBudget } from "./provider-usage.js";
-import { saveState } from "./state.js";
+import { loadState, saveState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import { transitionTask } from "./supervisor.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
@@ -28,8 +32,47 @@ import {
   type ValidationCommandRunRecord,
   type ValidationRunRecord,
 } from "./validation.js";
+import type { GitCommitTaskResult } from "./git.js";
 
 export type DebugRetryStatus = "prepared" | "task_agent_failed" | "exact_validation_passed" | "exact_validation_failed" | "rejected";
+export type DebugRetryPostExactPassAction = "stop" | "full_validation" | "full_validation_commit";
+export type DebugRetryApprovalStatus = "active" | "used" | "revoked";
+
+export interface DebugRetryPolicy {
+  version: 1;
+  autoStart: boolean;
+  requireApproval: boolean;
+  postExactPass: DebugRetryPostExactPassAction;
+  updatedAt: string;
+}
+
+export interface DebugRetryPolicyUpdate {
+  autoStart?: boolean;
+  requireApproval?: boolean;
+  postExactPass?: string;
+  now?: Date;
+}
+
+export interface DebugRetryApprovalRecord {
+  version: 1;
+  id: string;
+  taskId?: string;
+  debugReportId: string;
+  reason: string;
+  status: DebugRetryApprovalStatus;
+  createdAt: string;
+  usedAt?: string;
+  usedByRetryId?: string;
+  revokedAt?: string;
+  revokedReason?: string;
+}
+
+export interface DebugRetryApprovalInput {
+  debugReportId: string;
+  taskId?: string;
+  reason?: string;
+  now?: Date;
+}
 
 export interface DebugNextApproachRetryOptions {
   taskId?: string;
@@ -53,11 +96,138 @@ export interface DebugNextApproachRetryResult {
   exactValidationRun?: ValidationRunRecord;
 }
 
+export interface DebugRetryPolicyWorkflowResult extends DebugNextApproachRetryResult {
+  policy: DebugRetryPolicy;
+  approval?: DebugRetryApprovalRecord;
+  postValidation?: LockedOperationResult<ValidationRunRecord>;
+  postCommit?: LockedOperationResult<GitCommitTaskResult>;
+}
+
 export interface DebugRetrySelection {
   task: ScalerTaskState;
   report: NonNullable<Awaited<ReturnType<typeof selectLatestNextApproachReport>>>;
   failedValidationRun: ValidationRunRecord;
   exactCommands: ValidationCommandManifest[];
+}
+
+export async function loadDebugRetryPolicy(cwd: string): Promise<DebugRetryPolicy> {
+  try {
+    return normalizeDebugRetryPolicy(JSON.parse(await readFile(getDebugRetryPolicyPath(cwd), "utf8")) as Partial<DebugRetryPolicy>);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return createDefaultDebugRetryPolicy();
+    throw error;
+  }
+}
+
+export async function saveDebugRetryPolicy(cwd: string, update: DebugRetryPolicyUpdate): Promise<DebugRetryPolicy> {
+  const current = await loadDebugRetryPolicy(cwd);
+  const next: DebugRetryPolicy = {
+    version: 1,
+    autoStart: update.autoStart ?? current.autoStart,
+    requireApproval: update.requireApproval ?? current.requireApproval,
+    postExactPass: normalizePostExactPassAction(update.postExactPass) ?? current.postExactPass,
+    updatedAt: (update.now ?? new Date()).toISOString(),
+  };
+  const path = getDebugRetryPolicyPath(cwd);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  return next;
+}
+
+export function formatDebugRetryPolicy(policy: DebugRetryPolicy): string {
+  return `Debug retry policy: autoStart=${policy.autoStart} requireApproval=${policy.requireApproval} postExactPass=${policy.postExactPass} updatedAt=${policy.updatedAt}`;
+}
+
+export async function loadDebugRetryApprovals(cwd: string): Promise<DebugRetryApprovalRecord[]> {
+  try {
+    const parsed = JSON.parse(await readFile(getDebugRetryApprovalsPath(cwd), "utf8")) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(normalizeDebugRetryApproval).filter((approval): approval is DebugRetryApprovalRecord => Boolean(approval));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+export async function saveDebugRetryApprovals(cwd: string, approvals: DebugRetryApprovalRecord[]): Promise<void> {
+  const path = getDebugRetryApprovalsPath(cwd);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(approvals, null, 2)}\n`, "utf8");
+}
+
+export async function approveDebugRetry(cwd: string, input: DebugRetryApprovalInput): Promise<DebugRetryApprovalRecord> {
+  const debugReportId = input.debugReportId.trim();
+  if (!debugReportId) throw new Error("Debug retry approval rejected: debugReportId is required.");
+  const now = input.now ?? new Date();
+  const approval: DebugRetryApprovalRecord = {
+    version: 1,
+    id: `DEBUG-RETRY-APPROVAL-${now.toISOString().replace(/[^0-9]/g, "")}`,
+    taskId: input.taskId?.trim() || undefined,
+    debugReportId,
+    reason: input.reason?.trim() || "Manual debug retry approval.",
+    status: "active",
+    createdAt: now.toISOString(),
+  };
+  const approvals = await loadDebugRetryApprovals(cwd);
+  await saveDebugRetryApprovals(cwd, [approval, ...approvals]);
+  return approval;
+}
+
+export function formatDebugRetryApprovals(approvals: DebugRetryApprovalRecord[], limit = 10): string {
+  if (approvals.length === 0) return "No debug retry approvals.";
+  const lines = ["Debug retry approvals:"];
+  for (const approval of approvals.slice(0, limit)) {
+    lines.push(`- ${approval.id} status=${approval.status} task=${approval.taskId ?? "*"} report=${approval.debugReportId} retry=${approval.usedByRetryId ?? "n/a"}: ${approval.reason}`);
+  }
+  return lines.join("\n");
+}
+
+export async function runDebugRetryPolicyWorkflow(
+  cwd: string,
+  state: ScalerState,
+  options: DebugNextApproachRetryOptions = {},
+  runner: TaskAgentRunner = runTaskAgent,
+): Promise<DebugRetryPolicyWorkflowResult> {
+  const policy = await loadDebugRetryPolicy(cwd);
+  const selection = await selectDebugRetryWork(cwd, state, options.taskId);
+  if (!selection) {
+    const retry = await runDebugNextApproachRetry(cwd, state, options, runner);
+    return { ...retry, policy };
+  }
+
+  let approval: DebugRetryApprovalRecord | undefined;
+  if (options.execute && policy.requireApproval) {
+    approval = await consumeDebugRetryApproval(cwd, selection);
+    if (!approval) {
+      const message = `Debug retry rejected: approval required for report ${selection.report.id}.`;
+      await appendLogEvent(cwd, createLogEvent(state, { eventType: "debug", summary: message, taskId: selection.task.id }));
+      return { accepted: false, message, status: "rejected", state, task: selection.task, policy };
+    }
+  }
+
+  const retry = await runDebugNextApproachRetry(cwd, state, options, runner);
+  let postValidation: LockedOperationResult<ValidationRunRecord> | undefined;
+  let postCommit: LockedOperationResult<GitCommitTaskResult> | undefined;
+
+  if (approval && retry.retry) {
+    await markDebugRetryApprovalUsed(cwd, approval.id, retry.retry.id);
+    approval = (await loadDebugRetryApprovals(cwd)).find((candidate) => candidate.id === approval?.id) ?? approval;
+  }
+
+  if (retry.accepted && retry.status === "exact_validation_passed" && retry.task && policy.postExactPass !== "stop") {
+    const validationState = await loadState(cwd);
+    postValidation = await runValidationWithExecutionLock(cwd, validationState, retry.task.id);
+    if (policy.postExactPass === "full_validation_commit" && postValidation.accepted && postValidation.result?.status === "passed") {
+      const latestState = await loadState(cwd);
+      const task = latestState.tasks.find((candidate) => candidate.id === retry.task?.id);
+      postCommit = await commitWithExecutionLock(cwd, latestState, retry.task.id, task?.allowedPathPrefixes ?? []);
+    }
+  }
+
+  const messageParts = [retry.message];
+  if (postValidation) messageParts.push(`postValidation=${postValidation.result?.status ?? (postValidation.accepted ? "accepted" : "rejected")}`);
+  if (postCommit) messageParts.push(`postCommit=${postCommit.accepted ? "accepted" : "rejected"}`);
+  return { ...retry, message: messageParts.join(" "), policy, approval, postValidation, postCommit };
 }
 
 export async function runDebugNextApproachRetry(
@@ -324,6 +494,68 @@ export function formatDebugRetrySummary(records: DebugNextApproachRetryRecord[],
     lines.push(`- ${record.id} task=${record.taskId} status=${record.status} report=${record.debugReportId} validation=${record.validationRunId ?? "n/a"}: ${record.message}`);
   }
   return lines.join("\n");
+}
+
+function createDefaultDebugRetryPolicy(): DebugRetryPolicy {
+  return { version: 1, autoStart: false, requireApproval: false, postExactPass: "stop", updatedAt: "" };
+}
+
+function normalizeDebugRetryPolicy(value: Partial<DebugRetryPolicy>): DebugRetryPolicy {
+  return {
+    version: 1,
+    autoStart: value.autoStart === true,
+    requireApproval: value.requireApproval === true,
+    postExactPass: normalizePostExactPassAction(value.postExactPass) ?? "stop",
+    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
+  };
+}
+
+function normalizePostExactPassAction(value: unknown): DebugRetryPostExactPassAction | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (normalized === "stop" || normalized === "none") return "stop";
+  if (normalized === "validate" || normalized === "full_validation" || normalized === "full_validate") return "full_validation";
+  if (normalized === "validate_commit" || normalized === "full_validation_commit" || normalized === "full_validate_commit") return "full_validation_commit";
+  return undefined;
+}
+
+function normalizeDebugRetryApproval(value: unknown): DebugRetryApprovalRecord | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const id = typeof record.id === "string" && record.id.trim() ? record.id.trim() : undefined;
+  const debugReportId = typeof record.debugReportId === "string" && record.debugReportId.trim() ? record.debugReportId.trim() : undefined;
+  const createdAt = typeof record.createdAt === "string" ? record.createdAt : undefined;
+  if (!id || !debugReportId || !createdAt) return undefined;
+  const status = record.status === "used" || record.status === "revoked" ? record.status : "active";
+  return {
+    version: 1,
+    id,
+    taskId: typeof record.taskId === "string" && record.taskId.trim() ? record.taskId.trim() : undefined,
+    debugReportId,
+    reason: typeof record.reason === "string" && record.reason.trim() ? record.reason.trim() : "Manual debug retry approval.",
+    status,
+    createdAt,
+    usedAt: typeof record.usedAt === "string" ? record.usedAt : undefined,
+    usedByRetryId: typeof record.usedByRetryId === "string" ? record.usedByRetryId : undefined,
+    revokedAt: typeof record.revokedAt === "string" ? record.revokedAt : undefined,
+    revokedReason: typeof record.revokedReason === "string" ? record.revokedReason : undefined,
+  };
+}
+
+async function consumeDebugRetryApproval(cwd: string, selection: DebugRetrySelection): Promise<DebugRetryApprovalRecord | undefined> {
+  return (await loadDebugRetryApprovals(cwd)).find((approval) =>
+    approval.status === "active" &&
+    approval.debugReportId === selection.report.id &&
+    (!approval.taskId || approval.taskId === selection.task.id),
+  );
+}
+
+async function markDebugRetryApprovalUsed(cwd: string, approvalId: string, retryId: string): Promise<void> {
+  const approvals = await loadDebugRetryApprovals(cwd);
+  const now = new Date().toISOString();
+  await saveDebugRetryApprovals(cwd, approvals.map((approval) => approval.id === approvalId
+    ? { ...approval, status: "used", usedAt: now, usedByRetryId: retryId }
+    : approval));
 }
 
 async function upsertRetryRecord(cwd: string, record: DebugNextApproachRetryRecord): Promise<DebugNextApproachRetryRecord> {

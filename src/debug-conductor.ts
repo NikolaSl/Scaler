@@ -1,13 +1,15 @@
 import { runDebugAgentStep, type DebugAgentRunner, type DebugAgentStepResult, type RunDebugAgentOptions } from "./debug-agent.js";
+import { loadDebugRetryPolicy, runDebugRetryPolicyWorkflow, type DebugRetryPolicyWorkflowResult } from "./debug-retry.js";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { loadReplanRequests } from "./plans.js";
 import { loadState } from "./state.js";
 import { runReplanAgentStep, type ReplanAgentRunner, type ReplanAgentStepResult, type RunReplanAgentOptions } from "./replan-agent.js";
 import { loadResearchRequests } from "./research.js";
 import { runResearchAgentStep, type ResearchAgentRunner, type ResearchAgentStepResult, type RunResearchAgentOptions } from "./research-agent.js";
+import type { TaskAgentRunner } from "./conductor.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
 
-export type DebugConductorAction = "run_debug_agent" | "run_research_agent" | "run_replan_agent" | "no_debug_task" | "no_action";
+export type DebugConductorAction = "run_debug_agent" | "run_research_agent" | "run_replan_agent" | "run_debug_retry" | "no_debug_task" | "no_action";
 export type DebugConductorLoopStopReason =
   | "max_steps"
   | "no_debug_task"
@@ -18,6 +20,10 @@ export type DebugConductorLoopStopReason =
   | "step_rejected"
   | "ingestion_rejected"
   | "next_approach"
+  | "retry_prepared"
+  | "retry_exact_validation_passed"
+  | "retry_exact_validation_failed"
+  | "retry_rejected"
   | "research_requested"
   | "research_resolved"
   | "replan_requested"
@@ -45,6 +51,7 @@ export interface DebugConductorRunners {
   debug?: DebugAgentRunner;
   research?: ResearchAgentRunner;
   replan?: ReplanAgentRunner;
+  retry?: TaskAgentRunner;
 }
 
 export interface DebugConductorStepResult {
@@ -56,6 +63,7 @@ export interface DebugConductorStepResult {
   debugAgent?: DebugAgentStepResult;
   researchAgent?: ResearchAgentStepResult;
   replanAgent?: ReplanAgentStepResult;
+  debugRetry?: DebugRetryPolicyWorkflowResult;
   researchRequestId?: string;
   replanRequestIds?: string[];
 }
@@ -212,6 +220,34 @@ export async function runDebugConductorLoop(
     currentState = step.state;
     stopReason = classifyLoopStopReason(step, Boolean(options.execute));
 
+    if (stopReason === "next_approach") {
+      const policy = await loadDebugRetryPolicy(cwd);
+      if (policy.autoStart && step.task) {
+        const retry = await runDebugRetryPolicyWorkflow(
+          cwd,
+          currentState,
+          {
+            taskId: step.task.id,
+            execute: options.execute,
+            timeoutMs: options.timeoutMs,
+            tools: options.tools,
+            model: options.model,
+          },
+          runners.retry,
+        );
+        currentState = await loadState(cwd);
+        const retryStep: DebugConductorStepResult = {
+          accepted: retry.accepted,
+          action: "run_debug_retry",
+          message: `Debug conductor run_debug_retry: ${retry.message}`,
+          task: step.task,
+          state: currentState,
+          debugRetry: retry,
+        };
+        steps.push(retryStep);
+        stopReason = classifyLoopStopReason(retryStep, Boolean(options.execute));
+      }
+    }
     if (stopReason === "research_requested" || stopReason === "research_resolved") continue;
     if (stopReason === "replan_requested") continue;
     if (stopReason === "max_steps") continue;
@@ -231,7 +267,7 @@ export async function runDebugConductorLoop(
   }));
   return {
     accepted: steps.length > 0 && steps.every((step) => step.accepted),
-    completed: stopReason === "next_approach" || stopReason === "proposed_replan" || stopReason === "no_action",
+    completed: stopReason === "next_approach" || stopReason === "retry_prepared" || stopReason === "retry_exact_validation_passed" || stopReason === "proposed_replan" || stopReason === "no_action",
     stopReason,
     steps,
     finalState: currentState,
@@ -278,6 +314,14 @@ function classifyLoopStopReason(step: DebugConductorStepResult, executed: boolea
     return "no_action";
   }
 
+  if (step.action === "run_debug_retry") {
+    if (!step.accepted) return "retry_rejected";
+    if (!executed) return "retry_prepared";
+    if (step.debugRetry?.status === "exact_validation_passed") return "retry_exact_validation_passed";
+    if (step.debugRetry?.status === "exact_validation_failed" || step.debugRetry?.status === "task_agent_failed") return "retry_exact_validation_failed";
+    return "retry_rejected";
+  }
+
   return "no_action";
 }
 
@@ -321,5 +365,7 @@ function summarizeStepForLog(step: DebugConductorStepResult): Record<string, unk
     debugReportStatus: step.debugAgent?.ingestion?.report?.status,
     researchReportId: step.researchAgent?.ingestion?.report?.id,
     proposedPlanVersion: step.replanAgent?.ingestion?.plan?.planVersion,
+    debugRetryStatus: step.debugRetry?.status,
+    debugRetryId: step.debugRetry?.retry?.id,
   };
 }

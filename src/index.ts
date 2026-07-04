@@ -7,7 +7,9 @@ import {
   parseContextTaskArgs,
   parseDebugLoopArgs,
   parseDebugRunArgs,
+  parseDebugRetryApprovalArgs,
   parseDebugRetryArgs,
+  parseDebugRetryPolicyArgs,
   parsePrdLinkArgs,
   parseReplanRequestArgs,
   parseReplanRunArgs,
@@ -41,7 +43,7 @@ import { formatTaskAgentRunList, loadTaskAgentRunRecords, runConductorStep } fro
 import { loadDebugAttempts, loadDebugFailures, loadDebugReports, loadDebugRetries, formatDebugReportSummary } from "./debug.js";
 import { formatDebugAgentRunList, loadDebugAgentRunRecords, runDebugAgentStep } from "./debug-agent.js";
 import { runDebugConductorLoop } from "./debug-conductor.js";
-import { formatDebugRetrySummary, runDebugNextApproachRetry } from "./debug-retry.js";
+import { approveDebugRetry, formatDebugRetryApprovals, formatDebugRetryPolicy, formatDebugRetrySummary, loadDebugRetryApprovals, loadDebugRetryPolicy, runDebugRetryPolicyWorkflow, saveDebugRetryPolicy } from "./debug-retry.js";
 import { clearExecutionLock, formatExecutionLock, loadExecutionLock } from "./locks.js";
 import { createLogEvent, appendLogEvent, logCommandAudit, logStateEvent, logToolAudit } from "./logging.js";
 import { loadMemoryIndex } from "./memory.js";
@@ -601,10 +603,61 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       const parsed = parseDebugRetryArgs(args);
       const state = await ensureState(ctx.cwd);
-      const result = await runDebugNextApproachRetry(ctx.cwd, state, { taskId: parsed.taskId, execute: parsed.execute });
-      const suffix = result.retry ? ` retry=${result.retry.id} status=${result.retry.status}${result.exactValidationRun ? ` exact_validation=${result.exactValidationRun.status}` : ""}` : "";
+      const result = await runDebugRetryPolicyWorkflow(ctx.cwd, state, { taskId: parsed.taskId, execute: parsed.execute });
+      const suffix = result.retry ? ` retry=${result.retry.id} status=${result.retry.status}${result.exactValidationRun ? ` exact_validation=${result.exactValidationRun.status}` : ""}${result.postValidation ? ` post_validation=${result.postValidation.result?.status ?? "not_run"}` : ""}${result.postCommit ? ` post_commit=${result.postCommit.accepted ? "accepted" : "rejected"}` : ""}` : "";
       const message = `${result.message}${suffix}`;
       if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-debug-retry-policy", {
+    description: "Show or update debug retry automation policy: /scaler-debug-retry-policy [auto-start=on/off] [require-approval=on/off] [post-exact-pass=stop|validate|validate-commit]",
+    handler: async (args, ctx) => {
+      const parsed = parseDebugRetryPolicyArgs(args);
+      const hasUpdate = parsed.autoStart !== undefined || parsed.requireApproval !== undefined || parsed.postExactPass !== undefined;
+      const policy = hasUpdate
+        ? await saveDebugRetryPolicy(ctx.cwd, { autoStart: parsed.autoStart, requireApproval: parsed.requireApproval, postExactPass: parsed.postExactPass })
+        : await loadDebugRetryPolicy(ctx.cwd);
+      const state = await ensureState(ctx.cwd);
+      await logStateEvent(ctx.cwd, state, "Scaler debug retry policy requested", {
+        command: "scaler-debug-retry-policy",
+        updated: hasUpdate,
+        policy,
+      });
+      const message = formatDebugRetryPolicy(policy);
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-debug-retry-approve", {
+    description: "Approve one debug retry report: /scaler-debug-retry-approve <debugReportId> | [taskId] | [reason]",
+    handler: async (args, ctx) => {
+      const parsed = parseDebugRetryApprovalArgs(args);
+      if (!parsed) {
+        const message = "Usage: /scaler-debug-retry-approve <debugReportId> | [taskId] | [reason]";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+      const approval = await approveDebugRetry(ctx.cwd, { debugReportId: parsed.debugReportId!, taskId: parsed.taskId, reason: parsed.reason });
+      const state = await ensureState(ctx.cwd);
+      await logStateEvent(ctx.cwd, state, "Scaler debug retry approved", {
+        command: "scaler-debug-retry-approve",
+        approval,
+      });
+      const message = `Debug retry approval created: ${approval.id} report=${approval.debugReportId} task=${approval.taskId ?? "*"}`;
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-debug-retry-approvals", {
+    description: "List debug retry approvals.",
+    handler: async (_args, ctx) => {
+      const message = formatDebugRetryApprovals(await loadDebugRetryApprovals(ctx.cwd));
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
     },
   });
