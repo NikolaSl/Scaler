@@ -1,6 +1,18 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
-import { assessToolCallSafety, shouldBlockWithoutApproval } from "../src/safety.js";
+import { assessToolCallSafety, formatSafetyPolicy, loadSafetyPolicy, mergeSafetyPolicy, saveSafetyPolicy, shouldBlockWithoutApproval } from "../src/safety.js";
+
+async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), "scaler-safety-test-"));
+  try {
+    return await fn(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
 
 test("allows low-risk read tool call", () => {
   const decision = assessToolCallSafety({ toolName: "read", input: { path: "src/index.ts" } });
@@ -126,4 +138,24 @@ test("allows ordinary test command", () => {
   const decision = assessToolCallSafety({ toolName: "bash", input: { command: "npm test" } });
 
   assert.equal(decision.allowed, true);
+});
+
+test("persisted safety policy round trips and merges with task policy", async () => {
+  await withTempDir(async (dir) => {
+    assert.equal((await loadSafetyPolicy(dir)).allowInternet, false);
+
+    const saved = await saveSafetyPolicy(dir, {
+      allowInternet: true,
+      allowExternalMutations: true,
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    assert.deepEqual(await loadSafetyPolicy(dir), saved);
+    assert.deepEqual(mergeSafetyPolicy(saved, { allowedPathPrefixes: ["src"] }), {
+      allowedPathPrefixes: ["src"],
+      allowInternet: true,
+      allowExternalMutations: true,
+    });
+    assert.match(formatSafetyPolicy(saved), /allowInternet=true allowExternalMutations=true/);
+  });
 });

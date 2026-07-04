@@ -14,6 +14,7 @@ import {
   parseResearchReportArgs,
   parseResearchRequestArgs,
   parseResearchRunArgs,
+  parseSafetyPolicyArgs,
   parseStageLoopArgs,
   parseStageRecordArgs,
   parseStageRunArgs,
@@ -60,7 +61,7 @@ import { requestReplan } from "./replanning.js";
 import { formatReplanAgentRunList, loadReplanAgentRunRecords, runReplanAgentStep } from "./replan-agent.js";
 import { formatResearchAgentRunList, loadResearchAgentRunRecords, runResearchAgentStep } from "./research-agent.js";
 import { formatResearchSummary, loadResearchReports, loadResearchRequests, recordResearchReport, upsertResearchRequest } from "./research.js";
-import { assessToolCallSafety } from "./safety.js";
+import { assessToolCallSafety, formatSafetyPolicy, loadSafetyPolicy, mergeSafetyPolicy, saveSafetyPolicy } from "./safety.js";
 import { createTask, formatTaskList, retryTask, updateTask } from "./tasks.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
 import { advanceStageAfterReadyArtifact } from "./stage-advancement.js";
@@ -113,12 +114,13 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       input: event.input,
     });
     const currentTask = state.currentTaskId ? state.tasks.find((task) => task.id === state.currentTaskId) : undefined;
+    const persistedSafetyPolicy = await loadSafetyPolicy(ctx.cwd);
     const decision = assessToolCallSafety(
       {
         toolName: event.toolName,
         input: event.input as Record<string, unknown>,
       },
-      { allowedPathPrefixes: currentTask?.allowedPathPrefixes },
+      mergeSafetyPolicy(persistedSafetyPolicy, { allowedPathPrefixes: currentTask?.allowedPathPrefixes }),
     );
 
     if (decision.allowed) return undefined;
@@ -1055,6 +1057,24 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       });
       const message = `${formatStorageMaintenanceReport(report)}\nBudget: ${budgetResult.decision.status} ${budgetResult.decision.reason}`;
       if (ctx.hasUI) ctx.ui.notify(message, report.summary.failed > 0 || budgetResult.decision.status === "hard_limit" ? "warning" : "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-safety-policy", {
+    description: "Show or update persisted SCALER safety policy: /scaler-safety-policy [allow-internet=on/off] [allow-external=on/off]",
+    handler: async (args, ctx) => {
+      const parsed = parseSafetyPolicyArgs(args);
+      const hasUpdate = parsed.allowInternet !== undefined || parsed.allowExternalMutations !== undefined;
+      const policy = hasUpdate ? await saveSafetyPolicy(ctx.cwd, parsed) : await loadSafetyPolicy(ctx.cwd);
+      const state = await ensureState(ctx.cwd);
+      await logStateEvent(ctx.cwd, state, "Scaler safety policy requested", {
+        command: "scaler-safety-policy",
+        updated: hasUpdate,
+        policy,
+      });
+      const message = formatSafetyPolicy(policy);
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
     },
   });

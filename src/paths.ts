@@ -34,6 +34,14 @@ export function getStorageMaintenancePath(cwd: string): string {
   return join(getStorageDir(cwd), "maintenance.json");
 }
 
+export function getSafetyDir(cwd: string): string {
+  return join(getScalerDir(cwd), "safety");
+}
+
+export function getSafetyPolicyPath(cwd: string): string {
+  return join(getSafetyDir(cwd), "policy.json");
+}
+
 export function getMemoryDir(cwd: string): string {
   return join(getScalerDir(cwd), "memory");
 }

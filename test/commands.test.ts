@@ -14,6 +14,7 @@ import {
   parseResearchReportArgs,
   parseResearchRequestArgs,
   parseResearchRunArgs,
+  parseSafetyPolicyArgs,
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
@@ -127,6 +128,12 @@ test("parseStorageMaintainArgs parses execute, compression, cache, rotation, and
   assert.deepEqual(parseStorageMaintainArgs("execute compress delete-cache rotate-active delete-archives min-age-days=3 min-size=128 max-active-bytes=256 min-free-bytes=512 max-archive-bytes=1024 max-archive-age-days=30"), { execute: true, compress: true, deleteCache: true, minAgeDays: 3, minSizeBytes: 128, rotateActive: true, maxActiveBytes: 256, minFreeBytes: 512, deleteArchives: true, maxArchiveBytes: 1024, maxArchiveAgeDays: 30 });
   assert.deepEqual(parseStorageMaintainArgs("no-compress min-size=bad max-active-bytes=bad min-free-bytes=bad max-archive-bytes=bad max-archive-age-days=bad"), { execute: false, compress: false, deleteCache: false, minAgeDays: undefined, minSizeBytes: undefined, rotateActive: false, maxActiveBytes: undefined, minFreeBytes: undefined, deleteArchives: false, maxArchiveBytes: undefined, maxArchiveAgeDays: undefined });
   assert.deepEqual(parseStorageMaintainArgs(" "), { execute: false, compress: true, deleteCache: false, minAgeDays: undefined, minSizeBytes: undefined, rotateActive: false, maxActiveBytes: undefined, minFreeBytes: undefined, deleteArchives: false, maxArchiveBytes: undefined, maxArchiveAgeDays: undefined });
+});
+
+test("parseSafetyPolicyArgs parses explicit allow toggles", () => {
+  assert.deepEqual(parseSafetyPolicyArgs("allow-internet=on allow-external=off"), { allowInternet: true, allowExternalMutations: false });
+  assert.deepEqual(parseSafetyPolicyArgs("allow-internet=deny allow-external=allowed"), { allowInternet: false, allowExternalMutations: true });
+  assert.deepEqual(parseSafetyPolicyArgs(" "), { allowInternet: undefined, allowExternalMutations: undefined });
 });
 
 test("parseTaskCreateArgs returns undefined without task id", () => {

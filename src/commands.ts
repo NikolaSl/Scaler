@@ -79,6 +79,11 @@ export interface ParsedStorageMaintainArgs {
   maxArchiveAgeDays?: number;
 }
 
+export interface ParsedSafetyPolicyArgs {
+  allowInternet?: boolean;
+  allowExternalMutations?: boolean;
+}
+
 export interface ParsedPrdLinkArgs {
   taskId: string;
   prdRefs: string[];
@@ -314,6 +319,14 @@ export function parseStorageMaintainArgs(args: string | undefined): ParsedStorag
   };
 }
 
+export function parseSafetyPolicyArgs(args: string | undefined): ParsedSafetyPolicyArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  return {
+    allowInternet: parseOnOffOption(parts.find((part) => /^allow-internet=/i.test(part))),
+    allowExternalMutations: parseOnOffOption(parts.find((part) => /^allow-external=/i.test(part))),
+  };
+}
+
 export function parsePrdLinkArgs(args: string | undefined): ParsedPrdLinkArgs | undefined {
   const parts = splitPipeArgs(args);
   const taskId = parts[0]?.trim();
@@ -540,6 +553,14 @@ function parseValidationDispositionArg(value: string | undefined): { disposition
     disposition: disposition?.trim() || undefined,
     reason: reason || undefined,
   };
+}
+
+function parseOnOffOption(value: string | undefined): boolean | undefined {
+  const raw = value?.slice(value.indexOf("=") + 1).trim().toLowerCase();
+  if (!raw) return undefined;
+  if (["on", "true", "yes", "1", "allow", "allowed"].includes(raw)) return true;
+  if (["off", "false", "no", "0", "deny", "denied"].includes(raw)) return false;
+  return undefined;
 }
 
 function parseOptionalBoolean(value: string | undefined): boolean | undefined {

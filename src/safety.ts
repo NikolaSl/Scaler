@@ -1,3 +1,7 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import { getSafetyPolicyPath } from "./paths.js";
+
 export type SafetyRiskLevel = "low" | "medium" | "high" | "destructive" | "external" | "secret";
 
 export interface SafetyDecision {
@@ -16,6 +20,67 @@ export interface SafetyPolicy {
   allowedPathPrefixes?: string[];
   allowInternet?: boolean;
   allowExternalMutations?: boolean;
+}
+
+export interface PersistedSafetyPolicy {
+  version: 1;
+  allowInternet: boolean;
+  allowExternalMutations: boolean;
+  updatedAt: string;
+}
+
+export interface SafetyPolicyUpdate {
+  allowInternet?: boolean;
+  allowExternalMutations?: boolean;
+  now?: Date;
+}
+
+export async function loadSafetyPolicy(cwd: string): Promise<PersistedSafetyPolicy> {
+  try {
+    return normalizePersistedSafetyPolicy(JSON.parse(await readFile(getSafetyPolicyPath(cwd), "utf8")) as Partial<PersistedSafetyPolicy>);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return createDefaultSafetyPolicy();
+    throw error;
+  }
+}
+
+export async function saveSafetyPolicy(cwd: string, update: SafetyPolicyUpdate): Promise<PersistedSafetyPolicy> {
+  const current = await loadSafetyPolicy(cwd);
+  const next: PersistedSafetyPolicy = {
+    version: 1,
+    allowInternet: update.allowInternet ?? current.allowInternet,
+    allowExternalMutations: update.allowExternalMutations ?? current.allowExternalMutations,
+    updatedAt: (update.now ?? new Date()).toISOString(),
+  };
+  const path = getSafetyPolicyPath(cwd);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  return next;
+}
+
+export function mergeSafetyPolicy(persisted: PersistedSafetyPolicy, policy: SafetyPolicy = {}): SafetyPolicy {
+  return {
+    allowedPathPrefixes: policy.allowedPathPrefixes,
+    allowInternet: policy.allowInternet ?? persisted.allowInternet,
+    allowExternalMutations: policy.allowExternalMutations ?? persisted.allowExternalMutations,
+  };
+}
+
+export function formatSafetyPolicy(policy: PersistedSafetyPolicy): string {
+  return `Safety policy: allowInternet=${policy.allowInternet} allowExternalMutations=${policy.allowExternalMutations} updatedAt=${policy.updatedAt}`;
+}
+
+function createDefaultSafetyPolicy(): PersistedSafetyPolicy {
+  return { version: 1, allowInternet: false, allowExternalMutations: false, updatedAt: "" };
+}
+
+function normalizePersistedSafetyPolicy(value: Partial<PersistedSafetyPolicy>): PersistedSafetyPolicy {
+  return {
+    version: 1,
+    allowInternet: value.allowInternet === true,
+    allowExternalMutations: value.allowExternalMutations === true,
+    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
+  };
 }
 
 const protectedPathPatterns = [
