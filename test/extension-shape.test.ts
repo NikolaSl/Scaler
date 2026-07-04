@@ -7,6 +7,7 @@ import { getBudgetState } from "../src/budgets.js";
 import scalerExtension from "../src/index.js";
 import { readLogEvents } from "../src/logging.js";
 import { loadState } from "../src/state.js";
+import { loadStorageInventory } from "../src/storage.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-extension-test-"));
@@ -78,10 +79,34 @@ test("extension registers scaler commands", () => {
     "scaler-validate",
     "scaler-pause",
     "scaler-resume",
+    "scaler-storage-status",
     "scaler-budget-status",
     "scaler-budget-set",
     "scaler-status",
   ]);
+});
+
+test("storage-status command persists inventory and storage budget usage", async () => {
+  await withTempDir(async (dir) => {
+    const commands = new Map<string, { handler: (args: string | undefined, ctx: { cwd: string; hasUI: boolean }) => Promise<void> }>();
+    const fakePi = {
+      on() {},
+      registerTool() {},
+      registerCommand(name: string, command: { handler: (args: string | undefined, ctx: { cwd: string; hasUI: boolean }) => Promise<void> }) {
+        commands.set(name, command);
+      },
+    };
+
+    scalerExtension(fakePi as never);
+    await commands.get("scaler-storage-status")?.handler(undefined, { cwd: dir, hasUI: false });
+
+    const inventory = await loadStorageInventory(dir);
+    const state = await loadState(dir);
+    assert.ok(inventory, "expected storage inventory index");
+    assert.equal(getBudgetState(state).usage.storageBytes, inventory.totalBytes);
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Scaler storage status requested"));
+  });
 });
 
 test("budget-set command persists configured limits", async () => {

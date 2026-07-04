@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { startScalerRun } from "./adaptive.js";
-import { formatBudgetStatus, getBudgetState, isBudgetUsageKey, setBudgetLimits } from "./budgets.js";
+import { formatBudgetStatus, getBudgetState, isBudgetUsageKey, persistBudgetDecision, setBudgetLimits, setBudgetUsage } from "./budgets.js";
 import {
   parseBudgetSetArgs,
   parseCommitArgs,
@@ -66,6 +66,7 @@ import {
   upsertStageArtifact,
   validateStageArtifactReadiness,
 } from "./stages.js";
+import { formatStorageInventory, saveStorageInventory, scanScalerStorageInventory } from "./storage.js";
 import { registerScalerTools } from "./tools.js";
 import { upsertValidationManifestCommand } from "./validation.js";
 import { runValidationDebugLoopWorkflow, selectTaskForValidationDebugLoop } from "./validation-debug-loop.js";
@@ -876,6 +877,24 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       } else {
         console.log(result.message);
       }
+    },
+  });
+
+  pi.registerCommand("scaler-storage-status", {
+    description: "Scan .scaler/ storage, persist an inventory index, update storage budget usage, and show largest files.",
+    handler: async (_args, ctx) => {
+      const state = await ensureState(ctx.cwd);
+      const inventory = await saveStorageInventory(ctx.cwd, await scanScalerStorageInventory(ctx.cwd));
+      const budgetResult = setBudgetUsage(state, "storageBytes", inventory.totalBytes);
+      const persisted = await persistBudgetDecision(ctx.cwd, budgetResult.state, budgetResult.decision);
+      await logStateEvent(ctx.cwd, persisted, "Scaler storage status requested", {
+        command: "scaler-storage-status",
+        inventory,
+        budgetDecision: budgetResult.decision,
+      });
+      const message = `${formatStorageInventory(inventory)}\nBudget: ${budgetResult.decision.status} ${budgetResult.decision.reason}`;
+      if (ctx.hasUI) ctx.ui.notify(message, budgetResult.decision.status === "hard_limit" ? "warning" : "info");
+      else console.log(message);
     },
   });
 
