@@ -264,6 +264,48 @@ test("runStorageMaintenance deletes approved archive retention targets only", as
   });
 });
 
+test("runStorageMaintenance deletes approved raw log and memory retention targets only", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, ".scaler", "logs", "details"), { recursive: true });
+    await mkdir(join(dir, ".scaler", "memory"), { recursive: true });
+    const oldLog = join(dir, ".scaler", "logs", "details", "old.json");
+    const newLog = join(dir, ".scaler", "logs", "details", "new.json");
+    const oldMemory = join(dir, ".scaler", "memory", "old.md");
+    const newMemory = join(dir, ".scaler", "memory", "new.md");
+    await writeFile(oldLog, "o".repeat(5), "utf8");
+    await writeFile(newLog, "n".repeat(5), "utf8");
+    await writeFile(oldMemory, "m".repeat(5), "utf8");
+    await writeFile(newMemory, "M".repeat(5), "utf8");
+    await writeFile(join(dir, ".scaler", "memory", "index.json"), JSON.stringify({ version: 1, entries: [{ id: "old", path: ".scaler/memory/old.md" }, { id: "new", path: ".scaler/memory/new.md" }] }), "utf8");
+    await utimes(oldLog, new Date("2025-12-01T00:00:00.000Z"), new Date("2025-12-01T00:00:00.000Z"));
+    await utimes(newLog, new Date("2025-12-31T00:00:00.000Z"), new Date("2025-12-31T00:00:00.000Z"));
+    await utimes(oldMemory, new Date("2025-12-01T00:00:00.000Z"), new Date("2025-12-01T00:00:00.000Z"));
+    await utimes(newMemory, new Date("2025-12-31T00:00:00.000Z"), new Date("2025-12-31T00:00:00.000Z"));
+
+    const unapproved = await planStorageMaintenance(dir, { maxRawLogBytes: 6, maxMemoryBytes: 6, compress: false, now: new Date("2026-01-01T00:00:00.000Z") });
+    assert.equal(unapproved.actions.some((action) => action.type === "delete_raw_log" || action.type === "delete_memory"), false);
+
+    const executed = await runStorageMaintenance(dir, {
+      execute: true,
+      compress: false,
+      deleteRawLogs: true,
+      maxRawLogBytes: 6,
+      deleteMemory: true,
+      maxMemoryBytes: 6,
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    assert.ok(executed.actions.some((action) => action.type === "delete_raw_log" && action.path === ".scaler/logs/details/old.json" && action.status === "completed"));
+    assert.ok(executed.actions.some((action) => action.type === "delete_memory" && action.path === ".scaler/memory/old.md" && action.status === "completed"));
+    await assert.rejects(access(oldLog));
+    await assert.rejects(access(oldMemory));
+    assert.equal(await readFile(newLog, "utf8"), "n".repeat(5));
+    assert.equal(await readFile(newMemory, "utf8"), "M".repeat(5));
+    const memoryIndex = JSON.parse(await readFile(join(dir, ".scaler", "memory", "index.json"), "utf8")) as { entries: Array<{ id: string }> };
+    assert.deepEqual(memoryIndex.entries.map((entry) => entry.id), ["new"]);
+  });
+});
+
 test("runStorageMaintenance compresses eligible files and deletes cache only when executed", async () => {
   await withTempDir(async (dir) => {
     await mkdir(join(dir, ".scaler", "logs", "details"), { recursive: true });

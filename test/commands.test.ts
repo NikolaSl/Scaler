@@ -126,13 +126,13 @@ test("parseValidateLoopArgs parses optional task, execute flag, and max option",
 });
 
 test("parseStorageMaintainArgs parses execute, compression, cache, rotation, and thresholds", () => {
-  assert.deepEqual(parseStorageMaintainArgs("execute compress delete-cache rotate-active delete-archives min-age-days=3 min-size=128 max-active-bytes=256 min-free-bytes=512 max-archive-bytes=1024 max-archive-age-days=30"), { execute: true, compress: true, deleteCache: true, minAgeDays: 3, minSizeBytes: 128, rotateActive: true, maxActiveBytes: 256, minFreeBytes: 512, deleteArchives: true, maxArchiveBytes: 1024, maxArchiveAgeDays: 30 });
-  assert.deepEqual(parseStorageMaintainArgs("no-compress min-size=bad max-active-bytes=bad min-free-bytes=bad max-archive-bytes=bad max-archive-age-days=bad"), { execute: false, compress: false, deleteCache: false, minAgeDays: undefined, minSizeBytes: undefined, rotateActive: false, maxActiveBytes: undefined, minFreeBytes: undefined, deleteArchives: false, maxArchiveBytes: undefined, maxArchiveAgeDays: undefined });
-  assert.deepEqual(parseStorageMaintainArgs(" "), { execute: false, compress: true, deleteCache: false, minAgeDays: undefined, minSizeBytes: undefined, rotateActive: false, maxActiveBytes: undefined, minFreeBytes: undefined, deleteArchives: false, maxArchiveBytes: undefined, maxArchiveAgeDays: undefined });
+  assert.deepEqual(parseStorageMaintainArgs("execute compress delete-cache rotate-active delete-archives delete-raw-logs delete-memory min-age-days=3 min-size=128 max-active-bytes=256 min-free-bytes=512 max-archive-bytes=1024 max-archive-age-days=30 max-raw-log-bytes=2048 max-raw-log-age-days=31 max-memory-bytes=4096 max-memory-age-days=32"), { execute: true, compress: true, deleteCache: true, minAgeDays: 3, minSizeBytes: 128, rotateActive: true, maxActiveBytes: 256, minFreeBytes: 512, deleteArchives: true, maxArchiveBytes: 1024, maxArchiveAgeDays: 30, deleteRawLogs: true, maxRawLogBytes: 2048, maxRawLogAgeDays: 31, deleteMemory: true, maxMemoryBytes: 4096, maxMemoryAgeDays: 32 });
+  assert.deepEqual(parseStorageMaintainArgs("no-compress min-size=bad max-active-bytes=bad min-free-bytes=bad max-archive-bytes=bad max-archive-age-days=bad max-raw-log-bytes=bad max-raw-log-age-days=bad max-memory-bytes=bad max-memory-age-days=bad"), { execute: false, compress: false, deleteCache: false, minAgeDays: undefined, minSizeBytes: undefined, rotateActive: false, maxActiveBytes: undefined, minFreeBytes: undefined, deleteArchives: false, maxArchiveBytes: undefined, maxArchiveAgeDays: undefined, deleteRawLogs: false, maxRawLogBytes: undefined, maxRawLogAgeDays: undefined, deleteMemory: false, maxMemoryBytes: undefined, maxMemoryAgeDays: undefined });
+  assert.deepEqual(parseStorageMaintainArgs(" "), { execute: false, compress: true, deleteCache: false, minAgeDays: undefined, minSizeBytes: undefined, rotateActive: false, maxActiveBytes: undefined, minFreeBytes: undefined, deleteArchives: false, maxArchiveBytes: undefined, maxArchiveAgeDays: undefined, deleteRawLogs: false, maxRawLogBytes: undefined, maxRawLogAgeDays: undefined, deleteMemory: false, maxMemoryBytes: undefined, maxMemoryAgeDays: undefined });
 });
 
 test("parseStorageScheduleArgs parses schedule toggles and policy", () => {
-  assert.deepEqual(parseStorageScheduleArgs("enable run force execute=on interval-hours=12 compress=off delete-cache=on rotate-active=on delete-archives=off min-age-days=3 min-size=128 max-active-bytes=256 min-free-bytes=512 max-archive-bytes=1024 max-archive-age-days=30"), {
+  assert.deepEqual(parseStorageScheduleArgs("enable run force execute=on interval-hours=12 compress=off delete-cache=on rotate-active=on delete-archives=off delete-raw-logs=on delete-memory=off min-age-days=3 min-size=128 max-active-bytes=256 min-free-bytes=512 max-archive-bytes=1024 max-archive-age-days=30 max-raw-log-bytes=2048 max-raw-log-age-days=31 max-memory-bytes=4096 max-memory-age-days=32"), {
     enabled: true,
     run: true,
     force: true,
@@ -148,6 +148,12 @@ test("parseStorageScheduleArgs parses schedule toggles and policy", () => {
     deleteArchives: false,
     maxArchiveBytes: 1024,
     maxArchiveAgeDays: 30,
+    deleteRawLogs: true,
+    maxRawLogBytes: 2048,
+    maxRawLogAgeDays: 31,
+    deleteMemory: false,
+    maxMemoryBytes: 4096,
+    maxMemoryAgeDays: 32,
   });
   assert.deepEqual(parseStorageScheduleArgs("disable execute=off rotate-active=off interval-hours=bad"), {
     enabled: false,
@@ -165,6 +171,12 @@ test("parseStorageScheduleArgs parses schedule toggles and policy", () => {
     deleteArchives: undefined,
     maxArchiveBytes: undefined,
     maxArchiveAgeDays: undefined,
+    deleteRawLogs: undefined,
+    maxRawLogBytes: undefined,
+    maxRawLogAgeDays: undefined,
+    deleteMemory: undefined,
+    maxMemoryBytes: undefined,
+    maxMemoryAgeDays: undefined,
   });
 });
 

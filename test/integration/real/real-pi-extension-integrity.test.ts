@@ -213,6 +213,44 @@ test("real Pi extension: slash command dispatch runs scheduled storage maintenan
   });
 });
 
+test("real Pi extension: slash command dispatch deletes approved raw storage retention targets", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    await mkdir(join(dir, ".scaler", "logs", "details"), { recursive: true });
+    await mkdir(join(dir, ".scaler", "memory"), { recursive: true });
+    const oldLog = join(dir, ".scaler", "logs", "details", "old.json");
+    const newLog = join(dir, ".scaler", "logs", "details", "new.json");
+    const oldMemory = join(dir, ".scaler", "memory", "old.md");
+    const newMemory = join(dir, ".scaler", "memory", "new.md");
+    await writeFile(oldLog, "o".repeat(5), "utf8");
+    await writeFile(newLog, "n".repeat(5), "utf8");
+    await writeFile(oldMemory, "m".repeat(5), "utf8");
+    await writeFile(newMemory, "M".repeat(5), "utf8");
+    await writeFile(join(dir, ".scaler", "memory", "index.json"), JSON.stringify({ version: 1, entries: [{ id: "old", path: ".scaler/memory/old.md" }, { id: "new", path: ".scaler/memory/new.md" }] }), "utf8");
+    await utimes(oldLog, new Date("2025-12-01T00:00:00.000Z"), new Date("2025-12-01T00:00:00.000Z"));
+    await utimes(newLog, new Date("2025-12-31T00:00:00.000Z"), new Date("2025-12-31T00:00:00.000Z"));
+    await utimes(oldMemory, new Date("2025-12-01T00:00:00.000Z"), new Date("2025-12-01T00:00:00.000Z"));
+    await utimes(newMemory, new Date("2025-12-31T00:00:00.000Z"), new Date("2025-12-31T00:00:00.000Z"));
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-storage-maintain execute no-compress delete-raw-logs max-raw-log-age-days=200 delete-memory max-memory-age-days=200",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /delete_raw_log/);
+    assert.match(`${result.stdout}\n${result.stderr}`, /delete_memory/);
+
+    const maintenance = await loadStorageMaintenanceReport(dir);
+    assert.ok(maintenance, "expected persisted maintenance report");
+    assert.ok(maintenance.actions.some((action) => action.type === "delete_raw_log" && action.path === ".scaler/logs/details/old.json" && action.status === "completed"));
+    assert.ok(maintenance.actions.some((action) => action.type === "delete_memory" && action.path === ".scaler/memory/old.md" && action.status === "completed"));
+    await assert.rejects(stat(oldLog));
+    await assert.rejects(stat(oldMemory));
+    assert.equal(await readFile(newLog, "utf8"), "n".repeat(5));
+    assert.equal(await readFile(newMemory, "utf8"), "M".repeat(5));
+  });
+});
+
 test("real Pi extension: slash command dispatch rotates active storage ledgers", { skip: !REAL_PI_ENABLED }, async () => {
   await withRealPiTempRepo(async (dir) => {
     await mkdir(join(dir, ".scaler", "logs"), { recursive: true });
