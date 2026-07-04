@@ -259,6 +259,10 @@ Prepares or executes a supervised Tool/MCP schema discovery probe. SCALER grants
 
 Lists schema discovery probe records from `.scaler/tool-requests/schema-runs.json`.
 
+## `/scaler-tool-replay <transactionId> [execute]`
+
+Prepares or executes a replay of a persisted isolated tool-agent transaction. Replay uses the stored prompt/tools invocation and writes a new transaction linked by `replayOfTransactionId`. Execute mode is refused for requests already closed as `completed`, `failed`, or `blocked`; free-form/no-result output is recorded as `missing_result`.
+
 ## `/scaler-tool-run [requestId] [execute]`
 
 Prepares or executes an isolated tool-agent transaction for a prepared `scaler_tool_request`. Prepare mode rebuilds the stored request prompt/invocation and writes `.scaler/tool-requests/transactions.json`. With `execute`, SCALER runs the child agent with only the request's allowed tools, reloads request/result ledgers, and marks the transaction complete only when a structured `scaler_tool_result` closed the request. Child prose without `scaler_tool_result` becomes `missing_result` and is not treated as completion.
