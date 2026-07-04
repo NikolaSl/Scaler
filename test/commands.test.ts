@@ -19,6 +19,7 @@ import {
   parseValidateLoopArgs,
   parseStageLoopArgs,
   parseStageRecordArgs,
+  parseStorageMaintainArgs,
   parseStageRunArgs,
   parseValidationAddArgs,
   resolveCommitAllowedPaths,
@@ -97,6 +98,12 @@ test("parseValidateLoopArgs parses optional task, execute flag, and max option",
   assert.deepEqual(parseValidateLoopArgs("execute max=2"), { taskId: undefined, execute: true, maxSteps: 2 });
   assert.deepEqual(parseValidateLoopArgs("max=bad"), { taskId: undefined, execute: false, maxSteps: undefined });
   assert.deepEqual(parseValidateLoopArgs(" "), { taskId: undefined, execute: false, maxSteps: undefined });
+});
+
+test("parseStorageMaintainArgs parses execute, compression, cache, and thresholds", () => {
+  assert.deepEqual(parseStorageMaintainArgs("execute compress delete-cache min-age-days=3 min-size=128"), { execute: true, compress: true, deleteCache: true, minAgeDays: 3, minSizeBytes: 128 });
+  assert.deepEqual(parseStorageMaintainArgs("no-compress min-size=bad"), { execute: false, compress: false, deleteCache: false, minAgeDays: undefined, minSizeBytes: undefined });
+  assert.deepEqual(parseStorageMaintainArgs(" "), { execute: false, compress: true, deleteCache: false, minAgeDays: undefined, minSizeBytes: undefined });
 });
 
 test("parseTaskCreateArgs returns undefined without task id", () => {

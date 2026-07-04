@@ -80,6 +80,7 @@ test("extension registers scaler commands", () => {
     "scaler-pause",
     "scaler-resume",
     "scaler-storage-status",
+    "scaler-storage-maintain",
     "scaler-budget-status",
     "scaler-budget-set",
     "scaler-status",

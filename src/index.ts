@@ -16,6 +16,7 @@ import {
   parseStageLoopArgs,
   parseStageRecordArgs,
   parseStageRunArgs,
+  parseStorageMaintainArgs,
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
@@ -66,7 +67,7 @@ import {
   upsertStageArtifact,
   validateStageArtifactReadiness,
 } from "./stages.js";
-import { formatStorageInventory, saveStorageInventory, scanScalerStorageInventory } from "./storage.js";
+import { formatStorageInventory, formatStorageMaintenanceReport, runStorageMaintenance, saveStorageInventory, scanScalerStorageInventory } from "./storage.js";
 import { registerScalerTools } from "./tools.js";
 import { upsertValidationManifestCommand } from "./validation.js";
 import { runValidationDebugLoopWorkflow, selectTaskForValidationDebugLoop } from "./validation-debug-loop.js";
@@ -894,6 +895,33 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       });
       const message = `${formatStorageInventory(inventory)}\nBudget: ${budgetResult.decision.status} ${budgetResult.decision.reason}`;
       if (ctx.hasUI) ctx.ui.notify(message, budgetResult.decision.status === "hard_limit" ? "warning" : "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-storage-maintain", {
+    description: "Plan or execute safe .scaler/ storage maintenance: /scaler-storage-maintain [execute] [compress] [delete-cache] [min-age-days=N] [min-size=N]",
+    handler: async (args, ctx) => {
+      const parsed = parseStorageMaintainArgs(args);
+      const state = await ensureState(ctx.cwd);
+      const report = await runStorageMaintenance(ctx.cwd, {
+        execute: parsed.execute,
+        compress: parsed.compress,
+        deleteCache: parsed.deleteCache,
+        minAgeDays: parsed.minAgeDays,
+        minSizeBytes: parsed.minSizeBytes,
+      });
+      const inventory = await scanScalerStorageInventory(ctx.cwd);
+      const budgetResult = setBudgetUsage(state, "storageBytes", inventory.totalBytes);
+      const persisted = await persistBudgetDecision(ctx.cwd, budgetResult.state, budgetResult.decision);
+      await logStateEvent(ctx.cwd, persisted, "Scaler storage maintenance requested", {
+        command: "scaler-storage-maintain",
+        report,
+        inventory,
+        budgetDecision: budgetResult.decision,
+      });
+      const message = `${formatStorageMaintenanceReport(report)}\nBudget: ${budgetResult.decision.status} ${budgetResult.decision.reason}`;
+      if (ctx.hasUI) ctx.ui.notify(message, report.summary.failed > 0 || budgetResult.decision.status === "hard_limit" ? "warning" : "info");
       else console.log(message);
     },
   });

@@ -45,6 +45,14 @@ export interface ParsedBudgetSetArgs {
   hard?: number;
 }
 
+export interface ParsedStorageMaintainArgs {
+  execute: boolean;
+  compress: boolean;
+  deleteCache: boolean;
+  minAgeDays?: number;
+  minSizeBytes?: number;
+}
+
 export interface ParsedPrdLinkArgs {
   taskId: string;
   prdRefs: string[];
@@ -203,6 +211,21 @@ export function parseBudgetSetArgs(args: string | undefined): ParsedBudgetSetArg
     key,
     soft: parseOptionalNumber(parts[1]),
     hard: parseOptionalNumber(parts[2]),
+  };
+}
+
+export function parseStorageMaintainArgs(args: string | undefined): ParsedStorageMaintainArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  const minAgePart = parts.find((part) => /^min-age-days=\d+$/i.test(part));
+  const minSizePart = parts.find((part) => /^min-size=\d+$/i.test(part));
+  const minAgeDays = minAgePart ? Number.parseInt(minAgePart.split("=")[1] ?? "", 10) : undefined;
+  const minSizeBytes = minSizePart ? Number.parseInt(minSizePart.split("=")[1] ?? "", 10) : undefined;
+  return {
+    execute: parts.some((part) => part.toLowerCase() === "execute"),
+    compress: !parts.some((part) => part.toLowerCase() === "no-compress"),
+    deleteCache: parts.some((part) => part.toLowerCase() === "delete-cache"),
+    minAgeDays: minAgeDays === undefined || !Number.isFinite(minAgeDays) ? undefined : minAgeDays,
+    minSizeBytes: minSizeBytes === undefined || !Number.isFinite(minSizeBytes) ? undefined : minSizeBytes,
   };
 }
 
