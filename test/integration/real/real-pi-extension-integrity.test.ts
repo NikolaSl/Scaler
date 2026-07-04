@@ -7,7 +7,7 @@ import { loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { loadStorageInventory, loadStorageMaintenanceReport } from "../../../src/storage.js";
-import { loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest } from "../../../src/tool-requests.js";
+import { loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest, runToolRequestAgent } from "../../../src/tool-requests.js";
 import { loadValidationManifests, runTaskValidation, upsertValidationManifestCommand } from "../../../src/validation.js";
 import { REAL_PI_ENABLED, REAL_PI_MODEL, runScalerPi, withRealPiTempRepo } from "./real-pi-harness.js";
 
@@ -255,6 +255,43 @@ test("real Pi extension: slash command dispatch prepares isolated tool transacti
       ["start", "end"],
     );
     assert.ok(events.some((event) => event.eventType === "tool" && event.summary === `Tool transaction prepared: ${prepared.record?.id}`));
+  });
+});
+
+test("real Pi extension: slash command dispatch prepares tool transaction replay", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "docs_search",
+      request: "Find widget lifecycle docs.",
+      taskId: "REAL-TOOL-REPLAY",
+      allowedTools: ["read"],
+    });
+    assert.ok(prepared.record, "expected seeded tool request");
+    const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id });
+    assert.ok(original.transaction, "expected seeded transaction");
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: `/scaler-tool-replay ${original.transaction.id}`,
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const replay = (await loadToolTransactions(dir))[0];
+    assert.equal(replay?.status, "prepared");
+    assert.equal(replay?.replayOfTransactionId, original.transaction.id);
+    assert.equal(replay?.requestId, prepared.record.id);
+
+    const events = await readLogEvents(dir);
+    assert.deepEqual(
+      events
+        .filter((event) => event.eventType === "command" && isRecord(event.details) && event.details.command === "scaler-tool-replay")
+        .map((event) => (event.details as { phase: string }).phase),
+      ["start", "end"],
+    );
+    assert.ok(events.some((event) => event.eventType === "tool" && event.summary === `Tool transaction replay prepared: ${original.transaction?.id}`));
   });
 });
 
