@@ -354,6 +354,14 @@ Example:
 /scaler-research-run RESEARCH-001 execute internet tools=browser,mcp-docs
 ```
 
+## `/scaler-research-web [requestId] [execute] [internet] [tools=a,b] [max-queries=N]`
+
+Plans or executes bounded multi-query web research for `internet`/`mixed` research requests. Candidate browser/search/MCP tools are discovered from the tool schema catalog when `tools=` is omitted. Without `execute`, the command records planned tool-discovery/query transactions under `.scaler/research/transactions.json`. With `execute internet`, it runs the focused research agent with the planned queries and records query/source-review transactions with freshness/version diagnostics. It does not grant network tools unless `internet` is present and tools are explicit or discovered.
+
+## `/scaler-research-transactions [requestId]`
+
+Lists web research transaction records.
+
 ## `/scaler-research-runs [requestId]`
 
 Lists research-agent run records from `.scaler/reports/research-agent-runs.json`.

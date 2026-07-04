@@ -6,6 +6,7 @@ Artifacts:
 
 - `.scaler/research/requests.json` — research questions with status, scope, task links, and runtime PRD refs.
 - `.scaler/research/reports.json` — structured findings with sources, source quality, confidence, contradictions, unresolved unknowns, recommendations, and memory refs.
+- `.scaler/research/transactions.json` — web research tool-discovery, query-plan, and source-review transaction records.
 - `.scaler/reports/research-agent-runs.json` — focused research-agent preparation/execution records.
 - `.scaler/memory/<memory-id>.md` — raw research evidence and long excerpts preserved outside active context.
 
@@ -30,6 +31,8 @@ Contradictions are recorded as `resolved` or `unresolved`. Resolved contradictio
 ```text
 /scaler-research-status
 /scaler-research-run [requestId] [execute] [internet] [tools=a,b]
+/scaler-research-web [requestId] [execute] [internet] [tools=a,b] [max-queries=N]
+/scaler-research-transactions [requestId]
 /scaler-research-runs [requestId]
 /scaler-research-request <question> | <reason> | <taskId> | <PRD refs> | <scope>
 /scaler-research-report <question> | <conclusion> | <confidence> | <sourceId> | <sourceTitle> | <sourceQuality> | <sourceRef> | <requestId> | <taskId> | <PRD refs>
@@ -46,6 +49,10 @@ For `internet` or `mixed` research scopes, SCALER distinguishes the request scop
 ```
 
 Only the listed tools are passed to the subprocess. SCALER does not grant `bash` network transfer by default and existing safety hooks still block unsafe internet/deploy/publish/secret behavior.
+
+`/scaler-research-web` plans or executes a deterministic multi-query web research workflow for `internet` or `mixed` requests. It discovers candidate browser/search/MCP documentation tools from the tool schema catalog recorded by `scaler_tool_schema` or `/scaler-tool-discover`; explicit `tools=` still works and takes precedence. Without `execute`, it records tool-discovery and planned query transactions only. With `execute internet`, it runs the focused research agent with the planned query list and granted tools, then records completed query transactions and source-review transactions with freshness/version diagnostics (`project_local`, `versioned`, `recently_checked`, `stale_check`, or `unknown`). It never grants network tools unless `internet` is supplied and tools are explicit or discovered.
+
+`/scaler-research-transactions` lists web research transaction records.
 
 `/scaler-research-runs` lists recent research-agent run records, optionally filtered by request id.
 
@@ -74,4 +81,4 @@ Accepted child JSON event shape:
 
 ## Current limitations
 
-SCALER now has deterministic research/evidence ledgers, focused research-agent subprocess prompts with structured report ingestion, and explicit internet-tool grant policy for internet/mixed requests. It does not yet discover browser/MCP tools automatically, perform multi-step web research by itself, or orchestrate multi-agent research beyond tools explicitly granted to the subprocess.
+SCALER now has deterministic research/evidence ledgers, focused research-agent subprocess prompts with structured report ingestion, explicit internet-tool grant policy for internet/mixed requests, discovered browser/search/MCP tool candidates from the schema catalog, and web research transaction records for multi-query planning/execution. It does not yet orchestrate full autonomous multi-agent Stage II knowledge collection beyond these bounded workflows.

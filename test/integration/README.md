@@ -57,6 +57,7 @@ Prefer assertions on durable artifacts such as:
 - `.scaler/debug/retry-approvals.json`
 - `.scaler/research/requests.json`
 - `.scaler/research/reports.json`
+- `.scaler/research/transactions.json`
 - `.scaler/tool-requests/requests.json`
 - `.scaler/tool-requests/results.json`
 - `.scaler/tool-requests/transactions.json`
@@ -226,6 +227,10 @@ When adding a new integration scenario:
   - scheduled maintenance command due checks persist `.scaler/storage/schedule.json`, dry-run maintenance reports, storage budget usage, and audit logs;
   - approved archive, raw log detail, and memory retention deletion preserve non-selected files and prune deleted memory index entries;
   - persisted maintenance reports, storage budget usage, and command/state audit logs are asserted.
+- `mock/research-internet-grant-flow.test.ts`
+  - internet tools are withheld until explicit grants are supplied;
+  - web research workflow discovers browser/search/MCP tools from schema records;
+  - multi-query research transactions and source freshness/version review records are persisted.
 - `mock/tool-request-flow.test.ts`
   - rich `scaler_tool_request` metadata persists to `.scaler/tool-requests/`;
   - isolated invocation includes only explicitly allowed tools and selected compact catalog entries;
