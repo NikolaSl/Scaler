@@ -77,6 +77,12 @@ export interface ParsedStorageMaintainArgs {
   deleteArchives: boolean;
   maxArchiveBytes?: number;
   maxArchiveAgeDays?: number;
+  deleteRawLogs: boolean;
+  maxRawLogBytes?: number;
+  maxRawLogAgeDays?: number;
+  deleteMemory: boolean;
+  maxMemoryBytes?: number;
+  maxMemoryAgeDays?: number;
 }
 
 export interface ParsedStorageScheduleArgs {
@@ -95,6 +101,12 @@ export interface ParsedStorageScheduleArgs {
   deleteArchives?: boolean;
   maxArchiveBytes?: number;
   maxArchiveAgeDays?: number;
+  deleteRawLogs?: boolean;
+  maxRawLogBytes?: number;
+  maxRawLogAgeDays?: number;
+  deleteMemory?: boolean;
+  maxMemoryBytes?: number;
+  maxMemoryAgeDays?: number;
 }
 
 export interface ParsedSafetyPolicyArgs {
@@ -316,12 +328,20 @@ export function parseStorageMaintainArgs(args: string | undefined): ParsedStorag
   const minFreePart = parts.find((part) => /^min-free-bytes=\d+$/i.test(part));
   const maxArchivePart = parts.find((part) => /^max-archive-bytes=\d+$/i.test(part));
   const maxArchiveAgePart = parts.find((part) => /^max-archive-age-days=\d+$/i.test(part));
+  const maxRawLogPart = parts.find((part) => /^max-raw-log-bytes=\d+$/i.test(part));
+  const maxRawLogAgePart = parts.find((part) => /^max-raw-log-age-days=\d+$/i.test(part));
+  const maxMemoryPart = parts.find((part) => /^max-memory-bytes=\d+$/i.test(part));
+  const maxMemoryAgePart = parts.find((part) => /^max-memory-age-days=\d+$/i.test(part));
   const minAgeDays = minAgePart ? Number.parseInt(minAgePart.split("=")[1] ?? "", 10) : undefined;
   const minSizeBytes = minSizePart ? Number.parseInt(minSizePart.split("=")[1] ?? "", 10) : undefined;
   const maxActiveBytes = maxActivePart ? Number.parseInt(maxActivePart.split("=")[1] ?? "", 10) : undefined;
   const minFreeBytes = minFreePart ? Number.parseInt(minFreePart.split("=")[1] ?? "", 10) : undefined;
   const maxArchiveBytes = maxArchivePart ? Number.parseInt(maxArchivePart.split("=")[1] ?? "", 10) : undefined;
   const maxArchiveAgeDays = maxArchiveAgePart ? Number.parseInt(maxArchiveAgePart.split("=")[1] ?? "", 10) : undefined;
+  const maxRawLogBytes = maxRawLogPart ? Number.parseInt(maxRawLogPart.split("=")[1] ?? "", 10) : undefined;
+  const maxRawLogAgeDays = maxRawLogAgePart ? Number.parseInt(maxRawLogAgePart.split("=")[1] ?? "", 10) : undefined;
+  const maxMemoryBytes = maxMemoryPart ? Number.parseInt(maxMemoryPart.split("=")[1] ?? "", 10) : undefined;
+  const maxMemoryAgeDays = maxMemoryAgePart ? Number.parseInt(maxMemoryAgePart.split("=")[1] ?? "", 10) : undefined;
   return {
     execute: parts.some((part) => part.toLowerCase() === "execute"),
     compress: !parts.some((part) => part.toLowerCase() === "no-compress"),
@@ -334,6 +354,12 @@ export function parseStorageMaintainArgs(args: string | undefined): ParsedStorag
     deleteArchives: parts.some((part) => part.toLowerCase() === "delete-archives"),
     maxArchiveBytes: maxArchiveBytes === undefined || !Number.isFinite(maxArchiveBytes) ? undefined : maxArchiveBytes,
     maxArchiveAgeDays: maxArchiveAgeDays === undefined || !Number.isFinite(maxArchiveAgeDays) ? undefined : maxArchiveAgeDays,
+    deleteRawLogs: parts.some((part) => part.toLowerCase() === "delete-raw-logs"),
+    maxRawLogBytes: maxRawLogBytes === undefined || !Number.isFinite(maxRawLogBytes) ? undefined : maxRawLogBytes,
+    maxRawLogAgeDays: maxRawLogAgeDays === undefined || !Number.isFinite(maxRawLogAgeDays) ? undefined : maxRawLogAgeDays,
+    deleteMemory: parts.some((part) => part.toLowerCase() === "delete-memory"),
+    maxMemoryBytes: maxMemoryBytes === undefined || !Number.isFinite(maxMemoryBytes) ? undefined : maxMemoryBytes,
+    maxMemoryAgeDays: maxMemoryAgeDays === undefined || !Number.isFinite(maxMemoryAgeDays) ? undefined : maxMemoryAgeDays,
   };
 }
 
@@ -365,6 +391,12 @@ export function parseStorageScheduleArgs(args: string | undefined): ParsedStorag
     deleteArchives: findBoolean("delete-archives"),
     maxArchiveBytes: findNumber("max-archive-bytes"),
     maxArchiveAgeDays: findNumber("max-archive-age-days"),
+    deleteRawLogs: findBoolean("delete-raw-logs"),
+    maxRawLogBytes: findNumber("max-raw-log-bytes"),
+    maxRawLogAgeDays: findNumber("max-raw-log-age-days"),
+    deleteMemory: findBoolean("delete-memory"),
+    maxMemoryBytes: findNumber("max-memory-bytes"),
+    maxMemoryAgeDays: findNumber("max-memory-age-days"),
   };
 }
 

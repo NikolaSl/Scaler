@@ -3,7 +3,7 @@ import { copyFile, lstat, mkdir, readFile, readdir, statfs, unlink, writeFile } 
 import { dirname, join, relative, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
-import { SCALER_DIR, getScalerDir, getStorageIndexPath, getStorageMaintenancePath, getStorageSchedulePath } from "./paths.js";
+import { SCALER_DIR, getMemoryIndexPath, getScalerDir, getStorageIndexPath, getStorageMaintenancePath, getStorageSchedulePath } from "./paths.js";
 
 export interface StorageFileInventoryEntry {
   path: string;
@@ -35,7 +35,7 @@ export interface StorageInventoryOptions {
   now?: Date;
 }
 
-export type StorageMaintenanceActionType = "compress" | "delete_cache" | "rotate_active" | "check_free_disk" | "delete_archive";
+export type StorageMaintenanceActionType = "compress" | "delete_cache" | "rotate_active" | "check_free_disk" | "delete_archive" | "delete_raw_log" | "delete_memory";
 export type StorageMaintenanceActionStatus = "planned" | "completed" | "failed" | "skipped";
 
 export interface StorageMaintenanceAction {
@@ -60,6 +60,12 @@ export interface StorageMaintenancePolicy {
   deleteArchives: boolean;
   maxArchiveBytes?: number;
   maxArchiveAgeDays?: number;
+  deleteRawLogs: boolean;
+  maxRawLogBytes?: number;
+  maxRawLogAgeDays?: number;
+  deleteMemory: boolean;
+  maxMemoryBytes?: number;
+  maxMemoryAgeDays?: number;
 }
 
 export interface StorageDiskCheck {
@@ -101,6 +107,12 @@ export interface StorageMaintenanceOptions {
   deleteArchives?: boolean;
   maxArchiveBytes?: number;
   maxArchiveAgeDays?: number;
+  deleteRawLogs?: boolean;
+  maxRawLogBytes?: number;
+  maxRawLogAgeDays?: number;
+  deleteMemory?: boolean;
+  maxMemoryBytes?: number;
+  maxMemoryAgeDays?: number;
   now?: Date;
 }
 
@@ -308,6 +320,8 @@ export async function planStorageMaintenance(cwd: string, options: StorageMainte
 
   await visit(getScalerDir(cwd));
   actions.push(...(await planArchiveRetentionActions(cwd, policy, generatedAt, actions.length)));
+  actions.push(...(await planRawLogRetentionActions(cwd, policy, generatedAt, actions.length)));
+  actions.push(...(await planMemoryRetentionActions(cwd, policy, generatedAt, actions.length)));
   const disk = policy.minFreeBytes === undefined ? undefined : await checkStorageDisk(cwd, policy.minFreeBytes, generatedAt);
   if (disk) actions.push(createDiskCheckAction(disk, false));
   actions.sort(compareMaintenanceActions);
@@ -337,6 +351,12 @@ export async function runStorageMaintenance(cwd: string, options: StorageMainten
       } else if (action.type === "delete_archive") {
         await deleteStorageArchiveFile(cwd, action);
         executedActions.push({ ...action, status: "completed", message: "Deleted archive file" });
+      } else if (action.type === "delete_raw_log") {
+        await deleteRawLogFile(cwd, action);
+        executedActions.push({ ...action, status: "completed", message: "Deleted raw log detail file" });
+      } else if (action.type === "delete_memory") {
+        await deleteMemoryFile(cwd, action);
+        executedActions.push({ ...action, status: "completed", message: "Deleted memory file" });
       } else {
         executedActions.push({ ...action, status: "skipped", message: "Unknown action type" });
       }
@@ -463,7 +483,7 @@ export function formatStorageMaintenanceSchedule(
 ): string {
   const lines = [
     `Storage schedule: enabled=${schedule.enabled} intervalHours=${schedule.intervalHours} execute=${schedule.execute} nextRunAt=${schedule.nextRunAt ?? "due"} lastRunAt=${schedule.lastRunAt ?? "never"}`,
-    `Policy: compress=${schedule.policy.compress} deleteCache=${schedule.policy.deleteCache} minAgeDays=${schedule.policy.minAgeDays} minSizeBytes=${schedule.policy.minSizeBytes} rotateActive=${schedule.policy.rotateActive} maxActiveBytes=${schedule.policy.maxActiveBytes}${schedule.policy.minFreeBytes === undefined ? "" : ` minFreeBytes=${schedule.policy.minFreeBytes}`} deleteArchives=${schedule.policy.deleteArchives}${schedule.policy.maxArchiveBytes === undefined ? "" : ` maxArchiveBytes=${schedule.policy.maxArchiveBytes}`}${schedule.policy.maxArchiveAgeDays === undefined ? "" : ` maxArchiveAgeDays=${schedule.policy.maxArchiveAgeDays}`}`,
+    `Policy: compress=${schedule.policy.compress} deleteCache=${schedule.policy.deleteCache} minAgeDays=${schedule.policy.minAgeDays} minSizeBytes=${schedule.policy.minSizeBytes} rotateActive=${schedule.policy.rotateActive} maxActiveBytes=${schedule.policy.maxActiveBytes}${schedule.policy.minFreeBytes === undefined ? "" : ` minFreeBytes=${schedule.policy.minFreeBytes}`} deleteArchives=${schedule.policy.deleteArchives}${schedule.policy.maxArchiveBytes === undefined ? "" : ` maxArchiveBytes=${schedule.policy.maxArchiveBytes}`}${schedule.policy.maxArchiveAgeDays === undefined ? "" : ` maxArchiveAgeDays=${schedule.policy.maxArchiveAgeDays}`} deleteRawLogs=${schedule.policy.deleteRawLogs}${schedule.policy.maxRawLogBytes === undefined ? "" : ` maxRawLogBytes=${schedule.policy.maxRawLogBytes}`}${schedule.policy.maxRawLogAgeDays === undefined ? "" : ` maxRawLogAgeDays=${schedule.policy.maxRawLogAgeDays}`} deleteMemory=${schedule.policy.deleteMemory}${schedule.policy.maxMemoryBytes === undefined ? "" : ` maxMemoryBytes=${schedule.policy.maxMemoryBytes}`}${schedule.policy.maxMemoryAgeDays === undefined ? "" : ` maxMemoryAgeDays=${schedule.policy.maxMemoryAgeDays}`}`,
   ];
   if (result) {
     lines.push(`Run: status=${result.status} due=${result.due} message=${result.message}`);
@@ -475,7 +495,7 @@ export function formatStorageMaintenanceSchedule(
 export function formatStorageMaintenanceReport(report: StorageMaintenanceReport): string {
   const lines = [
     `Storage maintenance: executed=${report.executed} planned=${report.summary.planned} completed=${report.summary.completed} failed=${report.summary.failed} skipped=${report.summary.skipped} bytesEligible=${report.summary.bytesEligible} bytesCompleted=${report.summary.bytesCompleted}`,
-    `Policy: compress=${report.policy.compress} deleteCache=${report.policy.deleteCache} minAgeDays=${report.policy.minAgeDays} minSizeBytes=${report.policy.minSizeBytes} rotateActive=${report.policy.rotateActive} maxActiveBytes=${report.policy.maxActiveBytes}${report.policy.minFreeBytes === undefined ? "" : ` minFreeBytes=${report.policy.minFreeBytes}`} deleteArchives=${report.policy.deleteArchives}${report.policy.maxArchiveBytes === undefined ? "" : ` maxArchiveBytes=${report.policy.maxArchiveBytes}`}${report.policy.maxArchiveAgeDays === undefined ? "" : ` maxArchiveAgeDays=${report.policy.maxArchiveAgeDays}`}`,
+    `Policy: compress=${report.policy.compress} deleteCache=${report.policy.deleteCache} minAgeDays=${report.policy.minAgeDays} minSizeBytes=${report.policy.minSizeBytes} rotateActive=${report.policy.rotateActive} maxActiveBytes=${report.policy.maxActiveBytes}${report.policy.minFreeBytes === undefined ? "" : ` minFreeBytes=${report.policy.minFreeBytes}`} deleteArchives=${report.policy.deleteArchives}${report.policy.maxArchiveBytes === undefined ? "" : ` maxArchiveBytes=${report.policy.maxArchiveBytes}`}${report.policy.maxArchiveAgeDays === undefined ? "" : ` maxArchiveAgeDays=${report.policy.maxArchiveAgeDays}`} deleteRawLogs=${report.policy.deleteRawLogs}${report.policy.maxRawLogBytes === undefined ? "" : ` maxRawLogBytes=${report.policy.maxRawLogBytes}`}${report.policy.maxRawLogAgeDays === undefined ? "" : ` maxRawLogAgeDays=${report.policy.maxRawLogAgeDays}`} deleteMemory=${report.policy.deleteMemory}${report.policy.maxMemoryBytes === undefined ? "" : ` maxMemoryBytes=${report.policy.maxMemoryBytes}`}${report.policy.maxMemoryAgeDays === undefined ? "" : ` maxMemoryAgeDays=${report.policy.maxMemoryAgeDays}`}`,
     ...(report.disk ? [`Disk: status=${report.disk.status} freeBytes=${report.disk.freeBytes ?? "unknown"} minFreeBytes=${report.disk.minFreeBytes}${report.disk.message ? ` message=${report.disk.message}` : ""}`] : []),
     ...report.actions.map((action) => `- ${action.status} ${action.type} ${action.path}${action.targetPath ? ` -> ${action.targetPath}` : ""} bytes=${action.sizeBytes} reason=${action.reason}${action.message ? ` message=${action.message}` : ""}`),
   ];
@@ -489,6 +509,10 @@ export function normalizeStorageMaintenancePolicy(options: StorageMaintenanceOpt
   const minFreeBytes = Number.isFinite(options.minFreeBytes) && options.minFreeBytes !== undefined ? Math.max(0, options.minFreeBytes) : undefined;
   const maxArchiveBytes = Number.isFinite(options.maxArchiveBytes) && options.maxArchiveBytes !== undefined ? Math.max(0, options.maxArchiveBytes) : undefined;
   const maxArchiveAgeDays = Number.isFinite(options.maxArchiveAgeDays) && options.maxArchiveAgeDays !== undefined ? Math.max(0, options.maxArchiveAgeDays) : undefined;
+  const maxRawLogBytes = Number.isFinite(options.maxRawLogBytes) && options.maxRawLogBytes !== undefined ? Math.max(0, options.maxRawLogBytes) : undefined;
+  const maxRawLogAgeDays = Number.isFinite(options.maxRawLogAgeDays) && options.maxRawLogAgeDays !== undefined ? Math.max(0, options.maxRawLogAgeDays) : undefined;
+  const maxMemoryBytes = Number.isFinite(options.maxMemoryBytes) && options.maxMemoryBytes !== undefined ? Math.max(0, options.maxMemoryBytes) : undefined;
+  const maxMemoryAgeDays = Number.isFinite(options.maxMemoryAgeDays) && options.maxMemoryAgeDays !== undefined ? Math.max(0, options.maxMemoryAgeDays) : undefined;
   return {
     compress: options.compress ?? true,
     deleteCache: options.deleteCache ?? false,
@@ -500,6 +524,12 @@ export function normalizeStorageMaintenancePolicy(options: StorageMaintenanceOpt
     deleteArchives: options.deleteArchives ?? false,
     maxArchiveBytes,
     maxArchiveAgeDays,
+    deleteRawLogs: options.deleteRawLogs ?? false,
+    maxRawLogBytes,
+    maxRawLogAgeDays,
+    deleteMemory: options.deleteMemory ?? false,
+    maxMemoryBytes,
+    maxMemoryAgeDays,
   };
 }
 
@@ -582,6 +612,30 @@ async function deleteStorageArchiveFile(cwd: string, action: StorageMaintenanceA
   await unlink(join(cwd, action.path));
 }
 
+async function deleteRawLogFile(cwd: string, action: StorageMaintenanceAction): Promise<void> {
+  if (action.type !== "delete_raw_log" || !isRawLogRetentionPath(action.path)) throw new Error("Raw log delete action is outside .scaler/logs/details.");
+  await unlink(join(cwd, action.path));
+}
+
+async function deleteMemoryFile(cwd: string, action: StorageMaintenanceAction): Promise<void> {
+  if (action.type !== "delete_memory" || !isMemoryRetentionPath(action.path)) throw new Error("Memory delete action is outside approved .scaler/memory files.");
+  await unlink(join(cwd, action.path));
+  await pruneMemoryIndex(cwd, action.path);
+}
+
+async function pruneMemoryIndex(cwd: string, deletedPath: string): Promise<void> {
+  const path = getMemoryIndexPath(cwd);
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf8")) as { version?: number; entries?: Array<{ path?: unknown }> };
+    if (!Array.isArray(parsed.entries)) return;
+    const entries = parsed.entries.filter((entry) => entry.path !== deletedPath && `${String(entry.path ?? "")}.gz` !== deletedPath);
+    await writeFile(path, `${JSON.stringify({ ...parsed, entries }, null, 2)}\n`, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+}
+
 interface StorageArchiveFileCandidate {
   path: string;
   sizeBytes: number;
@@ -636,6 +690,55 @@ async function planArchiveRetentionActions(
 async function collectStorageArchiveFiles(cwd: string): Promise<StorageArchiveFileCandidate[]> {
   const root = join(cwd, SCALER_DIR, "storage", "archive");
   const files: StorageArchiveFileCandidate[] = [];
+  await collectRetentionFiles(cwd, root, files);
+  return files.filter((file) => isStorageArchivePath(file.path));
+}
+
+async function planRawLogRetentionActions(
+  cwd: string,
+  policy: StorageMaintenancePolicy,
+  generatedAt: string,
+  startingIndex: number,
+): Promise<StorageMaintenanceAction[]> {
+  if (!policy.deleteRawLogs || (policy.maxRawLogBytes === undefined && policy.maxRawLogAgeDays === undefined)) return [];
+  const files: StorageArchiveFileCandidate[] = [];
+  await collectRetentionFiles(cwd, join(cwd, SCALER_DIR, "logs", "details"), files);
+  return planQuotaRetentionActions({
+    files: files.filter((file) => isRawLogRetentionPath(file.path)),
+    generatedAt,
+    startingIndex,
+    type: "delete_raw_log",
+    idPrefix: "delete-raw-log",
+    maxBytes: policy.maxRawLogBytes,
+    maxAgeDays: policy.maxRawLogAgeDays,
+    ageReasonPrefix: "rawLogAge",
+    bytesReasonPrefix: "rawLogBytes",
+  });
+}
+
+async function planMemoryRetentionActions(
+  cwd: string,
+  policy: StorageMaintenancePolicy,
+  generatedAt: string,
+  startingIndex: number,
+): Promise<StorageMaintenanceAction[]> {
+  if (!policy.deleteMemory || (policy.maxMemoryBytes === undefined && policy.maxMemoryAgeDays === undefined)) return [];
+  const files: StorageArchiveFileCandidate[] = [];
+  await collectRetentionFiles(cwd, join(cwd, SCALER_DIR, "memory"), files);
+  return planQuotaRetentionActions({
+    files: files.filter((file) => isMemoryRetentionPath(file.path)),
+    generatedAt,
+    startingIndex,
+    type: "delete_memory",
+    idPrefix: "delete-memory",
+    maxBytes: policy.maxMemoryBytes,
+    maxAgeDays: policy.maxMemoryAgeDays,
+    ageReasonPrefix: "memoryAge",
+    bytesReasonPrefix: "memoryBytes",
+  });
+}
+
+async function collectRetentionFiles(cwd: string, root: string, files: StorageArchiveFileCandidate[]): Promise<void> {
   async function visit(absolutePath: string): Promise<void> {
     let info;
     try {
@@ -653,7 +756,54 @@ async function collectStorageArchiveFiles(cwd: string): Promise<StorageArchiveFi
     files.push({ path: normalizeRelativeStoragePath(cwd, absolutePath), sizeBytes: info.size, modifiedAtMs: info.mtime.getTime() });
   }
   await visit(root);
-  return files.filter((file) => isStorageArchivePath(file.path));
+}
+
+function planQuotaRetentionActions(options: {
+  files: StorageArchiveFileCandidate[];
+  generatedAt: string;
+  startingIndex: number;
+  type: "delete_raw_log" | "delete_memory";
+  idPrefix: string;
+  maxBytes?: number;
+  maxAgeDays?: number;
+  ageReasonPrefix: string;
+  bytesReasonPrefix: string;
+}): StorageMaintenanceAction[] {
+  const selected = new Map<string, { file: StorageArchiveFileCandidate; reasons: string[] }>();
+  const addSelected = (file: StorageArchiveFileCandidate, reason: string): void => {
+    const existing = selected.get(file.path);
+    if (existing) existing.reasons.push(reason);
+    else selected.set(file.path, { file, reasons: [reason] });
+  };
+
+  if (options.maxAgeDays !== undefined) {
+    const cutoffMs = Date.parse(options.generatedAt) - options.maxAgeDays * 24 * 60 * 60 * 1000;
+    for (const file of options.files) {
+      if (file.modifiedAtMs <= cutoffMs) addSelected(file, `${options.ageReasonPrefix}>=${options.maxAgeDays}d`);
+    }
+  }
+
+  if (options.maxBytes !== undefined) {
+    const totalBytes = options.files.reduce((total, file) => total + file.sizeBytes, 0);
+    let selectedBytes = Array.from(selected.values()).reduce((total, entry) => total + entry.file.sizeBytes, 0);
+    for (const file of [...options.files].sort((left, right) => left.modifiedAtMs - right.modifiedAtMs || left.path.localeCompare(right.path))) {
+      if (totalBytes - selectedBytes <= options.maxBytes) break;
+      if (selected.has(file.path)) continue;
+      addSelected(file, `${options.bytesReasonPrefix}>${options.maxBytes}`);
+      selectedBytes += file.sizeBytes;
+    }
+  }
+
+  return Array.from(selected.values())
+    .sort((left, right) => left.file.modifiedAtMs - right.file.modifiedAtMs || left.file.path.localeCompare(right.file.path))
+    .map((entry, index) => ({
+      id: `${options.idPrefix}-${options.startingIndex + index + 1}`,
+      type: options.type,
+      path: entry.file.path,
+      sizeBytes: entry.file.sizeBytes,
+      reason: Array.from(new Set(entry.reasons)).join(","),
+      status: "planned",
+    }));
 }
 
 async function rotateActiveStorageFile(cwd: string, action: StorageMaintenanceAction): Promise<void> {
@@ -706,7 +856,7 @@ function createDiskCheckAction(disk: StorageDiskCheck, executed: boolean): Stora
 }
 
 function compareMaintenanceActions(left: StorageMaintenanceAction, right: StorageMaintenanceAction): number {
-  const order: Record<StorageMaintenanceActionType, number> = { rotate_active: 0, compress: 1, delete_cache: 2, delete_archive: 3, check_free_disk: 4 };
+  const order: Record<StorageMaintenanceActionType, number> = { rotate_active: 0, compress: 1, delete_cache: 2, delete_archive: 3, delete_raw_log: 4, delete_memory: 5, check_free_disk: 6 };
   return order[left.type] - order[right.type] || right.sizeBytes - left.sizeBytes || left.path.localeCompare(right.path);
 }
 
@@ -720,6 +870,14 @@ function isStorageMaintenanceArtifact(rel: string): boolean {
 
 function isStorageArchivePath(rel: string): boolean {
   return rel.startsWith(`${SCALER_DIR}/storage/archive/`);
+}
+
+function isRawLogRetentionPath(rel: string): boolean {
+  return rel.startsWith(`${SCALER_DIR}/logs/details/`);
+}
+
+function isMemoryRetentionPath(rel: string): boolean {
+  return rel.startsWith(`${SCALER_DIR}/memory/`) && rel !== `${SCALER_DIR}/memory/index.json`;
 }
 
 function isActiveRotatableStoragePath(rel: string): boolean {
@@ -752,7 +910,7 @@ function getActiveLedgerResetContent(rel: string): string {
 
 function isCompressibleStoragePath(rel: string): boolean {
   if (isActiveRotatableStoragePath(rel)) return false;
-  return rel.startsWith(`${SCALER_DIR}/logs/details/`) || rel.startsWith(`${SCALER_DIR}/reports/`) || rel.startsWith(`${SCALER_DIR}/memory/`);
+  return rel.startsWith(`${SCALER_DIR}/logs/details/`) || rel.startsWith(`${SCALER_DIR}/reports/`) || isMemoryRetentionPath(rel);
 }
 
 function getTopLevelSummary(topLevel: Map<string, MutableTopLevelSummary>, rel: string, isDirectory: boolean): MutableTopLevelSummary | undefined {

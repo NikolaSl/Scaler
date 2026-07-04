@@ -1085,6 +1085,12 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         deleteArchives: parsed.deleteArchives,
         maxArchiveBytes: parsed.maxArchiveBytes,
         maxArchiveAgeDays: parsed.maxArchiveAgeDays,
+        deleteRawLogs: parsed.deleteRawLogs,
+        maxRawLogBytes: parsed.maxRawLogBytes,
+        maxRawLogAgeDays: parsed.maxRawLogAgeDays,
+        deleteMemory: parsed.deleteMemory,
+        maxMemoryBytes: parsed.maxMemoryBytes,
+        maxMemoryAgeDays: parsed.maxMemoryAgeDays,
       });
       const inventory = await scanScalerStorageInventory(ctx.cwd);
       const budgetResult = setBudgetUsage(state, "storageBytes", inventory.totalBytes);
@@ -1116,6 +1122,12 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       if (parsed.deleteArchives !== undefined) policy.deleteArchives = parsed.deleteArchives;
       if (parsed.maxArchiveBytes !== undefined) policy.maxArchiveBytes = parsed.maxArchiveBytes;
       if (parsed.maxArchiveAgeDays !== undefined) policy.maxArchiveAgeDays = parsed.maxArchiveAgeDays;
+      if (parsed.deleteRawLogs !== undefined) policy.deleteRawLogs = parsed.deleteRawLogs;
+      if (parsed.maxRawLogBytes !== undefined) policy.maxRawLogBytes = parsed.maxRawLogBytes;
+      if (parsed.maxRawLogAgeDays !== undefined) policy.maxRawLogAgeDays = parsed.maxRawLogAgeDays;
+      if (parsed.deleteMemory !== undefined) policy.deleteMemory = parsed.deleteMemory;
+      if (parsed.maxMemoryBytes !== undefined) policy.maxMemoryBytes = parsed.maxMemoryBytes;
+      if (parsed.maxMemoryAgeDays !== undefined) policy.maxMemoryAgeDays = parsed.maxMemoryAgeDays;
       const hasPolicyUpdate = Object.keys(policy).length > 0;
       const hasUpdate = parsed.enabled !== undefined || parsed.intervalHours !== undefined || parsed.execute !== undefined || hasPolicyUpdate;
       let schedule = hasUpdate
