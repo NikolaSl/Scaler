@@ -172,6 +172,45 @@ test("mock integration: validation environment policy blocks local-ci host execu
   });
 });
 
+test("mock integration: validation dispositions skip with reason and block with reason", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-SKIP";
+    state.tasks = [
+      { id: "T-SKIP", status: "validating", title: "Skip task", updatedAt: state.createdAt },
+      { id: "T-BLOCK", status: "validating", title: "Block task", updatedAt: state.createdAt },
+    ];
+    await saveState(dir, state);
+
+    const commands = registeredCommands();
+    await commands.get("scaler-validation-add")?.handler(
+      "T-SKIP | integration | node -e \"require('node:fs').writeFileSync('skip-disposition-should-not-run.txt','ran')\" | Integration tests | required | integration | exits 0 | manifest:skip | host | skipped:No integration surface changed",
+      { cwd: dir, hasUI: false },
+    );
+    await commands.get("scaler-validate")?.handler("T-SKIP", { cwd: dir, hasUI: false });
+
+    let runs = await loadValidationRuns(dir);
+    assert.equal(runs[0]?.status, "passed");
+    assert.equal(runs[0]?.commandRuns[0]?.status, "skipped");
+    assert.equal((await loadState(dir)).tasks.find((task) => task.id === "T-SKIP")?.status, "validated");
+    await assert.rejects(readFile(join(dir, "skip-disposition-should-not-run.txt"), "utf8"));
+
+    await commands.get("scaler-validation-add")?.handler(
+      "T-BLOCK | ci | node -e \"process.exit(0)\" | Local CI | required | local_ci | exits 0 | manifest:block | local_ci | blocked:Docker daemon unavailable",
+      { cwd: dir, hasUI: false },
+    );
+    await commands.get("scaler-validate")?.handler("T-BLOCK", { cwd: dir, hasUI: false });
+
+    runs = await loadValidationRuns(dir);
+    assert.equal(runs[0]?.status, "blocked");
+    assert.equal(runs[0]?.commandRuns[0]?.status, "blocked");
+    const persisted = await loadState(dir);
+    assert.equal(persisted.tasks.find((task) => task.id === "T-BLOCK")?.status, "blocked");
+    assert.equal(persisted.stage, "replanning");
+  });
+});
+
 test("mock integration: validation-add gate metadata persists through validation run and audit", async () => {
   await withTempRepo(async (dir) => {
     const commands = registeredCommands();
@@ -211,6 +250,6 @@ test("mock integration: validation-add gate metadata persists through validation
 
     const validationSummary = (await readLogEvents(dir)).find((event) => event.eventType === "validation" && event.summary === "Validation summary: T-GATE passed");
     assert.ok(validationSummary, "expected validation summary audit event");
-    assert.deepEqual((validationSummary.details as { gates?: unknown }).gates, [{ commandId: "unit", gate: "unit_tests", required: true, status: "passed" }]);
+    assert.deepEqual((validationSummary.details as { gates?: unknown }).gates, [{ commandId: "unit", gate: "unit_tests", required: true, status: "passed", disposition: "run" }]);
   });
 });
