@@ -456,19 +456,19 @@ Records a manual replan request and attempts to transition the supervisor stage 
 
 Links an existing task to runtime PRD requirement ids by updating the task's `prdRefs` metadata.
 
-## `/scaler-task-create <taskId> | <title> | <allowed paths comma list> | <dependency ids comma list> | <PRD refs comma list>`
+## `/scaler-task-create <taskId> | <title> | <allowed paths comma list> | <dependency ids comma list> | <PRD refs comma list> | <DoD items semicolon list>`
 
-Creates a supervisor task record.
+Creates a supervisor task record and records a non-blocking task-definition quality review.
 
 Examples:
 
 ```text
-/scaler-task-create T-001 | Add parser tests | src,test
-/scaler-task-create T-002 | Add dependent task | src | T-001
+/scaler-task-create T-001 | Add parser tests | src,test | | | tests pass; parser behavior documented
+/scaler-task-create T-002 | Add dependent task | src | T-001 | REQ-002 | dependency validated
 /scaler-task-create T-003
 ```
 
-Allowed paths are used later for safe per-task git commits. Dependencies prevent the conductor from selecting a task until all listed task ids are validated. PRD refs link the task to runtime PRD requirements for coverage/replanning summaries.
+Allowed paths are used later for safe per-task git commits. Dependencies prevent the conductor from selecting a task until all listed task ids are validated. PRD refs link the task to runtime PRD requirements for coverage/replanning summaries. DoD items are stored as task metadata and used by task-quality warnings. Missing DoD, missing task-specific validation commands, or missing allowed paths are warnings, not hard rejections.
 
 ## `/scaler-task-retry <taskId> | <reason>`
 
@@ -480,17 +480,21 @@ Retries a task through deterministic supervisor task transitions:
 
 Terminal `failed` tasks are rejected by current retry rules.
 
-## `/scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies> | <PRD refs>`
+## `/scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies> | <PRD refs> | <DoD items semicolon list>`
 
-Updates task metadata. If `status` is provided, the update must be a valid supervisor task transition.
+Updates task metadata and records a non-blocking task-definition quality review. If `status` is provided, the update must be a valid supervisor task transition.
 
 Examples:
 
 ```text
 /scaler-task-update T-001 | Better title
 /scaler-task-update T-001 | | ready | src,test | T-000
-/scaler-task-update T-001 | | | | | REQ-001,REQ-002
+/scaler-task-update T-001 | | | | | REQ-001,REQ-002 | tests pass; docs updated
 ```
+
+## `/scaler-task-quality [taskId]`
+
+Recomputes and records task-definition quality reviews under `.scaler/reports/task-quality.json`. Reviews warn when a task lacks Definition of Done items, task-specific validation manifest commands, or allowed path scope. Optional `taskId` limits the review to one task.
 
 ## `/scaler-status`
 

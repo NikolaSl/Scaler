@@ -38,8 +38,8 @@ Lower-level stage commands are also available:
 Tasks can be created directly:
 
 ```text
-/scaler-task-create T-001 | Add parser tests | src,test
-/scaler-task-create T-002 | Add dependent work | src | T-001
+/scaler-task-create T-001 | Add parser tests | src,test | | | tests pass; parser behavior documented
+/scaler-task-create T-002 | Add dependent work | src | T-001 | REQ-002 | dependency validated
 /scaler-tasks
 ```
 
@@ -50,7 +50,7 @@ Or created from the current execution plan artifact:
 /scaler-plan-apply
 ```
 
-Tasks may include allowed paths for later commit safety, dependency ids, and runtime PRD refs. The conductor will not select a task until its dependencies are validated. Runtime PRD refs are shown by `/scaler-prd-status` and help identify which requirements have validated task coverage.
+Tasks may include allowed paths for later commit safety, dependency ids, runtime PRD refs, and Definition of Done items. The conductor will not select a task until its dependencies are validated. Runtime PRD refs are shown by `/scaler-prd-status` and help identify which requirements have validated task coverage. Task creation/update records non-blocking quality warnings when DoD, task-specific validation, or allowed paths are missing; recompute them with `/scaler-task-quality [taskId]`.
 
 ## 3. Optionally add validation commands
 
@@ -125,7 +125,7 @@ Commits are allowed only for validated tasks. The git helper refuses commits whe
 ## Useful maintenance commands
 
 ```text
-/scaler-task-update T-001 | Better title | ready | src,test | T-000 | REQ-001
+/scaler-task-update T-001 | Better title | ready | src,test | T-000 | REQ-001 | tests pass; docs updated
 /scaler-prd-status
 /scaler-prd-link T-001 | REQ-001,REQ-002
 /scaler-task-retry T-001 | retry after fixing blocker

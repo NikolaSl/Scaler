@@ -25,7 +25,7 @@ Design requirements live in `assignement.md` and `specs/`. Compliance reviews mu
 - Debug failure/attempt/report ledgers, longer hidden fingerprint-cycle detection, and a focused debug-agent workflow that emits structured `scaler_debug_report` events; reports can create research requests or debug-blocked replan requests.
 - Deterministic validation manifests and command-run records.
 - Git status safety and validated-task commit helpers.
-- Implemented create/list/step/validate/commit workflow.
+- Implemented create/list/step/validate/commit workflow, including non-blocking task-definition quality warnings for missing DoD, validation, and allowed paths.
 - Task-agent run records with timeout/abort diagnostics and task-agent report ledgers under `.scaler/reports/task-agent-reports.json`.
 - Mandatory repo-wide sequential execution lock for SCALER operations.
 - Runtime PRD ledger under `.scaler/prd/` with requirement coverage summaries and task links.

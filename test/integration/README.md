@@ -189,6 +189,7 @@ When adding a new integration scenario:
 
 - `mock/debug-research-flow.test.ts`
   - conductor execution into structured task-agent report ingestion before validation handoff, including missing/invalid report blocking;
+  - task-definition quality reviews for missing Definition of Done, validation, and allowed path scope;
   - failing validation into debugging;
   - cyclic debug attempts and retry-gate refusal;
   - debug-agent `needs_research` report ingestion;
