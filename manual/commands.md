@@ -144,9 +144,28 @@ Examples:
 /scaler-storage-schedule disable
 ```
 
-## `/scaler-safety-policy [allow-internet=on/off] [allow-external=on/off]`
+## `/scaler-safety-policy [allow-internet=on/off] [allow-external=on/off] [allow-sandbox=on/off]`
 
-Shows or updates persisted safety policy at `.scaler/safety/policy.json`. Persisted `allow-internet` and `allow-external` settings are merged into the tool-call safety hook for internet-transfer and external-mutation command classes. They do not override protected-path, destructive-command, secret-environment, or task allowed-path blocks.
+Shows or updates persisted safety policy at `.scaler/safety/policy.json`. Persisted `allow-internet` and `allow-external` settings are merged into the tool-call safety hook for internet-transfer and external-mutation command classes. `allow-sandbox=on` enables only bounded sandbox destructive-command exceptions for commands wrapped in recognized sandbox envelopes (`docker run --rm`, `docker compose run`, `podman run`, or `devcontainer exec`) without privileged mode, host networking, broad host mounts, protected paths, secret exposure, internet transfer, or external mutation patterns. The policy does not override protected-path, secret-environment, or task allowed-path blocks.
+
+## `/scaler-safety-approval [approve|revoke] ...`
+
+Lists, creates, or revokes scoped safety approvals under `.scaler/safety/approvals.json`.
+
+Examples:
+
+```text
+/scaler-safety-approval
+/scaler-safety-approval approve | bash | exact_command | npm publish --dry-run | external | Release dry run | max-uses=1 ttl-minutes=60
+/scaler-safety-approval approve | edit | target | docs/release.md | medium | Allow one edit outside current task path | max-uses=1
+/scaler-safety-approval revoke | <approval-id> | no longer needed
+```
+
+Approvals are audited and consumed by use count. They can approve non-secret risky decisions such as exact external/destructive commands or exact targets, but they do not override protected-path or secret-environment blocks.
+
+## `/scaler-safety-scan [execute] [kinds=npm_audit,trivy_fs]`
+
+Discovers optional dependency/image security scanner candidates from manifests and records results under `.scaler/safety/scans.json`. Without `execute`, the command records planned or unavailable scanner candidates only. With `execute`, available scanners are run and recorded as passed or failed. Supported candidate kinds include `npm_audit`, `pnpm_audit`, `yarn_audit`, `pip_audit`, `cargo_audit`, `trivy_fs`, and `grype_fs`.
 
 ## `/scaler-budget-status`
 

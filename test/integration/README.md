@@ -73,6 +73,9 @@ Prefer assertions on durable artifacts such as:
 - `.scaler/storage/index.json`
 - `.scaler/storage/maintenance.json`
 - `.scaler/storage/schedule.json`
+- `.scaler/safety/policy.json`
+- `.scaler/safety/approvals.json`
+- `.scaler/safety/scans.json`
 
 ## Mock child-agent runners
 
@@ -124,7 +127,7 @@ Real Pi/model tests are opt-in because they can cost tokens, depend on local/pro
 Current real mode has three layers:
 
 1. child-agent structured-output contracts that call real Pi/model subprocesses and verify SCALER report extraction;
-2. real Pi extension integrity tests that launch `pi --mode json -p --no-session -e <src/index.ts>` in a temporary repository and verify extension command dispatch, SCALER tool calls, safety hooks, `.scaler/logs/events.jsonl`, detail payload references, and persisted state; and
+2. real Pi extension integrity tests that launch `pi --mode json -p --no-session -e <src/index.ts>` in a temporary repository and verify extension command dispatch, SCALER tool calls, safety hooks, safety policy/approval persistence, `.scaler/logs/events.jsonl`, detail payload references, and persisted state; and
 3. real flow-parity chains that run real Pi/model child agents through SCALER's normal debug, research, stage, and replanner pathways while asserting persisted ledgers.
 
 Command-dispatch extension tests may avoid model output. Cardinal SCALER-tool and hook tests use the selected real model with restricted `--tools` lists. Report-only child-agent flow tests disable tools with `--no-tools` so the real model cannot mutate the temporary repository outside the expected structured report.
@@ -208,6 +211,12 @@ When adding a new integration scenario:
 - `mock/storage-status-flow.test.ts`
   - command-driven `.scaler/` storage inventory persistence;
   - configured storage hard limit pauses the run and records budget/state audit events.
+- `mock/safety-hook-flow.test.ts`
+  - persisted safety-policy allowances for external/internet classes;
+  - scoped safety approval creation and one-use consumption by the tool-call hook;
+  - bounded sandbox destructive-command exceptions and host-mount refusal;
+  - dry-run security scanner candidate records;
+  - external mutation and secret-environment hook blocking plus safety audit events.
 - `mock/storage-maintenance-flow.test.ts`
   - command-driven storage maintenance execution compresses eligible `.scaler/reports/` files;
   - explicit `.scaler/cache/` cleanup deletes only cache files;
