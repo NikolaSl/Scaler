@@ -109,11 +109,11 @@ Resumes a paused run only to its previous active stage and writes a checkpoint u
 
 Scans `.scaler/`, writes `.scaler/storage/index.json`, updates the `storageBytes` budget counter, and shows total bytes, top-level summaries, largest files, and the storage budget decision. A configured `storageBytes` hard limit pauses the run through the existing budget gate.
 
-## `/scaler-storage-maintain [execute] [delete-cache] [no-compress] [min-age-days=N] [min-size=N]`
+## `/scaler-storage-maintain [execute] [delete-cache] [no-compress] [rotate-active] [min-age-days=N] [min-size=N] [max-active-bytes=N] [min-free-bytes=N]`
 
-Plans or executes safe maintenance inside `.scaler/`. Without `execute`, SCALER writes a dry-run report to `.scaler/storage/maintenance.json` and does not mutate storage. With `execute`, it gzips eligible old/large files under `.scaler/logs/details/`, `.scaler/reports/`, and `.scaler/memory/`, removes the source only after a non-empty `.gz` is written, optionally deletes `.scaler/cache/` files when `delete-cache` is present, refreshes storage accounting, updates the `storageBytes` budget counter, and writes command/state audit events.
+Plans or executes safe maintenance inside `.scaler/`. Without `execute`, SCALER writes a dry-run report to `.scaler/storage/maintenance.json` and does not mutate storage. With `execute`, it gzips eligible old/large files under `.scaler/logs/details/`, non-active `.scaler/reports/`, and `.scaler/memory/`, removes the source only after a non-empty `.gz` is written, optionally deletes `.scaler/cache/` files when `delete-cache` is present, optionally rotates active `.scaler/logs/events.jsonl` and known append-style `.scaler/reports/*` ledgers when `rotate-active` is present and they exceed `max-active-bytes`, records an optional `min-free-bytes` disk-space check, refreshes storage accounting, updates the `storageBytes` budget counter, and writes command/state audit events.
 
-Defaults: compression enabled, cache deletion disabled, `min-age-days=7`, `min-size=1048576`.
+Defaults: compression enabled, cache deletion disabled, active rotation disabled, `min-age-days=7`, `min-size=1048576`, `max-active-bytes=10485760`, and no minimum-free-disk threshold.
 
 Examples:
 
@@ -121,6 +121,7 @@ Examples:
 /scaler-storage-maintain min-age-days=30 min-size=1048576
 /scaler-storage-maintain execute delete-cache min-age-days=30 min-size=1048576
 /scaler-storage-maintain no-compress delete-cache min-age-days=14
+/scaler-storage-maintain execute rotate-active no-compress max-active-bytes=10485760 min-free-bytes=1000000000
 ```
 
 ## `/scaler-budget-status`
