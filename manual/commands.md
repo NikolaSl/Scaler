@@ -16,6 +16,21 @@ Current behavior:
 
 This is an early entrypoint. It does not yet execute the full Stage I-IV workflow.
 
+## `/scaler-adapt [apply]`
+
+Reassesses adaptive orchestration for the current run. The assessment considers validation/debug failures, blocked or `needs_replan` tasks, run blockers, rejected-transition uncertainty, and current budget soft/hard limits.
+
+Current behavior:
+
+- reports `stay`, `escalate`, `deescalate`, or `pause`
+- recommends a target stage and complexity level
+- `apply` updates complexity and performs only valid supervisor stage transitions
+- hard budget limits recommend and apply a pause when valid
+- soft budget limits de-escalate complexity by one level to reduce scope
+- logs the assessment/application to `.scaler/logs/events.jsonl`
+
+It does not expand budgets, bypass approvals, or force invalid stage transitions.
+
 ## `/scaler-step [execute]`
 
 Runs one minimal deterministic conductor step.
