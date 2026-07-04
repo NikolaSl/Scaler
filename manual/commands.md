@@ -223,9 +223,17 @@ Lists debug-agent run records from `.scaler/reports/debug-agent-runs.json`.
 
 Lists debug reports from `.scaler/debug/reports.json`.
 
-## `/scaler-research-run [requestId] [execute]`
+## `/scaler-research-run [requestId] [execute] [internet] [tools=a,b]`
 
 Prepares or executes the focused research agent for a selected request or the oldest open request. With `execute`, SCALER ingests a valid `scaler_research_report` JSON event and stores the report under `.scaler/research/reports.json`.
+
+For `internet` or `mixed` requests, tools are withheld unless both an explicit `internet` grant and a `tools=a,b` list are supplied. Without the grant, the prompt instructs the agent to produce a `partial`/`blocked` report rather than pretending web access exists. Only listed tools are passed to the subprocess.
+
+Example:
+
+```text
+/scaler-research-run RESEARCH-001 execute internet tools=browser,mcp-docs
+```
 
 ## `/scaler-research-runs [requestId]`
 

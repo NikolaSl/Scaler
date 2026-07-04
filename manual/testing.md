@@ -43,6 +43,7 @@ The current mocked integration harness covers:
 - focused debug-agent report ingestion;
 - debug report creation of research requests;
 - focused research-agent report ingestion and request resolution;
+- explicit internet research grant behavior, with tools withheld until `internet tools=...` is supplied and source metadata persisted from the structured report;
 - next-approach debug reports and retry-gate clearance by later `newEvidence`;
 - rejection of child free-form text for debug, stage, replan, and research agents;
 - stage conductor artifact ingestion and advancement from PRD through knowledge, planning, execution, and completion;
@@ -88,6 +89,7 @@ Environment variables:
 Real-mode prompts include a cardinal test instruction before the normal agent prompt. Structured-output contracts require exactly one structured JSON event, with no prose or markdown. Tool/hook integrity contracts require exactly one named tool call with exact arguments and use restricted `--tools` lists. Current real coverage includes:
 
 - debug, research, stage, and replan agent structured event ingestion through real Pi/model subprocesses;
+- explicit research internet-tool grant contract coverage where the cardinal subprocess receives only the listed tool grant and persists source URL metadata;
 - exact assistant JSON objects carried inside Pi `--mode json` event wrappers, while prose/markdown text is still rejected;
 - real free-form rejection for stage, replan, and research child-agent outputs without mutating ledgers;
 - real chained debug → research → next-approach flow-parity through persisted debug/research ledgers;

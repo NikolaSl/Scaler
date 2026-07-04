@@ -29,7 +29,7 @@ Contradictions are recorded as `resolved` or `unresolved`. Resolved contradictio
 
 ```text
 /scaler-research-status
-/scaler-research-run [requestId] [execute]
+/scaler-research-run [requestId] [execute] [internet] [tools=a,b]
 /scaler-research-runs [requestId]
 /scaler-research-request <question> | <reason> | <taskId> | <PRD refs> | <scope>
 /scaler-research-report <question> | <conclusion> | <confidence> | <sourceId> | <sourceTitle> | <sourceQuality> | <sourceRef> | <requestId> | <taskId> | <PRD refs>
@@ -38,6 +38,14 @@ Contradictions are recorded as `resolved` or `unresolved`. Resolved contradictio
 `scope` is `local`, `internet`, or `mixed`.
 
 `/scaler-research-run` prepares the focused research-agent prompt for a selected request or the oldest open request. Requests may be created manually or by accepted debug reports with status `needs_research`. Passing `execute` runs the subprocess under the repo-wide execution lock and ingests only a valid structured `scaler_research_report` JSON event. Runs are recorded under `.scaler/reports/research-agent-runs.json`.
+
+For `internet` or `mixed` research scopes, SCALER distinguishes the request scope from actual tool grants. Internet-capable tools are not passed to the child process unless the command includes the explicit `internet` flag and a `tools=a,b` grant. Without such a grant, the prompt instructs the research agent to use local/project evidence only and report the missing internet capability as `partial` or `blocked` with unresolved unknowns. Example:
+
+```text
+/scaler-research-run RESEARCH-001 execute internet tools=browser,mcp-docs
+```
+
+Only the listed tools are passed to the subprocess. SCALER does not grant `bash` network transfer by default and existing safety hooks still block unsafe internet/deploy/publish/secret behavior.
 
 `/scaler-research-runs` lists recent research-agent run records, optionally filtered by request id.
 
@@ -66,4 +74,4 @@ Accepted child JSON event shape:
 
 ## Current limitations
 
-SCALER now has deterministic research/evidence ledgers and focused research-agent subprocess prompts with structured report ingestion. It does not yet perform internet search, browser/MCP research, or multi-agent research orchestration automatically beyond tools explicitly granted to the subprocess.
+SCALER now has deterministic research/evidence ledgers, focused research-agent subprocess prompts with structured report ingestion, and explicit internet-tool grant policy for internet/mixed requests. It does not yet discover browser/MCP tools automatically, perform multi-step web research by itself, or orchestrate multi-agent research beyond tools explicitly granted to the subprocess.

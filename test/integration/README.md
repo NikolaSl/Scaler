@@ -195,6 +195,9 @@ When adding a new integration scenario:
 - `mock/validation-gates-flow.test.ts`
   - command-driven typed validation gate metadata persisted to manifests;
   - validation run records and audit events preserve gate, required, expected-result, and evidence metadata.
+- `mock/research-internet-grant-flow.test.ts`
+  - internet-scope research requests withhold child-agent tools until an explicit internet grant is supplied;
+  - explicit grants pass only the listed tools, preserve source URL metadata, raw evidence memory refs, run records, and agent prompt audit details.
 - `mock/safety-hook-flow.test.ts`
   - extension `tool_call` hook blocks external publish and secret environment exposure commands;
   - persisted safety audit logs record `external` and `secret` risks.
@@ -216,6 +219,7 @@ When adding a new integration scenario:
 - `real/real-pi-contracts.test.ts`
   - opt-in cardinal structured-output contract for `scaler_debug_report`;
   - opt-in cardinal structured-output contract for `scaler_research_report`;
+  - opt-in cardinal internet-scope research grant contract that passes only the listed tool and persists source URL metadata;
   - opt-in cardinal structured-output contract for `scaler_stage_artifact`;
   - opt-in cardinal structured-output contract for `scaler_replan_proposal`;
   - real Pi `--mode json` wrapper extraction for exact assistant JSON events.
