@@ -47,7 +47,7 @@ Examples:
 
 ## `/scaler-validation-checklist <taskId> | <gate> | <summary> | <id::status::required::statement::evidence;...> | <evidence refs>`
 
-Records a deterministic non-software validation checklist under `.scaler/reports/validation-checklists.json` and applies the rolled-up result to the task. Item statuses are `passed`, `failed`, `blocked`, or `not_applicable`; required failed items fail the checklist, required blocked items block it, and optional failures are recorded without failing the checklist.
+Records a deterministic non-software validation checklist under `.scaler/reports/validation-checklists.json` and applies the rolled-up result to the task. Item statuses are `passed`, `failed`, `blocked`, or `not_applicable`; required failed items fail the checklist, required blocked items block it, and optional failures are recorded without failing the checklist. Evidence-required gates (`acceptance_smoke`, `completeness`, `compliance`, `source_validation`, and `adversarial_review`) also fail when a required passed item has no item-level evidence and the checklist has no top-level evidence refs.
 
 Example:
 

@@ -218,7 +218,7 @@ When adding a new integration scenario:
 - `mock/validation-gates-flow.test.ts`
   - command-driven typed validation gate metadata persisted to manifests;
   - validation run records and audit events preserve gate, required, expected-result, and evidence metadata;
-  - command-driven non-software validation checklists persist deterministic checklist records and apply fail/pass rollups.
+  - command-driven non-software validation checklists persist deterministic checklist records, apply fail/pass rollups, and enforce evidence-required acceptance policy.
 - `mock/research-internet-grant-flow.test.ts`
   - internet-scope research requests withhold child-agent tools until an explicit internet grant is supplied;
   - explicit grants pass only the listed tools, preserve source URL metadata, raw evidence memory refs, run records, and agent prompt audit details.
@@ -254,7 +254,7 @@ When adding a new integration scenario:
   - real Pi slash-command storage maintenance execution with persisted `.scaler/storage/maintenance.json` and audit logs;
   - real Pi slash-command debug next-approach retry prepare mode with persisted `.scaler/debug/retries.json` and prompt audit logs;
   - real Pi slash-command tool transaction and transaction replay prepare modes with persisted `.scaler/tool-requests/transactions.json`;
-  - real Pi slash-command typed validation gate metadata and non-software checklist persistence;
+  - real Pi slash-command typed validation gate metadata, non-software checklist persistence, and evidence-policy enforcement;
   - command audit events and detail payload references in `.scaler/logs/events.jsonl`;
   - cardinal real-model call to `scaler_tool_request` with exact rich metadata and persisted tool-request state;
   - cardinal real-model call to `scaler_tool_result` with exact result metadata, persisted result ledger, and closed request status;
