@@ -27,6 +27,7 @@ import {
   parseToolDiscoverArgs,
   parseToolIterateArgs,
   parseToolIterationPolicyArgs,
+  parseToolReplayApprovalArgs,
   parseToolReplayArgs,
   parseToolRunArgs,
   parseValidateLoopArgs,
@@ -285,10 +286,17 @@ test("parseToolRunArgs parses optional request and execute flag", () => {
   assert.deepEqual(parseToolRunArgs(" "), { requestId: undefined, execute: false });
 });
 
-test("parseToolReplayArgs parses optional transaction and execute flag", () => {
-  assert.deepEqual(parseToolReplayArgs("TXN-1 execute"), { transactionId: "TXN-1", execute: true });
-  assert.deepEqual(parseToolReplayArgs("execute"), { transactionId: undefined, execute: true });
-  assert.deepEqual(parseToolReplayArgs(" "), { transactionId: undefined, execute: false });
+test("parseToolReplayArgs parses optional transaction, execute flag, and approval id", () => {
+  assert.deepEqual(parseToolReplayArgs("TXN-1 execute"), { transactionId: "TXN-1", execute: true, approvalId: undefined });
+  assert.deepEqual(parseToolReplayArgs("TXN-1 execute approval=APP-1"), { transactionId: "TXN-1", execute: true, approvalId: "APP-1" });
+  assert.deepEqual(parseToolReplayArgs("execute"), { transactionId: undefined, execute: true, approvalId: undefined });
+  assert.deepEqual(parseToolReplayArgs(" "), { transactionId: undefined, execute: false, approvalId: undefined });
+});
+
+test("parseToolReplayApprovalArgs parses approval workflow", () => {
+  assert.deepEqual(parseToolReplayApprovalArgs("approve | TXN-1 | Audit follow-up | max-uses=2 ttl-minutes=30"), { action: "approve", transactionId: "TXN-1", reason: "Audit follow-up", maxUses: 2, ttlMinutes: 30 });
+  assert.deepEqual(parseToolReplayApprovalArgs("revoke | APP-1 | No longer needed"), { action: "revoke", id: "APP-1", reason: "No longer needed" });
+  assert.deepEqual(parseToolReplayApprovalArgs(" "), { action: "list" });
 });
 
 test("parseToolIterateArgs parses optional request, execute flag, and max cap", () => {

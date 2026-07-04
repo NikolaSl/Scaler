@@ -11,7 +11,7 @@ import { loadResearchWebTransactions } from "../../../src/research-web.js";
 import { loadSafetyApprovals, loadSafetyPolicy } from "../../../src/safety.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { loadStorageInventory, loadStorageMaintenanceReport, loadStorageMaintenanceSchedule } from "../../../src/storage.js";
-import { loadToolIterationPolicy, loadToolIterationRuns, loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest, recordToolSchema, runToolRequestAgent } from "../../../src/tool-requests.js";
+import { loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest, recordToolSchema, runToolRequestAgent } from "../../../src/tool-requests.js";
 import { loadValidationEnvironmentRecords } from "../../../src/validation-environments.js";
 import { loadValidationChecklists, loadValidationManifests, loadValidationRuns, runTaskValidation, saveValidationManifest, upsertValidationManifestCommand } from "../../../src/validation.js";
 import { REAL_PI_ENABLED, REAL_PI_MODEL, runScalerPi, withRealPiTempRepo } from "./real-pi-harness.js";
@@ -747,6 +747,46 @@ test("real Pi extension: slash command dispatch prepares tool transaction replay
       ["start", "end"],
     );
     assert.ok(events.some((event) => event.eventType === "tool" && event.summary === `Tool transaction replay prepared: ${original.transaction?.id}`));
+  });
+});
+
+test("real Pi extension: slash command dispatch creates tool replay approval", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "docs_search",
+      request: "Find widget lifecycle docs.",
+      taskId: "REAL-TOOL-REPLAY-APPROVAL",
+      allowedTools: ["read"],
+    });
+    assert.ok(prepared.record, "expected seeded tool request");
+    const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id });
+    assert.ok(original.transaction, "expected seeded transaction");
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: `/scaler-tool-replay-approval approve | ${original.transaction.id} | Real closed replay check | max-uses=1 ttl-minutes=60`,
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Tool replay approval created:/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const approvals = await loadToolReplayApprovals(dir);
+    assert.equal(approvals.length, 1);
+    assert.equal(approvals[0]?.transactionId, original.transaction.id);
+    assert.equal(approvals[0]?.requestId, prepared.record.id);
+    assert.equal(approvals[0]?.status, "active");
+    assert.equal(approvals[0]?.reason, "Real closed replay check");
+
+    const events = await readLogEvents(dir);
+    assert.deepEqual(
+      events
+        .filter((event) => event.eventType === "command" && isRecord(event.details) && event.details.command === "scaler-tool-replay-approval")
+        .map((event) => (event.details as { phase: string }).phase),
+      ["start", "end"],
+    );
+    assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("Tool replay approval created")));
   });
 });
 

@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { getBudgetState } from "../../../src/budgets.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { createDefaultState, loadState } from "../../../src/state.js";
-import { loadToolIterationRuns, loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolTransactions, prepareToolRequest, recordToolResult, recordToolSchema, replayToolTransaction, runToolIterationWorkflow, runToolRequestAgent, runToolSchemaDiscoveryAgent } from "../../../src/tool-requests.js";
+import { createToolReplayApproval, loadToolIterationRuns, loadToolReplayApprovals, loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolTransactions, prepareToolRequest, recordToolResult, recordToolSchema, replayToolTransaction, runToolIterationWorkflow, runToolRequestAgent, runToolSchemaDiscoveryAgent } from "../../../src/tool-requests.js";
 import { registerScalerTools } from "../../../src/tools.js";
 
 const execFileAsync = promisify(execFile);
@@ -136,6 +136,63 @@ test("mock integration: tool transaction execution requires structured scaler_to
 
     const events = await readLogEvents(dir);
     assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("Tool transaction missing structured result")));
+    assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("Tool transaction replay completed")));
+  });
+});
+
+test("mock integration: closed tool replay requires explicit approval and consumes it", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "mcp_docs_search",
+      request: "Find the widget lifecycle API.",
+      taskId: "T-TOOL-CLOSED-REPLAY",
+      expectedOutput: "Widget lifecycle API names and source refs.",
+      requiredFormat: "JSON with fields apiNames and refs",
+      riskLevel: "low",
+      allowedTools: ["read"],
+    });
+    assert.ok(prepared.record);
+
+    const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+      await recordToolResult(dir, state, {
+        requestId: prepared.record!.id,
+        status: "completed",
+        summary: "Widget lifecycle API located.",
+        outputs: { apiNames: ["Widget.create"], refs: ["docs:widget-lifecycle"] },
+        validationPerformed: ["checked requested requiredFormat"],
+      });
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+    assert.ok(original.transaction);
+
+    const rejected = await replayToolTransaction(dir, state, { transactionId: original.transaction.id, execute: true });
+    assert.equal(rejected.accepted, false);
+    assert.equal(rejected.transaction?.status, "rejected");
+
+    const approval = await createToolReplayApproval(dir, state, { transactionId: original.transaction.id, reason: "Validate second source", maxUses: 1 });
+    const approved = await replayToolTransaction(dir, state, { transactionId: original.transaction.id, execute: true, approvalId: approval.id }, async (request) => {
+      assert.match(request.prompt, /Required format: JSON with fields apiNames and refs/);
+      await recordToolResult(dir, state, {
+        requestId: prepared.record!.id,
+        status: "completed",
+        summary: "Widget lifecycle API validated by replay.",
+        outputs: { apiNames: ["Widget.create", "Widget.destroy"], refs: ["docs:widget-lifecycle", "docs:widget-cleanup"] },
+        evidenceRefs: ["docs:widget-cleanup"],
+        validationPerformed: ["checked replay output"],
+      });
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+
+    assert.equal(approved.accepted, true);
+    assert.equal(approved.transaction?.status, "completed");
+    assert.equal(approved.transaction?.replayOfTransactionId, original.transaction.id);
+    const consumed = (await loadToolReplayApprovals(dir))[0];
+    assert.equal(consumed?.status, "consumed");
+    assert.equal(consumed?.uses, 1);
+    assert.deepEqual(consumed?.consumedByTransactionIds, [approved.transaction?.id]);
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("Tool replay approval created")));
     assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("Tool transaction replay completed")));
   });
 });

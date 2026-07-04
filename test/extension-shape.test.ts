@@ -71,6 +71,7 @@ test("extension registers scaler commands", () => {
     "scaler-tool-discover",
     "scaler-tool-discovery-runs",
     "scaler-tool-replay",
+    "scaler-tool-replay-approval",
     "scaler-tool-iteration-policy",
     "scaler-tool-iterate",
     "scaler-tool-iteration-runs",

@@ -7,15 +7,18 @@ import { createDefaultState } from "../src/state.js";
 import {
   buildToolAgentPrompt,
   buildToolSchemaDiscoveryPrompt,
+  createToolReplayApproval,
   formatDiscoveredToolCatalog,
   formatToolCatalog,
   formatToolIterationPolicy,
   formatToolIterationRuns,
+  formatToolReplayApprovals,
   formatToolSchemaDiscoveryRuns,
   formatToolTransactions,
   getToolCatalogEntries,
   loadToolIterationPolicy,
   loadToolIterationRuns,
+  loadToolReplayApprovals,
   loadToolRequests,
   loadToolResults,
   loadToolSchemaDiscoveryRuns,
@@ -26,6 +29,7 @@ import {
   recordToolResult,
   recordToolSchema,
   replayToolTransaction,
+  revokeToolReplayApproval,
   runToolIterationWorkflow,
   runToolRequestAgent,
   runToolSchemaDiscoveryAgent,
@@ -392,6 +396,68 @@ test("replayToolTransaction refuses execute for closed requests", async () => {
     assert.equal(replay.accepted, false);
     assert.equal(replay.transaction?.status, "rejected");
     assert.match(replay.message, /is completed/);
+    assert.match(replay.message, /no approval supplied/);
+  });
+});
+
+test("tool replay approvals can be created, listed, revoked, and validated", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
+    assert.ok(prepared.record);
+    const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+      await recordToolResult(dir, state, { requestId: prepared.record!.id, status: "completed", summary: "Done.", outputs: { ok: true } });
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+    assert.ok(original.transaction);
+
+    const approval = await createToolReplayApproval(dir, state, {
+      transactionId: original.transaction.id,
+      reason: "Audit follow-up",
+      maxUses: 2,
+      ttlMinutes: 30,
+    }, new Date("2026-01-01T00:00:00.000Z"));
+
+    assert.equal(approval.status, "active");
+    assert.equal(approval.maxUses, 2);
+    assert.equal(approval.uses, 0);
+    assert.equal(approval.expiresAt, "2026-01-01T00:30:00.000Z");
+    assert.match(formatToolReplayApprovals(await loadToolReplayApprovals(dir)), /Audit follow-up/);
+
+    const revoked = await revokeToolReplayApproval(dir, state, { id: approval.id, reason: "No longer needed" }, new Date("2026-01-01T00:01:00.000Z"));
+    assert.equal(revoked.status, "revoked");
+    assert.equal((await loadToolReplayApprovals(dir))[0]?.revokedReason, "No longer needed");
+  });
+});
+
+test("replayToolTransaction executes closed requests only with a matching approval", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
+    assert.ok(prepared.record);
+    const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+      await recordToolResult(dir, state, { requestId: prepared.record!.id, status: "completed", summary: "Done.", outputs: { ok: true } });
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+    assert.ok(original.transaction);
+    const approval = await createToolReplayApproval(dir, state, { transactionId: original.transaction.id, reason: "Second pass" });
+
+    const approved = await replayToolTransaction(dir, state, { transactionId: original.transaction.id, execute: true, approvalId: approval.id }, async (request) => {
+      await recordToolResult(dir, state, { requestId: prepared.record!.id, status: "completed", summary: "Replay done.", outputs: { replay: true } });
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+
+    assert.equal(approved.accepted, true);
+    assert.equal(approved.transaction?.status, "completed");
+    assert.equal(approved.transaction?.replayOfTransactionId, original.transaction.id);
+    const consumed = (await loadToolReplayApprovals(dir))[0];
+    assert.equal(consumed?.status, "consumed");
+    assert.equal(consumed?.uses, 1);
+    assert.deepEqual(consumed?.consumedByTransactionIds, [approved.transaction?.id]);
+
+    const second = await replayToolTransaction(dir, state, { transactionId: original.transaction.id, execute: true, approvalId: approval.id });
+    assert.equal(second.accepted, false);
+    assert.match(second.message, /approval .* is not usable/);
   });
 });
 
