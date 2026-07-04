@@ -102,6 +102,10 @@ export function getToolResultsPath(cwd: string): string {
   return join(getToolRequestsDir(cwd), "results.json");
 }
 
+export function getToolTransactionsPath(cwd: string): string {
+  return join(getToolRequestsDir(cwd), "transactions.json");
+}
+
 export function getReportsDir(cwd: string): string {
   return join(getScalerDir(cwd), "reports");
 }

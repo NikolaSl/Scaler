@@ -10,9 +10,12 @@ import {
   getToolCatalogEntries,
   loadToolRequests,
   loadToolResults,
+  loadToolTransactions,
   normalizeToolRiskLevel,
   prepareToolRequest,
   recordToolResult,
+  runToolRequestAgent,
+  formatToolTransactions,
 } from "../src/tool-requests.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -106,6 +109,83 @@ test("prepareToolRequest rejects missing request without persistence", async () 
     assert.equal(result.accepted, false);
     assert.match(result.message, /request is required/);
     assert.deepEqual(await loadToolRequests(dir), []);
+  });
+});
+
+test("runToolRequestAgent records prepare-mode transactions", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "docs_search",
+      request: "Find widget docs.",
+      allowedTools: ["read"],
+    }, new Date("2026-01-01T00:00:00.000Z"));
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id });
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.transaction?.status, "prepared");
+    assert.equal(result.transaction?.executed, false);
+    assert.ok(result.invocation?.args.includes("--tools"));
+    assert.ok(result.invocation?.args.includes("docs_search,read"));
+    assert.match(formatToolTransactions(await loadToolTransactions(dir)), /status=prepared/);
+  });
+});
+
+test("runToolRequestAgent recognizes structured scaler_tool_result closure", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "docs_search",
+      request: "Find widget docs.",
+      taskId: "T-TOOL-RUN",
+      allowedTools: ["read"],
+    }, new Date("2026-01-01T00:00:00.000Z"));
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+      await recordToolResult(dir, state, {
+        requestId: prepared.record!.id,
+        status: "completed",
+        summary: `Completed ${request.taskId}`,
+        outputs: { refs: ["docs:widget"] },
+        validationPerformed: ["checked requested format"],
+      });
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.transaction?.status, "completed");
+    assert.equal(result.resultRecord?.status, "completed");
+    assert.equal((await loadToolRequests(dir))[0]?.status, "completed");
+    assert.equal((await loadToolTransactions(dir))[0]?.resultId, result.resultRecord?.id);
+  });
+});
+
+test("runToolRequestAgent treats free-form or missing structured result as incomplete", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "docs_search",
+      request: "Find widget docs.",
+      allowedTools: ["read"],
+    }, new Date("2026-01-01T00:00:00.000Z"));
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => ({
+      taskId: request.taskId,
+      exitCode: 0,
+      stdoutEvents: [{ type: "unparsed", text: "I found it in prose only." }],
+      stderr: "",
+      timedOut: false,
+      aborted: false,
+    }));
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.transaction?.status, "missing_result");
+    assert.equal((await loadToolRequests(dir))[0]?.status, "prepared");
+    assert.equal((await loadToolResults(dir)).length, 0);
   });
 });
 

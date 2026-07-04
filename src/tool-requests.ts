@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { appendLogEvent, createLogEvent } from "./logging.js";
-import { getToolRequestsIndexPath, getToolResultsPath } from "./paths.js";
-import { buildTaskAgentInvocation, type TaskAgentInvocation } from "./subagents.js";
+import { getToolRequestsIndexPath, getToolResultsPath, getToolTransactionsPath } from "./paths.js";
+import { buildTaskAgentInvocation, runTaskAgent, type RunTaskAgentOptions, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import type { ScalerState } from "./types.js";
 
 export type ToolRiskLevel = "low" | "medium" | "high" | "destructive" | "external" | "secret" | "unknown";
@@ -32,6 +32,7 @@ export interface ToolRequestInput {
 
 export type ToolRequestStatus = "prepared" | "completed" | "failed" | "blocked";
 export type ToolResultStatus = "completed" | "failed" | "blocked";
+export type ToolTransactionStatus = "prepared" | "completed" | "failed" | "blocked" | "missing_result" | "rejected";
 
 export interface ToolRequestRecord {
   id: string;
@@ -62,6 +63,23 @@ export interface ToolResultInput {
   recommendations?: string[];
 }
 
+export interface ToolTransactionRecord {
+  id: string;
+  requestId: string;
+  taskId?: string;
+  toolName: string;
+  status: ToolTransactionStatus;
+  executed: boolean;
+  invocation: TaskAgentInvocation;
+  runExitCode?: number;
+  stdoutEventCount?: number;
+  stderrSummary?: string;
+  resultId?: string;
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ToolResultRecord {
   id: string;
   requestId: string;
@@ -85,6 +103,24 @@ export interface ToolRequestPrepareResult {
   invocation?: TaskAgentInvocation;
 }
 
+export interface ToolRequestRunOptions {
+  requestId?: string;
+  execute?: boolean;
+  timeoutMs?: number;
+  command?: string;
+}
+
+export interface ToolRequestRunResult {
+  accepted: boolean;
+  message: string;
+  request?: ToolRequestRecord;
+  prompt?: string;
+  invocation?: TaskAgentInvocation;
+  runResult?: TaskAgentRunResult;
+  transaction?: ToolTransactionRecord;
+  resultRecord?: ToolResultRecord;
+}
+
 interface ToolRequestIndex {
   version: 1;
   requests: ToolRequestRecord[];
@@ -93,6 +129,11 @@ interface ToolRequestIndex {
 interface ToolResultIndex {
   version: 1;
   results: ToolResultRecord[];
+}
+
+interface ToolTransactionIndex {
+  version: 1;
+  transactions: ToolTransactionRecord[];
 }
 
 const toolRiskLevels = new Set<ToolRiskLevel>(["low", "medium", "high", "destructive", "external", "secret", "unknown"]);
@@ -157,6 +198,87 @@ export async function loadToolResults(cwd: string): Promise<ToolResultRecord[]> 
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
   }
+}
+
+export async function loadToolTransactions(cwd: string): Promise<ToolTransactionRecord[]> {
+  try {
+    const raw = await readFile(getToolTransactionsPath(cwd), "utf8");
+    return (JSON.parse(raw) as ToolTransactionIndex).transactions;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+export async function runToolRequestAgent(
+  cwd: string,
+  state: ScalerState,
+  options: ToolRequestRunOptions = {},
+  runner: typeof runTaskAgent = runTaskAgent,
+): Promise<ToolRequestRunResult> {
+  const request = await selectRunnableToolRequest(cwd, options.requestId);
+  if (!request) {
+    const message = options.requestId ? `Tool transaction rejected: request ${options.requestId} is not prepared.` : "Tool transaction rejected: no prepared tool request.";
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: message, details: options }));
+    return { accepted: false, message };
+  }
+
+  const prompt = buildToolAgentPrompt(request);
+  const agentRequest = {
+    taskId: `tool-${request.id}`,
+    prompt,
+    tools: request.allowedTools,
+    cwd,
+  };
+  const invocation = buildTaskAgentInvocation(agentRequest, options.command ?? "pi");
+
+  if (!options.execute) {
+    const transaction = await recordToolTransaction(cwd, request, {
+      status: "prepared",
+      executed: false,
+      invocation,
+      message: `Tool transaction prepared: ${request.id}`,
+    });
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: transaction.message, taskId: request.taskId, details: { transaction } }));
+    return { accepted: true, message: transaction.message, request, prompt, invocation, transaction };
+  }
+
+  const runResult = await runner(agentRequest, { timeoutMs: options.timeoutMs, command: options.command } satisfies RunTaskAgentOptions);
+  const updatedRequest = (await loadToolRequests(cwd)).find((candidate) => candidate.id === request.id) ?? request;
+  const resultRecord = (await loadToolResults(cwd)).find((candidate) => candidate.requestId === request.id);
+  const status: ToolTransactionStatus = resultRecord && updatedRequest.status !== "prepared" ? updatedRequest.status : "missing_result";
+  const transaction = await recordToolTransaction(cwd, updatedRequest, {
+    status,
+    executed: true,
+    invocation,
+    runResult,
+    resultId: resultRecord?.id,
+    message: status === "missing_result"
+      ? `Tool transaction missing structured result: ${request.id}`
+      : `Tool transaction completed: ${request.id} ${status}`,
+  });
+  await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: transaction.message, taskId: request.taskId, details: { transaction, runResult, resultRecord } }));
+  return {
+    accepted: status !== "missing_result",
+    message: transaction.message,
+    request: updatedRequest,
+    prompt,
+    invocation,
+    runResult,
+    transaction,
+    resultRecord,
+  };
+}
+
+export function formatToolTransactions(records: ToolTransactionRecord[], requestId?: string, limit = 10): string {
+  const filtered = requestId ? records.filter((record) => record.requestId === requestId) : records;
+  if (filtered.length === 0) return requestId ? `No tool transactions for ${requestId}.` : "No tool transactions.";
+  const lines = [requestId ? `Tool transactions for ${requestId}:` : "Tool transactions:"];
+  for (const record of filtered.slice(0, limit)) {
+    const run = record.runExitCode === undefined ? "not-run" : `exit=${record.runExitCode} stdout_events=${record.stdoutEventCount ?? 0}`;
+    lines.push(`- ${record.id} request=${record.requestId} tool=${record.toolName} status=${record.status} ${run} result=${record.resultId ?? "n/a"}: ${record.message}`);
+  }
+  return lines.join("\n");
 }
 
 export async function recordToolResult(cwd: string, state: ScalerState, input: ToolResultInput, now = new Date()): Promise<ToolResultRecord> {
@@ -329,6 +451,54 @@ async function writeToolResultIndex(cwd: string, results: ToolResultRecord[]): P
   await writeFile(path, `${JSON.stringify({ version: 1, results: sorted } satisfies ToolResultIndex, null, 2)}\n`, "utf8");
 }
 
+async function writeToolTransactionIndex(cwd: string, transactions: ToolTransactionRecord[]): Promise<void> {
+  const path = getToolTransactionsPath(cwd);
+  await mkdir(dirname(path), { recursive: true });
+  const sorted = [...transactions].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  await writeFile(path, `${JSON.stringify({ version: 1, transactions: sorted } satisfies ToolTransactionIndex, null, 2)}\n`, "utf8");
+}
+
+async function selectRunnableToolRequest(cwd: string, requestId?: string): Promise<ToolRequestRecord | undefined> {
+  const requests = await loadToolRequests(cwd);
+  const prepared = requests.filter((request) => request.status === "prepared");
+  if (requestId) return prepared.find((request) => request.id === requestId.trim());
+  return prepared.sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0];
+}
+
+async function recordToolTransaction(
+  cwd: string,
+  request: ToolRequestRecord,
+  input: {
+    status: ToolTransactionStatus;
+    executed: boolean;
+    invocation: TaskAgentInvocation;
+    runResult?: TaskAgentRunResult;
+    resultId?: string;
+    message: string;
+  },
+  now = new Date(),
+): Promise<ToolTransactionRecord> {
+  const timestamp = now.toISOString();
+  const record: ToolTransactionRecord = {
+    id: randomUUID(),
+    requestId: request.id,
+    taskId: request.taskId,
+    toolName: request.toolName,
+    status: input.status,
+    executed: input.executed,
+    invocation: input.invocation,
+    runExitCode: input.runResult?.exitCode,
+    stdoutEventCount: input.runResult?.stdoutEvents.length,
+    stderrSummary: input.runResult ? summarizeOutput(input.runResult.stderr) : undefined,
+    resultId: input.resultId,
+    message: input.message,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  await writeToolTransactionIndex(cwd, [record, ...(await loadToolTransactions(cwd))]);
+  return record;
+}
+
 function normalizeToolResultStatus(value: unknown): ToolResultStatus {
   if (typeof value !== "string") throw new Error("Tool result rejected: status is required.");
   const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
@@ -338,4 +508,10 @@ function normalizeToolResultStatus(value: unknown): ToolResultStatus {
 
 function uniqueNonEmpty(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))];
+}
+
+function summarizeOutput(output: string, limit = 2_000): string {
+  const normalized = output.trim();
+  if (normalized.length <= limit) return normalized;
+  return `${normalized.slice(0, limit)}\n...[truncated ${normalized.length - limit} chars]`;
 }
