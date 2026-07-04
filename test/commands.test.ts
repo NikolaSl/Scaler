@@ -17,6 +17,7 @@ import {
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
+  parseToolRunArgs,
   parseValidateLoopArgs,
   parseStageLoopArgs,
   parseStageRecordArgs,
@@ -165,6 +166,12 @@ test("parseResearchRunArgs parses optional request, execute, internet grant, and
   assert.deepEqual(parseResearchRunArgs("execute internet tools=browser,mcp-docs RESEARCH-002"), { requestId: "RESEARCH-002", execute: true, allowInternet: true, tools: ["browser", "mcp-docs"] });
   assert.deepEqual(parseResearchRunArgs("execute"), { requestId: undefined, execute: true, allowInternet: false, tools: undefined });
   assert.deepEqual(parseResearchRunArgs(" "), { requestId: undefined, execute: false, allowInternet: false, tools: undefined });
+});
+
+test("parseToolRunArgs parses optional request and execute flag", () => {
+  assert.deepEqual(parseToolRunArgs("REQ-1 execute"), { requestId: "REQ-1", execute: true });
+  assert.deepEqual(parseToolRunArgs("execute"), { requestId: undefined, execute: true });
+  assert.deepEqual(parseToolRunArgs(" "), { requestId: undefined, execute: false });
 });
 
 test("parseDebugRunArgs parses optional task and execute flag", () => {

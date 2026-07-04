@@ -21,6 +21,7 @@ import {
   parseTaskCreateArgs,
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
+  parseToolRunArgs,
   parseValidateLoopArgs,
   parseValidationAddArgs,
   resolveCommitAllowedPaths,
@@ -70,6 +71,7 @@ import {
   validateStageArtifactReadiness,
 } from "./stages.js";
 import { formatStorageInventory, formatStorageMaintenanceReport, runStorageMaintenance, saveStorageInventory, scanScalerStorageInventory } from "./storage.js";
+import { formatToolTransactions, loadToolTransactions, runToolRequestAgent } from "./tool-requests.js";
 import { registerScalerTools } from "./tools.js";
 import { upsertValidationManifestCommand } from "./validation.js";
 import { runValidationDebugLoopWorkflow, selectTaskForValidationDebugLoop } from "./validation-debug-loop.js";
@@ -584,6 +586,29 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     description: "List recent SCALER debug next-approach retry records.",
     handler: async (_args, ctx) => {
       const message = formatDebugRetrySummary(await loadDebugRetries(ctx.cwd));
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-tool-run", {
+    description: "Prepare or execute an isolated tool-agent transaction: /scaler-tool-run [requestId] [execute]",
+    handler: async (args, ctx) => {
+      const parsed = parseToolRunArgs(args);
+      const state = await ensureState(ctx.cwd);
+      const result = await runToolRequestAgent(ctx.cwd, state, { requestId: parsed.requestId, execute: parsed.execute });
+      const suffix = result.transaction ? ` transaction=${result.transaction.id} status=${result.transaction.status}` : "";
+      const message = `${result.message}${suffix}`;
+      if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-tool-transactions", {
+    description: "List isolated tool-agent transaction records: /scaler-tool-transactions [requestId]",
+    handler: async (args, ctx) => {
+      const requestId = args?.trim() || undefined;
+      const message = formatToolTransactions(await loadToolTransactions(ctx.cwd), requestId);
       if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
     },

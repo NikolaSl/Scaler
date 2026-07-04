@@ -89,6 +89,11 @@ export interface ParsedResearchRunArgs {
   tools?: string[];
 }
 
+export interface ParsedToolRunArgs {
+  requestId?: string;
+  execute: boolean;
+}
+
 export interface ParsedDebugRunArgs {
   taskId?: string;
   execute: boolean;
@@ -277,6 +282,14 @@ export function parseResearchRunArgs(args: string | undefined): ParsedResearchRu
     execute: parts.some((part) => part.toLowerCase() === "execute"),
     allowInternet: parts.some((part) => part.toLowerCase() === "internet"),
     tools: parseCommaList(toolsPart?.slice(toolsPart.indexOf("=") + 1)),
+  };
+}
+
+export function parseToolRunArgs(args: string | undefined): ParsedToolRunArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  return {
+    requestId: parts.find((part) => part.toLowerCase() !== "execute"),
+    execute: parts.some((part) => part.toLowerCase() === "execute"),
   };
 }
 
