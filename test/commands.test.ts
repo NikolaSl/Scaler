@@ -12,6 +12,8 @@ import {
   parseDebugRetryArgs,
   parseDebugRetryPolicyArgs,
   parseMemorySearchArgs,
+  parseMissingContextResolveArgs,
+  parseMissingContextRunArgs,
   parsePrdLinkArgs,
   parseReplanRequestArgs,
   parseReplanRunArgs,
@@ -248,6 +250,16 @@ test("parseSemicolonList removes blanks", () => {
 test("parseContextTaskArgs parses optional task id", () => {
   assert.deepEqual(parseContextTaskArgs(" T-001 "), { taskId: "T-001" });
   assert.deepEqual(parseContextTaskArgs(" "), { taskId: undefined });
+});
+
+test("parseMissingContextRunArgs parses request, execute, and internet flags", () => {
+  assert.deepEqual(parseMissingContextRunArgs("MCTX-1 execute internet"), { requestId: "MCTX-1", execute: true, allowInternet: true });
+  assert.deepEqual(parseMissingContextRunArgs(" "), { requestId: undefined, execute: false, allowInternet: false });
+});
+
+test("parseMissingContextResolveArgs parses manual resolution fields", () => {
+  assert.deepEqual(parseMissingContextResolveArgs("MCTX-1 | Answer supplied | ev:1, ev:2"), { requestId: "MCTX-1", summary: "Answer supplied", evidenceRefs: ["ev:1", "ev:2"] });
+  assert.equal(parseMissingContextResolveArgs("MCTX-1"), undefined);
 });
 
 test("parseStageRunArgs parses stage and execute flag", () => {
