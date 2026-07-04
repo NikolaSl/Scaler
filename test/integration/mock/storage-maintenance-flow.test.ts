@@ -90,7 +90,7 @@ test("mock integration: storage maintenance executes compression, explicit cache
     assert.equal(await readFile(outsidePath, "utf8"), "o".repeat(4096));
 
     const after = await loadState(dir);
-    assert.ok(getBudgetState(after).usage.storageBytes > 0);
+    assert.ok(Number(getBudgetState(after).usage.storageBytes) > 0);
 
     const events = await readLogEvents(dir);
     assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Scaler storage maintenance requested"));

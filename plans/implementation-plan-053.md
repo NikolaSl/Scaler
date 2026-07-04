@@ -35,3 +35,4 @@ Move storage management beyond inventory/status by adding deterministic maintena
 4. `IMPL-214: add mocked storage maintenance integration coverage`
 5. `IMPL-215: add real storage maintenance command coverage`
 6. `IMPL-216: document storage maintenance coverage`
+7. `IMPL-217: fix storage maintenance test type check`
