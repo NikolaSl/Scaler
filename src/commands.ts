@@ -300,6 +300,16 @@ export interface ParsedStageLoopArgs {
   maxSteps?: number;
 }
 
+export interface ParsedStageWorkflowArgs {
+  execute: boolean;
+  maxSteps?: number;
+  maxResearchRequests?: number;
+  maxResearchAgents?: number;
+  allowInternet: boolean;
+  tools?: string[];
+  autoAcceptReplan?: boolean;
+}
+
 export function parseTaskCreateArgs(args: string | undefined): ParsedTaskCreateArgs | undefined {
   const parts = splitPipeArgs(args);
   const taskId = parts[0]?.trim();
@@ -800,6 +810,24 @@ export function parseStageLoopArgs(args: string | undefined): ParsedStageLoopArg
   };
 }
 
+export function parseStageWorkflowArgs(args: string | undefined): ParsedStageWorkflowArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  const maxSteps = parseIntegerOption(parts, "max");
+  const maxResearchAgents = parseIntegerOption(parts, "research");
+  const maxResearchRequests = parseIntegerOption(parts, "requests");
+  const toolsPart = parts.find((part) => /^tools=/i.test(part));
+  const autoAcceptPart = parts.find((part) => /^auto-accept-replan=/i.test(part));
+  return {
+    execute: parts.some((part) => part.toLowerCase() === "execute"),
+    maxSteps,
+    maxResearchAgents,
+    maxResearchRequests,
+    allowInternet: parts.some((part) => part.toLowerCase() === "internet"),
+    tools: parseCommaList(toolsPart?.split("=").slice(1).join("=")),
+    autoAcceptReplan: autoAcceptPart ? parseOnOff(autoAcceptPart.split("=").slice(1).join("=")) : undefined,
+  };
+}
+
 export function parseStageRecordArgs(args: string | undefined): ParsedStageRecordArgs | undefined {
   const parts = splitPipeArgs(args);
   const stage = parts[0]?.trim();
@@ -835,6 +863,20 @@ export function parseCommaList(value: string | undefined): string[] | undefined 
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
   return items.length > 0 ? items : undefined;
+}
+
+function parseIntegerOption(parts: string[], key: string): number | undefined {
+  const part = parts.find((candidate) => new RegExp(`^${key}=\\d+$`, "i").test(candidate));
+  if (!part) return undefined;
+  const value = Number.parseInt(part.split("=")[1] ?? "", 10);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function parseOnOff(value: string): boolean | undefined {
+  const normalized = value.trim().toLowerCase();
+  if (["on", "true", "yes", "1"].includes(normalized)) return true;
+  if (["off", "false", "no", "0"].includes(normalized)) return false;
+  return undefined;
 }
 
 export function parseSemicolonList(value: string | undefined): string[] | undefined {

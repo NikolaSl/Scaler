@@ -343,6 +343,7 @@ function stageContract(stage: StageArtifactStage): string[] {
         "Review user/project PRD inputs and produce a polished, internally consistent PRD.",
         "Write or update `agent-prd.md` when enough information exists.",
         "Update the runtime PRD ledger with stable requirement ids when possible.",
+        "When executed by the autonomous workflow, you may emit a `scaler_prd_write` JSON event with content and requirements; SCALER will persist it.",
         "Request clarification instead of inventing requirements when contradictions or gaps block progress.",
       ];
     case "knowledge":
@@ -357,6 +358,7 @@ function stageContract(stage: StageArtifactStage): string[] {
         "Create or refresh the sequential execution plan from PRD and knowledge artifacts.",
         "Keep tasks atomic, ordered, independently validateable, and linked to runtime PRD ids.",
         "Write `.scaler/plans/current-plan.json` when producing the active plan.",
+        "When executed by the autonomous workflow, emit or call `scaler_planning_report` so SCALER can synchronize requirements, tasks, and coverage.",
         "Include validation references and allowed path prefixes where known.",
       ];
     case "execution":

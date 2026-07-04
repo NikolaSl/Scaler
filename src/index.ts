@@ -24,6 +24,7 @@ import {
   parseStageLoopArgs,
   parseStageRecordArgs,
   parseStageRunArgs,
+  parseStageWorkflowArgs,
   parseStorageMaintainArgs,
   parseStorageScheduleArgs,
   parseTaskCreateArgs,
@@ -87,6 +88,7 @@ import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } 
 import { advanceStageAfterReadyArtifact } from "./stage-advancement.js";
 import { formatStageAgentRunList, loadStageAgentRunRecords, runStageAgentStep } from "./stage-agents.js";
 import { runStageConductorLoop, runStageConductorStep } from "./stage-conductor.js";
+import { formatStageWorkflowRunRecords, loadStageWorkflowRunRecords, runAutonomousStageWorkflow } from "./stage-workflow.js";
 import {
   formatStageArtifactReadiness,
   formatStageArtifactSummary,
@@ -467,6 +469,40 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         if (ctx.hasUI) ctx.ui.notify(message, "warning");
         else console.log(message);
       }
+    },
+  });
+
+  pi.registerCommand("scaler-stage-workflow", {
+    description: "Run the autonomous SCALER Stage I-III/replanning coordinator: /scaler-stage-workflow [execute] [max=N] [research=N] [requests=N] [internet] [tools=a,b] [auto-accept-replan=on/off]",
+    handler: async (args, ctx) => {
+      try {
+        const state = await ensureState(ctx.cwd);
+        const parsed = parseStageWorkflowArgs(args);
+        const result = await runAutonomousStageWorkflow(ctx.cwd, state, {
+          execute: parsed.execute,
+          maxSteps: parsed.maxSteps,
+          maxResearchAgents: parsed.maxResearchAgents,
+          maxResearchRequests: parsed.maxResearchRequests,
+          allowInternet: parsed.allowInternet,
+          tools: parsed.tools,
+          autoAcceptReplan: parsed.autoAcceptReplan,
+        });
+        if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
+        else console.log(result.message);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+      }
+    },
+  });
+
+  pi.registerCommand("scaler-stage-workflow-runs", {
+    description: "List recent autonomous SCALER stage workflow runs.",
+    handler: async (_args, ctx) => {
+      const message = formatStageWorkflowRunRecords(await loadStageWorkflowRunRecords(ctx.cwd));
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
     },
   });
 

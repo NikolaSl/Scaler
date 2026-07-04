@@ -218,6 +218,10 @@ export function getResearchAgentRunsPath(cwd: string): string {
   return join(getReportsDir(cwd), "research-agent-runs.json");
 }
 
+export function getStageWorkflowRunsPath(cwd: string): string {
+  return join(getReportsDir(cwd), "stage-workflow-runs.json");
+}
+
 export function getDebugAgentRunsPath(cwd: string): string {
   return join(getReportsDir(cwd), "debug-agent-runs.json");
 }
@@ -244,6 +248,14 @@ export function getPrdDir(cwd: string): string {
 
 export function getCurrentPrdPath(cwd: string): string {
   return join(getPrdDir(cwd), "current.md");
+}
+
+export function getKnowledgeDir(cwd: string): string {
+  return join(getScalerDir(cwd), "knowledge");
+}
+
+export function getKnowledgeReportPath(cwd: string): string {
+  return join(getKnowledgeDir(cwd), "knowledge-report.md");
 }
 
 export function getPrdRequirementsPath(cwd: string): string {
