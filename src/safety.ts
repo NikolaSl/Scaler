@@ -1,4 +1,4 @@
-export type SafetyRiskLevel = "low" | "medium" | "high" | "destructive" | "secret";
+export type SafetyRiskLevel = "low" | "medium" | "high" | "destructive" | "external" | "secret";
 
 export interface SafetyDecision {
   allowed: boolean;
@@ -14,6 +14,8 @@ export interface ToolCallLike {
 
 export interface SafetyPolicy {
   allowedPathPrefixes?: string[];
+  allowInternet?: boolean;
+  allowExternalMutations?: boolean;
 }
 
 const protectedPathPatterns = [
@@ -40,10 +42,35 @@ const destructiveCommandPatterns = [
   /\brm\s+[^\n]*(?:-rf|-fr|--recursive)/i,
   /\bgit\s+reset\s+--hard\b/i,
   /\bgit\s+clean\s+-[^\n]*f/i,
+  /\bgit\s+push\b[^\n]*(?:--force|-f)\b/i,
   /\bsudo\b/i,
   /\b(chmod|chown)\b[^\n]*\b777\b/i,
   /\bdocker\s+system\s+prune\b/i,
   /\bkubectl\s+delete\b/i,
+];
+
+const secretEnvironmentExposurePatterns = [
+  /\$[A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|PRIVATE_KEY|ACCESS_KEY|AUTH)[A-Z0-9_]*\b/,
+  /\b(?:echo|printf|printenv|env)\b[^\n]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|PRIVATE_KEY|ACCESS_KEY|AUTH)/i,
+];
+
+const externalMutationCommandPatterns = [
+  /\b(?:npm|pnpm|yarn|bun)\s+publish\b/i,
+  /\bgit\s+push\b/i,
+  /\bdocker\s+push\b/i,
+  /\b(?:kubectl|helm)\s+(?:apply|create|patch|replace|rollout|scale|set|upgrade|install)\b/i,
+  /\b(?:terraform|tofu)\s+apply\b/i,
+  /\bpulumi\s+up\b/i,
+  /\b(?:vercel|netlify|firebase)\s+(?:deploy|hosting:channel:deploy)\b/i,
+  /\bgh\s+release\s+create\b/i,
+  /\b(?:aws|gcloud|az)\b[^\n]*\b(?:deploy|publish|push|put|delete|update|create|sync|apply)\b/i,
+];
+
+const internetTransferCommandPatterns = [
+  /\b(?:curl|wget)\b[^\n]*https?:\/\//i,
+  /\bssh\s+[^\s@]+@[^\s]+/i,
+  /\bscp\b[^\n]*[^\s@]+@[^\s:]+:/i,
+  /\brsync\b[^\n]*(?:[^\s@]+@[^\s:]+:|rsync:\/\/)/i,
 ];
 
 export function assessToolCallSafety(toolCall: ToolCallLike, policy: SafetyPolicy = {}): SafetyDecision {
@@ -81,6 +108,33 @@ export function assessToolCallSafety(toolCall: ToolCallLike, policy: SafetyPolic
         allowed: false,
         risk: "destructive",
         reason: "Bash command matches a destructive or high-risk pattern.",
+        requiresApproval: true,
+      };
+    }
+
+    if (command && secretEnvironmentExposurePatterns.some((pattern) => pattern.test(command))) {
+      return {
+        allowed: false,
+        risk: "secret",
+        reason: "Bash command may expose secret environment variables.",
+        requiresApproval: true,
+      };
+    }
+
+    if (command && !policy.allowExternalMutations && externalMutationCommandPatterns.some((pattern) => pattern.test(command))) {
+      return {
+        allowed: false,
+        risk: "external",
+        reason: "Bash command may mutate remote or published external systems.",
+        requiresApproval: true,
+      };
+    }
+
+    if (command && !policy.allowInternet && internetTransferCommandPatterns.some((pattern) => pattern.test(command))) {
+      return {
+        allowed: false,
+        risk: "external",
+        reason: "Bash command may transmit data over the internet.",
         requiresApproval: true,
       };
     }

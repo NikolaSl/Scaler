@@ -77,6 +77,51 @@ test("blocks git reset hard", () => {
   assert.equal(decision.risk, "destructive");
 });
 
+test("blocks internet transfer commands unless policy allows internet", () => {
+  const blocked = assessToolCallSafety({ toolName: "bash", input: { command: "curl https://example.invalid/docs" } });
+  const allowed = assessToolCallSafety(
+    { toolName: "bash", input: { command: "curl https://example.invalid/docs" } },
+    { allowInternet: true },
+  );
+
+  assert.equal(blocked.allowed, false);
+  assert.equal(blocked.risk, "external");
+  assert.match(blocked.reason, /internet/);
+  assert.equal(allowed.allowed, true);
+});
+
+test("blocks deploy publish and remote mutation commands unless policy allows external mutations", () => {
+  const publish = assessToolCallSafety({ toolName: "bash", input: { command: "npm publish --dry-run" } });
+  const gitPush = assessToolCallSafety({ toolName: "bash", input: { command: "git push origin main" } });
+  const allowed = assessToolCallSafety(
+    { toolName: "bash", input: { command: "npm publish --dry-run" } },
+    { allowExternalMutations: true },
+  );
+
+  assert.equal(publish.allowed, false);
+  assert.equal(publish.risk, "external");
+  assert.equal(gitPush.allowed, false);
+  assert.equal(gitPush.risk, "external");
+  assert.equal(allowed.allowed, true);
+});
+
+test("force push remains destructive even when external mutations are allowed", () => {
+  const decision = assessToolCallSafety(
+    { toolName: "bash", input: { command: "git push --force origin main" } },
+    { allowExternalMutations: true },
+  );
+
+  assert.equal(decision.allowed, false);
+  assert.equal(decision.risk, "destructive");
+});
+
+test("blocks commands that expose common secret environment names", () => {
+  const decision = assessToolCallSafety({ toolName: "bash", input: { command: "echo $OPENAI_API_KEY" } });
+
+  assert.equal(decision.allowed, false);
+  assert.equal(decision.risk, "secret");
+});
+
 test("allows ordinary test command", () => {
   const decision = assessToolCallSafety({ toolName: "bash", input: { command: "npm test" } });
 
