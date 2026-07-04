@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { getBudgetState } from "../../../src/budgets.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { createDefaultState, loadState } from "../../../src/state.js";
-import { loadToolRequests, loadToolResults, loadToolTransactions, prepareToolRequest, recordToolResult, recordToolSchema, runToolRequestAgent } from "../../../src/tool-requests.js";
+import { loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolTransactions, prepareToolRequest, recordToolResult, recordToolSchema, runToolRequestAgent, runToolSchemaDiscoveryAgent } from "../../../src/tool-requests.js";
 import { registerScalerTools } from "../../../src/tools.js";
 
 const execFileAsync = promisify(execFile);
@@ -29,6 +29,44 @@ async function withTempRepo<T>(fn: (dir: string) => Promise<T>): Promise<T> {
     await rm(dir, { recursive: true, force: true });
   }
 }
+
+test("mock integration: schema discovery probe feeds later request and transaction prompts", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+
+    const discovery = await runToolSchemaDiscoveryAgent(dir, state, { toolName: "mcp_docs_search", execute: true, tools: ["read"] }, async (request) => {
+      assert.deepEqual(request.tools, ["scaler_tool_schema", "read"]);
+      assert.match(request.prompt, /Do not assume the target tool/);
+      await recordToolSchema(dir, state, {
+        toolName: "mcp_docs_search",
+        source: "mock-schema-source",
+        description: "Search project docs with a query argument.",
+        riskLevel: "low",
+        docsRef: "docs-mcp-search",
+        schemaRef: "schema-mcp-search-v1",
+        notes: "args query string required",
+        evidenceRefs: ["docs_mcp_search"],
+        discoveredByAgentId: request.taskId,
+      });
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+
+    assert.equal(discovery.accepted, true);
+    assert.equal(discovery.run?.status, "completed");
+    assert.equal((await loadToolSchemaDiscoveryRuns(dir))[0]?.schemaRecordId, discovery.schemaRecord?.id);
+
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "mcp_docs_search",
+      request: "Find widget lifecycle docs.",
+      allowedTools: ["read"],
+    });
+    assert.match(prepared.prompt ?? "", /schemaRef=schema-mcp-search-v1/);
+
+    const transaction = await runToolRequestAgent(dir, state, { requestId: prepared.record?.id });
+    assert.match(transaction.prompt ?? "", /Search project docs with a query argument/);
+    assert.match(transaction.prompt ?? "", /args query string required/);
+  });
+});
 
 test("mock integration: tool transaction execution requires structured scaler_tool_result closure", async () => {
   await withTempRepo(async (dir) => {
