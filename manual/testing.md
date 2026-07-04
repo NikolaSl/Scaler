@@ -58,7 +58,7 @@ The current mocked integration harness covers:
 - bounded debug conductor stages replanner proposals from debug `needs_replan` without accepting them;
 - blocked validation → replan request → proposal acceptance;
 - execution-lock contention across conductor, validation, stage-agent, replan-agent, research-agent, debug-agent, and commit workflows;
-- safety/allowed-path enforcement and commit-refusal chains;
+- safety/allowed-path enforcement, external/secret safety-hook blocking, and commit-refusal chains;
 - research raw evidence externalization to memory and later context references;
 - stage consistency rejection;
 - dependency-blocked task selection and release after dependency validation;
@@ -102,6 +102,6 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - slash-command budget configuration/status persistence and audit logs;
 - slash-command typed validation gate metadata persistence and audit logs;
 - cardinal SCALER tool invocation with persisted `.scaler/state.json` mutation;
-- cardinal built-in `bash` invocation blocked by the SCALER safety hook and recorded in `.scaler/logs/events.jsonl`.
+- cardinal built-in `bash` invocation blocked by the SCALER safety hook for protected-path and external publish commands, recorded in `.scaler/logs/events.jsonl`.
 
 Real Pi/model tests are intentionally opt-in because they can cost tokens, require local model/provider setup, and may be less deterministic than mock integration tests.

@@ -189,6 +189,9 @@ When adding a new integration scenario:
 - `mock/validation-gates-flow.test.ts`
   - command-driven typed validation gate metadata persisted to manifests;
   - validation run records and audit events preserve gate, required, expected-result, and evidence metadata.
+- `mock/safety-hook-flow.test.ts`
+  - extension `tool_call` hook blocks external publish and secret environment exposure commands;
+  - persisted safety audit logs record `external` and `secret` risks.
 - `mock/remaining-flows.test.ts`
   - budget hard stops for conductor and validation plus pause/audit behavior;
   - context discovery into conductor prompts, including exactness/compression guidance;
@@ -216,7 +219,8 @@ When adding a new integration scenario:
   - real Pi slash-command typed validation gate metadata persistence;
   - command audit events and detail payload references in `.scaler/logs/events.jsonl`;
   - cardinal real-model call to `scaler_task_create` with exact arguments and persisted SCALER task state;
-  - cardinal real-model call to built-in `bash` with `cat .env`, blocked by SCALER's safety hook and recorded as a safety audit event.
+  - cardinal real-model call to built-in `bash` with `npm publish --dry-run`, blocked by SCALER's external safety hook and recorded as a safety audit event;
+  - cardinal real-model call to built-in `bash` with `cat .env`, blocked by SCALER's protected-path safety hook and recorded as a safety audit event.
 - `real/real-pi-debug-conductor.test.ts`
   - opt-in real Pi/model validation-debug workflow from actual failed validation into a bounded debug loop next approach;
   - opt-in real Pi/model bounded debug conductor chain from validation failure through debug `needs_research` → research completion → debug `next_approach` with persisted ledgers and audit events.
