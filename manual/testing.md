@@ -51,6 +51,7 @@ The current mocked integration harness covers:
 - budget hard-stop refusal for conductor/validation paths with pause and audit behavior;
 - command-driven budget configuration feeding later validation hard-stop behavior;
 - storage status inventory indexing plus budget hard-pause behavior;
+- storage maintenance command execution with safe gzip compression, explicit cache cleanup, persisted reports, storage budget usage, and audit logs;
 - typed validation gate metadata persisted through `/scaler-validation-add`, validation runs, and audit logs;
 - rich `scaler_tool_request` metadata, compact selected-tool catalog prompts, isolated allowed-tool invocation prep, and structured `scaler_tool_result` request closure;
 - deterministic context discovery feeding conductor prompts with exactness/compression guidance;
@@ -105,6 +106,7 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - slash-command dispatch and command audit logs;
 - slash-command budget configuration/status persistence and audit logs;
 - slash-command storage status inventory persistence and audit logs;
+- slash-command storage maintenance execution with persisted maintenance reports and audit logs;
 - slash-command typed validation gate metadata persistence and audit logs;
 - cardinal SCALER tool invocation with persisted `.scaler/state.json` mutation;
 - cardinal `scaler_tool_request` invocation with persisted rich metadata;

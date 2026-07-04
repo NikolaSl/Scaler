@@ -14,7 +14,7 @@ Move storage management beyond inventory/status by adding deterministic maintena
 - Persist maintenance reports, update storage inventory after execution, and audit command/state events.
 - Add unit tests for planning/execution safety.
 - Add mocked command integration coverage for compression/cache cleanup under `.scaler/` only.
-- Add opt-in real Pi command-dispatch coverage for dry-run maintenance persistence.
+- Add opt-in real Pi command-dispatch coverage for executed maintenance persistence.
 - Update manuals, inventory, traceability, and gap backlog.
 
 ## Non-goals

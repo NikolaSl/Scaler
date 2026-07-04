@@ -62,6 +62,8 @@ Prefer assertions on durable artifacts such as:
 - `.scaler/plans/current-plan.json`
 - `.scaler/plans/proposed-plan.json`
 - `.scaler/plans/replan-decisions.json`
+- `.scaler/storage/index.json`
+- `.scaler/storage/maintenance.json`
 
 ## Mock child-agent runners
 
@@ -189,6 +191,10 @@ When adding a new integration scenario:
 - `mock/storage-status-flow.test.ts`
   - command-driven `.scaler/` storage inventory persistence;
   - configured storage hard limit pauses the run and records budget/state audit events.
+- `mock/storage-maintenance-flow.test.ts`
+  - command-driven storage maintenance execution compresses eligible `.scaler/reports/` files;
+  - explicit `.scaler/cache/` cleanup deletes only cache files;
+  - persisted maintenance reports, storage budget usage, and command/state audit logs are asserted.
 - `mock/tool-request-flow.test.ts`
   - rich `scaler_tool_request` metadata persists to `.scaler/tool-requests/`;
   - isolated invocation includes only explicitly allowed tools and selected compact catalog entries;
@@ -228,6 +234,7 @@ When adding a new integration scenario:
   - real Pi extension load and slash-command dispatch via `/scaler-lock`;
   - real Pi slash-command budget configuration/status persistence;
   - real Pi slash-command storage status inventory persistence;
+  - real Pi slash-command storage maintenance execution with persisted `.scaler/storage/maintenance.json` and audit logs;
   - real Pi slash-command typed validation gate metadata persistence;
   - command audit events and detail payload references in `.scaler/logs/events.jsonl`;
   - cardinal real-model call to `scaler_tool_request` with exact rich metadata and persisted tool-request state;

@@ -94,6 +94,20 @@ Resumes a paused run only to its previous active stage and writes a checkpoint u
 
 Scans `.scaler/`, writes `.scaler/storage/index.json`, updates the `storageBytes` budget counter, and shows total bytes, top-level summaries, largest files, and the storage budget decision. A configured `storageBytes` hard limit pauses the run through the existing budget gate.
 
+## `/scaler-storage-maintain [execute] [delete-cache] [no-compress] [min-age-days=N] [min-size=N]`
+
+Plans or executes safe maintenance inside `.scaler/`. Without `execute`, SCALER writes a dry-run report to `.scaler/storage/maintenance.json` and does not mutate storage. With `execute`, it gzips eligible old/large files under `.scaler/logs/details/`, `.scaler/reports/`, and `.scaler/memory/`, removes the source only after a non-empty `.gz` is written, optionally deletes `.scaler/cache/` files when `delete-cache` is present, refreshes storage accounting, updates the `storageBytes` budget counter, and writes command/state audit events.
+
+Defaults: compression enabled, cache deletion disabled, `min-age-days=7`, `min-size=1048576`.
+
+Examples:
+
+```text
+/scaler-storage-maintain min-age-days=30 min-size=1048576
+/scaler-storage-maintain execute delete-cache min-age-days=30 min-size=1048576
+/scaler-storage-maintain no-compress delete-cache min-age-days=14
+```
+
 ## `/scaler-budget-status`
 
 Shows state-backed budget usage, soft/hard limits, checkpoint count, and the strongest current budget decision.
