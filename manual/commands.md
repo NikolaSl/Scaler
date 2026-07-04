@@ -373,6 +373,14 @@ Prepares or executes a bounded correction loop for an open prepared tool request
 
 Lists bounded tool-agent correction loop records from `.scaler/tool-requests/iteration-runs.json`, optionally filtered to one request id.
 
+## `/scaler-tool-schedule [execute] [parallel=N]`
+
+Plans or executes all currently prepared tool requests and records `.scaler/tool-requests/schedules.json`. Requests are eligible for the parallel batch only when the request risk is `low` and every allowed tool's compact/discovered catalog entry is also low risk. Unknown, medium/high, destructive, external, secret, or otherwise uncertain requests are serialized. Without `execute`, the command only records the schedule plan. With `execute`, SCALER runs parallelizable requests in bounded batches (`parallel` defaults to 2 and clamps to 1..8), then runs serialized requests one at a time. Each child transaction still requires structured `scaler_tool_result` completion.
+
+## `/scaler-tool-schedules [requestId]`
+
+Lists tool scheduling records from `.scaler/tool-requests/schedules.json`, optionally filtered to schedules that included a request id.
+
 ## `/scaler-tool-transactions [requestId]`
 
 Lists isolated tool-agent transaction records from `.scaler/tool-requests/transactions.json`, optionally filtered to one request id.

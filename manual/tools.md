@@ -41,6 +41,8 @@ Current behavior:
 - `/scaler-tool-iteration-policy [max=N] [auto-replay=on|off]` shows or updates bounded correction-loop defaults under `.scaler/tool-requests/iteration-policy.json`
 - `/scaler-tool-iterate [requestId] [execute] [max=N]` prepares or runs a bounded open-request correction loop, replaying the latest `missing_result` transaction until a structured `scaler_tool_result` closes the request or the iteration cap is exhausted
 - `/scaler-tool-iteration-runs [requestId]` lists correction-loop ledgers from `.scaler/tool-requests/iteration-runs.json`
+- `/scaler-tool-schedule [execute] [parallel=N]` plans or executes prepared tool requests, batching only low-risk/read-only requests for bounded parallel execution and serializing unknown/risky requests
+- `/scaler-tool-schedules [requestId]` lists schedule ledgers from `.scaler/tool-requests/schedules.json`
 - `/scaler-tool-transactions [requestId]` lists transaction records, including `missing_result` runs where a child exited without the structured result signal and replay linkage where present
 - `scaler_task_create` creates supervisor task records, stores optional allowed paths/dependencies/runtime PRD refs, and rejects duplicate ids
 - `scaler_task_update` updates task metadata, including runtime PRD refs, and only accepts valid status transitions
@@ -52,4 +54,4 @@ Debug-agent subprocesses emit structured `scaler_debug_report` JSON events rathe
 
 Tool request prompts intentionally include only selected catalog entries for the requested/allowed tools. Unknown tools are represented as `unknown` risk unless a prior `scaler_tool_schema` record supplied local docs/schema metadata. Tool-agent prompts require a structured `scaler_tool_result` completion; free-form prose is not the durable completion signal.
 
-Remaining tool/MCP work includes safe parallel scheduling.
+The current tool/MCP implementation covers catalog isolation, schema discovery, local MCP enumeration, isolated transactions/replay, closed replay approvals, bounded correction loops, and conservative parallel scheduling. Future work may still improve requester-agent catalog injection and cross-process ledger locking.
