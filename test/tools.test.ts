@@ -7,6 +7,7 @@ import { getBudgetState } from "../src/budgets.js";
 import { loadCurrentPrd, loadPrdCoverage, loadPrdRequirements } from "../src/prd.js";
 import { loadResearchReports } from "../src/research.js";
 import { loadState } from "../src/state.js";
+import { loadTaskAgentReports } from "../src/task-reports.js";
 import { loadToolRequests, loadToolResults, loadToolSchemaRecords } from "../src/tool-requests.js";
 import { scalerToolNames, registerScalerTools } from "../src/tools.js";
 
@@ -25,6 +26,7 @@ test("scalerToolNames lists structured Scaler tools", () => {
     "scaler_memory_write",
     "scaler_memory_retrieve",
     "scaler_research_report",
+    "scaler_task_report",
     "scaler_spawn_task",
     "scaler_tool_request",
     "scaler_tool_schema",
@@ -189,6 +191,35 @@ test("scaler_research_report records structured research", async () => {
     assert.equal(reports[0]?.memoryRefs?.length, 1);
     assert.equal(budgets.usage.researchReports, 1);
     assert.ok((budgets.usage.storageBytes ?? 0) > 0);
+  });
+});
+
+test("scaler_task_report records structured task-agent report", async () => {
+  await withTempDir(async (dir) => {
+    const registered = new Map<string, { execute: (...args: any[]) => Promise<unknown> }>();
+    registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<unknown> }) { registered.set(definition.name, definition); } } as never);
+
+    await registered.get("scaler_task_report")?.execute(
+      "task-report-call",
+      {
+        taskId: "T-REPORT",
+        status: "completed",
+        summary: "Task completed.",
+        changedFiles: ["src/app.ts"],
+        validations: [{ command: "npm test", status: "passed", summary: "passed" }],
+        evidenceRefs: ["validation:npm-test"],
+        recommendedNextAction: "validate",
+      },
+      undefined,
+      undefined,
+      { cwd: dir },
+    );
+
+    const reports = await loadTaskAgentReports(dir);
+    assert.equal(reports[0]?.taskId, "T-REPORT");
+    assert.equal(reports[0]?.status, "completed");
+    assert.deepEqual(reports[0]?.changedFiles, ["src/app.ts"]);
+    assert.ok((getBudgetState(await loadState(dir)).usage.storageBytes ?? 0) > 0);
   });
 });
 

@@ -17,6 +17,7 @@ import {
 } from "../src/conductor.js";
 import { saveTaskContextManifest } from "../src/context.js";
 import { recordDebugAttempt } from "../src/debug.js";
+import { loadTaskAgentReports } from "../src/task-reports.js";
 import { acquireExecutionLock, loadExecutionLock } from "../src/locks.js";
 import { createDefaultState, loadState } from "../src/state.js";
 import type { ScalerTaskStatus } from "../src/types.js";
@@ -34,6 +35,23 @@ function stateWithTasks(statuses: ScalerTaskStatus[]) {
   const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
   state.tasks = statuses.map((status, index) => ({ id: `T-00${index + 1}`, status, updatedAt: state.createdAt }));
   return state;
+}
+
+function completedTaskReport(taskId: string, summary = "Task complete.") {
+  return {
+    type: "scaler_task_report",
+    taskId,
+    status: "completed",
+    summary,
+    changedFiles: ["src/app.ts"],
+    memoryRefs: [],
+    validations: [{ command: "npm test", status: "passed", summary: "passed" }],
+    validationRefs: [],
+    evidenceRefs: ["validation:npm-test"],
+    blockers: [],
+    missingData: [],
+    recommendedNextAction: "validate",
+  };
 }
 
 test("selectNextTask prefers ready tasks in stable order", () => {
@@ -122,6 +140,7 @@ test("buildTaskAgentPrompt includes task metadata and report instructions", () =
   assert.match(result.prompt, /Do not read or modify protected paths/);
   assert.match(result.prompt, /Do not run destructive commands/);
   assert.match(result.prompt, /Required final report/);
+  assert.match(result.prompt, /scaler_task_report/);
   assert.match(result.prompt, /Compression and Exact-Preservation Policy/);
   assert.match(result.prompt, /Summary-ok refs: spec/);
   assert.match(result.prompt, /Widget must render labels/);
@@ -228,7 +247,7 @@ test("runConductorStep records context tokens and spawned agents", async () => {
     const result = await runConductorStep(dir, state, { execute: true }, async (request) => ({
       taskId: request.taskId,
       exitCode: 0,
-      stdoutEvents: [],
+      stdoutEvents: [completedTaskReport(request.taskId)],
       stderr: "",
       timedOut: false,
       aborted: false,
@@ -248,7 +267,7 @@ test("runConductorStep records provider usage budgets from task-agent runs", asy
     const result = await runConductorStep(dir, state, { execute: true }, async (request) => ({
       taskId: request.taskId,
       exitCode: 0,
-      stdoutEvents: [],
+      stdoutEvents: [completedTaskReport(request.taskId)],
       stderr: "",
       timedOut: false,
       aborted: false,
@@ -292,7 +311,7 @@ test("runConductorStep executes task with injected runner", async () => {
       async (request, options) => ({
         taskId: request.taskId,
         exitCode: options?.timeoutMs === 123 ? 0 : 1,
-        stdoutEvents: [{ type: "done" }],
+        stdoutEvents: [{ type: "done" }, completedTaskReport(request.taskId)],
         stderr: "",
         timedOut: false,
         aborted: false,
@@ -305,13 +324,66 @@ test("runConductorStep executes task with injected runner", async () => {
 
     assert.equal(result.accepted, true);
     assert.equal(result.runResult?.exitCode, 0);
-    assert.deepEqual(result.runResult?.stdoutEvents, [{ type: "done" }]);
+    assert.deepEqual(result.runResult?.stdoutEvents, [{ type: "done" }, completedTaskReport("T-001")]);
     assert.equal(persisted.tasks[0]?.status, "validating");
     assert.equal(handoffs[0]?.status, "validation_required");
     assert.equal(runs[0]?.status, "passed");
-    assert.equal(runs[0]?.stdoutEventCount, 1);
+    assert.equal(runs[0]?.stdoutEventCount, 2);
+    assert.equal(runs[0]?.reportStatus, "accepted");
+    assert.ok(runs[0]?.reportId);
+    assert.equal((await loadTaskAgentReports(dir))[0]?.status, "completed");
     assert.equal(runs[0]?.timedOut, false);
     assert.equal(runs[0]?.aborted, false);
+  });
+});
+
+test("runConductorStep blocks validation when successful task-agent omits report", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => ({
+      taskId: request.taskId,
+      exitCode: 0,
+      stdoutEvents: [{ type: "done" }],
+      stderr: "",
+      timedOut: false,
+      aborted: false,
+    }));
+
+    const persisted = await loadState(dir);
+    const handoffs = await loadValidationHandoffs(dir);
+    const runs = await loadTaskAgentRunRecords(dir);
+
+    assert.equal(result.validationHandoff?.status, "task_agent_report_missing");
+    assert.equal(persisted.tasks[0]?.status, "blocked");
+    assert.equal(handoffs[0]?.status, "task_agent_report_missing");
+    assert.equal(runs[0]?.reportStatus, "missing");
+    assert.match(runs[0]?.reportDiagnostics?.join(" ") ?? "", /Missing required scaler_task_report/);
+  });
+});
+
+test("runConductorStep blocks validation when task-agent report is invalid", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => ({
+      taskId: request.taskId,
+      exitCode: 0,
+      stdoutEvents: [{ type: "scaler_task_report", taskId: "WRONG", status: "completed", summary: "Wrong task" }],
+      stderr: "",
+      timedOut: false,
+      aborted: false,
+    }));
+
+    const persisted = await loadState(dir);
+    const handoffs = await loadValidationHandoffs(dir);
+    const runs = await loadTaskAgentRunRecords(dir);
+
+    assert.equal(result.validationHandoff?.status, "task_agent_report_invalid");
+    assert.equal(persisted.tasks[0]?.status, "blocked");
+    assert.equal(handoffs[0]?.status, "task_agent_report_invalid");
+    assert.equal(runs[0]?.reportStatus, "invalid");
+    assert.match(runs[0]?.reportDiagnostics?.join(" ") ?? "", /does not match expected task/);
   });
 });
 

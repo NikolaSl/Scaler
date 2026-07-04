@@ -21,8 +21,12 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
+function taskReport(taskId: string): Record<string, unknown> {
+  return { type: "scaler_task_report", taskId, status: "completed", summary: "Debug retry task completed.", changedFiles: ["fixed.txt"], memoryRefs: [], validations: [], validationRefs: [], evidenceRefs: ["validation:exact-marker"], blockers: [], missingData: [], recommendedNextAction: "validate" };
+}
+
 function passingRun(request: TaskAgentRequest): TaskAgentRunResult {
-  return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+  return { taskId: request.taskId, exitCode: 0, stdoutEvents: [taskReport(request.taskId)], stderr: "", timedOut: false, aborted: false };
 }
 
 test("mock integration: debug retry policy auto-starts next approach and runs full validation", async () => {

@@ -11,9 +11,11 @@ import { appendReplanRequest, loadProposedExecutionPlan } from "../../../src/pla
 import { runReplanAgentStep } from "../../../src/replan-agent.js";
 import { loadResearchReports, upsertResearchRequest } from "../../../src/research.js";
 import { runResearchAgentStep } from "../../../src/research-agent.js";
-import { createDefaultState, saveState } from "../../../src/state.js";
+import { loadValidationHandoffs, runConductorStep } from "../../../src/conductor.js";
+import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { runStageAgentStep } from "../../../src/stage-agents.js";
 import { loadStageArtifacts } from "../../../src/stages.js";
+import { loadTaskAgentReports } from "../../../src/task-reports.js";
 import { runTaskAgent, type TaskAgentRequest, type TaskAgentRunResult } from "../../../src/subagents.js";
 
 const execFileAsync = promisify(execFile);
@@ -23,6 +25,7 @@ const REAL_PI_MODEL = process.env.SCALER_REAL_PI_MODEL;
 const REAL_PI_COMMAND = process.env.SCALER_REAL_PI_COMMAND ?? "pi";
 const REAL_PI_TIMEOUT_MS = Number.parseInt(process.env.SCALER_REAL_PI_TIMEOUT_MS ?? "60000", 10);
 
+const CARDINAL_TASK_REPORT_INSTRUCTION = `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: {"type":"scaler_task_report","taskId":"T-REAL","status":"completed","summary":"Real Pi deterministic task report.","changedFiles":[],"memoryRefs":[],"validations":[{"command":"npm test","status":"passed","summary":"Cardinal validation placeholder."}],"validationRefs":[],"evidenceRefs":["real-pi-cardinal-instruction"],"blockers":[],"missingData":[],"recommendedNextAction":"validate"}.`;
 const CARDINAL_DEBUG_REPORT_INSTRUCTION = `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: {"type":"scaler_debug_report","taskId":"T-REAL","status":"next_approach","summary":"Real Pi integration deterministic report.","nextApproach":"No code change; this is an integration contract check.","evidenceRefs":["real-pi-cardinal-instruction"]}.`;
 const CARDINAL_RESEARCH_REPORT_INSTRUCTION = `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: {"type":"scaler_research_report","id":"RPT-REAL","requestId":"RESEARCH-REAL","taskId":"T-REAL","status":"blocked","question":"What is the deterministic real integration answer?","sources":[{"id":"real-cardinal-source","title":"Real cardinal instruction","quality":"project","summary":"The cardinal instruction is the evidence source."}],"conclusions":[],"unresolvedUnknowns":["This is a blocked-mode subprocess structured-output contract check."],"recommendations":["Treat this as a subprocess structured-output contract check."]}.`;
 const CARDINAL_INTERNET_RESEARCH_GRANT_INSTRUCTION = `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: {"type":"scaler_research_report","id":"RPT-REAL-INTERNET-GRANT","requestId":"RESEARCH-REAL-INTERNET-GRANT","taskId":"T-REAL","status":"blocked","question":"Which deterministic external source should be cited?","sources":[{"id":"real-internet-cardinal-source","title":"Real cardinal external source placeholder","quality":"official","url":"https://example.invalid/scaler-real-internet-grant","summary":"The cardinal instruction supplies deterministic source-capture metadata for this boundary test."}],"conclusions":[],"unresolvedUnknowns":["This is a blocked-mode internet-grant boundary contract check; no live browsing is performed."],"recommendations":["Treat this as an explicit internet-tool grant contract check."]}.`;
@@ -55,6 +58,33 @@ async function runRealPi(request: TaskAgentRequest, cardinalInstruction: string)
     timeoutMs: REAL_PI_TIMEOUT_MS,
   });
 }
+
+test("real integration: task agent report gates validation handoff", { skip: !REAL_PI_ENABLED }, async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.tasks = [{ id: "T-REAL", status: "ready", title: "Real Pi task report contract", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+
+    const realRunner = async (request: TaskAgentRequest): Promise<TaskAgentRunResult> => {
+      return await runRealPi(request, CARDINAL_TASK_REPORT_INSTRUCTION);
+    };
+
+    const result = await runConductorStep(dir, state, {
+      execute: true,
+      timeoutMs: REAL_PI_TIMEOUT_MS,
+      model: REAL_PI_MODEL,
+    }, realRunner);
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.validationHandoff?.status, "validation_required");
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validating");
+    assert.equal((await loadValidationHandoffs(dir))[0]?.status, "validation_required");
+    const reports = await loadTaskAgentReports(dir);
+    assert.equal(reports[0]?.taskId, "T-REAL");
+    assert.equal(reports[0]?.status, "completed");
+  });
+});
 
 test("real integration: debug agent obeys cardinal structured report instruction", { skip: !REAL_PI_ENABLED }, async () => {
   await withTempRepo(async (dir) => {

@@ -39,11 +39,15 @@ async function withTempRepo<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
+function taskReport(taskId: string, summary = "Mock task completed."): Record<string, unknown> {
+  return { type: "scaler_task_report", taskId, status: "completed", summary, changedFiles: [], memoryRefs: [], validations: [], validationRefs: [], evidenceRefs: [], blockers: [], missingData: [], recommendedNextAction: "validate" };
+}
+
 function successfulTaskRunner(): Promise<TaskAgentRunResult> {
   return Promise.resolve({
     taskId: "T-001",
     exitCode: 0,
-    stdoutEvents: [{ type: "scaler_report", reportType: "task", summary: "Mock task completed." }],
+    stdoutEvents: [taskReport("T-001")],
     stderr: "",
     timedOut: false,
     aborted: false,

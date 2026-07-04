@@ -67,8 +67,12 @@ function stateAt(stage: ScalerState["stage"] = "execution"): ScalerState {
   return state;
 }
 
+function taskReport(taskId: string): Record<string, unknown> {
+  return { type: "scaler_task_report", taskId, status: "completed", summary: "Task completed.", changedFiles: [], memoryRefs: [], validations: [], validationRefs: [], evidenceRefs: [], blockers: [], missingData: [], recommendedNextAction: "validate" };
+}
+
 function passedRunner(taskId = "T-001"): Promise<TaskAgentRunResult> {
-  return Promise.resolve({ taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false });
+  return Promise.resolve({ taskId, exitCode: 0, stdoutEvents: [taskReport(taskId)], stderr: "", timedOut: false, aborted: false });
 }
 
 async function setupRequirementAndPlan(dir: string, state: ScalerState): Promise<void> {
