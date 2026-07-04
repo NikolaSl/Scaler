@@ -87,6 +87,37 @@ test("mock integration: non-software checklist failure then pass updates task st
   });
 });
 
+test("mock integration: evidence-required checklist fails without evidence then passes with evidence", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-EVIDENCE";
+    state.tasks = [{ id: "T-EVIDENCE", status: "validating", title: "Evidence task", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+
+    const commands = registeredCommands();
+    await commands.get("scaler-validation-checklist")?.handler(
+      "T-EVIDENCE | acceptance | Missing evidence | acceptance::passed::required::Acceptance behavior demonstrated:: |",
+      { cwd: dir, hasUI: false },
+    );
+
+    let checklists = await loadValidationChecklists(dir);
+    assert.equal(checklists[0]?.status, "failed");
+    assert.deepEqual(checklists[0]?.evidencePolicy?.missingEvidenceItemIds, ["acceptance"]);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "debugging");
+
+    await commands.get("scaler-validation-checklist")?.handler(
+      "T-EVIDENCE | acceptance | Evidence present | acceptance::passed::required::Acceptance behavior demonstrated::evidence:acceptance |",
+      { cwd: dir, hasUI: false },
+    );
+
+    checklists = await loadValidationChecklists(dir);
+    assert.equal(checklists[0]?.status, "passed");
+    assert.deepEqual(checklists[0]?.evidencePolicy?.missingEvidenceItemIds, []);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
+  });
+});
+
 test("mock integration: validation-add gate metadata persists through validation run and audit", async () => {
   await withTempRepo(async (dir) => {
     const commands = registeredCommands();
