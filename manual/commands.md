@@ -259,6 +259,16 @@ Runs one deterministic stage-conductor step for the current supervisor stage. If
 
 Runs bounded deterministic stage-conductor steps, carrying forward supervisor state after every successful advancement. Stops on completion, max steps, unsupported stages, rejected steps, prepare-mode handoff, or executed stage-agent output that does not advance. Default max is 5 and bounds normalize to 1..20.
 
+## `/scaler-stage-workflow [execute] [max=N] [research=N] [requests=N] [internet] [tools=a,b] [auto-accept-replan=on/off]`
+
+Runs the autonomous staged coordinator. It advances ready artifacts; executes PRD/planning stage agents when needed; creates Stage II research requests from runtime PRD requirements; runs bounded research-agent fanout; merges/deduplicates research reports into `.scaler/knowledge/knowledge-report.md`; ingests `scaler_prd_write` and `scaler_planning_report` child outputs into runtime PRD/current-plan ledgers; detects execution-time coverage gaps; and refreshes Stage III through the replanner while preserving validated tasks. Runs are recorded in `.scaler/reports/stage-workflow-runs.json`.
+
+Without `execute`, the workflow prepares the next required child agent or records the deterministic next action without running model subprocesses. `research=N` bounds research agents per workflow pass, `requests=N` bounds newly derived Stage II research requests, and `auto-accept-replan=off` stages a safe proposed plan without accepting it.
+
+## `/scaler-stage-workflow-runs`
+
+Lists autonomous stage workflow coordinator run records from `.scaler/reports/stage-workflow-runs.json`.
+
 ## `/scaler-stage-run <stage> [execute]`
 
 Prepares or executes a focused stage-agent subprocess for `prd`, `knowledge`, `planning`, `execution`, or `replanning`. Successful executed runs ingest a valid `scaler_stage_artifact` JSON event and attempt ready-artifact advancement automatically.

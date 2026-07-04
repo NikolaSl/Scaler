@@ -73,8 +73,10 @@ Prefer assertions on durable artifacts such as:
 - `.scaler/reports/validation-checklists.json`
 - `.scaler/reports/validation-environments.json`
 - `.scaler/reports/*-agent-runs.json`
+- `.scaler/reports/stage-workflow-runs.json`
 - `.scaler/logs/events.jsonl`
 - `.scaler/stages/stage-artifacts.json`
+- `.scaler/knowledge/knowledge-report.md`
 - `.scaler/plans/current-plan.json`
 - `.scaler/plans/proposed-plan.json`
 - `.scaler/plans/replan-decisions.json`

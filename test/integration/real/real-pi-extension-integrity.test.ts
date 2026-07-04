@@ -21,6 +21,7 @@ import { loadStorageInventory, loadStorageMaintenanceReport, loadStorageMaintena
 import { loadMcpServerRecords, loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolRequests, loadToolResults, loadToolSchedules, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest, recordToolSchema, runToolRequestAgent } from "../../../src/tool-requests.js";
 import { loadValidationEnvironmentRecords } from "../../../src/validation-environments.js";
 import { loadValidationChecklists, loadValidationManifests, loadValidationRuns, runTaskValidation, saveValidationManifest, upsertValidationManifestCommand } from "../../../src/validation.js";
+import { loadStageWorkflowRunRecords } from "../../../src/stage-workflow.js";
 import { REAL_PI_ENABLED, REAL_PI_MODEL, runScalerPi, withRealPiTempRepo } from "./real-pi-harness.js";
 
 test("real Pi extension: slash command dispatch writes SCALER command audit logs", { skip: !REAL_PI_ENABLED }, async () => {
@@ -103,6 +104,26 @@ test("real Pi extension: slash command dispatch lists context split records", { 
     assert.equal(result.exitCode, 0, result.stderr || result.stdout);
     assert.match(`${result.stdout}\n${result.stderr}`, /T-REAL-SPLIT-context-split/);
     assert.equal((await loadContextSplitRecords(dir))[0]?.taskId, "T-REAL-SPLIT");
+  });
+});
+
+test("real Pi extension: slash command dispatch prepares autonomous stage workflow", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "prd";
+    await saveState(dir, state);
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-stage-workflow max=1",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Stage workflow: steps=1 stop=prepared_agent final_stage=prd/);
+    assert.equal((await loadStageWorkflowRunRecords(dir))[0]?.stopReason, "prepared_agent");
+
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "command" && isRecord(event.details) && event.details.command === "scaler-stage-workflow"));
   });
 });
 

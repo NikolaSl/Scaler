@@ -81,4 +81,4 @@ Accepted child JSON event shape:
 
 ## Current limitations
 
-SCALER now has deterministic research/evidence ledgers, focused research-agent subprocess prompts with structured report ingestion, explicit internet-tool grant policy for internet/mixed requests, discovered browser/search/MCP tool candidates from the schema catalog, and web research transaction records for multi-query planning/execution. It does not yet orchestrate full autonomous multi-agent Stage II knowledge collection beyond these bounded workflows.
+SCALER now has deterministic research/evidence ledgers, focused research-agent subprocess prompts with structured report ingestion, explicit internet-tool grant policy for internet/mixed requests, discovered browser/search/MCP tool candidates from the schema catalog, web research transaction records for multi-query planning/execution, and `/scaler-stage-workflow` orchestration that creates Stage II requests, runs bounded research-agent fanout, and merges/deduplicates reports into `.scaler/knowledge/knowledge-report.md`. Semantic/RAG search and interactive context curation remain tracked separately.
