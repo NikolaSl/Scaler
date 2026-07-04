@@ -45,6 +45,40 @@ function registeredCommands(): Map<string, { handler: CommandHandler }> {
   return commands;
 }
 
+function registeredHandlers(): Map<string, (event: unknown, ctx: { cwd: string; hasUI: boolean }) => Promise<void>> {
+  const handlers = new Map<string, (event: unknown, ctx: { cwd: string; hasUI: boolean }) => Promise<void>>();
+  const fakePi = {
+    on(name: string, handler: (event: unknown, ctx: { cwd: string; hasUI: boolean }) => Promise<void>) {
+      handlers.set(name, handler);
+    },
+    registerTool() {},
+    registerCommand() {},
+  };
+  scalerExtension(fakePi as never);
+  return handlers;
+}
+
+test("mock integration: provider usage turn metadata updates token and cost budgets", async () => {
+  await withTempRepo(async (dir) => {
+    const handlers = registeredHandlers();
+    await handlers.get("turn_end")?.({
+      type: "turn_end",
+      message: {
+        role: "assistant",
+        usage: { input: 70, output: 15, cacheRead: 4, cacheWrite: 1, totalTokens: 90, cost: { total: 0.00009 } },
+      },
+    }, { cwd: dir, hasUI: false });
+
+    const state = await loadState(dir);
+    const budgets = getBudgetState(state);
+    assert.equal(budgets.usage.contextTokens, 90);
+    assert.equal(budgets.usage.estimatedCostMicros, 90);
+
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "budget" && event.summary.includes("Provider usage recorded")));
+  });
+});
+
 test("mock integration: budget command configures validation hard-stop before expensive validation", async () => {
   await withTempRepo(async (dir) => {
     const commands = registeredCommands();

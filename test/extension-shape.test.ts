@@ -120,6 +120,35 @@ test("storage-status command persists inventory and storage budget usage", async
   });
 });
 
+test("extension turn_end hook records provider usage budgets", async () => {
+  await withTempDir(async (dir) => {
+    const handlers = new Map<string, (event: unknown, ctx: { cwd: string; hasUI: boolean }) => Promise<void>>();
+    const fakePi = {
+      on(name: string, handler: (event: unknown, ctx: { cwd: string; hasUI: boolean }) => Promise<void>) {
+        handlers.set(name, handler);
+      },
+      registerTool() {},
+      registerCommand() {},
+    };
+
+    scalerExtension(fakePi as never);
+    await handlers.get("turn_end")?.({
+      type: "turn_end",
+      message: {
+        role: "assistant",
+        usage: { input: 50, output: 12, cacheRead: 0, cacheWrite: 0, totalTokens: 62, cost: { total: 0.000062 } },
+      },
+    }, { cwd: dir, hasUI: false });
+
+    const state = await loadState(dir);
+    const budgets = getBudgetState(state);
+    assert.equal(budgets.usage.contextTokens, 62);
+    assert.equal(budgets.usage.estimatedCostMicros, 62);
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "budget" && event.summary.includes("Provider usage recorded")));
+  });
+});
+
 test("budget-set command persists configured limits", async () => {
   await withTempDir(async (dir) => {
     const commands = new Map<string, { handler: (args: string | undefined, ctx: { cwd: string; hasUI: boolean }) => Promise<void> }>();

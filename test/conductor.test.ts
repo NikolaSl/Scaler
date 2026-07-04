@@ -240,6 +240,29 @@ test("runConductorStep records context tokens and spawned agents", async () => {
   });
 });
 
+test("runConductorStep records provider usage budgets from task-agent runs", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => ({
+      taskId: request.taskId,
+      exitCode: 0,
+      stdoutEvents: [],
+      stderr: "",
+      timedOut: false,
+      aborted: false,
+      usage: { inputTokens: 21, outputTokens: 9, totalTokens: 30, costMicros: 44, sources: ["mock"] },
+    }));
+
+    const budgets = getBudgetState(result.state);
+    assert.ok((budgets.usage.contextTokens ?? 0) >= 30);
+    assert.equal(budgets.usage.estimatedCostMicros, 44);
+    const runs = await loadTaskAgentRunRecords(dir);
+    assert.equal(runs[0]?.usage?.totalTokens, 30);
+  });
+});
+
 test("runConductorStep refuses hard budget limits before executing runner", async () => {
   await withTempDir(async (dir) => {
     const state = setBudgetLimits(stateWithTasks(["ready"]), { spawnedAgents: { hard: 1 } });

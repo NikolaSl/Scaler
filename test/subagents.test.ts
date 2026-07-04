@@ -111,6 +111,23 @@ test("runTaskAgent reports default timeout and abort flags", async () => {
   });
 });
 
+test("runTaskAgent attaches provider usage from JSON stdout events", async () => {
+  const event = JSON.stringify({
+    type: "turn_end",
+    message: {
+      role: "assistant",
+      usage: { input: 11, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 16, cost: { total: 0.000016 } },
+    },
+  });
+  await withScript(`#!/bin/sh\necho '${event}'\n`, async (script, dir) => {
+    const result = await runTaskAgent({ taskId: "T-usage", prompt: "ignored", cwd: dir }, { command: script });
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.usage?.totalTokens, 16);
+    assert.equal(result.usage?.costMicros, 16);
+  });
+});
+
 test("runTaskAgent reports timeout diagnostics", async () => {
   await withScript("#!/bin/sh\nsleep 0.2\n", async (script, dir) => {
     const result = await runTaskAgent({ taskId: "T-005", prompt: "ignored", cwd: dir }, { command: script, timeoutMs: 10 });

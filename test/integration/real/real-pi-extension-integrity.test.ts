@@ -35,6 +35,26 @@ test("real Pi extension: slash command dispatch writes SCALER command audit logs
   });
 });
 
+test("real Pi extension: records provider usage budgets from turn metadata", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const result = await runScalerPi({
+      cwd: dir,
+      model: REAL_PI_MODEL,
+      prompt: "Reply with exactly: SCALER_USAGE_OK",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const state = await loadState(dir);
+    const budgets = getBudgetState(state);
+    assert.ok(Number(budgets.usage.contextTokens) > 0, "expected provider token usage to update contextTokens");
+
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "budget" && event.summary.includes("Provider usage recorded")));
+  });
+});
+
 test("real Pi extension: slash command dispatch persists budget limits", { skip: !REAL_PI_ENABLED }, async () => {
   await withRealPiTempRepo(async (dir) => {
     const setResult = await runScalerPi({
