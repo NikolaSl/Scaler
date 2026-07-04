@@ -67,7 +67,7 @@ The current mocked integration harness covers:
 - blocked validation → replan request → proposal acceptance;
 - execution-lock contention across conductor, validation, stage-agent, replan-agent, research-agent, debug-agent, and commit workflows;
 - safety/allowed-path enforcement, external/secret safety-hook blocking, persisted safety-policy allowances, scoped approval consumption, bounded sandbox exceptions, optional scanner records, and commit-refusal chains;
-- research raw evidence externalization to memory and later context references;
+- research raw evidence externalization to memory, memory search/tag filtering, summary-scoped context references, and later context references;
 - stage consistency rejection;
 - dependency-blocked task selection and release after dependency validation;
 - validated-task git commits through execution locks while `.scaler/` runtime artifacts remain uncommitted and git audit logs plus `.scaler/reports/commits.json` post-commit reports are recorded.
@@ -100,7 +100,7 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - real chained debug → research → next-approach flow-parity through persisted debug/research ledgers;
 - real bounded debug conductor chain from validation failure through debug → research → debug next approach;
 - real validation-debug workflow from actual failing validation into a bounded debug loop next approach;
-- real research raw-evidence externalization into memory and later task context manifests;
+- real memory search command summary output and real research raw-evidence externalization into memory/later task context manifests;
 - real debug-blocked replan request creation plus safe replan acceptance that clears the retry gate;
 - real chained Stage I-IV conductor flow-parity through persisted stage artifacts and stage-agent run records;
 - real unsafe replan proposal rejection without replacing the current plan;

@@ -50,7 +50,7 @@ When SCALER creates a missing manifest, it also discovers and ranks relevant con
 - the current execution-plan entry for the task.
 - runtime PRD requirement and coverage records for the task's PRD refs.
 - the latest validation runs for the task.
-- memory index entries matched against task id, title, PRD refs, allowed paths, and task-linked memory metadata.
+- memory index entries matched against task id, title, PRD refs, allowed paths, tags, summaries, and task-linked memory metadata.
 
 Existing manifests are preserved; discovery only runs when a manifest is created.
 
@@ -68,13 +68,14 @@ SCALER uses deterministic compression policy helpers for task-agent prompts:
 - Large exact items are recommended for externalization to memory/files with stable references instead of lossy summary.
 - If resolved active context exceeds the 75% target, the prompt recommends splitting work or spawning a fresh minimal-context agent after exact data has been externalized.
 
-Default/discovered manifests mark file snippets, task metadata, validation evidence, execution-plan entries, changed paths, and PRD coverage as `exact`; memory summaries are `summary-ok`; PRD id-only links are `reference-only`.
+Default/discovered manifests mark file snippets, task metadata, validation evidence, execution-plan entries, changed paths, and PRD coverage as `exact`; memory summaries are `summary-ok`; PRD id-only links are `reference-only`. Summary/reference-only memory items inject id/title/path/tags/summary only; full memory content is injected only when a context item or retrieval request asks for `full`, and `section:<heading>` retrieval injects the matching Markdown section when found.
 
 ## Commands
 
 ```text
 /scaler-context-init [taskId]
 /scaler-context-status [taskId]
+/scaler-memory-search [query] [tag=a,b] [task=T-001]
 ```
 
 `/scaler-context-init` creates a default manifest for the specified task, current task, or first non-terminal task.

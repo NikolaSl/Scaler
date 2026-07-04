@@ -5,6 +5,7 @@ Scaler currently registers structured tool skeletons:
 - `scaler_report`
 - `scaler_memory_write`
 - `scaler_memory_retrieve`
+- `scaler_memory_search`
 - `scaler_research_report`
 - `scaler_task_report`
 - `scaler_spawn_task`
@@ -24,8 +25,9 @@ Current behavior:
 - `scaler_report` can request supervisor stage/task transitions and persists accepted/rejected state
 - `scaler_debug_attempt` persists failures/attempts under `.scaler/debug/`, rejects repeated failed attempts without new evidence, detects direct and longer fingerprint cycles, requests replanning for blocked/cyclic debugging, and logs debug decisions
 - `scaler_validation_report` applies validation-driven task transitions
-- `scaler_memory_write` writes `.scaler/memory/` files and index entries
-- `scaler_memory_retrieve` retrieves memory by id/path
+- `scaler_memory_write` writes `.scaler/memory/` files and index entries with optional tags and summaries
+- `scaler_memory_search` searches memory candidates by query/tag/task/validity and returns summary references only
+- `scaler_memory_retrieve` retrieves memory by id/path and requested scope (`summary`, `full`, or `section:<heading>`)
 - `scaler_research_report` records structured research findings with source quality, confidence, contradictions, and optional raw evidence stored in memory
 - `scaler_task_report` records the required structured completion report for task-agent runs under `.scaler/reports/task-agent-reports.json`
 - `scaler_spawn_task` prepares a Pi subprocess invocation, or executes it when `execute: true`; executed spawns are refused while the repo-wide execution lock is held

@@ -271,7 +271,7 @@ When adding a new integration scenario:
   - blocked validation to replan proposal acceptance;
   - execution-lock contention across conductor, validation, stage, replan, research, debug, and commit workflows;
   - safety/allowed-path and commit-refusal chains;
-  - research raw evidence memory references in later context;
+  - research raw evidence memory references, memory search/tag filtering, and summary-scoped memory context in later context;
   - stage consistency rejection;
   - dependency-blocked task selection and release after dependency validation.
 
@@ -308,7 +308,7 @@ When adding a new integration scenario:
   - real debug-agent `needs_research` report → research request ledger;
   - real research-agent complete report → request resolution;
   - real debug-agent `next_approach` report → debug report ledger;
-  - real research raw evidence → memory entry → later task context manifest reference;
+  - real `/scaler-memory-search` summary output and real research raw evidence → memory entry → later task context manifest reference;
   - real debug-agent `needs_replan` report → debug-blocked replan request → safe replan acceptance → retry-gate clearance;
   - real Stage I-IV conductor loop using cardinal stage artifacts, readiness/semantic/consistency advancement, and final completed state;
   - real unsafe replanner proposal → failed preservation check → rejected acceptance with current plan unchanged;
