@@ -53,7 +53,7 @@ The current mocked integration harness covers:
 - storage status inventory indexing plus budget hard-pause behavior;
 - storage maintenance command execution with safe gzip compression, explicit cache cleanup, persisted reports, storage budget usage, and audit logs;
 - typed validation gate metadata persisted through `/scaler-validation-add`, validation runs, and audit logs;
-- rich `scaler_tool_request` metadata, compact selected-tool catalog prompts, isolated allowed-tool invocation prep, tool transaction prepare/execute ledgers, `missing_result` handling for free-form child output, and structured `scaler_tool_result` request closure;
+- rich `scaler_tool_request` metadata, `scaler_tool_schema` discovery ledgers, compact selected-tool catalog prompts with discovered schema injection, isolated allowed-tool invocation prep, tool transaction prepare/execute ledgers, `missing_result` handling for free-form child output, and structured `scaler_tool_result` request closure;
 - deterministic context discovery feeding conductor prompts with exactness/compression guidance;
 - unsafe replan proposal acceptance rejection;
 - debug report → replan request → replanner proposal → acceptance retry-gate clearance;
@@ -112,6 +112,7 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - slash-command tool transaction prepare mode with persisted transaction records;
 - slash-command typed validation gate metadata persistence and audit logs;
 - cardinal SCALER tool invocation with persisted `.scaler/state.json` mutation;
+- cardinal `scaler_tool_schema` invocation with persisted discovered metadata;
 - cardinal `scaler_tool_request` invocation with persisted rich metadata;
 - cardinal `scaler_tool_result` invocation with persisted result ledger and closed request status;
 - cardinal built-in `bash` invocation blocked by the SCALER safety hook for protected-path and external publish commands, recorded in `.scaler/logs/events.jsonl`.

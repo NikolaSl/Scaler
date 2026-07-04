@@ -247,6 +247,10 @@ Lists debug reports from `.scaler/debug/reports.json`.
 
 Lists next-approach retry records from `.scaler/debug/retries.json`.
 
+## `/scaler-tool-catalog [toolName]`
+
+Lists static Tool/MCP catalog entries plus discovered schema/docs metadata from `.scaler/tool-requests/catalog.json`, optionally filtered to one tool.
+
 ## `/scaler-tool-run [requestId] [execute]`
 
 Prepares or executes an isolated tool-agent transaction for a prepared `scaler_tool_request`. Prepare mode rebuilds the stored request prompt/invocation and writes `.scaler/tool-requests/transactions.json`. With `execute`, SCALER runs the child agent with only the request's allowed tools, reloads request/result ledgers, and marks the transaction complete only when a structured `scaler_tool_result` closed the request. Child prose without `scaler_tool_result` becomes `missing_result` and is not treated as completion.
