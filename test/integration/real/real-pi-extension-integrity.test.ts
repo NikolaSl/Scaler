@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { getBudgetState } from "../../../src/budgets.js";
@@ -167,6 +167,37 @@ test("real Pi extension: slash command dispatch rotates active storage ledgers",
     assert.equal(await readFile(join(dir, runRotation?.targetPath ?? "missing"), "utf8"), "[{\"id\":\"real-run-old\"}]\n");
     assert.doesNotMatch(await readFile(eventsPath, "utf8"), /old real active event/);
     assert.equal(await readFile(runsPath, "utf8"), "[]\n");
+  });
+});
+
+test("real Pi extension: slash command dispatch deletes approved storage archives", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    await mkdir(join(dir, ".scaler", "storage", "archive", "logs"), { recursive: true });
+    const oldArchive = join(dir, ".scaler", "storage", "archive", "logs", "events-old.jsonl");
+    const newArchive = join(dir, ".scaler", "storage", "archive", "logs", "events-new.jsonl");
+    await writeFile(oldArchive, "o".repeat(5), "utf8");
+    await writeFile(newArchive, "n".repeat(5), "utf8");
+    await utimes(oldArchive, new Date("2025-12-01T00:00:00.000Z"), new Date("2025-12-01T00:00:00.000Z"));
+    await utimes(newArchive, new Date("2025-12-31T00:00:00.000Z"), new Date("2025-12-31T00:00:00.000Z"));
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-storage-maintain execute no-compress delete-archives max-archive-bytes=6",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /delete_archive/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const maintenance = await loadStorageMaintenanceReport(dir);
+    assert.ok(maintenance, "expected persisted maintenance report");
+    assert.equal(maintenance.executed, true);
+    assert.equal(maintenance.summary.failed, 0);
+    const deletion = maintenance.actions.find((action) => action.type === "delete_archive");
+    assert.equal(deletion?.path, ".scaler/storage/archive/logs/events-old.jsonl");
+    assert.equal(deletion?.status, "completed");
+    assert.equal(await pathExists(oldArchive), false);
+    assert.equal(await readFile(newArchive, "utf8"), "n".repeat(5));
   });
 });
 

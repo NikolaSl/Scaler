@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -87,6 +87,35 @@ test("mock integration: storage maintenance rotates active ledgers and checks fr
     assert.doesNotMatch(await readFile(eventsPath, "utf8"), /old active event/);
     assert.equal(await readFile(runsPath, "utf8"), "[]\n");
     assert.ok(Number(getBudgetState(await loadState(dir)).usage.storageBytes) > 0);
+  });
+});
+
+test("mock integration: storage maintenance deletes approved archive quota targets", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    await saveState(dir, state);
+
+    await mkdir(join(dir, ".scaler", "storage", "archive", "logs"), { recursive: true });
+    const oldArchive = join(dir, ".scaler", "storage", "archive", "logs", "events-old.jsonl");
+    const newArchive = join(dir, ".scaler", "storage", "archive", "logs", "events-new.jsonl");
+    await writeFile(oldArchive, "o".repeat(5), "utf8");
+    await writeFile(newArchive, "n".repeat(5), "utf8");
+    await utimes(oldArchive, new Date("2025-12-01T00:00:00.000Z"), new Date("2025-12-01T00:00:00.000Z"));
+    await utimes(newArchive, new Date("2025-12-31T00:00:00.000Z"), new Date("2025-12-31T00:00:00.000Z"));
+
+    const commands = registeredCommands();
+    await commands.get("scaler-storage-maintain")?.handler("execute no-compress delete-archives max-archive-bytes=6", { cwd: dir, hasUI: false });
+
+    const maintenance = await loadStorageMaintenanceReport(dir);
+    assert.ok(maintenance, "expected persisted maintenance report");
+    assert.equal(maintenance.executed, true);
+    assert.equal(maintenance.summary.failed, 0);
+    const deletion = maintenance.actions.find((action) => action.type === "delete_archive");
+    assert.equal(deletion?.path, ".scaler/storage/archive/logs/events-old.jsonl");
+    assert.equal(deletion?.status, "completed");
+    assert.equal(await exists(oldArchive), false);
+    assert.equal(await readFile(newArchive, "utf8"), "n".repeat(5));
   });
 });
 
