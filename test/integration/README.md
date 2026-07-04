@@ -63,6 +63,7 @@ Prefer assertions on durable artifacts such as:
 - `.scaler/plans/replan-requests.json`
 - `.scaler/reports/validation-runs.json`
 - `.scaler/reports/validation-checklists.json`
+- `.scaler/reports/validation-environments.json`
 - `.scaler/reports/*-agent-runs.json`
 - `.scaler/logs/events.jsonl`
 - `.scaler/stages/stage-artifacts.json`
@@ -221,6 +222,7 @@ When adding a new integration scenario:
 - `mock/validation-gates-flow.test.ts`
   - command-driven typed validation gate metadata persisted to manifests;
   - validation run records and audit events preserve gate, required, expected-result, evidence metadata, environment metadata, and dependency/test-first/CI-sandbox policy diagnostics;
+  - declared local-CI validation records prepare/cleanup lifecycle evidence and `/scaler-validation-envs` status output;
   - misordered required dependency checks and undeclared local-CI host execution fail before expensive validation commands execute;
   - command-driven non-software validation checklists persist deterministic checklist records, apply fail/pass rollups, and enforce evidence-required acceptance policy.
 - `mock/research-internet-grant-flow.test.ts`
@@ -261,7 +263,7 @@ When adding a new integration scenario:
   - real Pi slash-command safety-policy persistence;
   - real Pi slash-command debug next-approach retry prepare mode with persisted `.scaler/debug/retries.json` and prompt audit logs;
   - real Pi slash-command tool transaction and transaction replay prepare modes with persisted `.scaler/tool-requests/transactions.json`;
-  - real Pi slash-command typed validation gate metadata, validation gate/environment/disposition policy enforcement, skipped/blocked disposition persistence, non-software checklist persistence, and evidence-policy enforcement;
+  - real Pi slash-command typed validation gate metadata, validation gate/environment/disposition policy enforcement, validation environment lifecycle status, skipped/blocked disposition persistence, non-software checklist persistence, and evidence-policy enforcement;
   - command audit events and detail payload references in `.scaler/logs/events.jsonl`;
   - cardinal real-model call to `scaler_tool_request` with exact rich metadata and persisted tool-request state;
   - cardinal real-model call to `scaler_tool_result` with exact result metadata, persisted result ledger, and closed request status;

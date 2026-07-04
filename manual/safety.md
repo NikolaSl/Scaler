@@ -26,4 +26,4 @@ The persisted policy can allow internet-transfer and external-mutation command c
 
 Blocked actions are written to `.scaler/logs/events.jsonl` as safety events with risk values such as `secret`, `destructive`, or `external`.
 
-Approval workflows, scanner commands, and sandbox exceptions will be added later.
+Validation environment lifecycle evidence exists for declared local-CI/sandbox validation gates, but it does not grant host-destructive, secret, deployment, publishing, or external-mutation exceptions. Approval workflows, scanner commands, and broader sandbox exceptions will be added later.
