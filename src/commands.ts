@@ -94,6 +94,11 @@ export interface ParsedToolRunArgs {
   execute: boolean;
 }
 
+export interface ParsedToolReplayArgs {
+  transactionId?: string;
+  execute: boolean;
+}
+
 export interface ParsedToolCatalogArgs {
   toolName?: string;
 }
@@ -299,6 +304,14 @@ export function parseToolRunArgs(args: string | undefined): ParsedToolRunArgs {
   const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
   return {
     requestId: parts.find((part) => part.toLowerCase() !== "execute"),
+    execute: parts.some((part) => part.toLowerCase() === "execute"),
+  };
+}
+
+export function parseToolReplayArgs(args: string | undefined): ParsedToolReplayArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  return {
+    transactionId: parts.find((part) => part.toLowerCase() !== "execute"),
     execute: parts.some((part) => part.toLowerCase() === "execute"),
   };
 }

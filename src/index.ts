@@ -23,6 +23,7 @@ import {
   parseTaskRetryArgs,
   parseToolCatalogArgs,
   parseToolDiscoverArgs,
+  parseToolReplayArgs,
   parseToolRunArgs,
   parseValidateLoopArgs,
   parseValidationAddArgs,
@@ -73,7 +74,7 @@ import {
   validateStageArtifactReadiness,
 } from "./stages.js";
 import { formatStorageInventory, formatStorageMaintenanceReport, runStorageMaintenance, saveStorageInventory, scanScalerStorageInventory } from "./storage.js";
-import { formatKnownToolCatalog, formatToolSchemaDiscoveryRuns, formatToolTransactions, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, runToolRequestAgent, runToolSchemaDiscoveryAgent } from "./tool-requests.js";
+import { formatKnownToolCatalog, formatToolSchemaDiscoveryRuns, formatToolTransactions, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, replayToolTransaction, runToolRequestAgent, runToolSchemaDiscoveryAgent } from "./tool-requests.js";
 import { registerScalerTools } from "./tools.js";
 import { upsertValidationManifestCommand } from "./validation.js";
 import { runValidationDebugLoopWorkflow, selectTaskForValidationDebugLoop } from "./validation-debug-loop.js";
@@ -626,6 +627,19 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const toolName = args?.trim() || undefined;
       const message = formatToolSchemaDiscoveryRuns(await loadToolSchemaDiscoveryRuns(ctx.cwd), toolName);
       if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-tool-replay", {
+    description: "Prepare or execute a persisted isolated tool-agent transaction replay: /scaler-tool-replay <transactionId> [execute]",
+    handler: async (args, ctx) => {
+      const parsed = parseToolReplayArgs(args);
+      const state = await ensureState(ctx.cwd);
+      const result = await replayToolTransaction(ctx.cwd, state, { transactionId: parsed.transactionId ?? "", execute: parsed.execute });
+      const suffix = result.transaction ? ` transaction=${result.transaction.id} status=${result.transaction.status}` : "";
+      const message = `${result.message}${suffix}`;
+      if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
       else console.log(message);
     },
   });

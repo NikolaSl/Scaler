@@ -19,6 +19,7 @@ import {
   parseTaskRetryArgs,
   parseToolCatalogArgs,
   parseToolDiscoverArgs,
+  parseToolReplayArgs,
   parseToolRunArgs,
   parseValidateLoopArgs,
   parseStageLoopArgs,
@@ -174,6 +175,12 @@ test("parseToolRunArgs parses optional request and execute flag", () => {
   assert.deepEqual(parseToolRunArgs("REQ-1 execute"), { requestId: "REQ-1", execute: true });
   assert.deepEqual(parseToolRunArgs("execute"), { requestId: undefined, execute: true });
   assert.deepEqual(parseToolRunArgs(" "), { requestId: undefined, execute: false });
+});
+
+test("parseToolReplayArgs parses optional transaction and execute flag", () => {
+  assert.deepEqual(parseToolReplayArgs("TXN-1 execute"), { transactionId: "TXN-1", execute: true });
+  assert.deepEqual(parseToolReplayArgs("execute"), { transactionId: undefined, execute: true });
+  assert.deepEqual(parseToolReplayArgs(" "), { transactionId: undefined, execute: false });
 });
 
 test("parseToolCatalogArgs parses optional tool name", () => {
