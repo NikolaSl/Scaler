@@ -26,6 +26,7 @@ Implemented audit coverage includes:
 - validation: validation runs record command summaries and append validation audit detail files.
 - git commits: commit attempts and accepted commit ids are logged with detail refs and commit hashes in `outputRefs`.
 - safety/budget/state/debug/memory/storage status events continue to use the same JSONL log.
+- provider token/cost usage, when exposed by Pi/provider metadata, is logged as `budget` events with usage details and summary counters.
 
 ## Event types
 

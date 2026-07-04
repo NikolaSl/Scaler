@@ -50,6 +50,7 @@ The current mocked integration harness covers:
 - runtime PRD coverage-gap replanning through proposal ingestion, preservation checks, proposal acceptance, current-plan replacement, decisions, snapshots, request resolution, and task creation;
 - budget hard-stop refusal for conductor/validation paths with pause and audit behavior;
 - command-driven budget configuration feeding later validation hard-stop behavior;
+- provider usage metadata from Pi turn events updating token/cost budget counters and audit logs;
 - storage status inventory indexing plus budget hard-pause behavior;
 - storage maintenance command execution with safe gzip compression, explicit cache cleanup, persisted reports, storage budget usage, and audit logs;
 - typed validation gate metadata plus dependency/test-first and CI/sandbox environment policy diagnostics persisted through `/scaler-validation-add`, validation runs, and audit logs;
@@ -106,7 +107,7 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - report-only child agents launched with `--no-tools` for cardinal JSON-output tests;
 - real Pi extension loading via `-e src/index.ts`;
 - slash-command dispatch and command audit logs;
-- slash-command budget configuration/status persistence and audit logs;
+- slash-command budget configuration/status persistence, provider usage turn accounting, and audit logs;
 - slash-command storage status inventory persistence and audit logs;
 - slash-command storage maintenance execution, active-ledger rotation, approved archive retention deletion, persisted maintenance reports, and audit logs;
 - slash-command debug next-approach retry prepare mode with persisted retry records and prompt audit logs;

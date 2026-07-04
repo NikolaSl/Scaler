@@ -131,7 +131,7 @@ Shows or updates persisted safety policy at `.scaler/safety/policy.json`. Persis
 
 ## `/scaler-budget-status`
 
-Shows state-backed budget usage, soft/hard limits, checkpoint count, and the strongest current budget decision.
+Shows state-backed budget usage, soft/hard limits, checkpoint count, and the strongest current budget decision. When Pi/provider usage metadata is available, parent turns and child-agent runs increment `contextTokens` and `estimatedCostMicros` before this status is rendered.
 
 ## `/scaler-budget-set <key> | <soft> | <hard>`
 

@@ -85,6 +85,8 @@ async function mockRunner(request: TaskAgentRequest): Promise<TaskAgentRunResult
     stderr: "",
     timedOut: false,
     aborted: false,
+    // Optional: include provider usage when a scenario needs token/cost budget accounting.
+    // usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, costMicros: 50, sources: ["mock"] },
   };
 }
 ```
@@ -198,6 +200,7 @@ When adding a new integration scenario:
   - replan proposal acceptance, current-plan replacement, version snapshot, replan decision, request resolution, and task creation;
   - validated-task git commit through the execution lock while preserving `.scaler/` runtime artifacts and recording git audit logs.
 - `mock/budget-command-flow.test.ts`
+  - provider usage turn metadata increments token/cost budget counters and writes budget audit events;
   - command-driven budget configuration persisted to state;
   - configured validation-loop hard stop before validation command execution, with pause/audit behavior.
 - `mock/storage-status-flow.test.ts`
@@ -251,6 +254,7 @@ When adding a new integration scenario:
   - real Pi `--mode json` wrapper extraction for exact assistant JSON events.
 - `real/real-pi-extension-integrity.test.ts`
   - real Pi extension load and slash-command dispatch via `/scaler-lock`;
+  - real Pi provider usage turn metadata updating `contextTokens`/`estimatedCostMicros` and budget audit logs;
   - real Pi slash-command budget configuration/status persistence;
   - real Pi slash-command storage status inventory persistence;
   - real Pi slash-command storage maintenance execution, active-ledger rotation, and approved archive retention deletion with persisted `.scaler/storage/maintenance.json` and audit logs;
