@@ -112,6 +112,25 @@ export interface ParsedStorageScheduleArgs {
 export interface ParsedSafetyPolicyArgs {
   allowInternet?: boolean;
   allowExternalMutations?: boolean;
+  allowSandbox?: boolean;
+}
+
+export interface ParsedSafetyApprovalArgs {
+  action: "list" | "approve" | "revoke";
+  id?: string;
+  toolName?: string;
+  match?: string;
+  value?: string;
+  risk?: string;
+  reason?: string;
+  sandboxOnly?: boolean;
+  maxUses?: number;
+  ttlMinutes?: number;
+}
+
+export interface ParsedSafetyScanArgs {
+  execute: boolean;
+  kinds?: string[];
 }
 
 export interface ParsedPrdLinkArgs {
@@ -405,6 +424,41 @@ export function parseSafetyPolicyArgs(args: string | undefined): ParsedSafetyPol
   return {
     allowInternet: parseOnOffOption(parts.find((part) => /^allow-internet=/i.test(part))),
     allowExternalMutations: parseOnOffOption(parts.find((part) => /^allow-external=/i.test(part))),
+    allowSandbox: parseOnOffOption(parts.find((part) => /^allow-sandbox=/i.test(part))),
+  };
+}
+
+export function parseSafetyApprovalArgs(args: string | undefined): ParsedSafetyApprovalArgs {
+  const parts = splitPipeArgs(args);
+  const action = parts[0]?.trim().toLowerCase();
+  if (action === "approve") {
+    const optionParts = parts.slice(6).flatMap((part) => part.trim().split(/\s+/).filter(Boolean));
+    const maxUsesPart = optionParts.find((part) => /^max-uses=\d+$/i.test(part));
+    const ttlPart = optionParts.find((part) => /^ttl-minutes=\d+$/i.test(part));
+    return {
+      action: "approve",
+      toolName: parts[1]?.trim() || undefined,
+      match: parts[2]?.trim() || undefined,
+      value: parts[3]?.trim() || undefined,
+      risk: parts[4]?.trim() || undefined,
+      reason: parts[5]?.trim() || undefined,
+      sandboxOnly: parseOnOffOption(optionParts.find((part) => /^sandbox=/i.test(part))),
+      maxUses: maxUsesPart ? Number.parseInt(maxUsesPart.split("=")[1] ?? "", 10) : undefined,
+      ttlMinutes: ttlPart ? Number.parseInt(ttlPart.split("=")[1] ?? "", 10) : undefined,
+    };
+  }
+  if (action === "revoke") {
+    return { action: "revoke", id: parts[1]?.trim() || undefined, reason: parts[2]?.trim() || undefined };
+  }
+  return { action: "list" };
+}
+
+export function parseSafetyScanArgs(args: string | undefined): ParsedSafetyScanArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  const kindsPart = parts.find((part) => /^kinds=/i.test(part));
+  return {
+    execute: parts.some((part) => part.toLowerCase() === "execute"),
+    kinds: kindsPart ? parseCommaList(kindsPart.split("=").slice(1).join("=")) : undefined,
   };
 }
 

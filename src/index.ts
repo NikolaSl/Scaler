@@ -14,7 +14,9 @@ import {
   parseResearchReportArgs,
   parseResearchRequestArgs,
   parseResearchRunArgs,
+  parseSafetyApprovalArgs,
   parseSafetyPolicyArgs,
+  parseSafetyScanArgs,
   parseStageLoopArgs,
   parseStageRecordArgs,
   parseStageRunArgs,
@@ -64,7 +66,7 @@ import { requestReplan } from "./replanning.js";
 import { formatReplanAgentRunList, loadReplanAgentRunRecords, runReplanAgentStep } from "./replan-agent.js";
 import { formatResearchAgentRunList, loadResearchAgentRunRecords, runResearchAgentStep } from "./research-agent.js";
 import { formatResearchSummary, loadResearchReports, loadResearchRequests, recordResearchReport, upsertResearchRequest } from "./research.js";
-import { assessToolCallSafety, formatSafetyPolicy, loadSafetyPolicy, mergeSafetyPolicy, saveSafetyPolicy } from "./safety.js";
+import { applySafetyApproval, assessToolCallSafety, createSafetyApproval, formatSafetyApprovals, formatSafetyPolicy, formatSafetyScanRecords, formatSafetyScanResult, loadSafetyApprovals, loadSafetyPolicy, loadSafetyScanRecords, mergeSafetyPolicy, revokeSafetyApproval, runSafetyScans, saveSafetyPolicy } from "./safety.js";
 import { createTask, formatTaskList, retryTask, updateTask } from "./tasks.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
 import { advanceStageAfterReadyArtifact } from "./stage-advancement.js";
@@ -155,6 +157,28 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     );
 
     if (decision.allowed) return undefined;
+    const approval = await applySafetyApproval(
+      ctx.cwd,
+      { toolName: event.toolName, input: event.input as Record<string, unknown> },
+      decision,
+    );
+    if (approval.allowed) {
+      await appendLogEvent(
+        ctx.cwd,
+        createLogEvent(state, {
+          eventType: "safety",
+          summary: `Allowed ${event.toolName} by approval: ${approval.approval?.id ?? "unknown"}`,
+          details: {
+            toolName: event.toolName,
+            risk: decision.risk,
+            requiresApproval: decision.requiresApproval,
+            approvalId: approval.approval?.id,
+            approvalReason: approval.approval?.reason,
+          },
+        }),
+      );
+      return undefined;
+    }
     await appendLogEvent(
       ctx.cwd,
       createLogEvent(state, {
@@ -164,6 +188,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
           toolName: event.toolName,
           risk: decision.risk,
           requiresApproval: decision.requiresApproval,
+          approvalReason: approval.reason,
         },
       }),
     );
@@ -1168,10 +1193,10 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("scaler-safety-policy", {
-    description: "Show or update persisted SCALER safety policy: /scaler-safety-policy [allow-internet=on/off] [allow-external=on/off]",
+    description: "Show or update persisted SCALER safety policy: /scaler-safety-policy [allow-internet=on/off] [allow-external=on/off] [allow-sandbox=on/off]",
     handler: async (args, ctx) => {
       const parsed = parseSafetyPolicyArgs(args);
-      const hasUpdate = parsed.allowInternet !== undefined || parsed.allowExternalMutations !== undefined;
+      const hasUpdate = parsed.allowInternet !== undefined || parsed.allowExternalMutations !== undefined || parsed.allowSandbox !== undefined;
       const policy = hasUpdate ? await saveSafetyPolicy(ctx.cwd, parsed) : await loadSafetyPolicy(ctx.cwd);
       const state = await ensureState(ctx.cwd);
       await logStateEvent(ctx.cwd, state, "Scaler safety policy requested", {
@@ -1181,6 +1206,83 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       });
       const message = formatSafetyPolicy(policy);
       if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-safety-approval", {
+    description: "List/create/revoke scoped safety approvals: /scaler-safety-approval approve | <tool> | <match> | <value> | <risk> | <reason> | [max-uses=N ttl-minutes=N sandbox=on]",
+    handler: async (args, ctx) => {
+      const parsed = parseSafetyApprovalArgs(args);
+      const state = await ensureState(ctx.cwd);
+      let message: string;
+      if (parsed.action === "approve") {
+        if (!parsed.toolName || !parsed.match || !parsed.reason) {
+          message = "Usage: /scaler-safety-approval approve | <tool> | <exact_command|target|tool> | <value> | <risk|any> | <reason> | [max-uses=N ttl-minutes=N sandbox=on]";
+          if (ctx.hasUI) ctx.ui.notify(message, "warning");
+          else console.log(message);
+          return;
+        }
+        const approval = await createSafetyApproval(ctx.cwd, {
+          toolName: parsed.toolName,
+          match: parsed.match,
+          value: parsed.value,
+          risk: parsed.risk,
+          reason: parsed.reason,
+          sandboxOnly: parsed.sandboxOnly,
+          maxUses: parsed.maxUses,
+          ttlMinutes: parsed.ttlMinutes,
+        });
+        message = `Safety approval created: ${approval.id} risk=${approval.risk} tool=${approval.toolName ?? "*"} match=${approval.match} uses=0/${approval.maxUses}`;
+        await logStateEvent(ctx.cwd, state, "Scaler safety approval created", {
+          command: "scaler-safety-approval",
+          action: "approve",
+          approval,
+        });
+      } else if (parsed.action === "revoke") {
+        if (!parsed.id) {
+          message = "Usage: /scaler-safety-approval revoke | <approval-id> | [reason]";
+          if (ctx.hasUI) ctx.ui.notify(message, "warning");
+          else console.log(message);
+          return;
+        }
+        const revoked = await revokeSafetyApproval(ctx.cwd, parsed.id, parsed.reason);
+        message = revoked ? `Safety approval revoked: ${revoked.id}` : `Safety approval not found: ${parsed.id}`;
+        await logStateEvent(ctx.cwd, state, "Scaler safety approval revoked", {
+          command: "scaler-safety-approval",
+          action: "revoke",
+          approval: revoked,
+          requestedId: parsed.id,
+        });
+      } else {
+        const approvals = await loadSafetyApprovals(ctx.cwd);
+        message = formatSafetyApprovals(approvals);
+        await logStateEvent(ctx.cwd, state, "Scaler safety approvals requested", {
+          command: "scaler-safety-approval",
+          action: "list",
+          count: approvals.length,
+        });
+      }
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-safety-scan", {
+    description: "Plan or run optional dependency/image security scanners: /scaler-safety-scan [execute] [kinds=npm_audit,trivy_fs]",
+    handler: async (args, ctx) => {
+      const parsed = parseSafetyScanArgs(args);
+      const result = await runSafetyScans(ctx.cwd, { execute: parsed.execute, kinds: parsed.kinds });
+      const records = await loadSafetyScanRecords(ctx.cwd);
+      const state = await ensureState(ctx.cwd);
+      await logStateEvent(ctx.cwd, state, "Scaler safety scan requested", {
+        command: "scaler-safety-scan",
+        execute: parsed.execute,
+        result,
+        records: records.length,
+      });
+      const message = `${formatSafetyScanResult(result)}\n${formatSafetyScanRecords(records, 5)}`;
+      if (ctx.hasUI) ctx.ui.notify(message, result.summary.failed > 0 ? "warning" : "info");
       else console.log(message);
     },
   });

@@ -46,6 +46,14 @@ export function getSafetyPolicyPath(cwd: string): string {
   return join(getSafetyDir(cwd), "policy.json");
 }
 
+export function getSafetyApprovalsPath(cwd: string): string {
+  return join(getSafetyDir(cwd), "approvals.json");
+}
+
+export function getSafetyScansPath(cwd: string): string {
+  return join(getSafetyDir(cwd), "scans.json");
+}
+
 export function getMemoryDir(cwd: string): string {
   return join(getScalerDir(cwd), "memory");
 }
