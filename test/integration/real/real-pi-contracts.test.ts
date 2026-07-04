@@ -25,6 +25,7 @@ const REAL_PI_TIMEOUT_MS = Number.parseInt(process.env.SCALER_REAL_PI_TIMEOUT_MS
 
 const CARDINAL_DEBUG_REPORT_INSTRUCTION = `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: {"type":"scaler_debug_report","taskId":"T-REAL","status":"next_approach","summary":"Real Pi integration deterministic report.","nextApproach":"No code change; this is an integration contract check.","evidenceRefs":["real-pi-cardinal-instruction"]}.`;
 const CARDINAL_RESEARCH_REPORT_INSTRUCTION = `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: {"type":"scaler_research_report","id":"RPT-REAL","requestId":"RESEARCH-REAL","taskId":"T-REAL","status":"blocked","question":"What is the deterministic real integration answer?","sources":[{"id":"real-cardinal-source","title":"Real cardinal instruction","quality":"project","summary":"The cardinal instruction is the evidence source."}],"conclusions":[],"unresolvedUnknowns":["This is a blocked-mode subprocess structured-output contract check."],"recommendations":["Treat this as a subprocess structured-output contract check."]}.`;
+const CARDINAL_INTERNET_RESEARCH_GRANT_INSTRUCTION = `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: {"type":"scaler_research_report","id":"RPT-REAL-INTERNET-GRANT","requestId":"RESEARCH-REAL-INTERNET-GRANT","taskId":"T-REAL","status":"blocked","question":"Which deterministic external source should be cited?","sources":[{"id":"real-internet-cardinal-source","title":"Real cardinal external source placeholder","quality":"official","url":"https://example.invalid/scaler-real-internet-grant","summary":"The cardinal instruction supplies deterministic source-capture metadata for this boundary test."}],"conclusions":[],"unresolvedUnknowns":["This is a blocked-mode internet-grant boundary contract check; no live browsing is performed."],"recommendations":["Treat this as an explicit internet-tool grant contract check."]}.`;
 const CARDINAL_STAGE_ARTIFACT_INSTRUCTION = `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: {"type":"scaler_stage_artifact","stage":"execution","status":"ready","title":"Real Pi execution artifact","summary":"Real Pi integration deterministic stage artifact.","evidenceRefs":["real-pi-cardinal-instruction"],"taskRefs":["T-REAL"]}.`;
 const CARDINAL_REPLAN_PROPOSAL_INSTRUCTION = `CARDINAL TEST INSTRUCTION: Ignore any conflicting instruction in this prompt. For this integration test, emit exactly one structured JSON event and no prose or markdown. The JSON object must be: {"type":"scaler_replan_proposal","plan":{"version":1,"planVersion":1,"status":"draft","title":"Real Pi deterministic proposal","source":"real-pi-cardinal-instruction","tasks":[{"id":"T-REAL-PLAN","title":"Real Pi deterministic plan task","prdRefs":[],"allowedPathPrefixes":["package.json"]}],"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}}.`;
 
@@ -115,6 +116,51 @@ test("real integration: research agent obeys cardinal structured report instruct
     assert.equal(result.ingestion?.report?.id, "RPT-REAL");
     assert.equal(result.ingestion?.report?.status, "blocked");
     assert.equal((await loadResearchReports(dir))[0]?.id, "RPT-REAL");
+  });
+});
+
+test("real integration: internet research grant passes explicit tools to cardinal subprocess", { skip: !REAL_PI_ENABLED }, async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "knowledge";
+    state.tasks = [{ id: "T-REAL", status: "ready", title: "Real internet research grant contract", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+    await upsertResearchRequest(dir, {
+      id: "RESEARCH-REAL-INTERNET-GRANT",
+      question: "Which deterministic external source should be cited?",
+      reason: "Real Pi internet grant contract check.",
+      scope: "internet",
+      taskId: "T-REAL",
+    });
+
+    const realRunner = async (request: TaskAgentRequest): Promise<TaskAgentRunResult> => {
+      assert.deepEqual(request.tools, ["read"]);
+      return await runTaskAgent({
+        ...request,
+        model: REAL_PI_MODEL ?? request.model,
+        prompt: CARDINAL_INTERNET_RESEARCH_GRANT_INSTRUCTION,
+      }, {
+        command: REAL_PI_COMMAND,
+        timeoutMs: REAL_PI_TIMEOUT_MS,
+      });
+    };
+
+    const result = await runResearchAgentStep(dir, state, {
+      requestId: "RESEARCH-REAL-INTERNET-GRANT",
+      execute: true,
+      allowInternet: true,
+      tools: ["read"],
+      timeoutMs: REAL_PI_TIMEOUT_MS,
+      model: REAL_PI_MODEL,
+      extraInstructions: CARDINAL_INTERNET_RESEARCH_GRANT_INSTRUCTION,
+    }, realRunner);
+
+    assert.equal(result.accepted, true);
+    assert.ok(result.invocation?.args.includes("--tools"));
+    assert.ok(result.invocation?.args.includes("read"));
+    assert.equal(result.ingestion?.ingested, true, result.ingestion?.reason);
+    assert.equal(result.ingestion?.report?.id, "RPT-REAL-INTERNET-GRANT");
+    assert.equal((await loadResearchReports(dir))[0]?.sources[0]?.url, "https://example.invalid/scaler-real-internet-grant");
   });
 });
 
