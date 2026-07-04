@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   parseBudgetSetArgs,
   parseCommaList,
+  parseSemicolonList,
   parseCommitArgs,
   parseContextTaskArgs,
   parseDebugLoopArgs,
@@ -51,16 +52,18 @@ test("parseTaskCreateArgs parses task id only", () => {
     allowedPathPrefixes: undefined,
     dependsOn: undefined,
     prdRefs: undefined,
+    definitionOfDone: undefined,
   });
 });
 
-test("parseTaskCreateArgs parses title, allowed paths, dependencies, and PRD refs", () => {
-  assert.deepEqual(parseTaskCreateArgs("T-001 | Add parser | src, test | T-000, T-BASE | REQ-001, REQ-002"), {
+test("parseTaskCreateArgs parses title, allowed paths, dependencies, PRD refs, and DoD", () => {
+  assert.deepEqual(parseTaskCreateArgs("T-001 | Add parser | src, test | T-000, T-BASE | REQ-001, REQ-002 | tests pass; docs updated"), {
     taskId: "T-001",
     title: "Add parser",
     allowedPathPrefixes: ["src", "test"],
     dependsOn: ["T-000", "T-BASE"],
     prdRefs: ["REQ-001", "REQ-002"],
+    definitionOfDone: ["tests pass", "docs updated"],
   });
 });
 
@@ -72,6 +75,7 @@ test("parseTaskUpdateArgs parses task update fields", () => {
     allowedPathPrefixes: ["src", "test"],
     dependsOn: ["T-000"],
     prdRefs: ["REQ-001"],
+    definitionOfDone: undefined,
   });
 });
 
@@ -222,6 +226,10 @@ test("parseTaskCreateArgs returns undefined without task id", () => {
 
 test("parseCommaList removes blanks", () => {
   assert.deepEqual(parseCommaList("src, , test "), ["src", "test"]);
+});
+
+test("parseSemicolonList removes blanks", () => {
+  assert.deepEqual(parseSemicolonList("tests pass; ; docs updated "), ["tests pass", "docs updated"]);
 });
 
 test("parseContextTaskArgs parses optional task id", () => {

@@ -11,6 +11,7 @@ import { loadResearchWebTransactions } from "../../../src/research-web.js";
 import { loadSafetyApprovals, loadSafetyPolicy } from "../../../src/safety.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { addTask } from "../../../src/supervisor.js";
+import { loadTaskDefinitionReviews } from "../../../src/task-quality.js";
 import { loadStorageInventory, loadStorageMaintenanceReport, loadStorageMaintenanceSchedule } from "../../../src/storage.js";
 import { loadMcpServerRecords, loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolRequests, loadToolResults, loadToolSchedules, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest, recordToolSchema, runToolRequestAgent } from "../../../src/tool-requests.js";
 import { loadValidationEnvironmentRecords } from "../../../src/validation-environments.js";
@@ -61,6 +62,31 @@ test("real Pi extension: slash command dispatch applies adaptive escalation", { 
 
     const events = await readLogEvents(dir);
     assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Scaler adaptive orchestration applied"));
+  });
+});
+
+test("real Pi extension: slash command dispatch records task quality warnings", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.tasks = [{ id: "T-REAL-QUALITY", status: "ready", title: "Unscoped real task", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-task-quality T-REAL-QUALITY",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /missing_dod/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const reviews = await loadTaskDefinitionReviews(dir);
+    assert.equal(reviews[0]?.taskId, "T-REAL-QUALITY");
+    assert.equal(reviews[0]?.status, "warnings");
+    assert.ok(reviews[0]?.warnings.some((warning) => warning.code === "missing_allowed_paths"));
+
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Task definition review warnings: T-REAL-QUALITY"));
   });
 });
 

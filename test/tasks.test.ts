@@ -35,19 +35,21 @@ test("createTask supports explicit ready status", async () => {
   });
 });
 
-test("createTask stores normalized allowed path prefixes, dependencies, and PRD refs", async () => {
+test("createTask stores normalized allowed path prefixes, dependencies, PRD refs, and DoD", async () => {
   await withTempDir(async (dir) => {
     const result = await createTask(dir, createDefaultState(), {
       id: "T-001",
       allowedPathPrefixes: ["./src/", "src", " test ", ""],
       dependsOn: ["T-000", "", "T-000", "T-BASE"],
       prdRefs: ["REQ-001", "", "REQ-001", "REQ-002"],
+      definitionOfDone: [" tests pass ", "", "tests pass", "docs updated"],
     });
 
     assert.equal(result.accepted, true);
     assert.deepEqual(result.state.tasks[0]?.allowedPathPrefixes, ["src", "test"]);
     assert.deepEqual(result.state.tasks[0]?.dependsOn, ["T-000", "T-BASE"]);
     assert.deepEqual(result.state.tasks[0]?.prdRefs, ["REQ-001", "REQ-002"]);
+    assert.deepEqual(result.state.tasks[0]?.definitionOfDone, ["tests pass", "docs updated"]);
   });
 });
 
@@ -62,11 +64,12 @@ test("formatTaskList renders current task, status, title, and allowed paths", ()
       allowedPathPrefixes: ["src", "test"],
       dependsOn: ["T-000"],
       prdRefs: ["REQ-001"],
+      definitionOfDone: ["Tests pass"],
       updatedAt: state.createdAt,
     },
   ];
 
-  assert.equal(formatTaskList(state), "Scaler tasks:\n- T-001: validated *current* - Add feature [paths: src, test] [depends: T-000] [prd: REQ-001]");
+  assert.equal(formatTaskList(state), "Scaler tasks:\n- T-001: validated *current* - Add feature [paths: src, test] [depends: T-000] [prd: REQ-001] [dod: 1]");
 });
 
 test("formatTaskList handles no tasks", () => {
@@ -83,6 +86,7 @@ test("updateTask updates metadata and valid status transition", async () => {
       allowedPathPrefixes: ["src", "test"],
       dependsOn: ["T-000"],
       prdRefs: ["REQ-001", "REQ-002"],
+      definitionOfDone: ["Tests pass", "Feature documented"],
     });
     const task = result.state.tasks[0];
 
@@ -92,6 +96,7 @@ test("updateTask updates metadata and valid status transition", async () => {
     assert.deepEqual(task?.allowedPathPrefixes, ["src", "test"]);
     assert.deepEqual(task?.dependsOn, ["T-000"]);
     assert.deepEqual(task?.prdRefs, ["REQ-001", "REQ-002"]);
+    assert.deepEqual(task?.definitionOfDone, ["Tests pass", "Feature documented"]);
   });
 });
 

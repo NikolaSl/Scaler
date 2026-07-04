@@ -41,6 +41,7 @@ test("extension registers scaler commands", () => {
     "scaler-lock-clear",
     "scaler-runs",
     "scaler-task-reports",
+    "scaler-task-quality",
     "scaler-tasks",
     "scaler-context-init",
     "scaler-context-status",
