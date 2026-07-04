@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { getBudgetState } from "../../../src/budgets.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { createDefaultState, loadState } from "../../../src/state.js";
-import { loadStorageInventory } from "../../../src/storage.js";
+import { loadStorageInventory, loadStorageMaintenanceReport } from "../../../src/storage.js";
 import { loadToolRequests, loadToolResults, prepareToolRequest } from "../../../src/tool-requests.js";
 import { loadValidationManifests } from "../../../src/validation.js";
 import { REAL_PI_ENABLED, REAL_PI_MODEL, runScalerPi, withRealPiTempRepo } from "./real-pi-harness.js";
@@ -88,6 +88,47 @@ test("real Pi extension: slash command dispatch persists storage inventory", { s
     assert.deepEqual(
       events
         .filter((event) => event.eventType === "command" && isRecord(event.details) && event.details.command === "scaler-storage-status")
+        .map((event) => (event.details as { phase: string }).phase),
+      ["start", "end"],
+    );
+  });
+});
+
+test("real Pi extension: slash command dispatch executes storage maintenance", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    await mkdir(join(dir, ".scaler", "reports"), { recursive: true });
+    await mkdir(join(dir, ".scaler", "cache"), { recursive: true });
+    const reportPath = join(dir, ".scaler", "reports", "real-report.json");
+    const cachePath = join(dir, ".scaler", "cache", "real-cache.bin");
+    await writeFile(reportPath, "r".repeat(4096), "utf8");
+    await writeFile(cachePath, "c".repeat(4096), "utf8");
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-storage-maintain execute delete-cache min-age-days=999 min-size=2048",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const maintenance = await loadStorageMaintenanceReport(dir);
+    assert.ok(maintenance, "expected persisted maintenance report");
+    assert.equal(maintenance.executed, true);
+    assert.equal(maintenance.summary.failed, 0);
+    assert.ok(maintenance.actions.some((action) => action.type === "compress" && action.path === ".scaler/reports/real-report.json" && action.status === "completed"));
+    assert.ok(maintenance.actions.some((action) => action.type === "delete_cache" && action.path === ".scaler/cache/real-cache.bin" && action.status === "completed"));
+    assert.equal(await pathExists(reportPath), false);
+    assert.equal(await pathExists(`${reportPath}.gz`), true);
+    assert.equal(await pathExists(cachePath), false);
+
+    const state = await loadState(dir);
+    assert.ok(Number(getBudgetState(state).usage.storageBytes) > 0);
+
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Scaler storage maintenance requested"));
+    assert.deepEqual(
+      events
+        .filter((event) => event.eventType === "command" && isRecord(event.details) && event.details.command === "scaler-storage-maintain")
         .map((event) => (event.details as { phase: string }).phase),
       ["start", "end"],
     );
@@ -307,6 +348,16 @@ function toolEvents(events: unknown[], type: string, toolName: string): Record<s
 
 function readBudgetUsage(budgets: Record<string, unknown>, key: string): unknown {
   return isRecord(budgets.usage) ? budgets.usage[key] : undefined;
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
