@@ -12,6 +12,7 @@ export type ValidationStatus = "passed" | "failed" | "partial" | "blocked" | "no
 export type ValidationChecklistItemStatus = "passed" | "failed" | "blocked" | "not_applicable";
 export type ValidationChecklistStatus = "passed" | "failed" | "blocked";
 export type ValidationEnvironmentKind = "host" | "docker" | "compose" | "devcontainer" | "minikube" | "local_ci";
+export type ValidationGateDisposition = "run" | "skipped" | "blocked";
 
 export type ValidationGateKind =
   | "dependency_check"
@@ -56,6 +57,8 @@ export interface ValidationCommandManifest {
   expectedResult?: string;
   evidenceRefs?: string[];
   environment?: ValidationEnvironmentKind | string;
+  disposition?: ValidationGateDisposition | string;
+  dispositionReason?: string;
 }
 
 export interface TaskValidationManifest {
@@ -76,6 +79,8 @@ export interface ValidationManifestCommandInput {
   expectedResult?: string;
   evidenceRefs?: string[];
   environment?: ValidationEnvironmentKind | string;
+  disposition?: ValidationGateDisposition | string;
+  dispositionReason?: string;
 }
 
 export interface ValidationChecklistItemInput {
@@ -132,7 +137,7 @@ interface ValidationManifestIndex {
   manifests: TaskValidationManifest[];
 }
 
-export type ValidationCommandStatus = "passed" | "failed" | "timed_out";
+export type ValidationCommandStatus = "passed" | "failed" | "timed_out" | "skipped" | "blocked";
 
 export interface ValidationCommandRunRecord {
   id: string;
@@ -150,6 +155,8 @@ export interface ValidationCommandRunRecord {
   expectedResult?: string;
   evidenceRefs?: string[];
   environment?: ValidationEnvironmentKind;
+  disposition?: ValidationGateDisposition;
+  dispositionReason?: string;
 }
 
 export type ValidationManifestPolicySeverity = "warning" | "failure";
@@ -171,7 +178,7 @@ export interface ValidationManifestPolicyResult {
 export interface ValidationRunRecord {
   id: string;
   taskId: string;
-  status: "passed" | "failed";
+  status: "passed" | "failed" | "blocked";
   commandRuns: ValidationCommandRunRecord[];
   policyDiagnostics?: ValidationManifestPolicyDiagnostic[];
   createdAt: string;
@@ -192,7 +199,7 @@ const validationStatuses = new Set<ValidationStatus>(["passed", "failed", "parti
 const validationChecklistItemStatuses = new Set<ValidationChecklistItemStatus>(["passed", "failed", "blocked", "not_applicable"]);
 
 const validationEnvironmentKinds = new Set<ValidationEnvironmentKind>(["host", "docker", "compose", "devcontainer", "minikube", "local_ci"]);
-const nonHostValidationEnvironments = new Set<ValidationEnvironmentKind>(["docker", "compose", "devcontainer", "minikube", "local_ci"]);
+const validationGateDispositions = new Set<ValidationGateDisposition>(["run", "skipped", "blocked"]);
 
 const validationEnvironmentAliases: Record<string, ValidationEnvironmentKind> = {
   host: "host",
@@ -219,6 +226,22 @@ const validationEnvironmentAliases: Record<string, ValidationEnvironmentKind> = 
   local_ci: "local_ci",
   localci: "local_ci",
   sandbox: "local_ci",
+};
+
+const validationGateDispositionAliases: Record<string, ValidationGateDisposition> = {
+  run: "run",
+  execute: "run",
+  executed: "run",
+  required: "run",
+  skip: "skipped",
+  skipped: "skipped",
+  not_applicable: "skipped",
+  notapplicable: "skipped",
+  n_a: "skipped",
+  "n/a": "skipped",
+  na: "skipped",
+  block: "blocked",
+  blocked: "blocked",
 };
 
 const implementationValidationGates = new Set<ValidationGateKind>([
@@ -345,11 +368,22 @@ export function isValidationEnvironmentKind(value: unknown): value is Validation
   return typeof value === "string" && validationEnvironmentKinds.has(value as ValidationEnvironmentKind);
 }
 
+export function isValidationGateDisposition(value: unknown): value is ValidationGateDisposition {
+  return typeof value === "string" && validationGateDispositions.has(value as ValidationGateDisposition);
+}
+
 export function normalizeValidationEnvironmentKind(value: unknown): ValidationEnvironmentKind | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
   if (!normalized) return undefined;
   return validationEnvironmentAliases[normalized] ?? (isValidationEnvironmentKind(normalized) ? normalized : undefined);
+}
+
+export function normalizeValidationGateDisposition(value: unknown): ValidationGateDisposition | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (!normalized) return undefined;
+  return validationGateDispositionAliases[normalized] ?? (isValidationGateDisposition(normalized) ? normalized : undefined);
 }
 
 export function normalizeValidationGateKind(value: unknown): ValidationGateKind | undefined {
@@ -384,6 +418,8 @@ export async function saveValidationManifest(cwd: string, manifest: TaskValidati
       expectedResult: normalizeOptionalString(command.expectedResult),
       evidenceRefs: normalizeStringList(command.evidenceRefs),
       environment: normalizeValidationEnvironmentKind(command.environment),
+      disposition: normalizeValidationGateDisposition(command.disposition) ?? "run",
+      dispositionReason: normalizeOptionalString(command.dispositionReason),
     })),
   };
   const next = [normalized, ...manifests.filter((candidate) => candidate.taskId !== manifest.taskId)];
@@ -407,6 +443,8 @@ export async function upsertValidationManifestCommand(
     expectedResult: normalizeOptionalString(input.expectedResult),
     evidenceRefs: normalizeStringList(input.evidenceRefs),
     environment: normalizeValidationEnvironmentKind(input.environment),
+    disposition: normalizeValidationGateDisposition(input.disposition) ?? "run",
+    dispositionReason: normalizeOptionalString(input.dispositionReason),
   };
   return await saveValidationManifest(cwd, {
     ...base,
@@ -445,6 +483,7 @@ export function createDefaultScriptValidationCommand(scriptName: string): Valida
     gate: classifyDefaultScriptGate(scriptName),
     expectedResult: "Command exits with code 0.",
     environment: "host",
+    disposition: "run",
   };
 }
 
@@ -555,6 +594,8 @@ export function evaluateValidationManifestPolicy(manifest: TaskValidationManifes
     gate: normalizeValidationGateKind(command.gate),
     environment: normalizeValidationEnvironmentKind(command.environment),
     detectedEnvironment: detectValidationEnvironmentFromCommand(command.command),
+    disposition: normalizeValidationGateDisposition(command.disposition) ?? "run",
+    dispositionReason: normalizeOptionalString(command.dispositionReason),
   }));
   const diagnostics: ValidationManifestPolicyDiagnostic[] = [];
   const firstNonPolicy = commands.find((entry) => !entry.gate || !policyValidationGates.has(entry.gate));
@@ -607,6 +648,28 @@ export function evaluateValidationManifestPolicy(manifest: TaskValidationManifes
   for (const entry of commands) {
     const environment = entry.environment;
     const isHostEnvironment = !environment || environment === "host";
+    if (entry.disposition === "skipped" && !entry.dispositionReason) {
+      diagnostics.push({
+        severity: entry.command.required ? "failure" : "warning",
+        code: entry.command.required ? "required_skipped_gate_missing_reason" : "optional_skipped_gate_missing_reason",
+        commandId: entry.command.id,
+        gate: entry.gate,
+        environment,
+        message: `skipped validation command ${entry.command.id} must include an accepted skip reason${entry.command.required ? " because it is required" : ""}.`,
+      });
+    }
+    if (entry.disposition === "blocked" && !entry.dispositionReason) {
+      diagnostics.push({
+        severity: "failure",
+        code: "blocked_gate_missing_reason",
+        commandId: entry.command.id,
+        gate: entry.gate,
+        environment,
+        message: `blocked validation command ${entry.command.id} must include a blocker reason.`,
+      });
+    }
+    if (entry.disposition !== "run") continue;
+
     if (entry.gate === "local_ci" && entry.command.required && isHostEnvironment) {
       diagnostics.push({
         severity: "failure",
@@ -673,7 +736,45 @@ function createValidationPolicyFailureRuns(diagnostics: ValidationManifestPolicy
     expectedResult: "Validation manifest policy preflight must pass before command execution.",
     evidenceRefs: diagnostic.commandId ? [`manifest:${diagnostic.commandId}`] : undefined,
     environment: diagnostic.environment,
+    disposition: "blocked",
+    dispositionReason: diagnostic.message,
   }));
+}
+
+function createValidationDispositionRun(command: ValidationCommandManifest): ValidationCommandRunRecord | undefined {
+  const disposition = normalizeValidationGateDisposition(command.disposition) ?? "run";
+  if (disposition === "run") return undefined;
+  const now = new Date();
+  const reason = normalizeOptionalString(command.dispositionReason) ?? `${disposition} without reason`;
+  return {
+    id: `${command.id}-${disposition}-${now.getTime()}`,
+    commandId: command.id,
+    command: command.command,
+    status: disposition === "blocked" ? "blocked" : "skipped",
+    exitCode: null,
+    stdoutSummary: reason,
+    stderrSummary: "",
+    startedAt: now.toISOString(),
+    finishedAt: now.toISOString(),
+    required: command.required,
+    description: command.description,
+    gate: normalizeValidationGateKind(command.gate),
+    expectedResult: normalizeOptionalString(command.expectedResult),
+    evidenceRefs: normalizeStringList(command.evidenceRefs),
+    environment: normalizeValidationEnvironmentKind(command.environment),
+    disposition,
+    dispositionReason: reason,
+  };
+}
+
+function getValidationRunStatus(commandRuns: ValidationCommandRunRecord[]): ValidationRunRecord["status"] {
+  if (commandRuns.some((run) => run.required && run.status === "blocked")) return "blocked";
+  if (commandRuns.some((run) => run.required && ["failed", "timed_out"].includes(run.status))) return "failed";
+  return "passed";
+}
+
+function isNonPassingValidationProblem(run: ValidationCommandRunRecord): boolean {
+  return ["failed", "timed_out", "blocked"].includes(run.status);
 }
 
 export async function runTaskValidation(cwd: string, state: ScalerState, taskId: string): Promise<ValidationRunRecord> {
@@ -684,15 +785,14 @@ export async function runTaskValidation(cwd: string, state: ScalerState, taskId:
     commandRuns.push(...createValidationPolicyFailureRuns(policy.diagnostics));
   } else {
     for (const command of manifest.commands) {
-      commandRuns.push(await runValidationCommand(cwd, command));
+      commandRuns.push((await runValidationCommandOrDisposition(cwd, command)));
     }
   }
 
-  const failedRequired = commandRuns.some((run) => run.required && run.status !== "passed");
   const record: ValidationRunRecord = {
     id: `${taskId}-${Date.now()}`,
     taskId,
-    status: failedRequired ? "failed" : "passed",
+    status: getValidationRunStatus(commandRuns),
     commandRuns,
     policyDiagnostics: policy.diagnostics.length ? policy.diagnostics : undefined,
     createdAt: new Date().toISOString(),
@@ -700,7 +800,7 @@ export async function runTaskValidation(cwd: string, state: ScalerState, taskId:
   await writeValidationRuns(cwd, [record, ...(await loadValidationRuns(cwd))]);
   const result = await applyValidationReport(cwd, state, {
     taskId,
-    status: record.status === "passed" ? "passed" : "failed",
+    status: record.status,
     summary: `Validation ${record.status}: ${taskId}`,
     details: { runId: record.id, commandRuns },
   });
@@ -709,8 +809,8 @@ export async function runTaskValidation(cwd: string, state: ScalerState, taskId:
     runId: record.id,
     status: record.status,
     commandCount: commandRuns.length,
-    failedCommandIds: commandRuns.filter((run) => run.status !== "passed").map((run) => run.commandId),
-    gates: commandRuns.map((run) => ({ commandId: run.commandId, gate: run.gate, required: run.required, status: run.status })),
+    failedCommandIds: commandRuns.filter(isNonPassingValidationProblem).map((run) => run.commandId),
+    gates: commandRuns.map((run) => ({ commandId: run.commandId, gate: run.gate, required: run.required, status: run.status, disposition: run.disposition })),
     details: record,
   });
   return record;
@@ -724,18 +824,21 @@ export async function runValidationCommandSet(
 ): Promise<ValidationRunRecord> {
   const commandRuns: ValidationCommandRunRecord[] = [];
   for (const command of commands) {
-    commandRuns.push(await runValidationCommand(cwd, command));
+    commandRuns.push(await runValidationCommandOrDisposition(cwd, command));
   }
-  const failedRequired = commandRuns.some((run) => run.required && run.status !== "passed");
   const record: ValidationRunRecord = {
     id: `${taskId}-${idPrefix}-${Date.now()}`,
     taskId,
-    status: failedRequired ? "failed" : "passed",
+    status: getValidationRunStatus(commandRuns),
     commandRuns,
     createdAt: new Date().toISOString(),
   };
   await writeValidationRuns(cwd, [record, ...(await loadValidationRuns(cwd))]);
   return record;
+}
+
+async function runValidationCommandOrDisposition(cwd: string, command: ValidationCommandManifest): Promise<ValidationCommandRunRecord> {
+  return createValidationDispositionRun(command) ?? (await runValidationCommand(cwd, command));
 }
 
 export async function runValidationCommand(cwd: string, command: ValidationCommandManifest): Promise<ValidationCommandRunRecord> {
@@ -759,6 +862,8 @@ export async function runValidationCommand(cwd: string, command: ValidationComma
     expectedResult: normalizeOptionalString(command.expectedResult),
     evidenceRefs: normalizeStringList(command.evidenceRefs),
     environment: normalizeValidationEnvironmentKind(command.environment),
+    disposition: normalizeValidationGateDisposition(command.disposition) ?? "run",
+    dispositionReason: normalizeOptionalString(command.dispositionReason),
   };
 }
 

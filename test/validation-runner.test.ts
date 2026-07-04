@@ -86,6 +86,73 @@ test("runTaskValidation fails manifest policy before executing blocked commands"
   });
 });
 
+test("runTaskValidation treats required skipped gates with reasons as accepted without executing command", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    state.tasks = [{ id: "T-001", status: "validating", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+    await saveValidationManifest(dir, {
+      taskId: "T-001",
+      commands: [{ id: "skip", command: "node -e \"require('node:fs').writeFileSync('skip-should-not-run.txt','ran')\"", required: true, gate: "integration_tests", disposition: "skipped", dispositionReason: "No integration path changed." }],
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    const run = await runTaskValidation(dir, state, "T-001");
+
+    assert.equal(run.status, "passed");
+    assert.equal(run.commandRuns[0]?.status, "skipped");
+    assert.equal(run.commandRuns[0]?.dispositionReason, "No integration path changed.");
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
+    await assert.rejects(readFile(join(dir, "skip-should-not-run.txt"), "utf8"));
+  });
+});
+
+test("runTaskValidation applies blocked disposition to blocked task state", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    state.stage = "execution";
+    state.tasks = [{ id: "T-001", status: "validating", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+    await saveValidationManifest(dir, {
+      taskId: "T-001",
+      commands: [{ id: "blocked", command: "node -e \"process.exit(0)\"", required: true, gate: "local_ci", environment: "local_ci", disposition: "blocked", dispositionReason: "Docker daemon unavailable." }],
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    const run = await runTaskValidation(dir, state, "T-001");
+    const persisted = await loadState(dir);
+
+    assert.equal(run.status, "blocked");
+    assert.equal(run.commandRuns[0]?.status, "blocked");
+    assert.equal(run.commandRuns[0]?.dispositionReason, "Docker daemon unavailable.");
+    assert.equal(persisted.tasks[0]?.status, "blocked");
+    assert.equal(persisted.stage, "replanning");
+  });
+});
+
+test("runTaskValidation fails required skipped gates without reasons before execution", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    state.tasks = [{ id: "T-001", status: "validating", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+    await saveValidationManifest(dir, {
+      taskId: "T-001",
+      commands: [{ id: "skip", command: "node -e \"require('node:fs').writeFileSync('skip-no-reason.txt','ran')\"", required: true, gate: "integration_tests", disposition: "skipped" }],
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    const run = await runTaskValidation(dir, state, "T-001");
+
+    assert.equal(run.status, "failed");
+    assert.equal(run.policyDiagnostics?.some((diagnostic) => diagnostic.code === "required_skipped_gate_missing_reason"), true);
+    assert.equal(run.commandRuns[0]?.command, "SCALER validation manifest policy preflight");
+    await assert.rejects(readFile(join(dir, "skip-no-reason.txt"), "utf8"));
+  });
+});
+
 test("runTaskValidation validates task when all required commands pass", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState();

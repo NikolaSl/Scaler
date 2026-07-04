@@ -32,6 +32,8 @@ export interface ParsedValidationAddArgs {
   expectedResult?: string;
   evidenceRefs?: string[];
   environment?: string;
+  disposition?: string;
+  dispositionReason?: string;
 }
 
 export interface ParsedValidationChecklistItemArgs {
@@ -223,6 +225,7 @@ export function parseValidationAddArgs(args: string | undefined): ParsedValidati
   const id = parts[1]?.trim();
   const command = parts[2]?.trim();
   if (!taskId || !id || !command) return undefined;
+  const disposition = parseValidationDispositionArg(parts[9]);
   return {
     taskId,
     id,
@@ -233,6 +236,8 @@ export function parseValidationAddArgs(args: string | undefined): ParsedValidati
     expectedResult: parts[6]?.trim() || undefined,
     evidenceRefs: parseCommaList(parts[7]),
     environment: parts[8]?.trim() || undefined,
+    disposition: disposition.disposition,
+    dispositionReason: disposition.reason,
   };
 }
 
@@ -504,6 +509,17 @@ function parseValidationChecklistItems(value: string): ParsedValidationChecklist
       };
     })
     .filter((item) => item.id.length > 0 && item.statement.length > 0);
+}
+
+function parseValidationDispositionArg(value: string | undefined): { disposition?: string; reason?: string } {
+  const raw = value?.trim();
+  if (!raw) return {};
+  const [disposition, ...reasonParts] = raw.split(":");
+  const reason = reasonParts.join(":").trim();
+  return {
+    disposition: disposition?.trim() || undefined,
+    reason: reason || undefined,
+  };
 }
 
 function parseOptionalBoolean(value: string | undefined): boolean | undefined {

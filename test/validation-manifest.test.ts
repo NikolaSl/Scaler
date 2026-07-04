@@ -10,6 +10,7 @@ import {
   getValidationManifestForTask,
   loadValidationManifests,
   normalizeValidationEnvironmentKind,
+  normalizeValidationGateDisposition,
   normalizeValidationGateKind,
   saveValidationManifest,
   upsertValidationManifestCommand,
@@ -67,6 +68,14 @@ test("normalizeValidationEnvironmentKind maps sandbox environment aliases", () =
   assert.equal(normalizeValidationEnvironmentKind("unknown-env"), undefined);
 });
 
+test("normalizeValidationGateDisposition maps skip and block aliases", () => {
+  assert.equal(normalizeValidationGateDisposition("run"), "run");
+  assert.equal(normalizeValidationGateDisposition("skip"), "skipped");
+  assert.equal(normalizeValidationGateDisposition("n/a"), "skipped");
+  assert.equal(normalizeValidationGateDisposition("blocked"), "blocked");
+  assert.equal(normalizeValidationGateDisposition("unknown"), undefined);
+});
+
 test("upsertValidationManifestCommand appends and replaces commands with gate metadata", async () => {
   await withTempDir(async (dir) => {
     await upsertValidationManifestCommand(dir, {
@@ -107,6 +116,8 @@ test("saveValidationManifest normalizes gate metadata", async () => {
         expectedResult: "review evidence exists",
         evidenceRefs: ["doc:one", "doc:one", "doc:two"],
         environment: "docker-compose",
+        disposition: "skip",
+        dispositionReason: "covered by source review",
       }],
       createdAt: "",
       updatedAt: "",
@@ -117,6 +128,8 @@ test("saveValidationManifest normalizes gate metadata", async () => {
     assert.equal(command?.expectedResult, "review evidence exists");
     assert.deepEqual(command?.evidenceRefs, ["doc:one", "doc:two"]);
     assert.equal(command?.environment, "compose");
+    assert.equal(command?.disposition, "skipped");
+    assert.equal(command?.dispositionReason, "covered by source review");
   });
 });
 
@@ -150,6 +163,42 @@ test("evaluateValidationManifestPolicy fails required dependency and test-first 
 
   assert.equal(policy.status, "failed");
   assert.deepEqual(policy.diagnostics.map((diagnostic) => diagnostic.code), ["dependency_check_order", "test_first_order"]);
+});
+
+test("evaluateValidationManifestPolicy accepts required skipped gates with reasons", () => {
+  const policy = evaluateValidationManifestPolicy({
+    taskId: "T-001",
+    createdAt: "",
+    updatedAt: "",
+    commands: [{ id: "integration", command: "npm run integration", required: true, gate: "integration_tests", disposition: "skipped", dispositionReason: "No integration surface changed." }],
+  });
+
+  assert.equal(policy.status, "passed");
+  assert.equal(policy.diagnostics.some((diagnostic) => diagnostic.code === "required_skipped_gate_missing_reason"), false);
+});
+
+test("evaluateValidationManifestPolicy rejects required skipped gates without reasons", () => {
+  const policy = evaluateValidationManifestPolicy({
+    taskId: "T-001",
+    createdAt: "",
+    updatedAt: "",
+    commands: [{ id: "integration", command: "npm run integration", required: true, gate: "integration_tests", disposition: "skipped" }],
+  });
+
+  assert.equal(policy.status, "failed");
+  assert.equal(policy.diagnostics.some((diagnostic) => diagnostic.code === "required_skipped_gate_missing_reason"), true);
+});
+
+test("evaluateValidationManifestPolicy rejects blocked gates without reasons", () => {
+  const policy = evaluateValidationManifestPolicy({
+    taskId: "T-001",
+    createdAt: "",
+    updatedAt: "",
+    commands: [{ id: "ci", command: "npm run ci", required: true, gate: "local_ci", disposition: "blocked" }],
+  });
+
+  assert.equal(policy.status, "failed");
+  assert.equal(policy.diagnostics.some((diagnostic) => diagnostic.code === "blocked_gate_missing_reason"), true);
 });
 
 test("evaluateValidationManifestPolicy fails required local-ci gates without sandbox environment", () => {
