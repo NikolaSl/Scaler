@@ -49,6 +49,7 @@ import { loadDebugAttempts, loadDebugFailures, loadDebugReports, loadDebugRetrie
 import { formatDebugAgentRunList, loadDebugAgentRunRecords, runDebugAgentStep } from "./debug-agent.js";
 import { runDebugConductorLoop } from "./debug-conductor.js";
 import { approveDebugRetry, formatDebugRetryApprovals, formatDebugRetryPolicy, formatDebugRetrySummary, loadDebugRetryApprovals, loadDebugRetryPolicy, runDebugRetryPolicyWorkflow, saveDebugRetryPolicy } from "./debug-retry.js";
+import { formatCommitReports, loadCommitReports } from "./git.js";
 import { clearExecutionLock, formatExecutionLock, loadExecutionLock } from "./locks.js";
 import { createLogEvent, appendLogEvent, logCommandAudit, logStateEvent, logToolAudit } from "./logging.js";
 import { loadMemoryIndex } from "./memory.js";
@@ -1254,6 +1255,16 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const result = await commitWithExecutionLock(ctx.cwd, state, taskId, allowedPaths);
       if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
       else console.log(result.message);
+    },
+  });
+
+  pi.registerCommand("scaler-commits", {
+    description: "List SCALER post-commit reports: /scaler-commits [taskId]",
+    handler: async (args, ctx) => {
+      const taskId = args?.trim() || undefined;
+      const message = formatCommitReports(await loadCommitReports(ctx.cwd), taskId);
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
     },
   });
 

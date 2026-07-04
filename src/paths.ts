@@ -182,6 +182,10 @@ export function getValidationHandoffsPath(cwd: string): string {
   return join(getReportsDir(cwd), "validation-handoffs.json");
 }
 
+export function getCommitReportsPath(cwd: string): string {
+  return join(getReportsDir(cwd), "commits.json");
+}
+
 export function getTaskAgentRunsPath(cwd: string): string {
   return join(getReportsDir(cwd), "task-agent-runs.json");
 }
