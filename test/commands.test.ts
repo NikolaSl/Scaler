@@ -37,6 +37,7 @@ import {
   parseValidationChecklistArgs,
   parseStageLoopArgs,
   parseStageRecordArgs,
+  parseStageWorkflowArgs,
   parseStorageMaintainArgs,
   parseStorageScheduleArgs,
   parseStageRunArgs,
@@ -258,6 +259,27 @@ test("parseStageLoopArgs parses execute and max options", () => {
   assert.deepEqual(parseStageLoopArgs("execute max=7"), { execute: true, maxSteps: 7 });
   assert.deepEqual(parseStageLoopArgs("max=bad"), { execute: false, maxSteps: undefined });
   assert.deepEqual(parseStageLoopArgs(" "), { execute: false, maxSteps: undefined });
+});
+
+test("parseStageWorkflowArgs parses bounded coordinator options", () => {
+  assert.deepEqual(parseStageWorkflowArgs("execute max=9 research=3 requests=4 internet tools=web,scaler auto-accept-replan=off"), {
+    execute: true,
+    maxSteps: 9,
+    maxResearchRequests: 4,
+    maxResearchAgents: 3,
+    allowInternet: true,
+    tools: ["web", "scaler"],
+    autoAcceptReplan: false,
+  });
+  assert.deepEqual(parseStageWorkflowArgs(" "), {
+    execute: false,
+    maxSteps: undefined,
+    maxResearchRequests: undefined,
+    maxResearchAgents: undefined,
+    allowInternet: false,
+    tools: undefined,
+    autoAcceptReplan: undefined,
+  });
 });
 
 test("parseStageRecordArgs parses stage artifact fields", () => {

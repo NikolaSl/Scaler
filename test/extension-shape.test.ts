@@ -52,6 +52,8 @@ test("extension registers scaler commands", () => {
     "scaler-stage-advance",
     "scaler-stage-step",
     "scaler-stage-loop",
+    "scaler-stage-workflow",
+    "scaler-stage-workflow-runs",
     "scaler-stage-run",
     "scaler-stage-runs",
     "scaler-stage-record",
