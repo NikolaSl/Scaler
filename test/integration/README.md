@@ -63,6 +63,8 @@ Prefer assertions on durable artifacts such as:
 - `.scaler/tool-requests/transactions.json`
 - `.scaler/tool-requests/catalog.json`
 - `.scaler/tool-requests/schema-runs.json`
+- `.scaler/tool-requests/iteration-policy.json`
+- `.scaler/tool-requests/iteration-runs.json`
 - `.scaler/plans/replan-requests.json`
 - `.scaler/reports/validation-runs.json`
 - `.scaler/reports/validation-checklists.json`
@@ -237,6 +239,7 @@ When adding a new integration scenario:
   - discovered `scaler_tool_schema` metadata is merged into later request/transaction prompts;
   - supervised schema discovery probes record prepare/execute runs under `.scaler/tool-requests/schema-runs.json` and require structured `scaler_tool_schema` completion;
   - tool-agent transactions record prepare/execute/replay runs under `.scaler/tool-requests/transactions.json`;
+  - bounded tool iteration workflow records `.scaler/tool-requests/iteration-runs.json`, replays latest `missing_result` transactions, and stops on structured closure or cap exhaustion;
   - free-form/missing child results become `missing_result` instead of request completion, and replay can close only through structured results;
   - structured `scaler_tool_result` closes the originating request and persists outputs/evidence/validation metadata.
 - `mock/validation-gates-flow.test.ts`
@@ -282,7 +285,7 @@ When adding a new integration scenario:
   - real Pi slash-command storage maintenance execution, scheduled maintenance due checks, active-ledger rotation, and approved archive/raw-log/memory retention deletion with persisted `.scaler/storage/maintenance.json`/`schedule.json` and audit logs;
   - real Pi slash-command safety-policy persistence;
   - real Pi slash-command debug next-approach retry prepare mode with persisted `.scaler/debug/retries.json` and prompt audit logs;
-  - real Pi slash-command tool transaction and transaction replay prepare modes with persisted `.scaler/tool-requests/transactions.json`;
+  - real Pi slash-command tool transaction, transaction replay, and bounded iteration prepare modes with persisted `.scaler/tool-requests/transactions.json` / `.scaler/tool-requests/iteration-runs.json`, plus tool iteration policy persistence;
   - real Pi slash-command typed validation gate metadata, validation gate/environment/disposition policy enforcement, validation environment lifecycle status, skipped/blocked disposition persistence, non-software checklist persistence, and evidence-policy enforcement;
   - command audit events and detail payload references in `.scaler/logs/events.jsonl`;
   - cardinal real-model call to `scaler_tool_request` with exact rich metadata and persisted tool-request state;

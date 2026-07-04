@@ -35,6 +35,9 @@ Current behavior:
 - `/scaler-tool-discovery-runs [toolName]` lists schema discovery probe runs
 - `/scaler-tool-run [requestId] [execute]` records isolated tool-agent transactions under `.scaler/tool-requests/transactions.json`; prepare mode persists the invocation, execute mode runs only the request's allowed tools and marks completion only if a structured `scaler_tool_result` closes the request
 - `/scaler-tool-replay <transactionId> [execute]` reuses a persisted transaction invocation and links the new transaction with `replayOfTransactionId`; execute mode is allowed only while the originating request is still `prepared`
+- `/scaler-tool-iteration-policy [max=N] [auto-replay=on|off]` shows or updates bounded correction-loop defaults under `.scaler/tool-requests/iteration-policy.json`
+- `/scaler-tool-iterate [requestId] [execute] [max=N]` prepares or runs a bounded open-request correction loop, replaying the latest `missing_result` transaction until a structured `scaler_tool_result` closes the request or the iteration cap is exhausted
+- `/scaler-tool-iteration-runs [requestId]` lists correction-loop ledgers from `.scaler/tool-requests/iteration-runs.json`
 - `/scaler-tool-transactions [requestId]` lists transaction records, including `missing_result` runs where a child exited without the structured result signal and replay linkage where present
 - `scaler_task_create` creates supervisor task records, stores optional allowed paths/dependencies/runtime PRD refs, and rejects duplicate ids
 - `scaler_task_update` updates task metadata, including runtime PRD refs, and only accepts valid status transitions
@@ -46,4 +49,4 @@ Debug-agent subprocesses emit structured `scaler_debug_report` JSON events rathe
 
 Tool request prompts intentionally include only selected catalog entries for the requested/allowed tools. Unknown tools are represented as `unknown` risk unless a prior `scaler_tool_schema` record supplied local docs/schema metadata. Tool-agent prompts require a structured `scaler_tool_result` completion; free-form prose is not the durable completion signal.
 
-Remaining tool/MCP work includes automatic MCP server enumeration, policy-driven multi-iteration correction loops, replay approval controls for closed requests, and parallel scheduling.
+Remaining tool/MCP work includes automatic MCP server enumeration, replay approval controls for closed requests, and parallel scheduling.

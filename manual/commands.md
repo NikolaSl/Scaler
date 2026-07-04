@@ -338,6 +338,18 @@ Prepares or executes a replay of a persisted isolated tool-agent transaction. Re
 
 Prepares or executes an isolated tool-agent transaction for a prepared `scaler_tool_request`. Prepare mode rebuilds the stored request prompt/invocation and writes `.scaler/tool-requests/transactions.json`. With `execute`, SCALER runs the child agent with only the request's allowed tools, reloads request/result ledgers, and marks the transaction complete only when a structured `scaler_tool_result` closed the request. Child prose without `scaler_tool_result` becomes `missing_result` and is not treated as completion.
 
+## `/scaler-tool-iteration-policy [max=N] [auto-replay=on|off]`
+
+Shows or updates `.scaler/tool-requests/iteration-policy.json`. `max` is clamped to 1..10 and defaults to 3. `auto-replay` controls whether `/scaler-tool-iterate execute` replays the latest `missing_result` transaction after a failed structured-result attempt; it defaults to on.
+
+## `/scaler-tool-iterate [requestId] [execute] [max=N]`
+
+Prepares or executes a bounded correction loop for an open prepared tool request. Prepare mode records one prepared transaction and one iteration-run ledger. Execute mode runs the request once, then replays the latest `missing_result` transaction while the request is still `prepared`, `auto-replay` is enabled, and the iteration cap has not been reached. The loop stops when a structured `scaler_tool_result` closes the request as `completed`, `failed`, or `blocked`, or records `exhausted` when child agents continue to produce no structured result. It does not replay closed requests.
+
+## `/scaler-tool-iteration-runs [requestId]`
+
+Lists bounded tool-agent correction loop records from `.scaler/tool-requests/iteration-runs.json`, optionally filtered to one request id.
+
 ## `/scaler-tool-transactions [requestId]`
 
 Lists isolated tool-agent transaction records from `.scaler/tool-requests/transactions.json`, optionally filtered to one request id.
