@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "scaler-core-principles-and-completion-direction-d99826b1",
+      "title": "SCALER core principles and completion direction",
+      "source": "user-session-2026-07-04",
+      "tags": [
+        "completion",
+        "context",
+        "prd-ledger",
+        "safety",
+        "scaler-principles",
+        "traceability",
+        "validation"
+      ],
+      "validity": "active",
+      "summary": "User-defined SCALER invariants: focused valuable context, no amnesia/Chinese whispers, durable memory, full traceability, atomic validated tasks, spec-detail protection nets, minimal complete implementation, and next priorities including GAP-023 and Requirement Evidence Ledger.",
+      "path": ".scaler/memory/scaler-core-principles-and-completion-direction-d99826b1.md",
+      "createdAt": "2026-07-04T21:40:55.919Z",
+      "updatedAt": "2026-07-04T21:40:55.919Z"
+    }
+  ]
+}
