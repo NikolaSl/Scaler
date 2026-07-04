@@ -65,6 +65,8 @@ test("extension registers scaler commands", () => {
     "scaler-debug-reports",
     "scaler-debug-retries",
     "scaler-tool-catalog",
+    "scaler-tool-discover",
+    "scaler-tool-discovery-runs",
     "scaler-tool-run",
     "scaler-tool-transactions",
     "scaler-research-run",

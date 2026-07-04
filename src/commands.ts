@@ -98,6 +98,12 @@ export interface ParsedToolCatalogArgs {
   toolName?: string;
 }
 
+export interface ParsedToolDiscoverArgs {
+  toolName?: string;
+  execute: boolean;
+  tools?: string[];
+}
+
 export interface ParsedDebugRunArgs {
   taskId?: string;
   execute: boolean;
@@ -299,6 +305,16 @@ export function parseToolRunArgs(args: string | undefined): ParsedToolRunArgs {
 
 export function parseToolCatalogArgs(args: string | undefined): ParsedToolCatalogArgs {
   return { toolName: args?.trim() || undefined };
+}
+
+export function parseToolDiscoverArgs(args: string | undefined): ParsedToolDiscoverArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  const toolsPart = parts.find((part) => /^tools=/i.test(part));
+  return {
+    toolName: parts.find((part) => part.toLowerCase() !== "execute" && !/^tools=/i.test(part)),
+    execute: parts.some((part) => part.toLowerCase() === "execute"),
+    tools: parseCommaList(toolsPart?.slice(toolsPart.indexOf("=") + 1)),
+  };
 }
 
 export function parseDebugRunArgs(args: string | undefined): ParsedDebugRunArgs {

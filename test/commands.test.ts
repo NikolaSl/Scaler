@@ -18,6 +18,7 @@ import {
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
   parseToolCatalogArgs,
+  parseToolDiscoverArgs,
   parseToolRunArgs,
   parseValidateLoopArgs,
   parseStageLoopArgs,
@@ -178,6 +179,12 @@ test("parseToolRunArgs parses optional request and execute flag", () => {
 test("parseToolCatalogArgs parses optional tool name", () => {
   assert.deepEqual(parseToolCatalogArgs("mcp_docs_search"), { toolName: "mcp_docs_search" });
   assert.deepEqual(parseToolCatalogArgs(" "), { toolName: undefined });
+});
+
+test("parseToolDiscoverArgs parses target, execute, and explicit tools", () => {
+  assert.deepEqual(parseToolDiscoverArgs("mcp_docs_search execute tools=read,bash"), { toolName: "mcp_docs_search", execute: true, tools: ["read", "bash"] });
+  assert.deepEqual(parseToolDiscoverArgs("execute tools=read"), { toolName: undefined, execute: true, tools: ["read"] });
+  assert.deepEqual(parseToolDiscoverArgs("mcp_docs_search"), { toolName: "mcp_docs_search", execute: false, tools: undefined });
 });
 
 test("parseDebugRunArgs parses optional task and execute flag", () => {

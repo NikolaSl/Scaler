@@ -22,6 +22,7 @@ import {
   parseTaskUpdateArgs,
   parseTaskRetryArgs,
   parseToolCatalogArgs,
+  parseToolDiscoverArgs,
   parseToolRunArgs,
   parseValidateLoopArgs,
   parseValidationAddArgs,
@@ -72,7 +73,7 @@ import {
   validateStageArtifactReadiness,
 } from "./stages.js";
 import { formatStorageInventory, formatStorageMaintenanceReport, runStorageMaintenance, saveStorageInventory, scanScalerStorageInventory } from "./storage.js";
-import { formatKnownToolCatalog, formatToolTransactions, loadToolSchemaRecords, loadToolTransactions, runToolRequestAgent } from "./tool-requests.js";
+import { formatKnownToolCatalog, formatToolSchemaDiscoveryRuns, formatToolTransactions, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, runToolRequestAgent, runToolSchemaDiscoveryAgent } from "./tool-requests.js";
 import { registerScalerTools } from "./tools.js";
 import { upsertValidationManifestCommand } from "./validation.js";
 import { runValidationDebugLoopWorkflow, selectTaskForValidationDebugLoop } from "./validation-debug-loop.js";
@@ -597,6 +598,33 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       const parsed = parseToolCatalogArgs(args);
       const message = formatKnownToolCatalog(await loadToolSchemaRecords(ctx.cwd), parsed.toolName);
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-tool-discover", {
+    description: "Prepare or execute a supervised Tool/MCP schema discovery probe: /scaler-tool-discover <toolName> [execute] [tools=a,b]",
+    handler: async (args, ctx) => {
+      const parsed = parseToolDiscoverArgs(args);
+      const state = await ensureState(ctx.cwd);
+      const result = await runToolSchemaDiscoveryAgent(ctx.cwd, state, {
+        toolName: parsed.toolName ?? "",
+        execute: parsed.execute,
+        tools: parsed.tools,
+      });
+      const suffix = result.run ? ` run=${result.run.id} status=${result.run.status}` : "";
+      const message = `${result.message}${suffix}`;
+      if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-tool-discovery-runs", {
+    description: "List supervised Tool/MCP schema discovery probe runs: /scaler-tool-discovery-runs [toolName]",
+    handler: async (args, ctx) => {
+      const toolName = args?.trim() || undefined;
+      const message = formatToolSchemaDiscoveryRuns(await loadToolSchemaDiscoveryRuns(ctx.cwd), toolName);
       if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
     },
