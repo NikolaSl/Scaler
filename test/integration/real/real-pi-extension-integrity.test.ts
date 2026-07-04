@@ -317,6 +317,35 @@ test("real Pi extension: slash command dispatch enforces validation environment 
   });
 });
 
+test("real Pi extension: slash command dispatch persists validation disposition", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-REAL-SKIP";
+    state.tasks = [{ id: "T-REAL-SKIP", status: "validating", title: "Real skip", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+
+    const addResult = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-validation-add T-REAL-SKIP | integration | node -e \"require('node:fs').writeFileSync('real-skip-should-not-run.txt','ran')\" | Integration tests | required | integration | exits 0 | manifest:skip | host | skipped:No integration surface changed",
+    });
+    assert.equal(addResult.exitCode, 0, addResult.stderr || addResult.stdout);
+
+    const result = await runScalerPi({ cwd: dir, prompt: "/scaler-validate T-REAL-SKIP" });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Validation passed: T-REAL-SKIP/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const runs = await loadValidationRuns(dir);
+    assert.equal(runs[0]?.status, "passed");
+    assert.equal(runs[0]?.commandRuns[0]?.status, "skipped");
+    assert.equal(runs[0]?.commandRuns[0]?.dispositionReason, "No integration surface changed");
+    assert.equal((await loadState(dir)).tasks.find((task) => task.id === "T-REAL-SKIP")?.status, "validated");
+    await assert.rejects(stat(join(dir, "real-skip-should-not-run.txt")));
+  });
+});
+
 test("real Pi extension: slash command dispatch persists typed validation gate metadata", { skip: !REAL_PI_ENABLED }, async () => {
   await withRealPiTempRepo(async (dir) => {
     const result = await runScalerPi({
