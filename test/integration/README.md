@@ -63,6 +63,7 @@ Prefer assertions on durable artifacts such as:
 - `.scaler/tool-requests/transactions.json`
 - `.scaler/tool-requests/catalog.json`
 - `.scaler/tool-requests/schema-runs.json`
+- `.scaler/tool-requests/mcp-servers.json`
 - `.scaler/tool-requests/replay-approvals.json`
 - `.scaler/tool-requests/iteration-policy.json`
 - `.scaler/tool-requests/iteration-runs.json`
@@ -238,6 +239,7 @@ When adding a new integration scenario:
   - rich `scaler_tool_request` metadata persists to `.scaler/tool-requests/`;
   - isolated invocation includes only explicitly allowed tools and selected compact catalog entries;
   - discovered `scaler_tool_schema` metadata is merged into later request/transaction prompts;
+  - project-local MCP server declarations are enumerated into `.scaler/tool-requests/mcp-servers.json` without executing servers or storing env secret values;
   - supervised schema discovery probes record prepare/execute runs under `.scaler/tool-requests/schema-runs.json` and require structured `scaler_tool_schema` completion;
   - tool-agent transactions record prepare/execute/replay runs under `.scaler/tool-requests/transactions.json`;
   - exact closed replay approvals record `.scaler/tool-requests/replay-approvals.json`, keep closed replays rejected by default, and consume approval use counts when supplied explicitly;
@@ -287,7 +289,7 @@ When adding a new integration scenario:
   - real Pi slash-command storage maintenance execution, scheduled maintenance due checks, active-ledger rotation, and approved archive/raw-log/memory retention deletion with persisted `.scaler/storage/maintenance.json`/`schedule.json` and audit logs;
   - real Pi slash-command safety-policy persistence;
   - real Pi slash-command debug next-approach retry prepare mode with persisted `.scaler/debug/retries.json` and prompt audit logs;
-  - real Pi slash-command tool transaction, transaction replay, replay approval, and bounded iteration prepare modes with persisted `.scaler/tool-requests/transactions.json` / `.scaler/tool-requests/replay-approvals.json` / `.scaler/tool-requests/iteration-runs.json`, plus tool iteration policy persistence;
+  - real Pi slash-command MCP enumeration, tool transaction, transaction replay, replay approval, and bounded iteration prepare modes with persisted `.scaler/tool-requests/mcp-servers.json` / `.scaler/tool-requests/transactions.json` / `.scaler/tool-requests/replay-approvals.json` / `.scaler/tool-requests/iteration-runs.json`, plus tool iteration policy persistence;
   - real Pi slash-command typed validation gate metadata, validation gate/environment/disposition policy enforcement, validation environment lifecycle status, skipped/blocked disposition persistence, non-software checklist persistence, and evidence-policy enforcement;
   - command audit events and detail payload references in `.scaler/logs/events.jsonl`;
   - cardinal real-model call to `scaler_tool_request` with exact rich metadata and persisted tool-request state;

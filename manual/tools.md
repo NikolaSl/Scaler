@@ -30,6 +30,8 @@ Current behavior:
 - `scaler_tool_request` persists isolated tool-agent requests under `.scaler/tool-requests/requests.json` and prepares invocations with only explicitly allowed tools, compact selected-tool catalog entries, requester id, expected output, required format, risk level, permission requirement, and safety notes
 - `scaler_tool_result` records structured results under `.scaler/tool-requests/results.json`, links them to the originating request, updates the request status to `completed`, `failed`, or `blocked`, and stores outputs, evidence refs, validation performed, errors, and recommendations
 - `scaler_tool_schema` records discovered Tool/MCP docs/schema metadata under `.scaler/tool-requests/catalog.json`; later tool-request prompts merge the latest discovered metadata for explicitly allowed tools
+- `/scaler-mcp-enumerate` scans project-local MCP config files and records concise server declarations under `.scaler/tool-requests/mcp-servers.json` without executing servers or storing env secret values
+- `/scaler-mcp-servers [name|runs]` lists enumerated MCP server records or enumeration runs
 - `/scaler-tool-catalog [toolName]` lists static plus discovered Tool/MCP metadata
 - `/scaler-tool-discover <toolName> [execute] [tools=a,b]` prepares or executes a supervised schema discovery probe under `.scaler/tool-requests/schema-runs.json`; the target tool is not granted implicitly, and execute mode completes only when a new structured `scaler_tool_schema` record appears
 - `/scaler-tool-discovery-runs [toolName]` lists schema discovery probe runs
@@ -50,4 +52,4 @@ Debug-agent subprocesses emit structured `scaler_debug_report` JSON events rathe
 
 Tool request prompts intentionally include only selected catalog entries for the requested/allowed tools. Unknown tools are represented as `unknown` risk unless a prior `scaler_tool_schema` record supplied local docs/schema metadata. Tool-agent prompts require a structured `scaler_tool_result` completion; free-form prose is not the durable completion signal.
 
-Remaining tool/MCP work includes automatic MCP server enumeration and parallel scheduling.
+Remaining tool/MCP work includes safe parallel scheduling.

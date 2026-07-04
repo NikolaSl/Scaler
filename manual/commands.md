@@ -318,6 +318,14 @@ Lists debug reports from `.scaler/debug/reports.json`.
 
 Lists next-approach retry records from `.scaler/debug/retries.json`.
 
+## `/scaler-mcp-enumerate`
+
+Scans project-local MCP declaration files and writes concise server records/runs to `.scaler/tool-requests/mcp-servers.json`. Supported sources include `.mcp.json`, `mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.claude/mcp.json`, `claude_desktop_config.json`, and `package.json` MCP fields. Enumeration records server name, source path, transport, command or redacted URL, env key names only, risk level, status, and message. It does not start MCP servers or store secret env values.
+
+## `/scaler-mcp-servers [name|runs]`
+
+Lists enumerated MCP server records, optionally filtered to one server name. Passing `runs` lists enumeration run records.
+
 ## `/scaler-tool-catalog [toolName]`
 
 Lists static Tool/MCP catalog entries plus discovered schema/docs metadata from `.scaler/tool-requests/catalog.json`, optionally filtered to one tool.
