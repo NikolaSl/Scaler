@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { appendLogEvent, createLogEvent } from "./logging.js";
-import { getToolCatalogPath, getToolRequestsIndexPath, getToolResultsPath, getToolTransactionsPath } from "./paths.js";
+import { getToolCatalogPath, getToolRequestsIndexPath, getToolResultsPath, getToolSchemaDiscoveryRunsPath, getToolTransactionsPath } from "./paths.js";
 import { buildTaskAgentInvocation, runTaskAgent, type RunTaskAgentOptions, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import type { ScalerState } from "./types.js";
 
@@ -51,6 +51,7 @@ export interface ToolRequestInput {
 export type ToolRequestStatus = "prepared" | "completed" | "failed" | "blocked";
 export type ToolResultStatus = "completed" | "failed" | "blocked";
 export type ToolTransactionStatus = "prepared" | "completed" | "failed" | "blocked" | "missing_result" | "rejected";
+export type ToolSchemaDiscoveryRunStatus = "prepared" | "completed" | "missing_schema" | "rejected";
 
 export interface ToolRequestRecord {
   id: string;
@@ -68,6 +69,22 @@ export interface ToolRequestRecord {
   status: ToolRequestStatus;
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface ToolSchemaDiscoveryRunRecord {
+  id: string;
+  toolName: string;
+  status: ToolSchemaDiscoveryRunStatus;
+  executed: boolean;
+  allowedTools: string[];
+  invocation: TaskAgentInvocation;
+  runExitCode?: number;
+  stdoutEventCount?: number;
+  stderrSummary?: string;
+  schemaRecordId?: string;
+  message: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ToolSchemaRecord {
@@ -145,6 +162,14 @@ export interface ToolRequestRunOptions {
   command?: string;
 }
 
+export interface ToolSchemaDiscoveryRunOptions {
+  toolName: string;
+  execute?: boolean;
+  tools?: string[];
+  timeoutMs?: number;
+  command?: string;
+}
+
 export interface ToolRequestRunResult {
   accepted: boolean;
   message: string;
@@ -154,6 +179,17 @@ export interface ToolRequestRunResult {
   runResult?: TaskAgentRunResult;
   transaction?: ToolTransactionRecord;
   resultRecord?: ToolResultRecord;
+}
+
+export interface ToolSchemaDiscoveryRunResult {
+  accepted: boolean;
+  message: string;
+  toolName?: string;
+  prompt?: string;
+  invocation?: TaskAgentInvocation;
+  runResult?: TaskAgentRunResult;
+  run?: ToolSchemaDiscoveryRunRecord;
+  schemaRecord?: ToolSchemaRecord;
 }
 
 interface ToolRequestIndex {
@@ -174,6 +210,11 @@ interface ToolTransactionIndex {
 interface ToolSchemaIndex {
   version: 1;
   records: ToolSchemaRecord[];
+}
+
+interface ToolSchemaDiscoveryRunIndex {
+  version: 1;
+  runs: ToolSchemaDiscoveryRunRecord[];
 }
 
 const toolRiskLevels = new Set<ToolRiskLevel>(["low", "medium", "high", "destructive", "external", "secret", "unknown"]);
@@ -280,6 +321,16 @@ export async function loadToolSchemaRecords(cwd: string): Promise<ToolSchemaReco
   }
 }
 
+export async function loadToolSchemaDiscoveryRuns(cwd: string): Promise<ToolSchemaDiscoveryRunRecord[]> {
+  try {
+    const raw = await readFile(getToolSchemaDiscoveryRunsPath(cwd), "utf8");
+    return (JSON.parse(raw) as ToolSchemaDiscoveryRunIndex).runs;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
 export async function recordToolSchema(cwd: string, state: ScalerState, input: ToolSchemaInput, now = new Date()): Promise<ToolSchemaRecord> {
   const toolName = input.toolName.trim();
   const source = input.source.trim();
@@ -323,6 +374,74 @@ export function formatKnownToolCatalog(discoveredRecords: ToolSchemaRecord[], to
     ? [toolName]
     : uniqueNonEmpty([...getDefaultToolCatalog().map((entry) => entry.name), ...discoveredRecords.map((record) => record.toolName)]);
   return formatDiscoveredToolCatalog(names, discoveredRecords);
+}
+
+export async function runToolSchemaDiscoveryAgent(
+  cwd: string,
+  state: ScalerState,
+  options: ToolSchemaDiscoveryRunOptions,
+  runner: typeof runTaskAgent = runTaskAgent,
+): Promise<ToolSchemaDiscoveryRunResult> {
+  const toolName = options.toolName.trim();
+  if (!toolName) {
+    const message = "Tool schema discovery rejected: toolName is required.";
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: message, details: options }));
+    return { accepted: false, message };
+  }
+
+  const existingRecords = await loadToolSchemaRecords(cwd);
+  const prompt = buildToolSchemaDiscoveryPrompt(toolName, existingRecords, options.tools ?? []);
+  const allowedTools = uniqueNonEmpty(["scaler_tool_schema", ...(options.tools ?? [])]);
+  const agentRequest = {
+    taskId: `tool-schema-${toolName}`,
+    prompt,
+    tools: allowedTools,
+    cwd,
+  };
+  const invocation = buildTaskAgentInvocation(agentRequest, options.command ?? "pi");
+
+  if (!options.execute) {
+    const run = await recordToolSchemaDiscoveryRun(cwd, {
+      toolName,
+      status: "prepared",
+      executed: false,
+      allowedTools,
+      invocation,
+      message: `Tool schema discovery prepared: ${toolName}`,
+    });
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: run.message, details: { run } }));
+    return { accepted: true, message: run.message, toolName, prompt, invocation, run };
+  }
+
+  const beforeIds = new Set(existingRecords.map((record) => record.id));
+  const runResult = await runner(agentRequest, { timeoutMs: options.timeoutMs, command: options.command } satisfies RunTaskAgentOptions);
+  const schemaRecord = (await loadToolSchemaRecords(cwd)).find((record) => record.toolName === toolName && !beforeIds.has(record.id));
+  const status: ToolSchemaDiscoveryRunStatus = schemaRecord ? "completed" : "missing_schema";
+  const run = await recordToolSchemaDiscoveryRun(cwd, {
+    toolName,
+    status,
+    executed: true,
+    allowedTools,
+    invocation,
+    runResult,
+    schemaRecordId: schemaRecord?.id,
+    message: status === "missing_schema"
+      ? `Tool schema discovery missing structured schema: ${toolName}`
+      : `Tool schema discovery completed: ${toolName}`,
+  });
+  await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: run.message, details: { run, runResult, schemaRecord } }));
+  return { accepted: status === "completed", message: run.message, toolName, prompt, invocation, runResult, run, schemaRecord };
+}
+
+export function formatToolSchemaDiscoveryRuns(records: ToolSchemaDiscoveryRunRecord[], toolName?: string, limit = 10): string {
+  const filtered = toolName ? records.filter((record) => record.toolName === toolName) : records;
+  if (filtered.length === 0) return toolName ? `No tool schema discovery runs for ${toolName}.` : "No tool schema discovery runs.";
+  const lines = [toolName ? `Tool schema discovery runs for ${toolName}:` : "Tool schema discovery runs:"];
+  for (const record of filtered.slice(0, limit)) {
+    const run = record.runExitCode === undefined ? "not-run" : `exit=${record.runExitCode} stdout_events=${record.stdoutEventCount ?? 0}`;
+    lines.push(`- ${record.id} tool=${record.toolName} status=${record.status} tools=${record.allowedTools.join(",")} ${run} schema=${record.schemaRecordId ?? "n/a"}: ${record.message}`);
+  }
+  return lines.join("\n");
 }
 
 export async function runToolRequestAgent(
@@ -505,6 +624,22 @@ export async function prepareToolRequest(
   };
 }
 
+export function buildToolSchemaDiscoveryPrompt(toolName: string, discoveredRecords: ToolSchemaRecord[] = [], explicitlyGrantedTools: string[] = []): string {
+  const allowedTools = uniqueNonEmpty(["scaler_tool_schema", ...explicitlyGrantedTools]);
+  const existing = formatDiscoveredToolCatalog([toolName], discoveredRecords);
+  return [
+    "You are an isolated SCALER Tool/MCP schema discovery agent.",
+    "Your job is to discover concise docs/schema metadata for exactly one target tool.",
+    "Do not assume the target tool or any external MCP/browser/internet tool is available unless it appears in Allowed tools below.",
+    "Use only explicitly allowed tools. If only scaler_tool_schema is allowed, record known local metadata or mark uncertainty in notes without probing external systems.",
+    "Complete by calling the structured `scaler_tool_schema` tool exactly once with toolName, source, description/risk/docs/schema refs, notes, evidence refs, and discoveredByAgentId when known.",
+    "Do not rely on free-form prose as the completion signal; SCALER ingests only structured schema records.",
+    `Target tool/MCP: ${toolName}`,
+    `Allowed tools: ${allowedTools.join(", ")}`,
+    existing,
+  ].join("\n");
+}
+
 export function buildToolAgentPrompt(record: ToolRequestRecord, discoveredRecords: ToolSchemaRecord[] = []): string {
   const context = record.contextSummary ? `\nContext summary:\n${record.contextSummary}\n` : "";
   const metadata = [
@@ -578,6 +713,47 @@ async function writeToolSchemaIndex(cwd: string, records: ToolSchemaRecord[]): P
   await mkdir(dirname(path), { recursive: true });
   const sorted = [...records].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   await writeFile(path, `${JSON.stringify({ version: 1, records: sorted } satisfies ToolSchemaIndex, null, 2)}\n`, "utf8");
+}
+
+async function writeToolSchemaDiscoveryRunIndex(cwd: string, runs: ToolSchemaDiscoveryRunRecord[]): Promise<void> {
+  const path = getToolSchemaDiscoveryRunsPath(cwd);
+  await mkdir(dirname(path), { recursive: true });
+  const sorted = [...runs].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  await writeFile(path, `${JSON.stringify({ version: 1, runs: sorted } satisfies ToolSchemaDiscoveryRunIndex, null, 2)}\n`, "utf8");
+}
+
+async function recordToolSchemaDiscoveryRun(
+  cwd: string,
+  input: {
+    toolName: string;
+    status: ToolSchemaDiscoveryRunStatus;
+    executed: boolean;
+    allowedTools: string[];
+    invocation: TaskAgentInvocation;
+    runResult?: TaskAgentRunResult;
+    schemaRecordId?: string;
+    message: string;
+  },
+  now = new Date(),
+): Promise<ToolSchemaDiscoveryRunRecord> {
+  const timestamp = now.toISOString();
+  const record: ToolSchemaDiscoveryRunRecord = {
+    id: randomUUID(),
+    toolName: input.toolName,
+    status: input.status,
+    executed: input.executed,
+    allowedTools: input.allowedTools,
+    invocation: input.invocation,
+    runExitCode: input.runResult?.exitCode,
+    stdoutEventCount: input.runResult?.stdoutEvents.length,
+    stderrSummary: input.runResult ? summarizeOutput(input.runResult.stderr) : undefined,
+    schemaRecordId: input.schemaRecordId,
+    message: input.message,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  await writeToolSchemaDiscoveryRunIndex(cwd, [record, ...(await loadToolSchemaDiscoveryRuns(cwd))]);
+  return record;
 }
 
 function latestToolSchemaRecords(records: ToolSchemaRecord[]): Map<string, ToolSchemaRecord> {

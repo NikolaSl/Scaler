@@ -6,19 +6,23 @@ import { test } from "node:test";
 import { createDefaultState } from "../src/state.js";
 import {
   buildToolAgentPrompt,
+  buildToolSchemaDiscoveryPrompt,
+  formatDiscoveredToolCatalog,
   formatToolCatalog,
+  formatToolSchemaDiscoveryRuns,
+  formatToolTransactions,
   getToolCatalogEntries,
   loadToolRequests,
   loadToolResults,
+  loadToolSchemaDiscoveryRuns,
+  loadToolSchemaRecords,
   loadToolTransactions,
   normalizeToolRiskLevel,
   prepareToolRequest,
   recordToolResult,
   recordToolSchema,
   runToolRequestAgent,
-  formatDiscoveredToolCatalog,
-  formatToolTransactions,
-  loadToolSchemaRecords,
+  runToolSchemaDiscoveryAgent,
 } from "../src/tool-requests.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -94,6 +98,71 @@ test("prepareToolRequest injects discovered tool schema metadata into prompts", 
     assert.equal(prepared.accepted, true);
     assert.match(prepared.prompt ?? "", /schemaRef=schema:mcp-search-v2/);
     assert.match(prepared.prompt ?? "", /args: \{ query: string \}/);
+  });
+});
+
+test("buildToolSchemaDiscoveryPrompt does not grant target tools implicitly", () => {
+  const prompt = buildToolSchemaDiscoveryPrompt("mcp_docs_search", [], ["read"]);
+  assert.match(prompt, /Target tool\/MCP: mcp_docs_search/);
+  assert.match(prompt, /Allowed tools: scaler_tool_schema, read/);
+  assert.doesNotMatch(prompt, /Allowed tools: .*mcp_docs_search/);
+});
+
+test("runToolSchemaDiscoveryAgent records prepare-mode probes", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+
+    const result = await runToolSchemaDiscoveryAgent(dir, state, { toolName: "mcp_docs_search", tools: ["read"] });
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.run?.status, "prepared");
+    assert.equal(result.run?.executed, false);
+    assert.deepEqual(result.run?.allowedTools, ["scaler_tool_schema", "read"]);
+    assert.match(formatToolSchemaDiscoveryRuns(await loadToolSchemaDiscoveryRuns(dir)), /status=prepared/);
+  });
+});
+
+test("runToolSchemaDiscoveryAgent recognizes structured scaler_tool_schema completion", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+
+    const result = await runToolSchemaDiscoveryAgent(dir, state, { toolName: "mcp_docs_search", execute: true, tools: ["read"] }, async (request) => {
+      assert.match(request.prompt, /scaler_tool_schema/);
+      await recordToolSchema(dir, state, {
+        toolName: "mcp_docs_search",
+        source: "local-schema",
+        description: "Search docs MCP.",
+        riskLevel: "low",
+        docsRef: "docs-mcp-search",
+        schemaRef: "schema-mcp-search-v1",
+        discoveredByAgentId: request.taskId,
+      });
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.run?.status, "completed");
+    assert.equal(result.schemaRecord?.toolName, "mcp_docs_search");
+    assert.equal((await loadToolSchemaDiscoveryRuns(dir))[0]?.schemaRecordId, result.schemaRecord?.id);
+  });
+});
+
+test("runToolSchemaDiscoveryAgent treats prose without schema record as missing_schema", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+
+    const result = await runToolSchemaDiscoveryAgent(dir, state, { toolName: "mcp_docs_search", execute: true }, async (request) => ({
+      taskId: request.taskId,
+      exitCode: 0,
+      stdoutEvents: [{ type: "unparsed", text: "Schema is query string." }],
+      stderr: "",
+      timedOut: false,
+      aborted: false,
+    }));
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.run?.status, "missing_schema");
+    assert.equal((await loadToolSchemaRecords(dir)).length, 0);
   });
 });
 
