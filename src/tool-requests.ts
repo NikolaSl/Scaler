@@ -127,6 +127,7 @@ export interface ToolTransactionRecord {
   stdoutEventCount?: number;
   stderrSummary?: string;
   resultId?: string;
+  replayOfTransactionId?: string;
   message: string;
   createdAt: string;
   updatedAt: string;
@@ -162,6 +163,13 @@ export interface ToolRequestRunOptions {
   command?: string;
 }
 
+export interface ToolTransactionReplayOptions {
+  transactionId: string;
+  execute?: boolean;
+  timeoutMs?: number;
+  command?: string;
+}
+
 export interface ToolSchemaDiscoveryRunOptions {
   toolName: string;
   execute?: boolean;
@@ -173,6 +181,18 @@ export interface ToolSchemaDiscoveryRunOptions {
 export interface ToolRequestRunResult {
   accepted: boolean;
   message: string;
+  request?: ToolRequestRecord;
+  prompt?: string;
+  invocation?: TaskAgentInvocation;
+  runResult?: TaskAgentRunResult;
+  transaction?: ToolTransactionRecord;
+  resultRecord?: ToolResultRecord;
+}
+
+export interface ToolTransactionReplayResult {
+  accepted: boolean;
+  message: string;
+  original?: ToolTransactionRecord;
   request?: ToolRequestRecord;
   prompt?: string;
   invocation?: TaskAgentInvocation;
@@ -510,9 +530,88 @@ export function formatToolTransactions(records: ToolTransactionRecord[], request
   const lines = [requestId ? `Tool transactions for ${requestId}:` : "Tool transactions:"];
   for (const record of filtered.slice(0, limit)) {
     const run = record.runExitCode === undefined ? "not-run" : `exit=${record.runExitCode} stdout_events=${record.stdoutEventCount ?? 0}`;
-    lines.push(`- ${record.id} request=${record.requestId} tool=${record.toolName} status=${record.status} ${run} result=${record.resultId ?? "n/a"}: ${record.message}`);
+    const replay = record.replayOfTransactionId ? ` replayOf=${record.replayOfTransactionId}` : "";
+    lines.push(`- ${record.id} request=${record.requestId} tool=${record.toolName} status=${record.status}${replay} ${run} result=${record.resultId ?? "n/a"}: ${record.message}`);
   }
   return lines.join("\n");
+}
+
+export async function replayToolTransaction(
+  cwd: string,
+  state: ScalerState,
+  options: ToolTransactionReplayOptions,
+  runner: typeof runTaskAgent = runTaskAgent,
+): Promise<ToolTransactionReplayResult> {
+  const transactionId = options.transactionId.trim();
+  const original = (await loadToolTransactions(cwd)).find((candidate) => candidate.id === transactionId);
+  if (!original) {
+    const message = `Tool transaction replay rejected: transaction ${transactionId || "<missing>"} not found.`;
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: message, details: options }));
+    return { accepted: false, message };
+  }
+
+  const request = (await loadToolRequests(cwd)).find((candidate) => candidate.id === original.requestId);
+  if (!request) {
+    const message = `Tool transaction replay rejected: request ${original.requestId} not found.`;
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: message, details: { original } }));
+    return { accepted: false, message, original };
+  }
+
+  const replayRequest = reconstructReplayTaskRequest(original, cwd);
+  const invocation = buildTaskAgentInvocation(replayRequest, options.command ?? original.invocation.command);
+
+  if (!options.execute) {
+    const transaction = await recordToolTransaction(cwd, request, {
+      status: "prepared",
+      executed: false,
+      invocation,
+      replayOfTransactionId: original.id,
+      message: `Tool transaction replay prepared: ${original.id}`,
+    });
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: transaction.message, taskId: request.taskId, details: { transaction, original } }));
+    return { accepted: true, message: transaction.message, original, request, prompt: replayRequest.prompt, invocation, transaction };
+  }
+
+  if (request.status !== "prepared") {
+    const transaction = await recordToolTransaction(cwd, request, {
+      status: "rejected",
+      executed: false,
+      invocation,
+      replayOfTransactionId: original.id,
+      message: `Tool transaction replay rejected: request ${request.id} is ${request.status}`,
+    });
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: transaction.message, taskId: request.taskId, details: { transaction, original, request } }));
+    return { accepted: false, message: transaction.message, original, request, prompt: replayRequest.prompt, invocation, transaction };
+  }
+
+  const beforeResultIds = new Set((await loadToolResults(cwd)).map((record) => record.id));
+  const runResult = await runner(replayRequest, { timeoutMs: options.timeoutMs, command: options.command ?? original.invocation.command } satisfies RunTaskAgentOptions);
+  const updatedRequest = (await loadToolRequests(cwd)).find((candidate) => candidate.id === request.id) ?? request;
+  const resultRecord = (await loadToolResults(cwd)).find((candidate) => candidate.requestId === request.id && !beforeResultIds.has(candidate.id));
+  const status: ToolTransactionStatus = resultRecord && updatedRequest.status !== "prepared" ? updatedRequest.status : "missing_result";
+  const transaction = await recordToolTransaction(cwd, updatedRequest, {
+    status,
+    executed: true,
+    invocation,
+    runResult,
+    resultId: resultRecord?.id,
+    replayOfTransactionId: original.id,
+    message: status === "missing_result"
+      ? `Tool transaction replay missing structured result: ${original.id}`
+      : `Tool transaction replay completed: ${original.id} ${status}`,
+  });
+  await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: transaction.message, taskId: request.taskId, details: { transaction, original, runResult, resultRecord } }));
+  return {
+    accepted: status !== "missing_result",
+    message: transaction.message,
+    original,
+    request: updatedRequest,
+    prompt: replayRequest.prompt,
+    invocation,
+    runResult,
+    transaction,
+    resultRecord,
+  };
 }
 
 export async function recordToolResult(cwd: string, state: ScalerState, input: ToolResultInput, now = new Date()): Promise<ToolResultRecord> {
@@ -781,6 +880,7 @@ async function recordToolTransaction(
     invocation: TaskAgentInvocation;
     runResult?: TaskAgentRunResult;
     resultId?: string;
+    replayOfTransactionId?: string;
     message: string;
   },
   now = new Date(),
@@ -798,12 +898,25 @@ async function recordToolTransaction(
     stdoutEventCount: input.runResult?.stdoutEvents.length,
     stderrSummary: input.runResult ? summarizeOutput(input.runResult.stderr) : undefined,
     resultId: input.resultId,
+    replayOfTransactionId: input.replayOfTransactionId,
     message: input.message,
     createdAt: timestamp,
     updatedAt: timestamp,
   };
   await writeToolTransactionIndex(cwd, [record, ...(await loadToolTransactions(cwd))]);
   return record;
+}
+
+function reconstructReplayTaskRequest(transaction: ToolTransactionRecord, cwd: string): { taskId: string; prompt: string; tools: string[]; cwd: string } {
+  const prompt = transaction.invocation.args[transaction.invocation.args.length - 1] ?? "";
+  const toolsArgIndex = transaction.invocation.args.indexOf("--tools");
+  const tools = toolsArgIndex >= 0 ? uniqueNonEmpty((transaction.invocation.args[toolsArgIndex + 1] ?? "").split(",")) : [];
+  return {
+    taskId: `tool-${transaction.requestId}`,
+    prompt,
+    tools,
+    cwd: transaction.invocation.cwd ?? cwd,
+  };
 }
 
 function normalizeToolResultStatus(value: unknown): ToolResultStatus {

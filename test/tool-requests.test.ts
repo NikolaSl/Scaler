@@ -21,6 +21,7 @@ import {
   prepareToolRequest,
   recordToolResult,
   recordToolSchema,
+  replayToolTransaction,
   runToolRequestAgent,
   runToolSchemaDiscoveryAgent,
 } from "../src/tool-requests.js";
@@ -315,6 +316,99 @@ test("runToolRequestAgent treats free-form or missing structured result as incom
     assert.equal(result.transaction?.status, "missing_result");
     assert.equal((await loadToolRequests(dir))[0]?.status, "prepared");
     assert.equal((await loadToolResults(dir)).length, 0);
+  });
+});
+
+test("replayToolTransaction prepares a replay linked to the original", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
+    assert.ok(prepared.record);
+    const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id });
+    assert.ok(original.transaction);
+
+    const replay = await replayToolTransaction(dir, state, { transactionId: original.transaction.id });
+
+    assert.equal(replay.accepted, true);
+    assert.equal(replay.transaction?.status, "prepared");
+    assert.equal(replay.transaction?.replayOfTransactionId, original.transaction.id);
+    assert.match(formatToolTransactions(await loadToolTransactions(dir)), /replayOf=/);
+  });
+});
+
+test("replayToolTransaction executes persisted invocation and recognizes structured closure", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
+    assert.ok(prepared.record);
+    const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => ({
+      taskId: request.taskId,
+      exitCode: 0,
+      stdoutEvents: [{ type: "unparsed", text: "prose only" }],
+      stderr: "",
+      timedOut: false,
+      aborted: false,
+    }));
+    assert.equal(original.transaction?.status, "missing_result");
+
+    const replay = await replayToolTransaction(dir, state, { transactionId: original.transaction!.id, execute: true }, async (request) => {
+      assert.match(request.prompt, /Tool request id:/);
+      assert.deepEqual(request.tools, ["docs_search", "read"]);
+      await recordToolResult(dir, state, {
+        requestId: prepared.record!.id,
+        status: "completed",
+        summary: "Found docs.",
+        outputs: { refs: ["docs-widget"] },
+        validationPerformed: ["checked replay output"],
+      });
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+
+    assert.equal(replay.accepted, true);
+    assert.equal(replay.transaction?.status, "completed");
+    assert.equal(replay.transaction?.replayOfTransactionId, original.transaction?.id);
+    assert.equal((await loadToolRequests(dir))[0]?.status, "completed");
+  });
+});
+
+test("replayToolTransaction refuses execute for closed requests", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
+    assert.ok(prepared.record);
+    const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+      await recordToolResult(dir, state, { requestId: prepared.record!.id, status: "completed", summary: "Done.", outputs: { ok: true } });
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+
+    const replay = await replayToolTransaction(dir, state, { transactionId: original.transaction!.id, execute: true });
+
+    assert.equal(replay.accepted, false);
+    assert.equal(replay.transaction?.status, "rejected");
+    assert.match(replay.message, /is completed/);
+  });
+});
+
+test("replayToolTransaction treats replay prose without result as missing_result", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
+    assert.ok(prepared.record);
+    const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id });
+    assert.ok(original.transaction);
+
+    const replay = await replayToolTransaction(dir, state, { transactionId: original.transaction.id, execute: true }, async (request) => ({
+      taskId: request.taskId,
+      exitCode: 0,
+      stdoutEvents: [{ type: "unparsed", text: "prose only" }],
+      stderr: "",
+      timedOut: false,
+      aborted: false,
+    }));
+
+    assert.equal(replay.accepted, false);
+    assert.equal(replay.transaction?.status, "missing_result");
+    assert.equal((await loadToolRequests(dir))[0]?.status, "prepared");
   });
 });
 
