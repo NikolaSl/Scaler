@@ -72,6 +72,7 @@ Prefer assertions on durable artifacts such as:
 - `.scaler/plans/replan-decisions.json`
 - `.scaler/storage/index.json`
 - `.scaler/storage/maintenance.json`
+- `.scaler/storage/schedule.json`
 
 ## Mock child-agent runners
 
@@ -210,6 +211,7 @@ When adding a new integration scenario:
 - `mock/storage-maintenance-flow.test.ts`
   - command-driven storage maintenance execution compresses eligible `.scaler/reports/` files;
   - explicit `.scaler/cache/` cleanup deletes only cache files;
+  - scheduled maintenance command due checks persist `.scaler/storage/schedule.json`, dry-run maintenance reports, storage budget usage, and audit logs;
   - persisted maintenance reports, storage budget usage, and command/state audit logs are asserted.
 - `mock/tool-request-flow.test.ts`
   - rich `scaler_tool_request` metadata persists to `.scaler/tool-requests/`;
@@ -259,7 +261,7 @@ When adding a new integration scenario:
   - real Pi provider usage turn metadata updating `contextTokens`/`estimatedCostMicros` and budget audit logs;
   - real Pi slash-command budget configuration/status persistence;
   - real Pi slash-command storage status inventory persistence;
-  - real Pi slash-command storage maintenance execution, active-ledger rotation, and approved archive retention deletion with persisted `.scaler/storage/maintenance.json` and audit logs;
+  - real Pi slash-command storage maintenance execution, scheduled maintenance due checks, active-ledger rotation, and approved archive retention deletion with persisted `.scaler/storage/maintenance.json`/`schedule.json` and audit logs;
   - real Pi slash-command safety-policy persistence;
   - real Pi slash-command debug next-approach retry prepare mode with persisted `.scaler/debug/retries.json` and prompt audit logs;
   - real Pi slash-command tool transaction and transaction replay prepare modes with persisted `.scaler/tool-requests/transactions.json`;

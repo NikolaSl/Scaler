@@ -16,7 +16,9 @@ SCALER-managed data lives under `.scaler/`. The storage inventory feature only s
 - Active ledger rotation is opt-in with `rotate-active`; known active ledgers that exceed `max-active-bytes` are archived under `.scaler/storage/archive/` and reset to empty JSONL/JSON-array files.
 - `min-free-bytes=N` records a local filesystem free-space check in the maintenance report and marks it failed when available space is below the threshold.
 - Archive deletion is opt-in with `delete-archives`; only files under `.scaler/storage/archive/` can be deleted, and only when `max-archive-bytes` or `max-archive-age-days` selects retention targets.
-- Project files outside `.scaler/`, active raw logs/reports outside approved rotation/reset paths, memory files, already compressed files outside approved archive retention, maintenance/index artifacts, and validation manifests/current configuration ledgers are not cleanup targets.
+- `/scaler-storage-schedule` persists `.scaler/storage/schedule.json`, checks due maintenance at Pi `session_start`, and can run the due check immediately with `run`/`force`.
+- Scheduled maintenance updates `lastRunAt`, `nextRunAt`, and `lastReportGeneratedAt`; when a due run produces a report, storage budget usage is refreshed.
+- Project files outside `.scaler/`, active raw logs/reports outside approved rotation/reset paths, memory files, already compressed files outside approved archive retention, maintenance/index/schedule artifacts, and validation manifests/current configuration ledgers are not cleanup targets.
 
 Examples:
 
@@ -27,6 +29,8 @@ Examples:
 /scaler-storage-maintain execute delete-cache min-age-days=30 min-size=1048576
 /scaler-storage-maintain execute rotate-active no-compress max-active-bytes=10485760 min-free-bytes=1000000000
 /scaler-storage-maintain execute no-compress delete-archives max-archive-bytes=50000000 max-archive-age-days=30
+/scaler-storage-schedule enable interval-hours=24 execute=off rotate-active=on max-active-bytes=10485760
+/scaler-storage-schedule enable run force execute=off rotate-active=on max-active-bytes=1
 ```
 
-Remaining storage work includes scheduled maintenance policy and optional retention/deletion approval policies for raw logs or memory beyond archive files.
+Remaining storage work includes optional retention/deletion approval policies for raw logs or memory beyond archive files.

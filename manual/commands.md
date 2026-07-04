@@ -130,6 +130,19 @@ Examples:
 /scaler-storage-maintain execute no-compress delete-archives max-archive-bytes=50000000 max-archive-age-days=30
 ```
 
+## `/scaler-storage-schedule [enable|disable] [run] [force] [execute=on/off] [interval-hours=N] [compress=on/off] [delete-cache=on/off] [rotate-active=on/off] [delete-archives=on/off] ...`
+
+Shows or updates `.scaler/storage/schedule.json`. When enabled, SCALER checks the schedule at Pi `session_start`; if due, it runs the configured storage maintenance policy, updates `lastRunAt`/`nextRunAt`, refreshes `storageBytes`, and logs the result. The command can also run the due check immediately with `run`; `force` ignores `nextRunAt` for that check. Scheduled maintenance defaults to dry-run (`execute=false`) and does not enable archive deletion, cache deletion, or raw log/memory deletion unless explicitly configured.
+
+Examples:
+
+```text
+/scaler-storage-schedule
+/scaler-storage-schedule enable interval-hours=24 execute=off rotate-active=on max-active-bytes=10485760
+/scaler-storage-schedule enable run force execute=off rotate-active=on max-active-bytes=1
+/scaler-storage-schedule disable
+```
+
 ## `/scaler-safety-policy [allow-internet=on/off] [allow-external=on/off]`
 
 Shows or updates persisted safety policy at `.scaler/safety/policy.json`. Persisted `allow-internet` and `allow-external` settings are merged into the tool-call safety hook for internet-transfer and external-mutation command classes. They do not override protected-path, destructive-command, secret-environment, or task allowed-path blocks.
