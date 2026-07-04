@@ -32,7 +32,7 @@ By default it prepares only. Passing `execute` runs the task-agent subprocess. A
 
 `/scaler-step` runs under the repo-wide execution lock.
 
-## `/scaler-validation-add <taskId> | <id> | <command> | <description> | <required> | <gate> | <expected> | <evidence refs> | <environment>`
+## `/scaler-validation-add <taskId> | <id> | <command> | <description> | <required> | <gate> | <expected> | <evidence refs> | <environment> | <disposition>`
 
 Adds or replaces one command in a task validation manifest.
 
@@ -42,9 +42,10 @@ Examples:
 /scaler-validation-add T-001 | test | npm test | Run tests | required | unit | exits 0 | tests:T-001 | host
 /scaler-validation-add T-001 | lint | npm run lint | Run lint | optional | static_checks | exits 0
 /scaler-validation-add T-001 | local-ci | docker compose run --rm test | Run local CI in Compose | required | local_ci | exits 0 | ci:T-001 | compose
+/scaler-validation-add T-001 | integration | npm run test:integration | Integration tests | required | integration | exits 0 | tests:T-001 | host | skipped:No integration surface changed
 ```
 
-`required` accepts true/yes/required/1 and false/no/optional/0. Unknown or omitted values default to required when saved. Gate aliases are normalized to typed values such as `dependency_check`, `test_first`, `unit_tests`, `build_compile`, `static_checks`, `integration_tests`, `security_checks`, `local_ci`, `acceptance_smoke`, and non-software evidence gates such as `completeness`, `consistency`, `compliance`, `source_validation`, `adversarial_review`, and `uncertainty_report`. Environment aliases normalize to `host`, `docker`, `compose`, `devcontainer`, `minikube`, or `local_ci`. Required `dependency_check` commands must precede non-policy validation gates, and required `test_first` commands must precede implementation validation gates; required `local_ci` gates must declare a non-host environment. Commands that invoke Docker/Compose/dev-container/Minikube tooling without matching environment metadata fail policy before execution.
+`required` accepts true/yes/required/1 and false/no/optional/0. Unknown or omitted values default to required when saved. Gate aliases are normalized to typed values such as `dependency_check`, `test_first`, `unit_tests`, `build_compile`, `static_checks`, `integration_tests`, `security_checks`, `local_ci`, `acceptance_smoke`, and non-software evidence gates such as `completeness`, `consistency`, `compliance`, `source_validation`, `adversarial_review`, and `uncertainty_report`. Environment aliases normalize to `host`, `docker`, `compose`, `devcontainer`, `minikube`, or `local_ci`. The optional disposition field defaults to `run`; it also accepts `skipped:<reason>` (including skip/not-applicable aliases) or `blocked:<reason>`. Required skipped gates need an accepted reason and are recorded as `skipped` without executing the command; blocked gates need a blocker reason and required blocked gates block validation/task progress. Missing required skip reasons and any missing block reason fail policy before command execution. Required `dependency_check` commands must precede non-policy validation gates, and required `test_first` commands must precede implementation validation gates; required `local_ci` gates must declare a non-host environment. Commands that invoke Docker/Compose/dev-container/Minikube tooling without matching environment metadata fail policy before execution.
 
 ## `/scaler-validation-checklist <taskId> | <gate> | <summary> | <id::status::required::statement::evidence;...> | <evidence refs>`
 
@@ -89,10 +90,12 @@ Current behavior:
 
 - uses a per-task validation manifest from `.scaler/reports/validation-manifests.json` when present
 - otherwise falls back to default project commands from `package.json` scripts (`npm test`, `npm run build`)
-- evaluates dependency/test-first policy diagnostics before command execution
+- evaluates dependency/test-first, environment, and skipped/blocked disposition policy diagnostics before command execution
 - writes validation runs to `.scaler/reports/validation-runs.json`
+- records dispositioned commands as `skipped` or `blocked` without executing them
 - moves all-passing validating tasks to `validated`
 - moves failing validating tasks to `debugging`
+- moves blocked validating tasks to `blocked` and requests replanning where allowed
 
 ## `/scaler-pause [reason]`
 

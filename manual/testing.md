@@ -111,7 +111,7 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - slash-command storage maintenance execution with persisted maintenance reports and audit logs;
 - slash-command debug next-approach retry prepare mode with persisted retry records and prompt audit logs;
 - slash-command tool transaction, tool transaction replay, and schema discovery prepare modes with persisted transaction/probe records;
-- slash-command typed validation gate metadata, non-software checklist persistence, evidence-policy enforcement, and audit logs;
+- slash-command typed validation gate metadata, gate/environment/disposition policy enforcement, skipped/blocked disposition persistence, non-software checklist persistence, evidence-policy enforcement, and audit logs;
 - cardinal SCALER tool invocation with persisted `.scaler/state.json` mutation;
 - cardinal `scaler_tool_schema` invocation with persisted discovered metadata;
 - cardinal `scaler_tool_request` invocation with persisted rich metadata;

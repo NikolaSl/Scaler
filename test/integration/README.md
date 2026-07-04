@@ -255,7 +255,7 @@ When adding a new integration scenario:
   - real Pi slash-command storage maintenance execution with persisted `.scaler/storage/maintenance.json` and audit logs;
   - real Pi slash-command debug next-approach retry prepare mode with persisted `.scaler/debug/retries.json` and prompt audit logs;
   - real Pi slash-command tool transaction and transaction replay prepare modes with persisted `.scaler/tool-requests/transactions.json`;
-  - real Pi slash-command typed validation gate metadata, validation gate/environment policy enforcement, non-software checklist persistence, and evidence-policy enforcement;
+  - real Pi slash-command typed validation gate metadata, validation gate/environment/disposition policy enforcement, skipped/blocked disposition persistence, non-software checklist persistence, and evidence-policy enforcement;
   - command audit events and detail payload references in `.scaler/logs/events.jsonl`;
   - cardinal real-model call to `scaler_tool_request` with exact rich metadata and persisted tool-request state;
   - cardinal real-model call to `scaler_tool_result` with exact result metadata, persisted result ledger, and closed request status;
