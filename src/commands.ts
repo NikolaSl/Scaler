@@ -77,6 +77,8 @@ export interface ParsedResearchRequestArgs {
 export interface ParsedResearchRunArgs {
   requestId?: string;
   execute: boolean;
+  allowInternet: boolean;
+  tools?: string[];
 }
 
 export interface ParsedDebugRunArgs {
@@ -240,9 +242,13 @@ export function parseReplanRunArgs(args: string | undefined): ParsedReplanRunArg
 
 export function parseResearchRunArgs(args: string | undefined): ParsedResearchRunArgs {
   const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  const optionParts = new Set(parts.filter((part) => part.toLowerCase() === "execute" || part.toLowerCase() === "internet" || /^tools=/i.test(part)));
+  const toolsPart = parts.find((part) => /^tools=/i.test(part));
   return {
-    requestId: parts.find((part) => part.toLowerCase() !== "execute"),
+    requestId: parts.find((part) => !optionParts.has(part)),
     execute: parts.some((part) => part.toLowerCase() === "execute"),
+    allowInternet: parts.some((part) => part.toLowerCase() === "internet"),
+    tools: parseCommaList(toolsPart?.slice(toolsPart.indexOf("=") + 1)),
   };
 }
 

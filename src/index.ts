@@ -565,11 +565,11 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("scaler-research-run", {
-    description: "Prepare or execute the focused SCALER research agent: /scaler-research-run [requestId] [execute]",
+    description: "Prepare or execute the focused SCALER research agent: /scaler-research-run [requestId] [execute] [internet] [tools=a,b]",
     handler: async (args, ctx) => {
       const parsed = parseResearchRunArgs(args);
       const state = await ensureState(ctx.cwd);
-      const result = await runResearchAgentStep(ctx.cwd, state, { requestId: parsed.requestId, execute: parsed.execute });
+      const result = await runResearchAgentStep(ctx.cwd, state, { requestId: parsed.requestId, execute: parsed.execute, allowInternet: parsed.allowInternet, tools: parsed.tools });
       const ingestion = result.ingestion?.attempted
         ? ` ingestion=${result.ingestion.ingested ? "ingested" : "rejected"}${result.ingestion.report ? ` report=${result.ingestion.report.id}` : ""}`
         : "";
