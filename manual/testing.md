@@ -59,6 +59,7 @@ The current mocked integration harness covers:
 - debug report → replan request → replanner proposal → acceptance retry-gate clearance;
 - bounded debug conductor chains from validation failure through debug → research → debug next approach;
 - validation-debug workflow runs actual validation failure, then starts the bounded debug loop after the validation lock is released;
+- explicit debug next-approach retry execution, exact failed-validation rerun, retry/debug-attempt ledgers, and full validation after exact pass;
 - bounded debug conductor stages replanner proposals from debug `needs_replan` without accepting them;
 - blocked validation → replan request → proposal acceptance;
 - execution-lock contention across conductor, validation, stage-agent, replan-agent, research-agent, debug-agent, and commit workflows;
@@ -107,6 +108,7 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - slash-command budget configuration/status persistence and audit logs;
 - slash-command storage status inventory persistence and audit logs;
 - slash-command storage maintenance execution with persisted maintenance reports and audit logs;
+- slash-command debug next-approach retry prepare mode with persisted retry records and prompt audit logs;
 - slash-command typed validation gate metadata persistence and audit logs;
 - cardinal SCALER tool invocation with persisted `.scaler/state.json` mutation;
 - cardinal `scaler_tool_request` invocation with persisted rich metadata;

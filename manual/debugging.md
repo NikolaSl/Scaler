@@ -7,6 +7,7 @@ Artifacts:
 - `.scaler/debug/failures.json` — failure fingerprints and validation failure summaries.
 - `.scaler/debug/attempts.json` — attempted fixes/investigations with hypotheses, signatures, results, evidence, and resulting fingerprints.
 - `.scaler/debug/reports.json` — debug-agent conclusions and escalation decisions.
+- `.scaler/debug/retries.json` — explicit next-approach retry executions, exact validation reruns, and follow-up debug-attempt links.
 - `.scaler/reports/debug-agent-runs.json` — focused debug-agent preparation/execution records.
 
 ## Attempt gate
@@ -72,6 +73,10 @@ Statuses:
 
 `/scaler-validate-loop [taskId] [execute] [max=N]` runs validation, reloads the persisted state, and starts the bounded debug conductor only when validation fails the task into `debugging`. It avoids nested execution locks by running the debug loop after validation returns.
 
+`/scaler-debug-retry [taskId] [execute]` turns the latest accepted `next_approach` report for a debugging task into a supervised retry. Prepare mode builds the retry task-agent prompt with the next approach and exact failing validation command(s). Execute mode runs the task agent, reruns only the exact command(s) that failed previously, records `.scaler/debug/retries.json`, and records a structured debug attempt. If exact validation passes, the task remains `validating` for full validation. If exact validation fails, the task returns to `debugging` with a `same_failure` attempt. It never marks the task validated by itself.
+
+`/scaler-debug-retries` lists recent next-approach retry records.
+
 `/scaler-debug-loop [taskId] [execute] [max=N]` automates the current debug-agent/research-agent/replanner-agent handoffs for one debugging task. It is deterministic and bounded:
 
 1. If a task-local debug-cycle/debug-blocked replan request is open, it runs the replanner agent and stops after a proposed plan is staged.
@@ -82,4 +87,4 @@ The loop stops on prepare-mode handoff, rejected structured ingestion, `next_app
 
 ## Current limitations
 
-The bounded debug conductor does not yet implement automatic code patch/retry after `next_approach`. Use `/scaler-validate-loop` when you want validation to explicitly hand off into the bounded debug loop; plain `/scaler-validate` remains validation-only. Internet research still depends on explicitly granted tools and safety policy.
+The bounded debug conductor stops at `next_approach`; starting `/scaler-debug-retry` is still explicit and not policy-automatic. Use `/scaler-validate-loop` when you want validation to explicitly hand off into the bounded debug loop; plain `/scaler-validate` remains validation-only. Internet research still depends on explicitly granted tools and safety policy.

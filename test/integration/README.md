@@ -52,6 +52,7 @@ Prefer assertions on durable artifacts such as:
 - `.scaler/debug/failures.json`
 - `.scaler/debug/attempts.json`
 - `.scaler/debug/reports.json`
+- `.scaler/debug/retries.json`
 - `.scaler/research/requests.json`
 - `.scaler/research/reports.json`
 - `.scaler/plans/replan-requests.json`
@@ -178,6 +179,11 @@ When adding a new integration scenario:
   - bounded debug conductor from failed validation through debug `needs_research` → research completion → debug `next_approach`;
   - validation-debug workflow from actual validation failure through debug/research loop after the validation lock is released;
   - bounded debug conductor from debug `needs_replan` → replanner proposal staging without automatic acceptance.
+- `mock/debug-retry-flow.test.ts`
+  - failed validation creates a debugging task;
+  - accepted debug `next_approach` feeds a supervised retry task-agent prompt;
+  - exact previously failing validation passes before full validation marks the task validated;
+  - retry records, debug attempts, validation runs, and audit logs are persisted.
 - `mock/stage-replan-plan-flow.test.ts`
   - stage conductor loop from PRD through knowledge, planning, execution, and completion;
   - stage-agent structured artifact ingestion, readiness, semantic, consistency, advancement, run records, and audit logs;
@@ -235,6 +241,7 @@ When adding a new integration scenario:
   - real Pi slash-command budget configuration/status persistence;
   - real Pi slash-command storage status inventory persistence;
   - real Pi slash-command storage maintenance execution with persisted `.scaler/storage/maintenance.json` and audit logs;
+  - real Pi slash-command debug next-approach retry prepare mode with persisted `.scaler/debug/retries.json` and prompt audit logs;
   - real Pi slash-command typed validation gate metadata persistence;
   - command audit events and detail payload references in `.scaler/logs/events.jsonl`;
   - cardinal real-model call to `scaler_tool_request` with exact rich metadata and persisted tool-request state;

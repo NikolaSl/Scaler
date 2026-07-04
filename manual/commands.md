@@ -215,6 +215,12 @@ Debug report statuses:
 - `needs_research` creates research requests.
 - `needs_replan` and `blocked` create debug-blocked replan requests.
 
+## `/scaler-debug-retry [taskId] [execute]`
+
+Prepares or executes the latest accepted debug `next_approach` for a debugging task. It requires a previous failed validation run, injects the next approach and exact failed validation command(s) into the retry task-agent prompt, and writes `.scaler/debug/retries.json`.
+
+With `execute`, the task agent runs once. If the task-agent run succeeds, SCALER reruns only the exact command(s) that failed in the prior validation run. Exact-validation success records a `fixed` debug attempt and leaves the task `validating` for full validation. Exact-validation failure records a `same_failure` debug attempt and returns the task to `debugging`. The command never auto-validates the full task and never accepts replans.
+
 ## `/scaler-debug-loop [taskId] [execute] [max=N]`
 
 Runs a bounded deterministic debug conductor for a debugging task. The loop selects the explicit task, current debugging task, or first debugging task.
@@ -236,6 +242,10 @@ Lists debug-agent run records from `.scaler/reports/debug-agent-runs.json`.
 ## `/scaler-debug-reports`
 
 Lists debug reports from `.scaler/debug/reports.json`.
+
+## `/scaler-debug-retries`
+
+Lists next-approach retry records from `.scaler/debug/retries.json`.
 
 ## `/scaler-research-run [requestId] [execute] [internet] [tools=a,b]`
 

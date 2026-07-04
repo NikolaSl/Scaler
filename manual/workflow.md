@@ -98,7 +98,16 @@ When debugging stalls, use either individual focused-agent commands or the bound
 /scaler-debug-runs T-001
 ```
 
-A debug report with `needs_research` creates research requests for `/scaler-research-run`; a report with `needs_replan` or `blocked` creates a replan request for the replanner workflow. `/scaler-debug-loop` chains those handoffs deterministically until it reaches a `next_approach`, stages a proposed replan, encounters rejected structured output, or hits its bound. It does not patch/retry code or accept replans automatically.
+A debug report with `needs_research` creates research requests for `/scaler-research-run`; a report with `needs_replan` or `blocked` creates a replan request for the replanner workflow. `/scaler-debug-loop` chains those handoffs deterministically until it reaches a `next_approach`, stages a proposed replan, encounters rejected structured output, or hits its bound. It does not accept replans automatically.
+
+After a `next_approach`, use:
+
+```text
+/scaler-debug-retry T-001
+/scaler-debug-retry T-001 execute
+```
+
+`/scaler-debug-retry execute` runs the next approach through the task-agent path, reruns the exact previously failing validation command(s), records the retry and debug attempt, and leaves exact-pass work in `validating` so full `/scaler-validate` is still required.
 
 ## 6. Commit validated work
 
