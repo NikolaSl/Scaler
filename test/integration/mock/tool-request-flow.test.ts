@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { getBudgetState } from "../../../src/budgets.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { createDefaultState, loadState } from "../../../src/state.js";
-import { loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolTransactions, prepareToolRequest, recordToolResult, recordToolSchema, runToolRequestAgent, runToolSchemaDiscoveryAgent } from "../../../src/tool-requests.js";
+import { loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolTransactions, prepareToolRequest, recordToolResult, recordToolSchema, replayToolTransaction, runToolRequestAgent, runToolSchemaDiscoveryAgent } from "../../../src/tool-requests.js";
 import { registerScalerTools } from "../../../src/tools.js";
 
 const execFileAsync = promisify(execFile);
@@ -107,7 +107,7 @@ test("mock integration: tool transaction execution requires structured scaler_to
     assert.equal(missing.transaction?.status, "missing_result");
     assert.equal((await loadToolRequests(dir))[0]?.status, "prepared");
 
-    const completed = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+    const completed = await replayToolTransaction(dir, state, { transactionId: missing.transaction!.id, execute: true }, async (request) => {
       assert.match(request.prompt, /scaler_tool_result/);
       assert.match(request.prompt, /Required format: JSON with fields apiNames and refs/);
       assert.match(request.prompt, /Search project docs with a query argument/);
@@ -125,16 +125,18 @@ test("mock integration: tool transaction execution requires structured scaler_to
 
     assert.equal(completed.accepted, true);
     assert.equal(completed.transaction?.status, "completed");
+    assert.equal(completed.transaction?.replayOfTransactionId, missing.transaction?.id);
     assert.equal(completed.resultRecord?.status, "completed");
     assert.equal((await loadToolRequests(dir))[0]?.status, "completed");
     const transactions = await loadToolTransactions(dir);
     assert.equal(transactions[0]?.status, "completed");
+    assert.equal(transactions[0]?.replayOfTransactionId, missing.transaction?.id);
     assert.equal(transactions[1]?.status, "missing_result");
     assert.equal(transactions[0]?.resultId, completed.resultRecord?.id);
 
     const events = await readLogEvents(dir);
     assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("Tool transaction missing structured result")));
-    assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("Tool transaction completed")));
+    assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("Tool transaction replay completed")));
   });
 });
 
