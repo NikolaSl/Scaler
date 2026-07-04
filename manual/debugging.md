@@ -73,7 +73,7 @@ Statuses:
 
 `/scaler-validate-loop [taskId] [execute] [max=N]` runs validation, reloads the persisted state, and starts the bounded debug conductor only when validation fails the task into `debugging`. It avoids nested execution locks by running the debug loop after validation returns.
 
-`/scaler-debug-retry [taskId] [execute]` turns the latest accepted `next_approach` report for a debugging task into a supervised retry. Prepare mode builds the retry task-agent prompt with the next approach and exact failing validation command(s). Execute mode runs the task agent, reruns only the exact command(s) that failed previously, records `.scaler/debug/retries.json`, and records a structured debug attempt. If exact validation passes, the default policy leaves the task `validating` for full validation. If exact validation fails, the task returns to `debugging` with a `same_failure` attempt.
+`/scaler-debug-retry [taskId] [execute]` turns the latest accepted `next_approach` report for a debugging task into a supervised retry. Prepare mode builds the retry task-agent prompt with the next approach and exact failing validation command(s). Execute mode runs the task agent, requires a completed structured `scaler_task_report`, reruns only the exact command(s) that failed previously, records `.scaler/debug/retries.json`, and records a structured debug attempt. Missing/invalid/non-completed task reports block exact validation. If exact validation passes, the default policy leaves the task `validating` for full validation. If exact validation fails, the task returns to `debugging` with a `same_failure` attempt.
 
 `/scaler-debug-retry-policy` stores retry automation policy in `.scaler/debug/retry-policy.json`:
 

@@ -6,6 +6,7 @@ Scaler currently registers structured tool skeletons:
 - `scaler_memory_write`
 - `scaler_memory_retrieve`
 - `scaler_research_report`
+- `scaler_task_report`
 - `scaler_spawn_task`
 - `scaler_tool_request`
 - `scaler_tool_result`
@@ -26,6 +27,7 @@ Current behavior:
 - `scaler_memory_write` writes `.scaler/memory/` files and index entries
 - `scaler_memory_retrieve` retrieves memory by id/path
 - `scaler_research_report` records structured research findings with source quality, confidence, contradictions, and optional raw evidence stored in memory
+- `scaler_task_report` records the required structured completion report for task-agent runs under `.scaler/reports/task-agent-reports.json`
 - `scaler_spawn_task` prepares a Pi subprocess invocation, or executes it when `execute: true`; executed spawns are refused while the repo-wide execution lock is held
 - `scaler_tool_request` persists isolated tool-agent requests under `.scaler/tool-requests/requests.json` and prepares invocations with only explicitly allowed tools, compact selected-tool catalog entries, requester id, expected output, required format, risk level, permission requirement, and safety notes
 - `scaler_tool_result` records structured results under `.scaler/tool-requests/results.json`, links them to the originating request, updates the request status to `completed`, `failed`, or `blocked`, and stores outputs, evidence refs, validation performed, errors, and recommendations

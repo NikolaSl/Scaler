@@ -43,7 +43,7 @@ Current behavior:
 - prepares an isolated Pi task-agent invocation
 - writes a checkpoint under `.scaler/checkpoints/`
 
-By default it prepares only. Passing `execute` runs the task-agent subprocess. A successful task-agent run moves the task to `validating` and writes a validation handoff under `.scaler/reports/validation-handoffs.json`; a failed task-agent run moves the task to `failed` where valid. Executed task-agent runs are recorded under `.scaler/reports/task-agent-runs.json`.
+By default it prepares only. Passing `execute` runs the task-agent subprocess. A successful task-agent run must emit one structured `scaler_task_report` before validation handoff. Status `completed` moves the task to `validating`; missing or invalid reports move the task to `blocked`; report status `blocked`, `needs_data`, or `needs_replan` blocks validation; report status `failed` fails the task. Executed task-agent runs are recorded under `.scaler/reports/task-agent-runs.json`, accepted reports under `.scaler/reports/task-agent-reports.json`, and handoffs under `.scaler/reports/validation-handoffs.json`.
 
 `/scaler-step` runs under the repo-wide execution lock.
 
@@ -209,7 +209,11 @@ Manually clears the current execution lock and logs the reason. This is explicit
 
 Lists recent task-agent run records. Optional `taskId` filters records.
 
-Output includes status, exit code, timeout/abort flags, stdout event count, and stderr summary when present.
+Output includes status, exit code, timeout/abort flags, stdout event count, task-report ingestion status when present, and stderr summary when present.
+
+## `/scaler-task-reports [taskId]`
+
+Lists accepted structured task-agent reports from `.scaler/reports/task-agent-reports.json`. Optional `taskId` filters records.
 
 ## `/scaler-tasks`
 
@@ -291,7 +295,7 @@ Debug report statuses:
 
 ## `/scaler-debug-retry [taskId] [execute]`
 
-Prepares or executes the latest accepted debug `next_approach` for a debugging task. It requires a previous failed validation run, injects the next approach and exact failed validation command(s) into the retry task-agent prompt, and writes `.scaler/debug/retries.json`. The command honors `.scaler/debug/retry-policy.json`: executed retries can require one-use approval records, and exact-validation success can optionally chain into full validation or full validation plus a validated-task commit.
+Prepares or executes the latest accepted debug `next_approach` for a debugging task. It requires a previous failed validation run, injects the next approach and exact failed validation command(s) into the retry task-agent prompt, requires a completed structured `scaler_task_report` before exact validation, and writes `.scaler/debug/retries.json`. The command honors `.scaler/debug/retry-policy.json`: executed retries can require one-use approval records, and exact-validation success can optionally chain into full validation or full validation plus a validated-task commit.
 
 ## `/scaler-debug-retry-policy [auto-start=on/off] [require-approval=on/off] [post-exact-pass=stop|validate|validate-commit]`
 
@@ -305,7 +309,7 @@ Creates a one-use approval under `.scaler/debug/retry-approvals.json` for polici
 
 Lists debug retry approval records.
 
-With `execute`, the task agent runs once. If the task-agent run succeeds, SCALER reruns only the exact command(s) that failed in the prior validation run. Exact-validation success records a `fixed` debug attempt and leaves the task `validating` for full validation. Exact-validation failure records a `same_failure` debug attempt and returns the task to `debugging`. The command never auto-validates the full task and never accepts replans.
+With `execute`, the task agent runs once. If the task-agent run succeeds and emits a completed `scaler_task_report`, SCALER reruns only the exact command(s) that failed in the prior validation run. Missing/invalid/non-completed task reports block exact validation. Exact-validation success records a `fixed` debug attempt and leaves the task `validating` for full validation. Exact-validation failure records a `same_failure` debug attempt and returns the task to `debugging`. The command never auto-validates the full task and never accepts replans.
 
 ## `/scaler-debug-loop [taskId] [execute] [max=N]`
 

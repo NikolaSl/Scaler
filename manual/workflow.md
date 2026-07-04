@@ -71,7 +71,7 @@ For non-software gates, `/scaler-validation-checklist` records deterministic che
 /scaler-step execute
 ```
 
-Without `execute`, SCALER prepares the isolated task-agent invocation and writes a checkpoint. With `execute`, it runs the task-agent subprocess and records the run under `.scaler/reports/task-agent-runs.json`. A successful task-agent run moves the task to `validating`; a failed run moves it to `failed` when that transition is valid.
+Without `execute`, SCALER prepares the isolated task-agent invocation and writes a checkpoint. With `execute`, it runs the task-agent subprocess and records the run under `.scaler/reports/task-agent-runs.json`. A successful task-agent run must emit a structured `scaler_task_report`; only status `completed` moves the task to `validating`. Missing/invalid reports or blocked/needs-data/needs-replan report statuses keep the task out of validation, and accepted reports are stored under `.scaler/reports/task-agent-reports.json`. A failed subprocess run moves the task to `failed` when that transition is valid.
 
 The conductor refuses a selected task before locking when the debug retry gate finds unresolved repeated failed fingerprints, blocked debug attempts, or debug cycles, including longer hidden cycles such as A→B→C→A. Record `newEvidence` through `scaler_debug_attempt`, run `/scaler-debug-run [taskId] execute` to obtain a structured next approach/research/replan decision, or accept/resolve the related debug replan request before retrying.
 

@@ -12,7 +12,7 @@ Design requirements live in `assignement.md` and `specs/`. Compliance reviews mu
 - Basic deterministic supervisor transition helpers.
 - Audit log: `.scaler/logs/events.jsonl` with detail payload files under `.scaler/logs/details/` for commands, prompts, tools, reports, validation summaries, and commits.
 - Deterministic safety gate for protected paths, destructive shell commands, protected-path shell access, and current-task allowed paths.
-- Experimental task-agent subprocess invocation builder.
+- Experimental task-agent subprocess invocation builder with required structured `scaler_task_report` handoff gating before validation.
 - Structured Scaler tool skeletons registered with Pi.
 - External memory write/retrieve under `.scaler/memory/`.
 - Storage inventory indexes under `.scaler/storage/index.json` via `/scaler-storage-status`, coupled to the `storageBytes` budget gate.
@@ -26,7 +26,7 @@ Design requirements live in `assignement.md` and `specs/`. Compliance reviews mu
 - Deterministic validation manifests and command-run records.
 - Git status safety and validated-task commit helpers.
 - Implemented create/list/step/validate/commit workflow.
-- Task-agent run records with timeout/abort diagnostics.
+- Task-agent run records with timeout/abort diagnostics and task-agent report ledgers under `.scaler/reports/task-agent-reports.json`.
 - Mandatory repo-wide sequential execution lock for SCALER operations.
 - Runtime PRD ledger under `.scaler/prd/` with requirement coverage summaries and task links.
 - Versioned execution plan artifacts under `.scaler/plans/` with task application, replan request, focused replanner-agent proposal generation, preservation-check, and proposal acceptance helpers.

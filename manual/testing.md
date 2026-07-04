@@ -37,7 +37,7 @@ Default integration tests use deterministic mock child-agent runners. They do no
 
 The current mocked integration harness covers:
 
-- conductor task execution into validation handoff;
+- conductor task execution into structured task-agent report ingestion before validation handoff, including missing/invalid report blocking;
 - failing validation into debugging;
 - debug attempt cycle detection and retry-gate refusal;
 - focused debug-agent report ingestion;

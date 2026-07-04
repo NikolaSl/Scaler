@@ -18,7 +18,7 @@ Supported options:
 
 Child agents must load Scaler safety/logging rules or run inside an approved sandbox before unattended use.
 
-Current implementation provides the invocation builder, subprocess runner, persisted run records under `.scaler/reports/task-agent-runs.json`, and repo-wide execution locking for task-agent execution.
+Current implementation provides the invocation builder, subprocess runner, persisted run records under `.scaler/reports/task-agent-runs.json`, structured task-agent report records under `.scaler/reports/task-agent-reports.json`, and repo-wide execution locking for task-agent execution.
 
 `scaler_spawn_task` supports:
 
@@ -33,10 +33,11 @@ Task-agent run results include:
 - stderr summary in run records
 - `timedOut` flag
 - `aborted` flag
+- task-report ingestion status (`accepted`, `missing`, `invalid`, or `not_required`)
 
-Use `/scaler-runs [taskId]` to inspect recent run records.
+Use `/scaler-runs [taskId]` to inspect recent run records and `/scaler-task-reports [taskId]` to inspect accepted structured reports.
 
-Current conductor integration starts selected tasks, records run results, writes validation handoffs, and transitions successful executions to `validating`. Task-agent prepare/execute operations are sequential per repository and are refused while another execution lock is held.
+Current conductor integration starts selected tasks, records run results, writes validation handoffs, and transitions only successful executions with an accepted `scaler_task_report` status `completed` to `validating`. Successful executions that omit the report or emit an invalid/mismatched report are moved to `blocked` and recorded with `task_agent_report_missing` or `task_agent_report_invalid` handoffs. Reports with status `blocked`, `needs_data`, or `needs_replan` also block validation; reports with status `failed` fail the task before validation. Task-agent prepare/execute operations are sequential per repository and are refused while another execution lock is held.
 
 Before preparing or executing a selected task, the conductor checks the debug retry gate. A task is refused when unresolved repeated failure fingerprints, blocked debug attempts, or debug cycles exist without later `newEvidence` or an accepted/resolved debug replan request. Cycle detection includes longer hidden fingerprint chains such as A→B→C→A.
 
