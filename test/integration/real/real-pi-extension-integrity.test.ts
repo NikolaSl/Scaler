@@ -192,6 +192,30 @@ test("real Pi extension: slash command dispatch prepares debug next-approach ret
   });
 });
 
+test("real Pi extension: slash command dispatch enforces validation evidence policy", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-REAL-EVIDENCE";
+    state.tasks = [{ id: "T-REAL-EVIDENCE", status: "validating", title: "Real evidence", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-validation-checklist T-REAL-EVIDENCE | acceptance | Missing evidence | acceptance::passed::required::Acceptance demonstrated:: |",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Evidence policy: missing=acceptance/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const checklist = (await loadValidationChecklists(dir))[0];
+    assert.equal(checklist?.status, "failed");
+    assert.deepEqual(checklist?.evidencePolicy?.missingEvidenceItemIds, ["acceptance"]);
+    assert.equal((await loadState(dir)).tasks.find((task) => task.id === "T-REAL-EVIDENCE")?.status, "debugging");
+  });
+});
+
 test("real Pi extension: slash command dispatch persists validation checklist", { skip: !REAL_PI_ENABLED }, async () => {
   await withRealPiTempRepo(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
