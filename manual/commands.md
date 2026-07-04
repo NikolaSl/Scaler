@@ -276,7 +276,19 @@ Debug report statuses:
 
 ## `/scaler-debug-retry [taskId] [execute]`
 
-Prepares or executes the latest accepted debug `next_approach` for a debugging task. It requires a previous failed validation run, injects the next approach and exact failed validation command(s) into the retry task-agent prompt, and writes `.scaler/debug/retries.json`.
+Prepares or executes the latest accepted debug `next_approach` for a debugging task. It requires a previous failed validation run, injects the next approach and exact failed validation command(s) into the retry task-agent prompt, and writes `.scaler/debug/retries.json`. The command honors `.scaler/debug/retry-policy.json`: executed retries can require one-use approval records, and exact-validation success can optionally chain into full validation or full validation plus a validated-task commit.
+
+## `/scaler-debug-retry-policy [auto-start=on/off] [require-approval=on/off] [post-exact-pass=stop|validate|validate-commit]`
+
+Shows or updates debug retry policy. Defaults are no auto-start, no approval requirement, and no post-exact-pass chaining. `auto-start=on` lets `/scaler-debug-loop execute` immediately start a supervised retry after it ingests a `next_approach` report. `post-exact-pass=validate` runs full validation after the exact failing command passes; `post-exact-pass=validate-commit` also attempts a validated-task commit using the task allowed paths after full validation passes. Replans are never auto-accepted.
+
+## `/scaler-debug-retry-approve <debugReportId> | [taskId] | [reason]`
+
+Creates a one-use approval under `.scaler/debug/retry-approvals.json` for policies with `require-approval=on`.
+
+## `/scaler-debug-retry-approvals`
+
+Lists debug retry approval records.
 
 With `execute`, the task agent runs once. If the task-agent run succeeds, SCALER reruns only the exact command(s) that failed in the prior validation run. Exact-validation success records a `fixed` debug attempt and leaves the task `validating` for full validation. Exact-validation failure records a `same_failure` debug attempt and returns the task to `debugging`. The command never auto-validates the full task and never accepts replans.
 

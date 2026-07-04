@@ -61,7 +61,7 @@ The current mocked integration harness covers:
 - debug report → replan request → replanner proposal → acceptance retry-gate clearance;
 - bounded debug conductor chains from validation failure through debug → research → debug next approach;
 - validation-debug workflow runs actual validation failure, then starts the bounded debug loop after the validation lock is released;
-- explicit debug next-approach retry execution, exact failed-validation rerun, retry/debug-attempt ledgers, and full validation after exact pass;
+- explicit and policy-driven debug next-approach retry execution, exact failed-validation rerun, retry approval ledgers, retry/debug-attempt ledgers, and optional full validation after exact pass;
 - bounded debug conductor stages replanner proposals from debug `needs_replan` without accepting them;
 - blocked validation → replan request → proposal acceptance;
 - execution-lock contention across conductor, validation, stage-agent, replan-agent, research-agent, debug-agent, and commit workflows;
@@ -110,7 +110,7 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - slash-command budget configuration/status persistence, provider usage turn accounting, and audit logs;
 - slash-command storage status inventory persistence and audit logs;
 - slash-command storage maintenance execution, scheduled maintenance due checks, active-ledger rotation, approved archive/raw-log/memory retention deletion, persisted maintenance/schedule reports, and audit logs;
-- slash-command debug next-approach retry prepare mode with persisted retry records and prompt audit logs;
+- slash-command debug next-approach retry prepare mode plus retry-policy persistence with persisted retry records and prompt audit logs;
 - slash-command tool transaction, tool transaction replay, and schema discovery prepare modes with persisted transaction/probe records;
 - slash-command typed validation gate metadata, gate/environment/disposition policy enforcement, validation environment lifecycle records/status, skipped/blocked disposition persistence, non-software checklist persistence, evidence-policy enforcement, and audit logs;
 - cardinal SCALER tool invocation with persisted `.scaler/state.json` mutation;

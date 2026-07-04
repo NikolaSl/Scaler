@@ -73,7 +73,24 @@ Statuses:
 
 `/scaler-validate-loop [taskId] [execute] [max=N]` runs validation, reloads the persisted state, and starts the bounded debug conductor only when validation fails the task into `debugging`. It avoids nested execution locks by running the debug loop after validation returns.
 
-`/scaler-debug-retry [taskId] [execute]` turns the latest accepted `next_approach` report for a debugging task into a supervised retry. Prepare mode builds the retry task-agent prompt with the next approach and exact failing validation command(s). Execute mode runs the task agent, reruns only the exact command(s) that failed previously, records `.scaler/debug/retries.json`, and records a structured debug attempt. If exact validation passes, the task remains `validating` for full validation. If exact validation fails, the task returns to `debugging` with a `same_failure` attempt. It never marks the task validated by itself.
+`/scaler-debug-retry [taskId] [execute]` turns the latest accepted `next_approach` report for a debugging task into a supervised retry. Prepare mode builds the retry task-agent prompt with the next approach and exact failing validation command(s). Execute mode runs the task agent, reruns only the exact command(s) that failed previously, records `.scaler/debug/retries.json`, and records a structured debug attempt. If exact validation passes, the default policy leaves the task `validating` for full validation. If exact validation fails, the task returns to `debugging` with a `same_failure` attempt.
+
+`/scaler-debug-retry-policy` stores retry automation policy in `.scaler/debug/retry-policy.json`:
+
+```text
+/scaler-debug-retry-policy
+/scaler-debug-retry-policy auto-start=on require-approval=off post-exact-pass=validate
+/scaler-debug-retry-policy auto-start=off require-approval=on post-exact-pass=stop
+```
+
+Defaults are `autoStart=false`, `requireApproval=false`, and `postExactPass=stop`. `post-exact-pass=validate` runs full validation after exact validation passes. `post-exact-pass=validate-commit` also attempts the validated-task commit after full validation passes, using the task's allowed paths.
+
+When `requireApproval=true`, executed retries need a matching one-use approval record under `.scaler/debug/retry-approvals.json`:
+
+```text
+/scaler-debug-retry-approve RPT-DEBUG | T-001 | Approve one controlled retry
+/scaler-debug-retry-approvals
+```
 
 `/scaler-debug-retries` lists recent next-approach retry records.
 
@@ -83,8 +100,8 @@ Statuses:
 2. Else if a task-local research request is open, it runs the research agent and then re-evaluates the debug task.
 3. Else it runs the debug agent.
 
-The loop stops on prepare-mode handoff, rejected structured ingestion, `next_approach`, proposed replan generation, no debugging task, or max steps. It never accepts a proposed plan automatically; `/scaler-replan-accept` remains the preservation-gated current-plan replacement path.
+The loop normally stops on prepare-mode handoff, rejected structured ingestion, `next_approach`, proposed replan generation, no debugging task, or max steps. If retry policy has `auto-start=on`, the loop starts `/scaler-debug-retry` after a `next_approach` report and stops after the retry is prepared, exact validation passes, exact validation fails, or the retry is rejected. It never accepts a proposed plan automatically; `/scaler-replan-accept` remains the preservation-gated current-plan replacement path.
 
 ## Current limitations
 
-The bounded debug conductor stops at `next_approach`; starting `/scaler-debug-retry` is still explicit and not policy-automatic. Use `/scaler-validate-loop` when you want validation to explicitly hand off into the bounded debug loop; plain `/scaler-validate` remains validation-only. Internet research still depends on explicitly granted tools and safety policy.
+Use `/scaler-validate-loop` when you want validation to explicitly hand off into the bounded debug loop; plain `/scaler-validate` remains validation-only. Internet research still depends on explicitly granted tools and safety policy.

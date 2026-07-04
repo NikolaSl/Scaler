@@ -53,6 +53,8 @@ Prefer assertions on durable artifacts such as:
 - `.scaler/debug/attempts.json`
 - `.scaler/debug/reports.json`
 - `.scaler/debug/retries.json`
+- `.scaler/debug/retry-policy.json`
+- `.scaler/debug/retry-approvals.json`
 - `.scaler/research/requests.json`
 - `.scaler/research/reports.json`
 - `.scaler/tool-requests/requests.json`
@@ -195,8 +197,9 @@ When adding a new integration scenario:
 - `mock/debug-retry-flow.test.ts`
   - failed validation creates a debugging task;
   - accepted debug `next_approach` feeds a supervised retry task-agent prompt;
-  - exact previously failing validation passes before full validation marks the task validated;
-  - retry records, debug attempts, validation runs, and audit logs are persisted.
+  - retry policy can auto-start the retry from the bounded debug conductor;
+  - exact previously failing validation passes before optional full validation marks the task validated;
+  - retry policy, approval records, retry records, debug attempts, validation runs, and audit logs are persisted.
 - `mock/stage-replan-plan-flow.test.ts`
   - stage conductor loop from PRD through knowledge, planning, execution, and completion;
   - stage-agent structured artifact ingestion, readiness, semantic, consistency, advancement, run records, and audit logs;
