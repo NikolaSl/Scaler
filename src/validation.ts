@@ -148,11 +148,27 @@ export interface ValidationCommandRunRecord {
   evidenceRefs?: string[];
 }
 
+export type ValidationManifestPolicySeverity = "warning" | "failure";
+
+export interface ValidationManifestPolicyDiagnostic {
+  severity: ValidationManifestPolicySeverity;
+  code: string;
+  message: string;
+  commandId?: string;
+  gate?: ValidationGateKind;
+}
+
+export interface ValidationManifestPolicyResult {
+  status: "passed" | "failed";
+  diagnostics: ValidationManifestPolicyDiagnostic[];
+}
+
 export interface ValidationRunRecord {
   id: string;
   taskId: string;
   status: "passed" | "failed";
   commandRuns: ValidationCommandRunRecord[];
+  policyDiagnostics?: ValidationManifestPolicyDiagnostic[];
   createdAt: string;
 }
 
@@ -169,6 +185,19 @@ interface ValidationChecklistIndex {
 const validationStatuses = new Set<ValidationStatus>(["passed", "failed", "partial", "blocked", "not_applicable"]);
 
 const validationChecklistItemStatuses = new Set<ValidationChecklistItemStatus>(["passed", "failed", "blocked", "not_applicable"]);
+
+const implementationValidationGates = new Set<ValidationGateKind>([
+  "build_compile",
+  "unit_tests",
+  "integration_tests",
+  "static_checks",
+  "security_checks",
+  "local_ci",
+  "acceptance_smoke",
+  "regression",
+]);
+
+const policyValidationGates = new Set<ValidationGateKind>(["dependency_check", "test_first"]);
 
 const evidenceRequiredChecklistGates = new Set<ValidationGateKind>([
   "acceptance_smoke",
@@ -470,11 +499,97 @@ export function formatValidationChecklist(record: ValidationChecklistRecord): st
   return lines.join("\n");
 }
 
+export function evaluateValidationManifestPolicy(manifest: TaskValidationManifest): ValidationManifestPolicyResult {
+  const commands = manifest.commands.map((command, index) => ({
+    command,
+    index,
+    gate: normalizeValidationGateKind(command.gate),
+  }));
+  const diagnostics: ValidationManifestPolicyDiagnostic[] = [];
+  const firstNonPolicy = commands.find((entry) => !entry.gate || !policyValidationGates.has(entry.gate));
+  const firstImplementation = commands.find((entry) => entry.gate && implementationValidationGates.has(entry.gate));
+  const hasImplementationGate = Boolean(firstImplementation);
+  const hasDependencyGate = commands.some((entry) => entry.gate === "dependency_check");
+  const hasTestFirstGate = commands.some((entry) => entry.gate === "test_first");
+
+  if (hasImplementationGate && !hasDependencyGate) {
+    diagnostics.push({
+      severity: "warning",
+      code: "missing_dependency_check",
+      gate: "dependency_check",
+      message: "Implementation validation gates have no dependency_check preflight command.",
+    });
+  }
+  if (hasImplementationGate && !hasTestFirstGate) {
+    diagnostics.push({
+      severity: "warning",
+      code: "missing_test_first",
+      gate: "test_first",
+      message: "Implementation validation gates have no test_first preflight command.",
+    });
+  }
+
+  if (firstNonPolicy) {
+    for (const entry of commands.filter((candidate) => candidate.gate === "dependency_check" && candidate.index > firstNonPolicy.index)) {
+      diagnostics.push({
+        severity: entry.command.required ? "failure" : "warning",
+        code: entry.command.required ? "dependency_check_order" : "optional_dependency_check_order",
+        commandId: entry.command.id,
+        gate: "dependency_check",
+        message: `dependency_check command ${entry.command.id} must run before non-policy validation command ${firstNonPolicy.command.id}.`,
+      });
+    }
+  }
+
+  if (firstImplementation) {
+    for (const entry of commands.filter((candidate) => candidate.gate === "test_first" && candidate.index > firstImplementation.index)) {
+      diagnostics.push({
+        severity: entry.command.required ? "failure" : "warning",
+        code: entry.command.required ? "test_first_order" : "optional_test_first_order",
+        commandId: entry.command.id,
+        gate: "test_first",
+        message: `test_first command ${entry.command.id} must run before implementation validation command ${firstImplementation.command.id}.`,
+      });
+    }
+  }
+
+  return {
+    status: diagnostics.some((diagnostic) => diagnostic.severity === "failure") ? "failed" : "passed",
+    diagnostics,
+  };
+}
+
+function createValidationPolicyFailureRuns(diagnostics: ValidationManifestPolicyDiagnostic[]): ValidationCommandRunRecord[] {
+  const failures = diagnostics.filter((diagnostic) => diagnostic.severity === "failure");
+  const now = new Date();
+  return failures.map((diagnostic, index) => ({
+    id: `policy-${diagnostic.code}-${now.getTime()}-${index + 1}`,
+    commandId: `policy-${diagnostic.code}`,
+    command: "SCALER validation manifest policy preflight",
+    status: "failed",
+    exitCode: 1,
+    stdoutSummary: diagnostic.message,
+    stderrSummary: "",
+    startedAt: now.toISOString(),
+    finishedAt: now.toISOString(),
+    required: true,
+    description: "Validation manifest policy preflight failed before command execution.",
+    gate: diagnostic.gate,
+    expectedResult: "dependency_check/test_first preflight commands must precede dependent validation gates.",
+    evidenceRefs: diagnostic.commandId ? [`manifest:${diagnostic.commandId}`] : undefined,
+  }));
+}
+
 export async function runTaskValidation(cwd: string, state: ScalerState, taskId: string): Promise<ValidationRunRecord> {
   const manifest = await getValidationManifestForTask(cwd, taskId);
+  const policy = evaluateValidationManifestPolicy(manifest);
   const commandRuns: ValidationCommandRunRecord[] = [];
-  for (const command of manifest.commands) {
-    commandRuns.push(await runValidationCommand(cwd, command));
+  if (policy.status === "failed") {
+    commandRuns.push(...createValidationPolicyFailureRuns(policy.diagnostics));
+  } else {
+    for (const command of manifest.commands) {
+      commandRuns.push(await runValidationCommand(cwd, command));
+    }
   }
 
   const failedRequired = commandRuns.some((run) => run.required && run.status !== "passed");
@@ -483,6 +598,7 @@ export async function runTaskValidation(cwd: string, state: ScalerState, taskId:
     taskId,
     status: failedRequired ? "failed" : "passed",
     commandRuns,
+    policyDiagnostics: policy.diagnostics.length ? policy.diagnostics : undefined,
     createdAt: new Date().toISOString(),
   };
   await writeValidationRuns(cwd, [record, ...(await loadValidationRuns(cwd))]);

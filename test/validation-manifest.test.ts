@@ -6,6 +6,7 @@ import { test } from "node:test";
 import {
   classifyDefaultScriptGate,
   createDefaultValidationManifest,
+  evaluateValidationManifestPolicy,
   getValidationManifestForTask,
   loadValidationManifests,
   normalizeValidationGateKind,
@@ -106,6 +107,50 @@ test("saveValidationManifest normalizes gate metadata", async () => {
     assert.equal(command?.expectedResult, "review evidence exists");
     assert.deepEqual(command?.evidenceRefs, ["doc:one", "doc:two"]);
   });
+});
+
+test("evaluateValidationManifestPolicy passes policy gates before implementation gates", () => {
+  const policy = evaluateValidationManifestPolicy({
+    taskId: "T-001",
+    createdAt: "",
+    updatedAt: "",
+    commands: [
+      { id: "deps", command: "node deps.js", required: true, gate: "dependency_check" },
+      { id: "test-first", command: "node test-first.js", required: true, gate: "test_first" },
+      { id: "unit", command: "npm test", required: true, gate: "unit_tests" },
+    ],
+  });
+
+  assert.equal(policy.status, "passed");
+  assert.deepEqual(policy.diagnostics, []);
+});
+
+test("evaluateValidationManifestPolicy fails required dependency and test-first gates after implementation gates", () => {
+  const policy = evaluateValidationManifestPolicy({
+    taskId: "T-001",
+    createdAt: "",
+    updatedAt: "",
+    commands: [
+      { id: "unit", command: "npm test", required: true, gate: "unit_tests" },
+      { id: "deps", command: "node deps.js", required: true, gate: "dependency_check" },
+      { id: "test-first", command: "node test-first.js", required: true, gate: "test_first" },
+    ],
+  });
+
+  assert.equal(policy.status, "failed");
+  assert.deepEqual(policy.diagnostics.map((diagnostic) => diagnostic.code), ["dependency_check_order", "test_first_order"]);
+});
+
+test("evaluateValidationManifestPolicy warns when implementation gates omit policy preflights", () => {
+  const policy = evaluateValidationManifestPolicy({
+    taskId: "T-001",
+    createdAt: "",
+    updatedAt: "",
+    commands: [{ id: "build", command: "npm run build", required: true, gate: "build_compile" }],
+  });
+
+  assert.equal(policy.status, "passed");
+  assert.deepEqual(policy.diagnostics.map((diagnostic) => diagnostic.code), ["missing_dependency_check", "missing_test_first"]);
 });
 
 test("createDefaultValidationManifest uses and classifies package scripts", async () => {

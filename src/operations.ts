@@ -26,7 +26,10 @@ export async function runValidationWithExecutionLock(
     }
 
     const run = await runTaskValidation(cwd, budgetedState, taskId);
-    return { accepted: true, message: `Validation ${run.status}: ${taskId} commands=${run.commandRuns.length}`, result: run };
+    const policyFailures = run.policyDiagnostics?.filter((diagnostic) => diagnostic.severity === "failure").length ?? 0;
+    const policyWarnings = run.policyDiagnostics?.filter((diagnostic) => diagnostic.severity === "warning").length ?? 0;
+    const policySummary = policyFailures || policyWarnings ? ` policyFailures=${policyFailures} policyWarnings=${policyWarnings}` : "";
+    return { accepted: true, message: `Validation ${run.status}: ${taskId} commands=${run.commandRuns.length}${policySummary}`, result: run };
   } finally {
     await releaseExecutionLock(cwd, lock.lock.id);
   }
