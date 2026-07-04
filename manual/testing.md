@@ -52,7 +52,7 @@ The current mocked integration harness covers:
 - command-driven budget configuration feeding later validation hard-stop behavior;
 - storage status inventory indexing plus budget hard-pause behavior;
 - storage maintenance command execution with safe gzip compression, explicit cache cleanup, persisted reports, storage budget usage, and audit logs;
-- typed validation gate metadata persisted through `/scaler-validation-add`, validation runs, and audit logs;
+- typed validation gate metadata and dependency/test-first policy diagnostics persisted through `/scaler-validation-add`, validation runs, and audit logs;
 - deterministic non-software validation checklists persisted through `/scaler-validation-checklist`, task status transitions, evidence-required acceptance/completeness/source policies, and audit logs;
 - rich `scaler_tool_request` metadata, `scaler_tool_schema` discovery ledgers, supervised schema discovery probe ledgers, compact selected-tool catalog prompts with discovered schema injection, isolated allowed-tool invocation prep, tool transaction prepare/execute/replay ledgers, `missing_result`/`missing_schema` handling for free-form child output, and structured `scaler_tool_result` request closure;
 - deterministic context discovery feeding conductor prompts with exactness/compression guidance;

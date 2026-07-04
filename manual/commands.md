@@ -43,7 +43,7 @@ Examples:
 /scaler-validation-add T-001 | lint | npm run lint | Run lint | optional | static_checks | exits 0
 ```
 
-`required` accepts true/yes/required/1 and false/no/optional/0. Unknown or omitted values default to required when saved. Gate aliases are normalized to typed values such as `unit_tests`, `build_compile`, `static_checks`, `integration_tests`, `security_checks`, `acceptance_smoke`, and non-software evidence gates such as `completeness`, `consistency`, `compliance`, `source_validation`, `adversarial_review`, and `uncertainty_report`.
+`required` accepts true/yes/required/1 and false/no/optional/0. Unknown or omitted values default to required when saved. Gate aliases are normalized to typed values such as `dependency_check`, `test_first`, `unit_tests`, `build_compile`, `static_checks`, `integration_tests`, `security_checks`, `acceptance_smoke`, and non-software evidence gates such as `completeness`, `consistency`, `compliance`, `source_validation`, `adversarial_review`, and `uncertainty_report`. Required `dependency_check` commands must precede non-policy validation gates, and required `test_first` commands must precede implementation validation gates; `/scaler-validate` records policy diagnostics and fails before executing expensive commands when required ordering is violated.
 
 ## `/scaler-validation-checklist <taskId> | <gate> | <summary> | <id::status::required::statement::evidence;...> | <evidence refs>`
 
@@ -88,6 +88,7 @@ Current behavior:
 
 - uses a per-task validation manifest from `.scaler/reports/validation-manifests.json` when present
 - otherwise falls back to default project commands from `package.json` scripts (`npm test`, `npm run build`)
+- evaluates dependency/test-first policy diagnostics before command execution
 - writes validation runs to `.scaler/reports/validation-runs.json`
 - moves all-passing validating tasks to `validated`
 - moves failing validating tasks to `debugging`
