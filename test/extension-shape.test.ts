@@ -68,6 +68,8 @@ test("extension registers scaler commands", () => {
     "scaler-debug-reports",
     "scaler-debug-retries",
     "scaler-tool-catalog",
+    "scaler-mcp-enumerate",
+    "scaler-mcp-servers",
     "scaler-tool-discover",
     "scaler-tool-discovery-runs",
     "scaler-tool-replay",

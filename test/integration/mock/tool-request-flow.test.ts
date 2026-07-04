@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { getBudgetState } from "../../../src/budgets.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { createDefaultState, loadState } from "../../../src/state.js";
-import { createToolReplayApproval, loadToolIterationRuns, loadToolReplayApprovals, loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolTransactions, prepareToolRequest, recordToolResult, recordToolSchema, replayToolTransaction, runToolIterationWorkflow, runToolRequestAgent, runToolSchemaDiscoveryAgent } from "../../../src/tool-requests.js";
+import { createToolReplayApproval, loadMcpServerRecords, loadToolIterationRuns, loadToolReplayApprovals, loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolTransactions, prepareToolRequest, recordToolResult, recordToolSchema, replayToolTransaction, runMcpServerEnumeration, runToolIterationWorkflow, runToolRequestAgent, runToolSchemaDiscoveryAgent } from "../../../src/tool-requests.js";
 import { registerScalerTools } from "../../../src/tools.js";
 
 const execFileAsync = promisify(execFile);
@@ -29,6 +29,30 @@ async function withTempRepo<T>(fn: (dir: string) => Promise<T>): Promise<T> {
     await rm(dir, { recursive: true, force: true });
   }
 }
+
+test("mock integration: MCP enumeration records local server declarations", async () => {
+  await withTempRepo(async (dir) => {
+    await writeFile(join(dir, ".mcp.json"), JSON.stringify({
+      mcpServers: {
+        docs: { command: "node", args: ["docs-mcp.js"], env: { DOCS_TOKEN: "do-not-store" } },
+        remoteDocs: { url: "https://example.invalid/mcp?key=secret" },
+      },
+    }, null, 2));
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+
+    const result = await runMcpServerEnumeration(dir, state, new Date("2026-01-01T00:00:00.000Z"));
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.run.discoveredCount, 2);
+    const records = await loadMcpServerRecords(dir);
+    assert.equal(records.length, 2);
+    assert.ok(records.some((record) => record.name === "docs" && record.transport === "stdio" && record.envKeys?.includes("DOCS_TOKEN")));
+    assert.ok(records.some((record) => record.name === "remoteDocs" && record.riskLevel === "external" && record.url?.includes("<redacted>")));
+    assert.doesNotMatch(JSON.stringify(records), /do-not-store|key=secret/);
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("MCP enumeration completed")));
+  });
+});
 
 test("mock integration: schema discovery probe feeds later request and transaction prompts", async () => {
   await withTempRepo(async (dir) => {

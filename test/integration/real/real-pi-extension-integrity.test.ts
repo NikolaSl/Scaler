@@ -11,7 +11,7 @@ import { loadResearchWebTransactions } from "../../../src/research-web.js";
 import { loadSafetyApprovals, loadSafetyPolicy } from "../../../src/safety.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { loadStorageInventory, loadStorageMaintenanceReport, loadStorageMaintenanceSchedule } from "../../../src/storage.js";
-import { loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest, recordToolSchema, runToolRequestAgent } from "../../../src/tool-requests.js";
+import { loadMcpServerRecords, loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolRequests, loadToolResults, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareToolRequest, recordToolSchema, runToolRequestAgent } from "../../../src/tool-requests.js";
 import { loadValidationEnvironmentRecords } from "../../../src/validation-environments.js";
 import { loadValidationChecklists, loadValidationManifests, loadValidationRuns, runTaskValidation, saveValidationManifest, upsertValidationManifestCommand } from "../../../src/validation.js";
 import { REAL_PI_ENABLED, REAL_PI_MODEL, runScalerPi, withRealPiTempRepo } from "./real-pi-harness.js";
@@ -670,6 +670,41 @@ test("real Pi extension: slash command dispatch persists typed validation gate m
         .map((event) => (event.details as { phase: string }).phase),
       ["start", "end"],
     );
+  });
+});
+
+test("real Pi extension: slash command dispatch enumerates MCP servers", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    await writeFile(join(dir, ".mcp.json"), JSON.stringify({
+      mcpServers: {
+        docs: { command: "node", args: ["docs-mcp.js"], env: { DOCS_TOKEN: "real-secret" } },
+        remoteDocs: { url: "https://example.invalid/mcp?token=real-secret" },
+      },
+    }, null, 2));
+
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-mcp-enumerate",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /MCP enumeration completed: discovered=2 invalid=0/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const records = await loadMcpServerRecords(dir);
+    assert.equal(records.length, 2);
+    assert.ok(records.some((record) => record.name === "docs" && record.command === "node" && record.envKeys?.includes("DOCS_TOKEN")));
+    assert.ok(records.some((record) => record.name === "remoteDocs" && record.url?.includes("<redacted>")));
+    assert.doesNotMatch(JSON.stringify(records), /real-secret/);
+
+    const events = await readLogEvents(dir);
+    assert.deepEqual(
+      events
+        .filter((event) => event.eventType === "command" && isRecord(event.details) && event.details.command === "scaler-mcp-enumerate")
+        .map((event) => (event.details as { phase: string }).phase),
+      ["start", "end"],
+    );
+    assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("MCP enumeration completed")));
   });
 });
 

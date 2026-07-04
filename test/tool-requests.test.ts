@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -9,6 +9,8 @@ import {
   buildToolSchemaDiscoveryPrompt,
   createToolReplayApproval,
   formatDiscoveredToolCatalog,
+  formatMcpEnumerationRuns,
+  formatMcpServerRecords,
   formatToolCatalog,
   formatToolIterationPolicy,
   formatToolIterationRuns,
@@ -16,6 +18,8 @@ import {
   formatToolSchemaDiscoveryRuns,
   formatToolTransactions,
   getToolCatalogEntries,
+  loadMcpEnumerationRuns,
+  loadMcpServerRecords,
   loadToolIterationPolicy,
   loadToolIterationRuns,
   loadToolReplayApprovals,
@@ -30,6 +34,7 @@ import {
   recordToolSchema,
   replayToolTransaction,
   revokeToolReplayApproval,
+  runMcpServerEnumeration,
   runToolIterationWorkflow,
   runToolRequestAgent,
   runToolSchemaDiscoveryAgent,
@@ -53,6 +58,40 @@ test("normalizeToolRiskLevel and formatToolCatalog provide compact catalog metad
   assert.deepEqual(catalog.map((entry) => [entry.name, entry.riskLevel]), [["bash", "high"], ["custom_mcp", "unknown"]]);
   assert.match(formatToolCatalog(catalog), /bash: Run a shell command/);
   assert.match(formatToolCatalog(catalog), /custom_mcp: Requested tool\/MCP/);
+});
+
+test("runMcpServerEnumeration records project-local MCP declarations without secret values", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, ".cursor"), { recursive: true });
+    await writeFile(join(dir, ".mcp.json"), JSON.stringify({
+      mcpServers: {
+        docs: { command: "node", args: ["server.js"], env: { DOCS_TOKEN: "secret-token" } },
+        remote: { url: "https://example.invalid/mcp?token=secret", transport: "http" },
+        broken: { args: ["missing command"] },
+      },
+    }, null, 2));
+    await writeFile(join(dir, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: { cursorDocs: { url: "https://example.invalid/sse" } } }, null, 2));
+    await writeFile(join(dir, "package.json"), JSON.stringify({ mcp: { servers: { pkgDocs: { command: "pkg-mcp" } } } }, null, 2));
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+
+    const result = await runMcpServerEnumeration(dir, state, new Date("2026-01-01T00:00:00.000Z"));
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.run.status, "completed");
+    assert.equal(result.run.discoveredCount, 4);
+    assert.equal(result.run.invalidCount, 1);
+    const records = await loadMcpServerRecords(dir);
+    assert.equal(records.length, 5);
+    const docs = records.find((record) => record.name === "docs");
+    assert.equal(docs?.transport, "stdio");
+    assert.equal(docs?.riskLevel, "high");
+    assert.deepEqual(docs?.envKeys, ["DOCS_TOKEN"]);
+    assert.doesNotMatch(JSON.stringify(records), /secret-token/);
+    assert.doesNotMatch(JSON.stringify(records), /token=secret/);
+    assert.match(formatMcpServerRecords(records), /docs source=.mcp.json/);
+    assert.match(formatMcpServerRecords(records), /token=<redacted>/);
+    assert.match(formatMcpEnumerationRuns(await loadMcpEnumerationRuns(dir)), /discovered=4 invalid=1/);
+  });
 });
 
 test("recordToolSchema persists discovered metadata and merges latest catalog entry", async () => {
