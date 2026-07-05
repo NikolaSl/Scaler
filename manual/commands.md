@@ -233,7 +233,23 @@ Shows the task context manifest summary for a task.
 
 ## `/scaler-context-splits [taskId]`
 
-Lists automatic context split artifacts from `.scaler/context/splits.json`. Records are created by conductor prompt preparation/execution when resolved active context exceeds the compression target, and include overage, externalization refs, and minimal-context handoff recommendations.
+Lists automatic context split artifacts from `.scaler/context/splits.json`. Records are created by conductor prompt preparation/execution when resolved active context exceeds the compression target, and include overage, externalized memory refs, and minimal-context handoff recommendations.
+
+## `/scaler-compact`
+
+Requests Pi compaction with SCALER-aware state-preservation instructions. The extension's `session_before_compact` hook writes deterministic summaries and records to `.scaler/context/compactions.json` so supervisor state, current task, validated progress, blockers, memory refs, split refs, and next action survive compaction.
+
+## `/scaler-compactions`
+
+Lists SCALER-aware compaction records and summary artifact paths.
+
+## `/scaler-context-handoff [splitId|taskId] [execute]`
+
+Prepares a fresh minimal-context continuation from the selected context split. The prompt keeps task metadata plus externalized memory refs instead of reinjecting large content. With `execute`, SCALER runs the handoff agent only if the prompt is smaller than the split context and below the active-context target.
+
+## `/scaler-context-handoffs [taskId|splitId|handoffId]`
+
+Lists fresh-context handoff records from `.scaler/context/handoffs.json`.
 
 ## `/scaler-memory-search [query] [tag=a,b] [task=T-001] [validity=active|stale|obsolete|unknown|any] [limit=N] [include-obsolete]`
 

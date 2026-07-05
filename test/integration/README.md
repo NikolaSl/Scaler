@@ -59,6 +59,9 @@ Prefer assertions on durable artifacts such as:
 - `.scaler/research/reports.json`
 - `.scaler/research/transactions.json`
 - `.scaler/context/missing-requests.json`
+- `.scaler/context/splits.json`
+- `.scaler/context/compactions.json`
+- `.scaler/context/handoffs.json`
 - `.scaler/tool-requests/requests.json`
 - `.scaler/tool-requests/results.json`
 - `.scaler/tool-requests/transactions.json`
@@ -141,7 +144,7 @@ Current real mode has three layers:
 2. real Pi extension integrity tests that launch `pi --mode json -p --no-session -e <src/index.ts>` in a temporary repository and verify extension command dispatch, SCALER tool calls, safety hooks, safety policy/approval persistence, `.scaler/logs/events.jsonl`, detail payload references, and persisted state; and
 3. real flow-parity chains that run real Pi/model child agents through SCALER's normal debug, research, stage, and replanner pathways while asserting persisted ledgers.
 
-Command-dispatch extension tests may avoid model output. Cardinal SCALER-tool and hook tests use the selected real model with restricted `--tools` lists. Child-agent invocation is deny-by-default: omitted or empty tool lists become `--no-tools`, and granted-tool child invocations include the SCALER extension unless an explicit extension path is supplied. Report-only child-agent flow tests assert `--no-tools` so the real model cannot mutate the temporary repository outside the expected structured report.
+Command-dispatch extension tests may avoid model output. Current real command coverage also includes context-split/fresh-handoff and compaction-record listing so compaction boundaries are exercised without requiring expensive model summarization. Cardinal SCALER-tool and hook tests use the selected real model with restricted `--tools` lists. Child-agent invocation is deny-by-default: omitted or empty tool lists become `--no-tools`, and granted-tool child invocations include the SCALER extension unless an explicit extension path is supplied. Report-only child-agent flow tests assert `--no-tools` so the real model cannot mutate the temporary repository outside the expected structured report.
 
 ## Cardinal instruction pattern for real mode
 

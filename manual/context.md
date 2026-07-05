@@ -75,8 +75,10 @@ SCALER uses deterministic compression policy helpers for task-agent prompts:
   - `exact`: preserve unchanged; do not paraphrase code, commands, identifiers, API signatures, contracts, requirements, or validation evidence.
   - `summary-ok`: may be compressed into task-relevant conclusions with evidence refs.
   - `reference-only`: keep ids/paths/refs unless retrieval is explicitly needed.
-- Large exact items are recommended for externalization to memory/files with stable references instead of lossy summary.
-- If resolved active context exceeds the 75% target, the prompt recommends splitting work or spawning a fresh minimal-context agent after exact data has been externalized. Conductor preparation/execution records `.scaler/context/splits.json` artifacts for these oversized contexts with exact refs, summary/reference refs, externalization candidates, and minimal-context handoff recommendations.
+- Large exact or summary-ok items are deterministically externalized to `.scaler/memory/` when a context split is recorded, preserving full content with a memory id/path, SHA-256, token estimates, and exactness metadata.
+- If resolved active context exceeds the 75% target, conductor preparation/execution records `.scaler/context/splits.json` artifacts for these oversized contexts with exact refs, summary/reference refs, externalized memory refs, and minimal-context handoff recommendations.
+- SCALER registers a Pi `session_before_compact` hook that returns a deterministic SCALER-aware compaction result and records `.scaler/context/compactions.json`. Turn-end context usage above the target triggers `ctx.compact()` with SCALER state-preservation instructions.
+- Fresh minimal-context continuation handoffs are recorded in `.scaler/context/handoffs.json` with prompt artifacts under `.scaler/context/handoffs/`; execution is blocked unless the generated handoff prompt is below the active-context target and smaller than the split context.
 
 Default/discovered manifests mark file snippets, task metadata, validation evidence, execution-plan entries, changed paths, and PRD coverage as `exact`; memory summaries are `summary-ok`; PRD id-only links are `reference-only`. Summary/reference-only memory items inject id/title/path/tags/summary only; full memory content is injected only when a context item or retrieval request asks for `full`, and `section:<heading>` retrieval injects the matching Markdown section when found.
 
@@ -86,6 +88,10 @@ Default/discovered manifests mark file snippets, task metadata, validation evide
 /scaler-context-init [taskId]
 /scaler-context-status [taskId]
 /scaler-context-splits [taskId]
+/scaler-compact
+/scaler-compactions
+/scaler-context-handoff [splitId|taskId] [execute]
+/scaler-context-handoffs [taskId|splitId|handoffId]
 /scaler-memory-search [query] [tag=a,b] [task=T-001]
 /scaler-missing-context [taskId]
 /scaler-missing-context-run [requestId] [execute] [internet]
@@ -95,3 +101,13 @@ Default/discovered manifests mark file snippets, task metadata, validation evide
 `/scaler-context-init` creates a default manifest for the specified task, current task, or first non-terminal task.
 
 `/scaler-context-status` displays a manifest summary for the specified task, current task, or first task.
+
+`/scaler-context-splits` lists oversized context records and their externalized memory refs.
+
+`/scaler-compact` requests Pi compaction with SCALER-aware preservation instructions. The `session_before_compact` hook writes deterministic compaction records to `.scaler/context/compactions.json`.
+
+`/scaler-compactions` lists recent compaction records and summary artifact paths.
+
+`/scaler-context-handoff` prepares, or with `execute` runs, a fresh minimal-context continuation agent from a split record. It refuses execution if the generated prompt does not shrink below the split target.
+
+`/scaler-context-handoffs` lists fresh handoff records.
