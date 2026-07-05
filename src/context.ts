@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 by Nikola Slavchev LZ1NKL
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { getGitChangedPaths } from "./git.js";

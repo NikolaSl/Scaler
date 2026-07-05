@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 by Nikola Slavchev LZ1NKL
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 export type ContextExactness = "exact" | "summary-ok" | "reference-only";
 
 export interface CompressibleContextItem {

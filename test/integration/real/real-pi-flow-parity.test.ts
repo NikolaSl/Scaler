@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 by Nikola Slavchev LZ1NKL
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";

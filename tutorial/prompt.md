@@ -1,0 +1,5 @@
+# Tutorial authoring prompt
+
+The tutorial in this folder was created from this request:
+
+> We need not just manual, but a tutorial, with example use cases, starting with full automation where we just run a project by base specification and it is led to the end, then introducing resuming for cases when the process is interrupted (Pi processes are terminated, the computer is restarted, etc.), through usual and valuable ways to interact with SCALER when work is in progress, potential problems when SCALER requires external intervention, etc. There are more than one hundred SCALER commands made from the specification; these should be involved in scenarios where the main goal remains autonomous work, but the user needs these commands to resolve problems in the most probable use cases. Create a folder for this prompt, create a large contents list with sections based on this, populate the sections with use cases, track all contents and use cases, and describe each use case in a simple and clear way so someone who never used SCALER can understand what to do to get high-scale project work done.

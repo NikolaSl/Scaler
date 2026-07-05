@@ -3,8 +3,10 @@ dist/
 coverage/
 
 # SCALER runtime data
+.scaler/state.json
 .scaler/logs/
 .scaler/cache/
 .scaler/artifacts/
 .scaler/tmp/
+.scaler/watchdogs/
 .scaler/cicd/

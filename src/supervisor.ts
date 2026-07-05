@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 by Nikola Slavchev LZ1NKL
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import type { ScalerStage, ScalerState, ScalerTaskState, ScalerTaskStatus } from "./types.js";
 
 export interface TransitionResult {

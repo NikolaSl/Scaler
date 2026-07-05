@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 by Nikola Slavchev LZ1NKL
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { join } from "node:path";
 
 export const SCALER_DIR = ".scaler";

@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "description": "SCALER Pi extension for supervised agentic orchestration.",
+  "license": "Apache-2.0",
+  "author": "Nikola Slavchev LZ1NKL",
+  "pi": {
+    "extensions": ["./src/index.ts"]
+  },
   "scripts": {
     "build": "tsc --noEmit",
     "test": "npm run test:unit && npm run test:integration:mock",

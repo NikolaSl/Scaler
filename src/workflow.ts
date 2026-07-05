@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 by Nikola Slavchev LZ1NKL
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import type { StageArtifact, StageArtifactStage } from "./stages.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
 

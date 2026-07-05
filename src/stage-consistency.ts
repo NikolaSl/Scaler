@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 by Nikola Slavchev LZ1NKL
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { loadExecutionPlan, loadProposedExecutionPlan, loadReplanRequests } from "./plans.js";
 import { loadPrdRequirements } from "./prd.js";
 import { loadStageArtifacts, normalizeStageArtifactStage, type StageArtifact, type StageArtifactStage } from "./stages.js";

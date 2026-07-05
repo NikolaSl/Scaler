@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 by Nikola Slavchev LZ1NKL
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { createReadStream, createWriteStream } from "node:fs";
 import { copyFile, lstat, mkdir, readFile, readdir, statfs, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";

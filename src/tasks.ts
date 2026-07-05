@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 by Nikola Slavchev LZ1NKL
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { isScalerTaskStatus } from "./reports.js";
 import { saveState } from "./state.js";

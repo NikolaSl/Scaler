@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 by Nikola Slavchev LZ1NKL
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { incrementBudgetUsage, persistBudgetDecision } from "./budgets.js";
 import { commitValidatedTask, skipTaskCommit, type GitCommitTaskResult } from "./git.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";

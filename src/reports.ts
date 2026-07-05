@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 by Nikola Slavchev LZ1NKL
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { appendLogEvent, createLogEvent, logStructuredReportAudit } from "./logging.js";
 import { saveState } from "./state.js";
 import { transitionStage, transitionTask } from "./supervisor.js";

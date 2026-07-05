@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 by Nikola Slavchev LZ1NKL
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getBudgetState, setBudgetLimits, setScopedBudgetPolicy, type BudgetLimit, type BudgetScopeKind, type BudgetUsageKey, type ScopedBudgetPolicy } from "./budgets.js";

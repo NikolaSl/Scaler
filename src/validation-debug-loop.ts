@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 by Nikola Slavchev LZ1NKL
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { runDebugConductorLoop, type DebugConductorLoopOptions, type DebugConductorLoopResult, type DebugConductorRunners } from "./debug-conductor.js";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { runValidationWithExecutionLock, type LockedOperationResult } from "./operations.js";
