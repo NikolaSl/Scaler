@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { getBudgetState } from "../../../src/budgets.js";
@@ -10,6 +10,7 @@ import { loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
 import { loadDebugRetryPolicy } from "../../../src/debug-retry.js";
 import { buildScalerCompactionResult, loadFreshContextHandoffRecords, loadScalerCompactionRecords } from "../../../src/context-compaction.js";
 import { readLogEvents } from "../../../src/logging.js";
+import { getLogToolsDir } from "../../../src/paths.js";
 import { loadResumeVerificationRecords, loadWatchdogCleanupRecords, loadWatchdogEvents, loadWatchdogHeartbeats, recordWatchdogCleanup } from "../../../src/watchdogs.js";
 import { searchMemory, writeMemory } from "../../../src/memory.js";
 import { loadContextSplitRecords, recordContextSplitIfNeeded } from "../../../src/context-splits.js";
@@ -1478,6 +1479,29 @@ test("real Pi extension: cardinal model calls a SCALER tool and mutates SCALER s
     assert.ok(events.some((event) => event.eventType === "tool" && event.summary === "Tool call observed: scaler_task_create" && Boolean(event.detailsPath)));
     assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Task created: REAL-TOOL-001"));
     assert.ok(events.some((event) => event.eventType === "tool" && event.summary === "Task created: REAL-TOOL-001" && Boolean(event.detailsPath)));
+  });
+});
+
+test("real Pi extension: cardinal bash result is externalized when large", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const result = await runScalerPi({
+      cwd: dir,
+      model: REAL_PI_MODEL,
+      tools: ["bash"],
+      prompt: "CARDINAL INSTRUCTION FOR THIS TEST: You must call the tool bash exactly once with exactly this argument: {\"command\":\"node -e \\\"process.stdout.write('x'.repeat(9000))\\\"\"}. Do not call any other tool. Do not answer in prose before the tool call. After the tool result, provide a one sentence final summary.",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    const ends = toolEvents(result.events, "tool_execution_end", "bash");
+    assert.equal(ends.length, 1, "expected one bash execution end");
+    assert.equal(ends[0]?.isError, false);
+
+    const toolFiles = await readdir(getLogToolsDir(dir));
+    assert.equal(toolFiles.length, 1);
+    const raw = await readFile(join(getLogToolsDir(dir), toolFiles[0]!), "utf8");
+    assert.match(raw, /"toolName": "bash"/);
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "tool" && event.summary === "Tool result externalized: bash" && Boolean(event.detailsPath)));
   });
 });
 

@@ -60,7 +60,7 @@ import { runDebugConductorLoop } from "./debug-conductor.js";
 import { approveDebugRetry, formatDebugRetryApprovals, formatDebugRetryPolicy, formatDebugRetrySummary, loadDebugRetryApprovals, loadDebugRetryPolicy, runDebugRetryPolicyWorkflow, saveDebugRetryPolicy } from "./debug-retry.js";
 import { ensureGitRepository, formatCommitReports, formatCommitSkips, formatGitBootstrapRecords, loadCommitReports, loadCommitSkips, loadGitBootstrapRecords } from "./git.js";
 import { clearExecutionLock, formatExecutionLock, loadExecutionLock } from "./locks.js";
-import { createLogEvent, appendLogEvent, logCommandAudit, logStateEvent, logToolAudit } from "./logging.js";
+import { createLogEvent, appendLogEvent, externalizeLargeToolResult, logCommandAudit, logStateEvent, logToolAudit } from "./logging.js";
 import { formatMemorySearchResults, loadMemoryIndex, searchMemory, type MemoryValidity } from "./memory.js";
 import { dispatchMissingContextRequest, formatMissingContextRequests, loadMissingContextRequests, resolveMissingContextRequest, unblockTasksWithResolvedMissingContext } from "./missing-context.js";
 import { commitWithExecutionLock, runValidationWithExecutionLock, skipCommitWithExecutionLock } from "./operations.js";
@@ -228,6 +228,27 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       details: event,
     });
     return undefined;
+  });
+
+  pi.on("tool_result", async (event, ctx) => {
+    const state = await ensureState(ctx.cwd);
+    const externalized = await externalizeLargeToolResult(ctx.cwd, {
+      toolCallId: event.toolCallId,
+      toolName: event.toolName,
+      input: event.input,
+      content: event.content as unknown[],
+      details: event.details,
+      isError: event.isError,
+    });
+    await logToolAudit(ctx.cwd, state, {
+      toolName: event.toolName,
+      summary: externalized.externalized ? `Tool result externalized: ${event.toolName}` : `Tool result observed: ${event.toolName}`,
+      input: event.input,
+      result: externalized.reference ? { reference: externalized.reference, isError: event.isError } : { content: event.content, details: event.details, isError: event.isError },
+      accepted: !event.isError,
+    });
+    if (!externalized.externalized) return undefined;
+    return { content: externalized.content, details: externalized.details, isError: externalized.isError };
   });
 
   pi.on("session_start", async (_event, ctx) => {

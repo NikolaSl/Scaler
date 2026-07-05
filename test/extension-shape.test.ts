@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -8,6 +8,7 @@ import { loadScalerCompactionRecords } from "../src/context-compaction.js";
 import scalerExtension from "../src/index.js";
 import { loadWatchdogHeartbeats } from "../src/watchdogs.js";
 import { readLogEvents } from "../src/logging.js";
+import { getLogToolsDir } from "../src/paths.js";
 import { loadState } from "../src/state.js";
 import { loadStorageInventory, loadStorageMaintenanceSchedule, updateStorageMaintenanceSchedule } from "../src/storage.js";
 
@@ -234,6 +235,38 @@ test("extension turn_end hook records provider usage budgets and triggers compac
     const events = await readLogEvents(dir);
     assert.ok(events.some((event) => event.eventType === "budget" && event.summary.includes("Provider usage recorded")));
     assert.ok(events.some((event) => event.eventType === "state" && event.summary === "SCALER automatic compaction requested"));
+  });
+});
+
+test("extension tool_result hook externalizes large outputs and redacts secrets", async () => {
+  await withTempDir(async (dir) => {
+    const handlers = new Map<string, (event: unknown, ctx: { cwd: string; hasUI: boolean }) => Promise<unknown>>();
+    const fakePi = {
+      on(name: string, handler: (event: unknown, ctx: { cwd: string; hasUI: boolean }) => Promise<unknown>) {
+        handlers.set(name, handler);
+      },
+      registerTool() {},
+      registerCommand() {},
+    };
+
+    scalerExtension(fakePi as never);
+    const result = await handlers.get("tool_result")?.({
+      type: "tool_result",
+      toolCallId: "call-large",
+      toolName: "bash",
+      input: { command: "echo ok" },
+      content: [{ type: "text", text: `AWS_SECRET_ACCESS_KEY=secret ${"x".repeat(9000)}` }],
+      details: { stdout: "secret" },
+      isError: false,
+    }, { cwd: dir, hasUI: false }) as { content?: Array<{ text: string }>; details?: { scalerToolResultReference?: { path: string } } } | undefined;
+
+    const refPath = result?.details?.scalerToolResultReference?.path ?? "";
+    assert.match(result?.content?.[0]?.text ?? "", /stored large tool result by reference/);
+    assert.equal(refPath.startsWith(getLogToolsDir(dir)), true);
+    assert.equal((await stat(refPath)).isFile(), true);
+    assert.doesNotMatch(await readFile(refPath, "utf8"), /AWS_SECRET_ACCESS_KEY=secret/);
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "tool" && event.summary === "Tool result externalized: bash"));
   });
 });
 

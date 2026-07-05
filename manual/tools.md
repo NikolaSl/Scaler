@@ -22,7 +22,7 @@ Scaler currently registers structured tool skeletons:
 
 Current behavior:
 
-- SCALER tool calls and results write audit events to `.scaler/logs/events.jsonl`; larger payloads are stored under `.scaler/logs/details/`.
+- SCALER tool calls and results write redacted audit events to `.scaler/logs/events.jsonl`; larger audit payloads are stored under `.scaler/logs/details/`, and oversized Pi `tool_result` content is stored by reference under `.scaler/logs/tools/`.
 - `scaler_report` can request supervisor stage/task transitions and persists accepted/rejected state
 - `scaler_debug_attempt` persists failures/attempts under `.scaler/debug/`, rejects repeated failed attempts without new evidence, detects direct and longer fingerprint cycles, requests replanning for blocked/cyclic debugging, and logs debug decisions
 - `scaler_validation_report` applies validation-driven task transitions

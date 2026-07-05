@@ -68,7 +68,7 @@ The current mocked integration harness covers:
 - bounded debug conductor stages replanner proposals from debug `needs_replan` without accepting them;
 - blocked validation → replan request → proposal acceptance;
 - execution-lock contention across conductor, validation, stage-agent, replan-agent, research-agent, debug-agent, and commit workflows;
-- safety/allowed-path enforcement, external/secret safety-hook blocking, persisted safety-policy allowances, scoped approval consumption, bounded sandbox exceptions, optional scanner records, and commit-refusal chains;
+- safety/allowed-path enforcement, external/secret safety-hook blocking, persisted safety-policy allowances, scoped approval consumption, bounded sandbox exceptions, optional scanner records, redacted audit serialization, large tool-result reference storage, and commit-refusal chains;
 - research raw evidence externalization to memory, memory search/tag filtering, summary-scoped context references, and later context references;
 - stage consistency rejection;
 - dependency-blocked task selection and release after dependency validation;
@@ -120,6 +120,6 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - cardinal `scaler_tool_schema` invocation with persisted discovered metadata;
 - cardinal `scaler_tool_request` invocation with persisted rich metadata;
 - cardinal `scaler_tool_result` invocation with persisted result ledger and closed request status;
-- slash-command git bootstrap, commit-skip acceptance after passed validation, safety-policy and safety-approval persistence plus cardinal built-in `bash` invocation blocked by the SCALER safety hook for protected-path and external publish commands, recorded in `.scaler/logs/events.jsonl`.
+- slash-command git bootstrap, commit-skip acceptance after passed validation, safety-policy and safety-approval persistence, cardinal built-in `bash` invocation blocked by the SCALER safety hook for protected-path and external publish commands, and large `bash` tool-result externalization into `.scaler/logs/tools/`, recorded in `.scaler/logs/events.jsonl` with redacted audit details.
 
 Real Pi/model tests are intentionally opt-in because they can cost tokens, require local model/provider setup, and may be less deterministic than mock integration tests.

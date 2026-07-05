@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { appendLogEvent, createLogEvent, logAgentPromptAudit, logCommandAudit, logGitCommitAudit, logStateEvent, logStructuredReportAudit, logValidationSummaryAudit, readLogEvents, writeAuditDetail } from "../src/logging.js";
-import { getEventLogPath, getLogDetailsDir } from "../src/paths.js";
+import { appendLogEvent, createLogEvent, externalizeLargeToolResult, logAgentPromptAudit, logCommandAudit, logGitCommitAudit, logStateEvent, logStructuredReportAudit, logValidationSummaryAudit, readLogEvents, redactSecrets, writeAuditDetail } from "../src/logging.js";
+import { getEventLogPath, getLogDetailsDir, getLogToolsDir } from "../src/paths.js";
 import { createDefaultState } from "../src/state.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -73,6 +73,46 @@ test("writeAuditDetail persists payload under log details", async () => {
     assert.equal(path.startsWith(getLogDetailsDir(dir)), true);
     assert.equal(detail.category, "agent prompt/test");
     assert.equal(detail.payload.prompt, "hello");
+  });
+});
+
+test("audit serialization redacts known secret patterns", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await appendLogEvent(dir, createLogEvent(state, {
+      eventType: "tool",
+      summary: "Authorization: Bearer real-token-value-12345",
+      details: { command: "AWS_SECRET_ACCESS_KEY=supersecret SCALER_SECRET_SHOULD_NOT_APPEAR=probe npm test", nested: { apiKey: "sk-secretvalue123456" } },
+    }));
+    const detailPath = await writeAuditDetail(dir, "secret-detail", { password: "p@ss", output: "token=abcd1234" });
+
+    const rawLog = await readFile(getEventLogPath(dir), "utf8");
+    const rawDetail = await readFile(detailPath, "utf8");
+    assert.doesNotMatch(rawLog, /supersecret|SCALER_SECRET_SHOULD_NOT_APPEAR=probe|real-token-value|sk-secretvalue/);
+    assert.doesNotMatch(rawDetail, /p@ss|abcd1234/);
+    assert.match(rawLog, /\[REDACTED_SECRET\]/);
+    assert.equal((redactSecrets({ token: "abc" }) as { token: string }).token, "[REDACTED_SECRET]");
+  });
+});
+
+test("large tool results are stored by reference with redacted payload", async () => {
+  await withTempDir(async (dir) => {
+    const result = await externalizeLargeToolResult(dir, {
+      toolCallId: "call/secret",
+      toolName: "bash",
+      input: { command: "echo ok" },
+      content: [{ type: "text", text: `prefix AWS_SECRET_ACCESS_KEY=verysecret ${"x".repeat(120)}` }],
+      details: { stdout: "large" },
+      isError: false,
+    }, { thresholdBytes: 64, now: new Date("2026-01-01T00:00:00.000Z") });
+
+    assert.equal(result.externalized, true);
+    assert.equal(result.reference?.path.startsWith(getLogToolsDir(dir)), true);
+    assert.match(result.content?.[0]?.text ?? "", /stored large tool result by reference/);
+    assert.equal((await stat(result.reference!.path)).isFile(), true);
+    const raw = await readFile(result.reference!.path, "utf8");
+    assert.match(raw, /\[REDACTED_SECRET\]/);
+    assert.doesNotMatch(raw, /verysecret/);
   });
 });
 

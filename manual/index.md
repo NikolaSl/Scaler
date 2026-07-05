@@ -10,7 +10,7 @@ Design requirements live in `assignement.md` and `specs/`. Compliance reviews mu
 - Commands include the supervisor/task/stage/debug/research/replan/tool/storage/safety/watchdog/budget/git workflow plus validation commands such as `/scaler-validation-add`, `/scaler-validation-envs`, `/scaler-cicd-env`, `/scaler-cicd-envs`, `/scaler-validate-loop`, and `/scaler-validate`; see `manual/commands.md` for the current full command reference.
 - State file: `.scaler/state.json`.
 - Basic deterministic supervisor transition helpers.
-- Audit log: `.scaler/logs/events.jsonl` with detail payload files under `.scaler/logs/details/` for commands, prompts, tools, reports, validation summaries, and commits.
+- Audit log: `.scaler/logs/events.jsonl` with redacted detail payload files under `.scaler/logs/details/` for commands, prompts, tools, reports, validation summaries, and commits, plus `.scaler/logs/tools/` references for oversized Pi tool results.
 - Deterministic safety gate for protected paths, destructive shell commands, protected-path shell access, and current-task allowed paths.
 - Experimental task-agent subprocess invocation builder with required structured `scaler_task_report` handoff gating before validation.
 - Structured Scaler tool skeletons registered with Pi.

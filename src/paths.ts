@@ -22,6 +22,10 @@ export function getLogDetailsDir(cwd: string): string {
   return join(getLogsDir(cwd), "details");
 }
 
+export function getLogToolsDir(cwd: string): string {
+  return join(getLogsDir(cwd), "tools");
+}
+
 export function getStorageDir(cwd: string): string {
   return join(getScalerDir(cwd), "storage");
 }

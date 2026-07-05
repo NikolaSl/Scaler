@@ -303,6 +303,7 @@ When adding a new integration scenario:
   - real Pi slash-command storage status inventory persistence;
   - real Pi slash-command storage maintenance execution, scheduled maintenance due checks, active-ledger rotation, and approved archive/raw-log/memory retention deletion with persisted `.scaler/storage/maintenance.json`/`schedule.json` and audit logs;
   - real Pi slash-command safety-policy persistence;
+  - real Pi `tool_result` large-output externalization into `.scaler/logs/tools/` with redacted audit details;
   - real Pi slash-command debug next-approach retry prepare mode with persisted `.scaler/debug/retries.json` and prompt audit logs;
   - real Pi slash-command MCP enumeration, tool transaction, transaction replay, replay approval, schedule planning, and bounded iteration prepare modes with persisted `.scaler/tool-requests/mcp-servers.json` / `.scaler/tool-requests/transactions.json` / `.scaler/tool-requests/replay-approvals.json` / `.scaler/tool-requests/schedules.json` / `.scaler/tool-requests/iteration-runs.json`, plus tool iteration policy persistence;
   - real Pi slash-command typed validation gate metadata, validation gate/environment/disposition policy enforcement, validation environment lifecycle status, deterministic CI/CD sandbox provisioning/status, skipped/blocked disposition persistence, non-software checklist persistence, evidence-policy enforcement, git bootstrap evidence, and commit-skip promotion after passed validation;
@@ -312,6 +313,7 @@ When adding a new integration scenario:
   - cardinal real-model call to `scaler_task_create` with exact arguments and persisted SCALER task state;
   - cardinal real-model call to built-in `bash` with `npm publish --dry-run`, blocked by SCALER's external safety hook and recorded as a safety audit event;
   - cardinal real-model call to built-in `bash` with `cat .env`, blocked by SCALER's protected-path safety hook and recorded as a safety audit event.
+  - cardinal real-model call to built-in `bash` with large stdout, externalized by the `tool_result` hook and recorded as a tool audit event.
 - `real/real-pi-debug-conductor.test.ts`
   - opt-in real Pi/model validation-debug workflow from actual failed validation into a bounded debug loop next approach;
   - opt-in real Pi/model bounded debug conductor chain from validation failure through debug `needs_research` → research completion → debug `next_approach` with persisted ledgers and audit events.
