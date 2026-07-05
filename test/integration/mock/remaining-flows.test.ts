@@ -41,6 +41,8 @@ import { createTask } from "../../../src/tasks.js";
 import type { ScalerState } from "../../../src/types.js";
 import { applyValidationReport } from "../../../src/validation.js";
 import { runConductorStep } from "../../../src/conductor.js";
+import { resumeScalerRun } from "../../../src/checkpoints.js";
+import { loadResumeVerificationRecords, loadWatchdogEvents, recordWatchdogHeartbeat, runWatchdogAssessment } from "../../../src/watchdogs.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -133,6 +135,26 @@ test("mock integration: budget hard stops pause conductor and validation before 
     assert.equal(validation.accepted, false);
     assert.match(validation.message, /Validation refused by budget/);
     assert.equal((await loadState(dir)).stage, "paused");
+  });
+});
+
+test("mock integration: watchdog stale heartbeat pauses and resume verifies ledgers", async () => {
+  await withTempRepo(async (dir) => {
+    const state = stateAt("execution");
+    state.currentTaskId = "T-WATCH";
+    state.tasks = [{ id: "T-WATCH", status: "running", title: "Watchdog task", allowedPathPrefixes: ["src/app.js"], updatedAt: state.createdAt }];
+    await saveState(dir, state);
+    await recordWatchdogHeartbeat(dir, { scopeKind: "agent", scopeId: "T-WATCH", taskId: "T-WATCH", status: "running", action: "mock long task", now: new Date("2026-01-01T00:00:00.000Z") });
+
+    const assessed = await runWatchdogAssessment(dir, state, { execute: true, policy: { noProgressTimeoutMs: 1_000 }, now: new Date("2026-01-01T00:00:03.000Z") });
+
+    assert.equal(assessed.paused, true);
+    assert.equal(assessed.state.stage, "paused");
+    assert.equal((await loadWatchdogEvents(dir))[0]?.kind, "no_progress");
+
+    const resumed = await resumeScalerRun(dir, "watchdog cleared");
+    assert.match(resumed.message, /SCALER resumed to execution/);
+    assert.notEqual((await loadResumeVerificationRecords(dir))[0]?.status, "failed");
   });
 });
 

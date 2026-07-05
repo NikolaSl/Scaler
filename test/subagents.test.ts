@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { buildTaskAgentInvocation, extractStructuredReportPayloads, getDefaultScalerChildExtensionPath, runTaskAgent } from "../src/subagents.js";
+import { loadWatchdogCleanupRecords } from "../src/watchdogs.js";
 
 async function withScript<T>(content: string, fn: (script: string, dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-subagent-test-"));
@@ -143,6 +144,7 @@ test("runTaskAgent reports timeout diagnostics", async () => {
     assert.equal(result.timedOut, true);
     assert.equal(result.aborted, false);
     assert.match(result.stderr, /timed out/);
+    assert.equal((await loadWatchdogCleanupRecords(dir))[0]?.reason, "timeout");
   });
 });
 
@@ -154,5 +156,6 @@ test("runTaskAgent reports abort diagnostics", async () => {
 
     assert.equal(result.timedOut, false);
     assert.equal(result.aborted, true);
+    assert.equal((await loadWatchdogCleanupRecords(dir))[0]?.reason, "abort");
   });
 });

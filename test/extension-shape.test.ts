@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { getBudgetState } from "../src/budgets.js";
 import { loadScalerCompactionRecords } from "../src/context-compaction.js";
 import scalerExtension from "../src/index.js";
+import { loadWatchdogHeartbeats } from "../src/watchdogs.js";
 import { readLogEvents } from "../src/logging.js";
 import { loadState } from "../src/state.js";
 import { loadStorageInventory, loadStorageMaintenanceSchedule, updateStorageMaintenanceSchedule } from "../src/storage.js";
@@ -125,6 +126,11 @@ test("extension registers scaler commands", () => {
     "scaler-safety-policy",
     "scaler-safety-approval",
     "scaler-safety-scan",
+    "scaler-watchdogs",
+    "scaler-heartbeat",
+    "scaler-watchdog-cleanup",
+    "scaler-resume-check",
+    "scaler-budget-policy",
     "scaler-budget-status",
     "scaler-budget-set",
     "scaler-status",
@@ -219,6 +225,7 @@ test("extension turn_end hook records provider usage budgets and triggers compac
     assert.equal(budgets.usage.contextTokens, 62);
     assert.equal(budgets.usage.estimatedCostMicros, 62);
     assert.match(compactInstructions, /SCALER-aware compaction/);
+    assert.equal((await loadWatchdogHeartbeats(dir))[0]?.action, "turn_end");
     const events = await readLogEvents(dir);
     assert.ok(events.some((event) => event.eventType === "budget" && event.summary.includes("Provider usage recorded")));
     assert.ok(events.some((event) => event.eventType === "state" && event.summary === "SCALER automatic compaction requested"));

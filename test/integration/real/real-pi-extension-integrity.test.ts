@@ -9,6 +9,7 @@ import { loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
 import { loadDebugRetryPolicy } from "../../../src/debug-retry.js";
 import { buildScalerCompactionResult, loadFreshContextHandoffRecords, loadScalerCompactionRecords } from "../../../src/context-compaction.js";
 import { readLogEvents } from "../../../src/logging.js";
+import { loadResumeVerificationRecords, loadWatchdogCleanupRecords, loadWatchdogEvents, loadWatchdogHeartbeats, recordWatchdogCleanup } from "../../../src/watchdogs.js";
 import { searchMemory, writeMemory } from "../../../src/memory.js";
 import { loadContextSplitRecords, recordContextSplitIfNeeded } from "../../../src/context-splits.js";
 import { applyPlanningReport, loadPlanningReports } from "../../../src/plans.js";
@@ -176,6 +177,56 @@ test("real Pi extension: slash command dispatch lists SCALER compaction records"
     assert.equal(result.exitCode, 0, result.stderr || result.stdout);
     assert.match(`${result.stdout}\n${result.stderr}`, /SCALER compaction records/);
     assert.equal((await loadScalerCompactionRecords(dir))[0]?.firstKeptEntryId, "entry-real");
+  });
+});
+
+test("real Pi extension: slash command dispatch records watchdog heartbeat and checks", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const heartbeat = await runScalerPi({ cwd: dir, prompt: "/scaler-heartbeat T-REAL-WATCH | real heartbeat | running" });
+    assert.equal(heartbeat.exitCode, 0, heartbeat.stderr || heartbeat.stdout);
+    assert.match(`${heartbeat.stdout}\n${heartbeat.stderr}`, /Watchdog heartbeat recorded/);
+    assert.equal((await loadWatchdogHeartbeats(dir))[0]?.scopeId, "T-REAL-WATCH");
+
+    const watchdogs = await runScalerPi({ cwd: dir, prompt: "/scaler-watchdogs" });
+    assert.equal(watchdogs.exitCode, 0, watchdogs.stderr || watchdogs.stdout);
+    assert.match(`${watchdogs.stdout}\n${watchdogs.stderr}`, /Watchdog assessment/);
+    assert.ok((await loadWatchdogEvents(dir)).length >= 0);
+  });
+});
+
+test("real Pi extension: slash command dispatch applies approved budget policy and resume check", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.complexityLevel = 4;
+    state.stage = "paused";
+    state.previousStage = "execution";
+    await saveState(dir, state);
+
+    const blocked = await runScalerPi({ cwd: dir, prompt: "/scaler-budget-policy level=4" });
+    assert.equal(blocked.exitCode, 0, blocked.stderr || blocked.stdout);
+    assert.match(`${blocked.stdout}\n${blocked.stderr}`, /requires explicit approval/);
+
+    const approved = await runScalerPi({ cwd: dir, prompt: "/scaler-budget-policy level=4 approve" });
+    assert.equal(approved.exitCode, 0, approved.stderr || approved.stdout);
+    assert.match(`${approved.stdout}\n${approved.stderr}`, /Applied complexity level 4 budget policy/);
+    assert.ok(getBudgetState(await loadState(dir)).scopedPolicies.length >= 2);
+
+    const resume = await runScalerPi({ cwd: dir, prompt: "/scaler-resume-check" });
+    assert.equal(resume.exitCode, 0, resume.stderr || resume.stdout);
+    assert.match(`${resume.stdout}\n${resume.stderr}`, /Resume verification records/);
+    assert.ok((await loadResumeVerificationRecords(dir))[0]);
+  });
+});
+
+test("real Pi extension: slash command dispatch lists watchdog cleanup records", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    await recordWatchdogCleanup(dir, { scopeKind: "agent", scopeId: "T-REAL-CLEAN", reason: "timeout", status: "completed", message: "Real command cleanup fixture." });
+
+    const result = await runScalerPi({ cwd: dir, prompt: "/scaler-watchdog-cleanup" });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Real command cleanup fixture/);
+    assert.equal((await loadWatchdogCleanupRecords(dir))[0]?.scopeId, "T-REAL-CLEAN");
   });
 });
 
