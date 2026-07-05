@@ -280,6 +280,14 @@ Creates a default task context manifest under `.scaler/context/tasks/<taskId>.js
 
 Shows the task context manifest summary for a task.
 
+## `/scaler-context-candidates [taskId] [query] [limit=N]`
+
+Lists deterministic semantic-style context candidates without injecting them. Candidates include scored memory summaries/tags, allowed or changed files, PRD refs, and existing manifest items with reasons for inclusion.
+
+## `/scaler-context-approve <taskId> <candidateId> [query]`
+
+Approves one listed context candidate into the task manifest. Equivalent memory/file/content entries are not duplicated; only approved compact manifest entries can be injected by the Pi `context` hook.
+
 ## `/scaler-context-splits [taskId]`
 
 Lists automatic context split artifacts from `.scaler/context/splits.json`. Records are created by conductor prompt preparation/execution when resolved active context exceeds the compression target, and include overage, externalized memory refs, and minimal-context handoff recommendations.

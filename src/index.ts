@@ -6,6 +6,8 @@ import {
   parseCicdEnvArgs,
   parseCommitArgs,
   parseCommitSkipArgs,
+  parseContextApproveArgs,
+  parseContextCandidatesArgs,
   parseContextTaskArgs,
   parseDebugLoopArgs,
   parseDebugRunArgs,
@@ -50,7 +52,7 @@ import {
 } from "./commands.js";
 import { pauseScalerRun, resumeScalerRun } from "./checkpoints.js";
 import { formatCicdEnvironmentRecords, loadCicdEnvironmentRecords, provisionCicdEnvironment } from "./cicd-environments.js";
-import { ensureTaskContextManifest, formatTaskContextManifest, loadTaskContextManifest } from "./context.js";
+import { approveContextCandidate, buildContextHookInjection, discoverSemanticContextCandidates, ensureTaskContextManifest, formatContextCandidates, formatTaskContextManifest, loadTaskContextManifest } from "./context.js";
 import { buildScalerCompactionInstructions, buildScalerCompactionResult, formatFreshContextHandoffs, formatScalerCompactionRecords, loadFreshContextHandoffRecords, loadScalerCompactionRecords, prepareFreshContextHandoff, shouldTriggerScalerCompaction } from "./context-compaction.js";
 import { formatContextSplitRecords, loadContextSplitRecords } from "./context-splits.js";
 import { formatTaskAgentRunList, loadTaskAgentRunRecords, runConductorStep } from "./conductor.js";
@@ -176,6 +178,25 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       customInstructions: event.customInstructions,
     });
     return { compaction };
+  });
+
+  pi.on("context", async (event, ctx) => {
+    const state = await ensureState(ctx.cwd);
+    const injection = await buildContextHookInjection(ctx.cwd, state);
+    if (!injection) return undefined;
+    await logStateEvent(ctx.cwd, state, "SCALER context hook injected approved manifest context", {
+      taskId: state.currentTaskId,
+      characters: injection.length,
+    });
+    return {
+      messages: [
+        ...event.messages,
+        {
+          role: "user",
+          content: [{ type: "text", text: injection }],
+        },
+      ] as never,
+    };
   });
 
   pi.on("agent_start", async (event, ctx) => {
@@ -461,6 +482,46 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const manifest = taskId ? await loadTaskContextManifest(ctx.cwd, taskId) : undefined;
       const message = manifest ? formatTaskContextManifest(manifest) : `No context manifest${taskId ? ` for ${taskId}` : ""}.`;
       if (ctx.hasUI) ctx.ui.notify(message, manifest ? "info" : "warning");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-context-candidates", {
+    description: "List scored context candidates without injecting them: /scaler-context-candidates [taskId] [query] [limit=N]",
+    handler: async (args, ctx) => {
+      const parsed = parseContextCandidatesArgs(args);
+      const state = await ensureState(ctx.cwd);
+      const taskId = parsed.taskId ?? state.currentTaskId ?? state.tasks.find((task) => task.status !== "validated" && task.status !== "failed")?.id;
+      if (!taskId) {
+        const message = "No task found for /scaler-context-candidates.";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+      const candidates = await discoverSemanticContextCandidates(ctx.cwd, state, taskId, { query: parsed.query, limit: parsed.limit });
+      const message = formatContextCandidates(candidates);
+      if (ctx.hasUI) ctx.ui.notify(message, candidates.length > 0 ? "info" : "warning");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-context-approve", {
+    description: "Approve a context candidate into the task manifest: /scaler-context-approve <taskId> <candidateId> [query]",
+    handler: async (args, ctx) => {
+      const parsed = parseContextApproveArgs(args);
+      const state = await ensureState(ctx.cwd);
+      const taskId = parsed.taskId ?? state.currentTaskId;
+      if (!taskId || !parsed.candidateId) {
+        const message = "Usage: /scaler-context-approve <taskId> <candidateId> [query]";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+      const result = await approveContextCandidate(ctx.cwd, state, taskId, parsed.candidateId, { query: parsed.query });
+      const message = result.added
+        ? `Context candidate approved: ${result.candidate.id} -> ${result.manifest.taskId} items=${result.manifest.items.length}`
+        : `Context candidate already approved: ${result.candidate.id}`;
+      if (ctx.hasUI) ctx.ui.notify(message, result.added ? "info" : "warning");
       else console.log(message);
     },
   });

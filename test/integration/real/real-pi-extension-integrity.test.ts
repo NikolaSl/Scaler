@@ -8,6 +8,7 @@ import { assessCompression } from "../../../src/compression.js";
 import { loadCommitReports, loadCommitSkips, loadGitBootstrapRecords, recordCommitReport } from "../../../src/git.js";
 import { loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
 import { loadDebugRetryPolicy } from "../../../src/debug-retry.js";
+import { loadTaskContextManifest } from "../../../src/context.js";
 import { buildScalerCompactionResult, loadFreshContextHandoffRecords, loadScalerCompactionRecords } from "../../../src/context-compaction.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { getLogToolsDir } from "../../../src/paths.js";
@@ -130,6 +131,33 @@ test("real Pi extension: slash command dispatch lists context split records", { 
     assert.equal(result.exitCode, 0, result.stderr || result.stdout);
     assert.match(`${result.stdout}\n${result.stderr}`, /T-REAL-SPLIT-context-split/);
     assert.equal((await loadContextSplitRecords(dir))[0]?.taskId, "T-REAL-SPLIT");
+  });
+});
+
+test("real Pi extension: slash command dispatch curates context candidates", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-REAL-CONTEXT";
+    state.tasks = [{ id: "T-REAL-CONTEXT", status: "ready", title: "Real semantic context hook", allowedPathPrefixes: ["src"], updatedAt: state.updatedAt }];
+    await saveState(dir, state);
+    const memory = await writeMemory(dir, {
+      title: "Real semantic context candidate",
+      content: "Real candidate summary for hook curation.",
+      taskId: "T-REAL-CONTEXT",
+      tags: ["semantic", "context"],
+      now: new Date("2026-01-01T00:00:01.000Z"),
+    });
+
+    const list = await runScalerPi({ cwd: dir, prompt: "/scaler-context-candidates T-REAL-CONTEXT semantic limit=5" });
+    assert.equal(list.exitCode, 0, list.stderr || list.stdout);
+    assert.match(`${list.stdout}\n${list.stderr}`, new RegExp(`candidate-memory-${memory.id}`));
+
+    const approve = await runScalerPi({ cwd: dir, prompt: `/scaler-context-approve T-REAL-CONTEXT candidate-memory-${memory.id} semantic` });
+    assert.equal(approve.exitCode, 0, approve.stderr || approve.stdout);
+    assert.match(`${approve.stdout}\n${approve.stderr}`, /Context candidate/);
+    const manifest = await loadTaskContextManifest(dir, "T-REAL-CONTEXT");
+    assert.ok(manifest?.items.some((item) => item.memoryId === memory.id));
   });
 });
 

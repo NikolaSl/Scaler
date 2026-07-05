@@ -6,10 +6,14 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
 import {
+  approveContextCandidate,
+  buildContextHookInjection,
   createDefaultTaskContextManifest,
   createDiscoveredTaskContextManifest,
+  discoverSemanticContextCandidates,
   ensureTaskContextManifest,
   estimateTokens,
+  formatContextCandidates,
   formatOmittedContextSummary,
   formatTaskContextManifest,
   loadTaskContextManifest,
@@ -255,6 +259,92 @@ test("ensureTaskContextManifest creates discovered manifest when missing", async
     assert.equal(manifest.taskId, "T-001");
     assert.ok(manifest.items.some((item) => item.id === "execution-plan-task"));
     assert.equal((await loadTaskContextManifest(dir, "T-001"))?.taskId, "T-001");
+  });
+});
+
+test("discoverSemanticContextCandidates scores memory and allowed file candidates for manual approval", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"));
+    await writeFile(join(dir, "src", "context-hook.ts"), "export const semanticContextHook = true;\n", "utf8");
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.tasks = [{
+      id: "T-SEM",
+      status: "ready",
+      title: "Implement semantic context hook",
+      allowedPathPrefixes: ["src"],
+      prdRefs: ["REQ-CONTEXT"],
+      updatedAt: state.createdAt,
+    }];
+    const memory = await writeMemory(dir, {
+      title: "Semantic context hook note",
+      content: "Approved summaries keep hook injection focused.",
+      taskId: "T-SEM",
+      tags: ["context", "hook"],
+      now: new Date("2026-01-01T00:00:01.000Z"),
+    });
+
+    const candidates = await discoverSemanticContextCandidates(dir, state, "T-SEM", { query: "semantic hook", limit: 8 });
+    const ids = candidates.map((candidate) => candidate.id);
+
+    assert.ok(ids.includes(`candidate-memory-${memory.id}`));
+    assert.ok(ids.includes("candidate-file-context-hook-ts"));
+    assert.ok(ids.includes("candidate-prd-req-context"));
+    assert.match(formatContextCandidates(candidates), /Context candidates:/);
+  });
+});
+
+test("approveContextCandidate persists selected candidates without duplicating manifest entries", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.tasks = [{ id: "T-APPROVE", status: "ready", title: "Approve context", updatedAt: state.createdAt }];
+    const memory = await writeMemory(dir, {
+      title: "Approve context memory",
+      content: "Candidate approval should add one manifest item.",
+      taskId: "T-APPROVE",
+      now: new Date("2026-01-01T00:00:01.000Z"),
+    });
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-APPROVE",
+      items: [{ id: "task", type: "task_report", reason: "Task", priority: "required", scope: "summary", source: "task" }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    const first = await approveContextCandidate(dir, state, "T-APPROVE", `candidate-memory-${memory.id}`);
+    const second = await approveContextCandidate(dir, state, "T-APPROVE", `candidate-memory-${memory.id}`);
+
+    assert.equal(first.added, true);
+    assert.equal(second.added, false);
+    const manifest = await loadTaskContextManifest(dir, "T-APPROVE");
+    assert.equal(manifest?.items.filter((item) => item.memoryId === memory.id).length, 1);
+  });
+});
+
+test("buildContextHookInjection injects only approved compact manifest items", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.currentTaskId = "T-HOOK";
+    state.tasks = [{ id: "T-HOOK", status: "running", title: "Use context hook", updatedAt: state.createdAt }];
+    await writeFile(join(dir, "large.txt"), "FULL FILE SHOULD NOT ENTER HOOK\n", "utf8");
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-HOOK",
+      items: [
+        { id: "approved-summary", type: "decision", reason: "Approved compact summary", priority: "required", scope: "summary", source: "inline", content: "APPROVED SUMMARY TOKEN" },
+        { id: "full-file", type: "file", reason: "Full file is not compact", priority: "required", scope: "full", source: "file", path: "large.txt" },
+        { id: "optional-summary", type: "decision", reason: "Optional item remains pull-based", priority: "optional", scope: "summary", source: "inline", content: "OPTIONAL TOKEN" },
+      ],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    const injection = await buildContextHookInjection(dir, state, undefined, 800);
+
+    assert.match(injection ?? "", /SCALER Selected Context Injection/);
+    assert.match(injection ?? "", /APPROVED SUMMARY TOKEN/);
+    assert.doesNotMatch(injection ?? "", /FULL FILE SHOULD NOT ENTER HOOK/);
+    assert.doesNotMatch(injection ?? "", /OPTIONAL TOKEN/);
   });
 });
 

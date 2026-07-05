@@ -54,6 +54,8 @@ When SCALER creates a missing manifest, it also discovers and ranks relevant con
 
 Existing manifests are preserved; discovery only runs when a manifest is created.
 
+Operators can also run deterministic semantic-style candidate search without injecting the results. Candidate search scores task metadata, query terms, memory summaries/tags, allowed files, changed files, PRD refs, and existing manifest items, then returns a small candidate list with reasons. Candidates become active only after explicit approval into the task manifest.
+
 If a source cannot be resolved, SCALER preserves a `MISSING CONTEXT` item instead of silently dropping it.
 
 ## Missing-context lifecycle
@@ -78,6 +80,7 @@ SCALER uses deterministic compression policy helpers for task-agent prompts:
 - Large exact or summary-ok items are deterministically externalized to `.scaler/memory/` when a context split is recorded, preserving full content with a memory id/path, SHA-256, token estimates, and exactness metadata.
 - If resolved active context exceeds the 75% target, conductor preparation/execution records `.scaler/context/splits.json` artifacts for these oversized contexts with exact refs, summary/reference refs, externalized memory refs, and minimal-context handoff recommendations.
 - SCALER registers a Pi `session_before_compact` hook that returns a deterministic SCALER-aware compaction result and records `.scaler/context/compactions.json`. Turn-end context usage above the target triggers `ctx.compact()` with SCALER state-preservation instructions.
+- SCALER registers a Pi `context` hook that injects only approved manifest items for the current task when they are compact (`summary`, `snippet`, or `reference-only`) and non-optional. Full and optional items remain pull-based and are not automatically inserted into the parent-session LLM context.
 - Fresh minimal-context continuation handoffs are recorded in `.scaler/context/handoffs.json` with prompt artifacts under `.scaler/context/handoffs/`; execution is blocked unless the generated handoff prompt is below the active-context target and smaller than the split context.
 
 Default/discovered manifests mark file snippets, task metadata, validation evidence, execution-plan entries, changed paths, and PRD coverage as `exact`; memory summaries are `summary-ok`; PRD id-only links are `reference-only`. Summary/reference-only memory items inject id/title/path/tags/summary only; full memory content is injected only when a context item or retrieval request asks for `full`, and `section:<heading>` retrieval injects the matching Markdown section when found.
@@ -87,6 +90,8 @@ Default/discovered manifests mark file snippets, task metadata, validation evide
 ```text
 /scaler-context-init [taskId]
 /scaler-context-status [taskId]
+/scaler-context-candidates [taskId] [query] [limit=N]
+/scaler-context-approve <taskId> <candidateId> [query]
 /scaler-context-splits [taskId]
 /scaler-compact
 /scaler-compactions
@@ -101,6 +106,10 @@ Default/discovered manifests mark file snippets, task metadata, validation evide
 `/scaler-context-init` creates a default manifest for the specified task, current task, or first non-terminal task.
 
 `/scaler-context-status` displays a manifest summary for the specified task, current task, or first task.
+
+`/scaler-context-candidates` lists scored memory/file/PRD/manifest candidates without changing the manifest or active context.
+
+`/scaler-context-approve` adds the selected candidate to the task manifest unless an equivalent memory/file/content item is already present.
 
 `/scaler-context-splits` lists oversized context records and their externalized memory refs.
 

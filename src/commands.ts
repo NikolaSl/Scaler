@@ -84,6 +84,18 @@ export interface ParsedMemorySearchArgs {
   limit?: number;
 }
 
+export interface ParsedContextCandidatesArgs {
+  taskId?: string;
+  query?: string;
+  limit?: number;
+}
+
+export interface ParsedContextApproveArgs {
+  taskId?: string;
+  candidateId?: string;
+  query?: string;
+}
+
 export interface ParsedMissingContextRunArgs {
   requestId?: string;
   execute: boolean;
@@ -855,6 +867,38 @@ export function parseResearchReportArgs(args: string | undefined): ParsedResearc
 
 export function parseContextTaskArgs(args: string | undefined): ParsedContextTaskArgs {
   return { taskId: args?.trim() || undefined };
+}
+
+export function parseContextCandidatesArgs(args: string | undefined): ParsedContextCandidatesArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  let limit: number | undefined;
+  const positional: string[] = [];
+  for (const part of parts) {
+    if (part.startsWith("limit=")) {
+      const parsed = Number(part.slice("limit=".length));
+      if (Number.isFinite(parsed) && parsed > 0) limit = Math.floor(parsed);
+    } else {
+      positional.push(part);
+    }
+  }
+  return {
+    taskId: positional[0],
+    query: positional.slice(1).join(" ") || undefined,
+    limit,
+  };
+}
+
+export function parseContextApproveArgs(args: string | undefined): ParsedContextApproveArgs {
+  const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  const positional: string[] = [];
+  for (const part of parts) {
+    if (!part.startsWith("limit=")) positional.push(part);
+  }
+  return {
+    taskId: positional[0],
+    candidateId: positional[1],
+    query: positional.slice(2).join(" ") || undefined,
+  };
 }
 
 export function parseMissingContextRunArgs(args: string | undefined): ParsedMissingContextRunArgs {

@@ -149,7 +149,7 @@ Current real mode has three layers:
 2. real Pi extension integrity tests that launch `pi --mode json -p --no-session -e <src/index.ts>` in a temporary repository and verify extension command dispatch, SCALER tool calls, safety hooks, safety policy/approval persistence, `.scaler/logs/events.jsonl`, detail payload references, and persisted state; and
 3. real flow-parity chains that run real Pi/model child agents through SCALER's normal debug, research, stage, and replanner pathways while asserting persisted ledgers.
 
-Command-dispatch extension tests may avoid model output. Current real command coverage also includes strict task creation/task-quality review, context-split/fresh-handoff, compaction-record listing, watchdog heartbeat/status/cleanup, resume-check, and budget-policy approval so supervisor boundary ledgers are exercised without requiring expensive model summarization. Cardinal SCALER-tool and hook tests use the selected real model with restricted `--tools` lists. Child-agent invocation is deny-by-default: omitted or empty tool lists become `--no-tools`, and granted-tool child invocations include the SCALER extension unless an explicit extension path is supplied. Report-only child-agent flow tests assert `--no-tools` so the real model cannot mutate the temporary repository outside the expected structured report.
+Command-dispatch extension tests may avoid model output. Current real command coverage also includes strict task creation/task-quality review, context candidate listing/approval, context-split/fresh-handoff, compaction-record listing, watchdog heartbeat/status/cleanup, resume-check, and budget-policy approval so supervisor boundary ledgers are exercised without requiring expensive model summarization. Cardinal SCALER-tool and hook tests use the selected real model with restricted `--tools` lists. Child-agent invocation is deny-by-default: omitted or empty tool lists become `--no-tools`, and granted-tool child invocations include the SCALER extension unless an explicit extension path is supplied. Report-only child-agent flow tests assert `--no-tools` so the real model cannot mutate the temporary repository outside the expected structured report.
 
 ## Cardinal instruction pattern for real mode
 
@@ -276,7 +276,7 @@ When adding a new integration scenario:
   - persisted safety audit logs record blocked risks.
 - `mock/remaining-flows.test.ts`
   - budget hard stops for conductor and validation plus pause/audit behavior;
-  - context discovery into conductor prompts, including exactness/compression guidance and automatic context-split artifacts;
+  - context discovery into conductor prompts, context candidate curation/approval, parent-session context-hook filtering, exactness/compression guidance, and automatic context-split artifacts;
   - structured-only rejection for stage, replan, and research agents;
   - unsafe replan proposal acceptance rejection;
   - debug report to replan request to acceptance retry-gate clearance;
@@ -322,7 +322,7 @@ When adding a new integration scenario:
   - real debug-agent `needs_research` report → research request ledger;
   - real research-agent complete report → request resolution;
   - real debug-agent `next_approach` report → debug report ledger;
-  - real `/scaler-memory-search` and `/scaler-context-splits` summary output plus real research raw evidence → memory entry → later task context manifest reference;
+  - real `/scaler-memory-search`, `/scaler-context-candidates`, `/scaler-context-approve`, and `/scaler-context-splits` summary output plus real research raw evidence → memory entry → later task context manifest reference;
   - real debug-agent `needs_replan` report → debug-blocked replan request → safe replan acceptance → retry-gate clearance;
   - real Stage I-IV conductor loop using cardinal stage artifacts, readiness/semantic/consistency advancement, and final completed state;
   - real unsafe replanner proposal → failed preservation check → rejected acceptance with current plan unchanged;

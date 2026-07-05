@@ -7,6 +7,8 @@ import {
   parseSemicolonList,
   parseCommitArgs,
   parseCommitSkipArgs,
+  parseContextApproveArgs,
+  parseContextCandidatesArgs,
   parseContextTaskArgs,
   parseDebugLoopArgs,
   parseDebugRunArgs,
@@ -285,6 +287,16 @@ test("parseSemicolonList removes blanks", () => {
 test("parseContextTaskArgs parses optional task id", () => {
   assert.deepEqual(parseContextTaskArgs(" T-001 "), { taskId: "T-001" });
   assert.deepEqual(parseContextTaskArgs(" "), { taskId: undefined });
+});
+
+test("parseContextCandidatesArgs and parseContextApproveArgs parse curation commands", () => {
+  assert.deepEqual(parseContextCandidatesArgs("T-001 semantic hook limit=7"), { taskId: "T-001", query: "semantic hook", limit: 7 });
+  assert.deepEqual(parseContextCandidatesArgs(" "), { taskId: undefined, query: undefined, limit: undefined });
+  assert.deepEqual(parseContextApproveArgs("T-001 candidate-memory-MEM-1 semantic hook"), {
+    taskId: "T-001",
+    candidateId: "candidate-memory-MEM-1",
+    query: "semantic hook",
+  });
 });
 
 test("parseMissingContextRunArgs parses request, execute, and internet flags", () => {

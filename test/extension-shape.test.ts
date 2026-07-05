@@ -4,12 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { getBudgetState } from "../src/budgets.js";
+import { saveTaskContextManifest } from "../src/context.js";
 import { loadScalerCompactionRecords } from "../src/context-compaction.js";
 import scalerExtension from "../src/index.js";
 import { loadWatchdogHeartbeats } from "../src/watchdogs.js";
 import { readLogEvents } from "../src/logging.js";
 import { getLogToolsDir } from "../src/paths.js";
-import { loadState } from "../src/state.js";
+import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { loadStorageInventory, loadStorageMaintenanceSchedule, updateStorageMaintenanceSchedule } from "../src/storage.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -48,6 +49,8 @@ test("extension registers scaler commands", () => {
     "scaler-tasks",
     "scaler-context-init",
     "scaler-context-status",
+    "scaler-context-candidates",
+    "scaler-context-approve",
     "scaler-context-splits",
     "scaler-compact",
     "scaler-compactions",
@@ -195,6 +198,39 @@ test("extension session_before_compact hook returns SCALER-aware compaction", as
     const records = await loadScalerCompactionRecords(dir);
     assert.equal(records.length, 1);
     assert.equal(records[0]?.reason, "threshold");
+  });
+});
+
+test("extension context hook injects approved compact task manifest context", async () => {
+  await withTempDir(async (dir) => {
+    const handlers = new Map<string, (event: unknown, ctx: { cwd: string; hasUI: boolean }) => Promise<unknown>>();
+    const fakePi = {
+      on(name: string, handler: (event: unknown, ctx: { cwd: string; hasUI: boolean }) => Promise<unknown>) {
+        handlers.set(name, handler);
+      },
+      registerTool() {},
+      registerCommand() {},
+    };
+
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.currentTaskId = "T-HOOK";
+    state.tasks = [{ id: "T-HOOK", status: "running", title: "Hook task", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-HOOK",
+      items: [{ id: "approved", type: "decision", reason: "Approved", priority: "required", scope: "summary", source: "inline", content: "APPROVED HOOK CONTEXT" }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    scalerExtension(fakePi as never);
+    const result = await handlers.get("context")?.({ type: "context", messages: [{ role: "user", content: "hello" }] }, { cwd: dir, hasUI: false }) as { messages?: unknown[] } | undefined;
+
+    assert.equal(result?.messages?.length, 2);
+    assert.match(JSON.stringify(result?.messages?.[1]), /APPROVED HOOK CONTEXT/);
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.summary === "SCALER context hook injected approved manifest context"));
   });
 });
 

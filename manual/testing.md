@@ -59,7 +59,7 @@ The current mocked integration harness covers:
 - typed validation gate metadata plus dependency/test-first and CI/sandbox environment policy diagnostics, deterministic CI/CD wrapper provisioning, validation environment lifecycle evidence, and `/scaler-validation-envs`/`/scaler-cicd-envs` status persisted through `/scaler-validation-add`, validation runs, lifecycle/provision records, and audit logs;
 - deterministic non-software validation checklists persisted through `/scaler-validation-checklist`, task status transitions, evidence-required acceptance/completeness/source policies, and audit logs;
 - rich `scaler_tool_request` metadata, `scaler_tool_schema` discovery ledgers, supervised schema discovery probe ledgers, project-local MCP server enumeration ledgers, compact selected-tool catalog prompts with discovered schema injection, child-agent deny-by-default `--no-tools` invocation, automatic SCALER extension loading when child tools are granted, isolated allowed-tool invocation prep, tool transaction prepare/execute/replay ledgers, closed replay approval ledgers, bounded tool-iteration correction ledgers/policy, safe low-risk tool scheduling ledgers, `missing_result`/`missing_schema` handling for free-form child output, and structured `scaler_tool_result` request closure;
-- deterministic context discovery feeding conductor prompts with exactness/compression guidance, automatic context-split artifacts for oversized resolved context, externalized exact/summary-ok memory refs, and fresh minimal-context handoff shrink checks;
+- deterministic context discovery feeding conductor prompts with exactness/compression guidance, semantic-style candidate curation/approval, parent-session `context` hook injection filtering, automatic context-split artifacts for oversized resolved context, externalized exact/summary-ok memory refs, and fresh minimal-context handoff shrink checks;
 - unsafe replan proposal acceptance rejection;
 - debug report → replan request → replanner proposal → acceptance retry-gate clearance;
 - bounded debug conductor chains from validation failure through debug → research → debug next approach;
@@ -102,7 +102,7 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - real chained debug → research → next-approach flow-parity through persisted debug/research ledgers;
 - real bounded debug conductor chain from validation failure through debug → research → debug next approach;
 - real validation-debug workflow from actual failing validation into a bounded debug loop next approach;
-- real memory search/context-split command summary output, real fresh-context handoff and compaction-record command dispatch, real missing-context list/resolve command dispatch, real autonomous stage-workflow prepare command dispatch, and real research raw-evidence externalization into memory/later task context manifests;
+- real memory search/context candidate/context-split command summary output, real context candidate approval, real fresh-context handoff and compaction-record command dispatch, real missing-context list/resolve command dispatch, real autonomous stage-workflow prepare command dispatch, and real research raw-evidence externalization into memory/later task context manifests;
 - real debug-blocked replan request creation plus safe replan acceptance that clears the retry gate;
 - real chained Stage I-IV conductor flow-parity through persisted stage artifacts and stage-agent run records;
 - real unsafe replan proposal rejection without replacing the current plan;

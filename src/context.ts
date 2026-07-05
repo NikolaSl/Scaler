@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { getGitChangedPaths } from "./git.js";
 import { loadMemoryIndex, retrieveMemory, type MemoryEntry } from "./memory.js";
@@ -65,6 +65,34 @@ export interface TaskContextManifest {
   items: TaskContextManifestItem[];
   createdAt: string;
   updatedAt: string;
+}
+
+export type ContextCandidateSource = "memory" | "file" | "changed_file" | "manifest" | "prd";
+
+export interface ContextCandidate {
+  id: string;
+  taskId: string;
+  source: ContextCandidateSource;
+  type: ContextItemType;
+  reason: string;
+  score: number;
+  priority: ContextPriority;
+  scope: ContextScope;
+  exactness: ContextExactness;
+  content?: string;
+  path?: string;
+  memoryId?: string;
+}
+
+export interface ContextCandidateSearchOptions {
+  query?: string;
+  limit?: number;
+}
+
+export interface ContextCandidateSelectionResult {
+  candidate: ContextCandidate;
+  manifest: TaskContextManifest;
+  added: boolean;
 }
 
 const priorityOrder: Record<ContextPriority, number> = {
@@ -214,6 +242,156 @@ export function formatTaskContextManifest(manifest: TaskContextManifest): string
   return lines.join("\n");
 }
 
+export async function discoverSemanticContextCandidates(
+  cwd: string,
+  state: ScalerState,
+  taskId: string,
+  options: ContextCandidateSearchOptions = {},
+): Promise<ContextCandidate[]> {
+  const task = state.tasks.find((candidate) => candidate.id === taskId);
+  if (!task) return [];
+  const queryTerms = options.query?.toLowerCase().split(/\W+/).filter((term) => term.length >= 3) ?? [];
+  const terms = unique([...buildTaskSearchTerms(task), ...queryTerms]);
+  const candidates: ContextCandidate[] = [];
+
+  const existingManifest = await loadTaskContextManifest(cwd, taskId);
+  for (const item of existingManifest?.items ?? []) {
+    const score = scoreText([item.id, item.reason, item.content, item.path, item.memoryId].filter(Boolean).join(" "), terms) + 2;
+    if (score <= 0) continue;
+    candidates.push({
+      id: `candidate-manifest-${item.id}`,
+      taskId,
+      source: "manifest",
+      type: item.type,
+      reason: `Existing approved manifest item matches task/query terms with score ${score}.`,
+      score,
+      priority: item.priority,
+      scope: item.scope === "full" ? "summary" : item.scope,
+      exactness: normalizeExactness(item.exactness, item.scope),
+      content: item.content,
+      path: item.path,
+      memoryId: item.memoryId,
+    });
+  }
+
+  const memoryIndex = await loadMemoryIndex(cwd);
+  for (const entry of memoryIndex.entries) {
+    if (entry.validity === "obsolete") continue;
+    const score = scoreMemoryEntry(entry, task, terms) + scoreText([entry.title, entry.summary, entry.source, entry.path, ...(entry.tags ?? [])].filter(Boolean).join(" "), queryTerms);
+    if (score <= 0) continue;
+    candidates.push({
+      id: `candidate-memory-${entry.id}`,
+      taskId,
+      source: "memory",
+      type: "memory",
+      reason: `Memory ${entry.id} matched task/query terms with score ${score}; approve only if this task needs the summary.`,
+      score,
+      priority: score >= 4 ? "useful" : "optional",
+      scope: "summary",
+      exactness: "summary-ok",
+      memoryId: entry.id,
+    });
+  }
+
+  const changedPaths = await getGitChangedPaths(cwd);
+  for (const path of await discoverCandidateFilePaths(cwd, task, changedPaths)) {
+    const snippet = await readContextFileSnippet(cwd, path);
+    const score = scoreText([path, snippet].join("\n"), terms) + (taskPathMatches(path, task.allowedPathPrefixes ?? []) ? 2 : 0);
+    if (score <= 0) continue;
+    const source: ContextCandidateSource = changedPaths.includes(path) ? "changed_file" : "file";
+    candidates.push({
+      id: `candidate-${source}-${slugify(path)}`,
+      taskId,
+      source,
+      type: "file",
+      reason: `${source === "changed_file" ? "Changed file" : "Allowed-path file"} matched task/query terms with score ${score}; approve to add a compact snippet/reference to the manifest.`,
+      score,
+      priority: source === "changed_file" || taskPathMatches(path, task.allowedPathPrefixes ?? []) ? "useful" : "optional",
+      scope: "snippet",
+      exactness: "exact",
+      path,
+    });
+  }
+
+  for (const ref of task.prdRefs ?? []) {
+    const score = scoreText(ref, terms) + 2;
+    if (score <= 0) continue;
+    candidates.push({
+      id: `candidate-prd-${slugify(ref)}`,
+      taskId,
+      source: "prd",
+      type: "prd",
+      reason: `Task PRD reference ${ref} is relevant and remains reference-only unless explicitly resolved.`,
+      score,
+      priority: "useful",
+      scope: "reference-only",
+      exactness: "reference-only",
+      content: `Runtime PRD reference for ${taskId}: ${ref}`,
+    });
+  }
+
+  return dedupeContextCandidates(candidates)
+    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+    .slice(0, options.limit ?? 10);
+}
+
+export function formatContextCandidates(candidates: ContextCandidate[]): string {
+  if (candidates.length === 0) return "No context candidates found.";
+  return [
+    `Context candidates: ${candidates.length}`,
+    ...candidates.map((candidate) => {
+      const location = candidate.memoryId ? ` memory=${candidate.memoryId}` : candidate.path ? ` path=${candidate.path}` : "";
+      return `- ${candidate.id}: score=${candidate.score} ${candidate.source}/${candidate.type} ${candidate.priority} ${candidate.scope} exactness=${candidate.exactness}${location}\n  reason=${candidate.reason}`;
+    }),
+  ].join("\n");
+}
+
+export async function approveContextCandidate(
+  cwd: string,
+  state: ScalerState,
+  taskId: string,
+  candidateId: string,
+  options: ContextCandidateSearchOptions = {},
+): Promise<ContextCandidateSelectionResult> {
+  const candidates = await discoverSemanticContextCandidates(cwd, state, taskId, { ...options, limit: Math.max(options.limit ?? 50, 50) });
+  const candidate = candidates.find((item) => item.id === candidateId);
+  if (!candidate) throw new Error(`Context candidate not found for ${taskId}: ${candidateId}`);
+  const manifest = await ensureTaskContextManifest(cwd, state, taskId);
+  const item = contextCandidateToManifestItem(candidate);
+  const existing = manifest.items.find((manifestItem) => contextManifestItemMatchesCandidate(manifestItem, candidate) || manifestItem.id === item.id);
+  if (existing) return { candidate, manifest, added: false };
+  const saved = await saveTaskContextManifest(cwd, { ...manifest, items: [...manifest.items, item] });
+  return { candidate, manifest: saved, added: true };
+}
+
+export async function buildContextHookInjection(cwd: string, state: ScalerState, taskId = state.currentTaskId, tokenBudget = 1_200): Promise<string | undefined> {
+  if (!taskId) return undefined;
+  const task = state.tasks.find((candidate) => candidate.id === taskId);
+  if (!task) return undefined;
+  const manifest = await loadTaskContextManifest(cwd, taskId);
+  if (!manifest) return undefined;
+  const resolvedItems = await resolveTaskContextManifest(cwd, state, manifest);
+  const hookItems = resolvedItems.filter((item) =>
+    item.priority !== "optional" &&
+    (item.scope === "summary" || item.scope === "snippet" || item.scope === "reference-only")
+  );
+  if (hookItems.length === 0) return undefined;
+  const resolved = resolveContext({
+    state,
+    taskId,
+    taskGoal: task.title,
+    definitionOfDone: Array.isArray(task.definitionOfDone) ? task.definitionOfDone.join("; ") : task.definitionOfDone,
+    items: hookItems,
+    tokenBudget,
+  });
+  if (resolved.included.length === 0) return undefined;
+  return [
+    "# SCALER Selected Context Injection",
+    "The following compact context comes from the approved task context manifest. It excludes optional/full items unless explicitly approved and budgeted.",
+    resolved.text,
+  ].join("\n\n");
+}
+
 export async function resolveTaskContextManifest(
   cwd: string,
   state: ScalerState,
@@ -263,7 +441,7 @@ async function resolveManifestItemContent(
   entry: TaskContextManifestItem,
 ): Promise<string> {
   if (entry.source === "inline") return entry.content ?? "";
-  if (entry.source === "file") return await readFile(resolveContextPath(cwd, entry.path!), "utf8");
+  if (entry.source === "file") return await resolveFileContextContent(cwd, entry.path!, entry.scope);
   if (entry.source === "memory") return (await retrieveMemory(cwd, entry.memoryId!, { scope: entry.scope })).content;
   if (entry.source === "state") return formatStateContext(state);
   if (entry.source === "task") return formatTaskContext(state, entry.taskId ?? manifest.taskId);
@@ -302,6 +480,105 @@ function formatPrdRefsContext(state: ScalerState, taskId: string): string {
   if (!task) throw new Error(`Task not found: ${taskId}`);
   const refs = task.prdRefs ?? [];
   return refs.length > 0 ? `Runtime PRD refs for ${taskId}: ${refs.join(", ")}` : `Runtime PRD refs for ${taskId}: none`;
+}
+
+async function resolveFileContextContent(cwd: string, path: string, scope: ContextScope): Promise<string> {
+  const content = await readFile(resolveContextPath(cwd, path), "utf8");
+  if (scope === "full") return content;
+  if (scope === "reference-only") return `File reference: ${path}`;
+  const maxChars = scope === "snippet" ? 2_400 : 3_200;
+  if (content.length <= maxChars) return content;
+  return [`File ${scope}: ${path}`, content.slice(0, maxChars), `... [truncated ${content.length - maxChars} chars; request full file if needed]`].join("\n");
+}
+
+async function discoverCandidateFilePaths(cwd: string, task: ScalerTaskState, changedPaths: string[]): Promise<string[]> {
+  const paths: string[] = changedPaths.filter((path) => !isRuntimePath(path));
+  for (const prefix of task.allowedPathPrefixes ?? []) {
+    for (const path of await collectCandidateFiles(cwd, normalizeRelativePath(prefix), 2, 8)) paths.push(path);
+  }
+  return unique(paths).filter((path) => isProbablyTextPath(path)).slice(0, 25);
+}
+
+async function collectCandidateFiles(cwd: string, path: string, depth: number, limit: number): Promise<string[]> {
+  if (limit <= 0 || !path || isRuntimePath(path) || isIgnoredContextDirectory(path)) return [];
+  try {
+    const fileStat = await stat(resolveContextPath(cwd, path));
+    if (fileStat.isFile()) return [path];
+    if (!fileStat.isDirectory() || depth < 0) return [];
+    const children = await readdir(resolveContextPath(cwd, path), { withFileTypes: true });
+    const results: string[] = [];
+    for (const child of children.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (results.length >= limit) break;
+      const childPath = `${path.replace(/\/$/, "")}/${child.name}`;
+      if (isRuntimePath(childPath) || isIgnoredContextDirectory(childPath)) continue;
+      if (child.isFile() && isProbablyTextPath(childPath)) results.push(childPath);
+      else if (child.isDirectory() && depth > 0) results.push(...(await collectCandidateFiles(cwd, childPath, depth - 1, limit - results.length)));
+    }
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+async function readContextFileSnippet(cwd: string, path: string): Promise<string> {
+  try {
+    return (await resolveFileContextContent(cwd, path, "snippet")).slice(0, 4_000);
+  } catch {
+    return "";
+  }
+}
+
+function contextCandidateToManifestItem(candidate: ContextCandidate): TaskContextManifestItem {
+  const id = `approved-${candidate.id.replace(/^candidate-/, "")}`.slice(0, 80);
+  const base = {
+    id,
+    type: candidate.type,
+    reason: candidate.reason,
+    priority: candidate.priority,
+    scope: candidate.scope,
+    exactness: candidate.exactness,
+  } satisfies Omit<TaskContextManifestItem, "source">;
+  if (candidate.memoryId) return { ...base, source: "memory", memoryId: candidate.memoryId };
+  if (candidate.path) return { ...base, source: "file", path: candidate.path };
+  return { ...base, source: "inline", content: candidate.content ?? candidate.reason };
+}
+
+function contextManifestItemMatchesCandidate(item: TaskContextManifestItem, candidate: ContextCandidate): boolean {
+  if (candidate.memoryId && item.memoryId === candidate.memoryId) return true;
+  if (candidate.path && item.path === candidate.path) return true;
+  return Boolean(candidate.content && item.content === candidate.content);
+}
+
+function dedupeContextCandidates(candidates: ContextCandidate[]): ContextCandidate[] {
+  const byKey = new Map<string, ContextCandidate>();
+  for (const candidate of candidates) {
+    const key = candidate.memoryId ? `memory:${candidate.memoryId}` : candidate.path ? `path:${candidate.path}` : candidate.content ? `content:${candidate.content}` : candidate.id;
+    const existing = byKey.get(key);
+    if (!existing || candidate.score > existing.score) byKey.set(key, candidate);
+  }
+  return [...byKey.values()];
+}
+
+function scoreText(text: string, terms: string[]): number {
+  const haystack = text.toLowerCase();
+  let score = 0;
+  for (const term of terms) {
+    if (haystack.includes(term)) score += 1;
+  }
+  return score;
+}
+
+function normalizeRelativePath(path: string): string {
+  return path.replace(/^\.\//, "").replace(/\/$/, "");
+}
+
+function isIgnoredContextDirectory(path: string): boolean {
+  const parts = path.split("/");
+  return parts.some((part) => [".git", "node_modules", "dist", "coverage", "build", ".next", ".turbo"].includes(part));
+}
+
+function isProbablyTextPath(path: string): boolean {
+  return !/\.(png|jpe?g|gif|webp|bmp|ico|pdf|zip|tar|gz|tgz|mp4|mov|woff2?|ttf|eot)$/i.test(path);
 }
 
 async function discoverTaskContextItems(
