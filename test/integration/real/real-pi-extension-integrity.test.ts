@@ -7,6 +7,7 @@ import { assessCompression } from "../../../src/compression.js";
 import { loadCommitReports, recordCommitReport } from "../../../src/git.js";
 import { loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
 import { loadDebugRetryPolicy } from "../../../src/debug-retry.js";
+import { buildScalerCompactionResult, loadFreshContextHandoffRecords, loadScalerCompactionRecords } from "../../../src/context-compaction.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { searchMemory, writeMemory } from "../../../src/memory.js";
 import { loadContextSplitRecords, recordContextSplitIfNeeded } from "../../../src/context-splits.js";
@@ -126,6 +127,55 @@ test("real Pi extension: slash command dispatch lists context split records", { 
     assert.equal(result.exitCode, 0, result.stderr || result.stdout);
     assert.match(`${result.stdout}\n${result.stderr}`, /T-REAL-SPLIT-context-split/);
     assert.equal((await loadContextSplitRecords(dir))[0]?.taskId, "T-REAL-SPLIT");
+  });
+});
+
+test("real Pi extension: slash command dispatch prepares fresh context handoff", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-REAL-HANDOFF";
+    state.tasks = [{ id: "T-REAL-HANDOFF", status: "ready", title: "Real handoff task", allowedPathPrefixes: ["src/app.js"], updatedAt: state.updatedAt }];
+    await saveState(dir, state);
+    const resolved = {
+      text: "x".repeat(2_000),
+      estimatedTokens: 900,
+      included: [{ id: "huge-real", type: "file" as const, reason: "Huge real", content: "x".repeat(2_000), priority: "required" as const, scope: "full" as const, exactness: "exact" as const, estimatedTokens: 800 }],
+      omitted: [],
+    };
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: resolved.estimatedTokens, contextWindowTokens: 1_000, largeItemThresholdTokens: 10 });
+    const split = await recordContextSplitIfNeeded(dir, state, "T-REAL-HANDOFF", resolved, assessment, new Date("2026-01-01T00:00:01.000Z"));
+
+    const result = await runScalerPi({ cwd: dir, prompt: `/scaler-context-handoff ${split!.id}` });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Prepared fresh context handoff/);
+    const records = await loadFreshContextHandoffRecords(dir);
+    assert.equal(records[0]?.splitId, split!.id);
+    assert.equal(records[0]?.shrinkTargetPassed, true);
+
+    const list = await runScalerPi({ cwd: dir, prompt: "/scaler-context-handoffs T-REAL-HANDOFF" });
+    assert.equal(list.exitCode, 0, list.stderr || list.stdout);
+    assert.match(`${list.stdout}\n${list.stderr}`, /Fresh context handoffs for T-REAL-HANDOFF/);
+  });
+});
+
+test("real Pi extension: slash command dispatch lists SCALER compaction records", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await saveState(dir, state);
+    await buildScalerCompactionResult(dir, state, {
+      firstKeptEntryId: "entry-real",
+      tokensBefore: 9_000,
+      messagesToSummarize: [{ role: "user", content: "Summarize real command coverage." }],
+      turnPrefixMessages: [],
+    }, { reason: "manual", willRetry: false, now: new Date("2026-01-01T00:00:02.000Z") });
+
+    const result = await runScalerPi({ cwd: dir, prompt: "/scaler-compactions" });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /SCALER compaction records/);
+    assert.equal((await loadScalerCompactionRecords(dir))[0]?.firstKeptEntryId, "entry-real");
   });
 });
 

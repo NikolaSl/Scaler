@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { getBudgetState } from "../src/budgets.js";
+import { loadScalerCompactionRecords } from "../src/context-compaction.js";
 import scalerExtension from "../src/index.js";
 import { readLogEvents } from "../src/logging.js";
 import { loadState } from "../src/state.js";
@@ -46,6 +47,10 @@ test("extension registers scaler commands", () => {
     "scaler-context-init",
     "scaler-context-status",
     "scaler-context-splits",
+    "scaler-compact",
+    "scaler-compactions",
+    "scaler-context-handoff",
+    "scaler-context-handoffs",
     "scaler-memory-search",
     "scaler-missing-context",
     "scaler-missing-context-run",
@@ -149,11 +154,11 @@ test("storage-status command persists inventory and storage budget usage", async
   });
 });
 
-test("extension turn_end hook records provider usage budgets", async () => {
+test("extension session_before_compact hook returns SCALER-aware compaction", async () => {
   await withTempDir(async (dir) => {
-    const handlers = new Map<string, (event: unknown, ctx: { cwd: string; hasUI: boolean }) => Promise<void>>();
+    const handlers = new Map<string, (event: unknown, ctx: { cwd: string; hasUI: boolean }) => Promise<unknown>>();
     const fakePi = {
-      on(name: string, handler: (event: unknown, ctx: { cwd: string; hasUI: boolean }) => Promise<void>) {
+      on(name: string, handler: (event: unknown, ctx: { cwd: string; hasUI: boolean }) => Promise<unknown>) {
         handlers.set(name, handler);
       },
       registerTool() {},
@@ -161,20 +166,62 @@ test("extension turn_end hook records provider usage budgets", async () => {
     };
 
     scalerExtension(fakePi as never);
+    const result = await handlers.get("session_before_compact")?.({
+      type: "session_before_compact",
+      preparation: {
+        firstKeptEntryId: "entry-1",
+        tokensBefore: 9_000,
+        messagesToSummarize: [{ role: "user", content: "Keep SCALER state." }],
+        turnPrefixMessages: [],
+        fileOps: { read: new Set(["src/index.ts"]), written: new Set<string>(), edited: new Set<string>() },
+      },
+      reason: "threshold",
+      willRetry: false,
+    }, { cwd: dir, hasUI: false }) as { compaction?: { summary?: string } } | undefined;
+
+    assert.match(result?.compaction?.summary ?? "", /SCALER-Aware Compaction Summary/);
+    const records = await loadScalerCompactionRecords(dir);
+    assert.equal(records.length, 1);
+    assert.equal(records[0]?.reason, "threshold");
+  });
+});
+
+test("extension turn_end hook records provider usage budgets and triggers compaction", async () => {
+  await withTempDir(async (dir) => {
+    const handlers = new Map<string, (event: unknown, ctx: { cwd: string; hasUI: boolean; getContextUsage?: () => { tokens: number | null; contextWindow: number; percent: number | null }; compact?: (options?: { customInstructions?: string }) => void }) => Promise<void>>();
+    const fakePi = {
+      on(name: string, handler: (event: unknown, ctx: { cwd: string; hasUI: boolean; getContextUsage?: () => { tokens: number | null; contextWindow: number; percent: number | null }; compact?: (options?: { customInstructions?: string }) => void }) => Promise<void>) {
+        handlers.set(name, handler);
+      },
+      registerTool() {},
+      registerCommand() {},
+    };
+
+    let compactInstructions = "";
+    scalerExtension(fakePi as never);
     await handlers.get("turn_end")?.({
       type: "turn_end",
       message: {
         role: "assistant",
         usage: { input: 50, output: 12, cacheRead: 0, cacheWrite: 0, totalTokens: 62, cost: { total: 0.000062 } },
       },
-    }, { cwd: dir, hasUI: false });
+    }, {
+      cwd: dir,
+      hasUI: false,
+      getContextUsage: () => ({ tokens: 800, contextWindow: 1_000, percent: 80 }),
+      compact: (options) => {
+        compactInstructions = options?.customInstructions ?? "";
+      },
+    });
 
     const state = await loadState(dir);
     const budgets = getBudgetState(state);
     assert.equal(budgets.usage.contextTokens, 62);
     assert.equal(budgets.usage.estimatedCostMicros, 62);
+    assert.match(compactInstructions, /SCALER-aware compaction/);
     const events = await readLogEvents(dir);
     assert.ok(events.some((event) => event.eventType === "budget" && event.summary.includes("Provider usage recorded")));
+    assert.ok(events.some((event) => event.eventType === "state" && event.summary === "SCALER automatic compaction requested"));
   });
 });
 

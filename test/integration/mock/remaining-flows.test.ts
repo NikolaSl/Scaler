@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { test } from "node:test";
 import { setBudgetLimits } from "../../../src/budgets.js";
 import { ensureTaskContextManifest, loadTaskContextManifest } from "../../../src/context.js";
+import { loadFreshContextHandoffRecords, prepareFreshContextHandoff } from "../../../src/context-compaction.js";
 import { loadContextSplitRecords } from "../../../src/context-splits.js";
 import { assessDebugRetryGate, loadDebugReports, recordDebugAttempt } from "../../../src/debug.js";
 import { runDebugAgentStep } from "../../../src/debug-agent.js";
@@ -170,6 +171,36 @@ test("mock integration: context discovery feeds conductor prompt with local evid
     });
     assert.equal(oversized.contextSplit?.taskId, "T-CONTEXT");
     assert.equal((await loadContextSplitRecords(dir))[0]?.id, oversized.contextSplit?.id);
+  });
+});
+
+test("mock integration: context split externalization feeds fresh minimal handoff", async () => {
+  await withTempRepo(async (dir) => {
+    const state = stateAt("execution");
+    state.tasks = [{ id: "T-HANDOFF", status: "ready", title: "Continue with compact context", allowedPathPrefixes: ["src/app.js"], updatedAt: state.createdAt }];
+    state.currentTaskId = "T-HANDOFF";
+    await saveState(dir, state);
+
+    const prepared = await runConductorStep(dir, state, {
+      execute: false,
+      tokenBudget: 2_000,
+      contextItems: [
+        { id: "large-exact-fixture", type: "file", reason: "Large exact fixture must be preserved", content: "EXACT-FIXTURE\n".repeat(1_200), priority: "required", scope: "full", exactness: "exact", estimatedTokens: 3_000 },
+        { id: "task-ref", type: "decision", reason: "Small continuation ref", content: "continue after split", priority: "required", scope: "summary", exactness: "summary-ok" },
+      ],
+    });
+
+    assert.equal(prepared.accepted, true);
+    assert.ok(prepared.contextSplit, "expected conductor to write a split artifact");
+    assert.equal(prepared.contextSplit.externalizedMemoryRefs.length, 1);
+    assert.ok((await loadMemoryIndex(dir)).entries.some((entry) => entry.source === `context-split:${prepared.contextSplit!.id}`));
+
+    const handoff = await prepareFreshContextHandoff(dir, prepared.state, { splitId: prepared.contextSplit.id });
+    assert.equal(handoff.accepted, true);
+    assert.equal(handoff.record.shrinkTargetPassed, true);
+    assert.ok(handoff.record.estimatedTokens < prepared.contextSplit.estimatedTokens);
+    assert.match(handoff.prompt, /large-exact-fixture: memory=/);
+    assert.equal((await loadFreshContextHandoffRecords(dir))[0]?.id, handoff.record.id);
   });
 });
 
