@@ -30,6 +30,22 @@ function createState(stage: ScalerState["stage"]): ScalerState {
   return state;
 }
 
+function validWorkflowTask(id: string, title: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    title,
+    taskKind: "software",
+    atomicityRationale: `${id} is independently completable and testable in the autonomous workflow.`,
+    allowedPathPrefixes: ["src"],
+    definitionOfDone: ["Workflow task completed and relevant tests pass."],
+    validationCommands: [
+      { id: "test-first", command: "node -e \"process.exit(0)\"", gate: "test_first", required: true },
+      { id: "unit", command: "node -e \"process.exit(0)\"", gate: "unit_tests", required: true },
+    ],
+    ...overrides,
+  };
+}
+
 test("deriveKnowledgeResearchRequests creates deterministic Stage II requests for uncovered requirements", () => {
   const requests = deriveKnowledgeResearchRequests([
     { id: "REQ-1", statement: "One", createdAt: "now", updatedAt: "now" },
@@ -90,13 +106,11 @@ async function stageRunner(request: TaskAgentRequest): Promise<TaskAgentRunResul
           status: "active",
           title: "Initial plan",
           source: "stage-workflow-test",
-          tasks: [{
-            id: "T-1",
-            title: "Implement workflow",
+          tasks: [validWorkflowTask("T-1", "Implement workflow", {
             prdRefs: ["REQ-1"],
             allowedPathPrefixes: ["src/stage-workflow.ts"],
-            validationRefs: ["unit"],
-          }],
+            validationRefs: ["unit", "test-first"],
+          })],
         },
       }],
       stderr: "",
@@ -175,8 +189,8 @@ async function replanRunner(request: TaskAgentRequest): Promise<TaskAgentRunResu
         title: "Refresh plan",
         source: "stage-workflow-test",
         tasks: [
-          { id: "T-KEEP", title: "Keep validated", prdRefs: ["REQ-KEEP"], allowedPathPrefixes: ["keep.ts"], validationRefs: ["keep"] },
-          { id: "T-NEW", title: "Cover new requirement", prdRefs: ["REQ-NEW"], allowedPathPrefixes: ["new.ts"], dependsOn: ["T-KEEP"], validationRefs: ["new"] },
+          validWorkflowTask("T-KEEP", "Keep validated", { prdRefs: ["REQ-KEEP"], allowedPathPrefixes: ["keep.ts"], validationRefs: ["keep", "test-first"] }),
+          validWorkflowTask("T-NEW", "Cover new requirement", { prdRefs: ["REQ-NEW"], allowedPathPrefixes: ["new.ts"], dependsOn: ["T-KEEP"], validationRefs: ["new", "test-first"] }),
         ],
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
@@ -220,7 +234,7 @@ test("runAutonomousStageWorkflow refreshes planning after execution coverage dis
       planVersion: 1,
       status: "active",
       title: "Current plan",
-      tasks: [{ id: "T-KEEP", title: "Keep validated", prdRefs: ["REQ-KEEP"], allowedPathPrefixes: ["keep.ts"] }],
+      tasks: [validWorkflowTask("T-KEEP", "Keep validated", { prdRefs: ["REQ-KEEP"], allowedPathPrefixes: ["keep.ts"], validationRefs: ["keep", "test-first"] })],
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });

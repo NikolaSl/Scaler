@@ -26,6 +26,22 @@ function createState(stage: ScalerState["stage"]): ScalerState {
   return state;
 }
 
+function validPlanTask(id: string, title: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    title,
+    taskKind: "software",
+    atomicityRationale: `${id} is independently completable and testable for the stage workflow flow.`,
+    allowedPathPrefixes: ["done.ts"],
+    definitionOfDone: ["Task output and validation evidence are complete."],
+    validationCommands: [
+      { id: "test-first", command: "node -e \"process.exit(0)\"", gate: "test_first", required: true },
+      { id: "unit", command: "node -e \"process.exit(0)\"", gate: "unit_tests", required: true },
+    ],
+    ...overrides,
+  };
+}
+
 async function replanRunner(request: TaskAgentRequest): Promise<TaskAgentRunResult> {
   assert.equal(request.taskId, "replan-agent");
   assert.match(request.prompt, /REQ-DISCOVERED/);
@@ -41,8 +57,8 @@ async function replanRunner(request: TaskAgentRequest): Promise<TaskAgentRunResu
         title: "Discovery refresh plan",
         source: "mock-integration",
         tasks: [
-          { id: "T-DONE", title: "Already validated", prdRefs: ["REQ-DONE"], allowedPathPrefixes: ["done.ts"], validationRefs: ["done"] },
-          { id: "T-DISCOVERED", title: "Implement discovered requirement", prdRefs: ["REQ-DISCOVERED"], allowedPathPrefixes: ["discovered.ts"], dependsOn: ["T-DONE"], validationRefs: ["unit"] },
+          validPlanTask("T-DONE", "Already validated", { prdRefs: ["REQ-DONE"], allowedPathPrefixes: ["done.ts"], validationRefs: ["done", "test-first"] }),
+          validPlanTask("T-DISCOVERED", "Implement discovered requirement", { prdRefs: ["REQ-DISCOVERED"], allowedPathPrefixes: ["discovered.ts"], dependsOn: ["T-DONE"], validationRefs: ["unit", "test-first"] }),
         ],
         createdAt: "2026-02-01T00:00:00.000Z",
         updatedAt: "2026-02-01T00:00:00.000Z",
@@ -87,7 +103,7 @@ test("mock integration: autonomous stage workflow refreshes Stage III from execu
       planVersion: 1,
       status: "active",
       title: "Before discovery",
-      tasks: [{ id: "T-DONE", title: "Already validated", prdRefs: ["REQ-DONE"], allowedPathPrefixes: ["done.ts"] }],
+      tasks: [validPlanTask("T-DONE", "Already validated", { prdRefs: ["REQ-DONE"], allowedPathPrefixes: ["done.ts"], validationRefs: ["done", "test-first"] })],
       createdAt: "2026-02-01T00:00:00.000Z",
       updatedAt: "2026-02-01T00:00:00.000Z",
     });

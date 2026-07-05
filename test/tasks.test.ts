@@ -53,6 +53,37 @@ test("createTask stores normalized allowed path prefixes, dependencies, PRD refs
   });
 });
 
+test("createTask enforces task quality requirements in strict mode", async () => {
+  await withTempDir(async (dir) => {
+    const rejected = await createTask(dir, createDefaultState(), { id: "T-STRICT", title: "Too loose", qualityMode: "enforce" });
+
+    assert.equal(rejected.accepted, false);
+    assert.match(rejected.message, /quality blocked/);
+    assert.deepEqual(rejected.qualityReview?.warnings.map((warning) => warning.code).sort(), ["missing_allowed_paths", "missing_atomicity", "missing_dod", "missing_test_first", "missing_validation"]);
+  });
+});
+
+test("createTask accepts strict task when requirements are present", async () => {
+  await withTempDir(async (dir) => {
+    const result = await createTask(dir, createDefaultState(), {
+      id: "T-STRICT-OK",
+      title: "Strict task",
+      qualityMode: "enforce",
+      taskKind: "software",
+      atomicityRationale: "T-STRICT-OK is independently completable and testable.",
+      allowedPathPrefixes: ["src"],
+      definitionOfDone: ["Tests pass"],
+      validationCommands: [
+        { id: "test-first", command: "npm test -- --list", gate: "test_first", required: true },
+        { id: "unit", command: "npm test", gate: "unit_tests", required: true },
+      ],
+    });
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.qualityReview?.status, "ok");
+  });
+});
+
 test("formatTaskList renders current task, status, title, and allowed paths", () => {
   const state = createDefaultState();
   state.currentTaskId = "T-001";

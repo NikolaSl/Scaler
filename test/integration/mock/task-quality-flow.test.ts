@@ -18,16 +18,21 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
+function registerCommands() {
+  const commands = new Map<string, { handler: (args: string | undefined, ctx: { cwd: string; hasUI: boolean }) => Promise<void> }>();
+  scalerExtension({
+    on() {},
+    registerTool() {},
+    registerCommand(name: string, command: { handler: (args: string | undefined, ctx: { cwd: string; hasUI: boolean }) => Promise<void> }) {
+      commands.set(name, command);
+    },
+  } as never);
+  return commands;
+}
+
 test("mock integration: task-quality command records atomic task warnings", async () => {
   await withTempDir(async (dir) => {
-    const commands = new Map<string, { handler: (args: string | undefined, ctx: { cwd: string; hasUI: boolean }) => Promise<void> }>();
-    scalerExtension({
-      on() {},
-      registerTool() {},
-      registerCommand(name: string, command: { handler: (args: string | undefined, ctx: { cwd: string; hasUI: boolean }) => Promise<void> }) {
-        commands.set(name, command);
-      },
-    } as never);
+    const commands = registerCommands();
 
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     await createTask(dir, state, { id: "T-QUALITY", title: "Unscoped task" });
@@ -49,5 +54,20 @@ test("mock integration: task-quality command records atomic task warnings", asyn
         .map((event) => (event.details as { phase: string }).phase),
       ["start", "end"],
     );
+  });
+});
+
+test("mock integration: task-create command enforces quality contract and accepts explicit refs", async () => {
+  await withTempDir(async (dir) => {
+    const commands = registerCommands();
+
+    await commands.get("scaler-task-create")?.handler("T-STRICT | Strict task | src | | REQ-STRICT | DoD done | software | T-STRICT is independently completable and testable. | test-first,unit", { cwd: dir, hasUI: false });
+
+    const reviews = await loadTaskDefinitionReviews(dir);
+    assert.equal(reviews[0]?.taskId, "T-STRICT");
+    assert.equal(reviews[0]?.status, "ok");
+
+    const events = await readLogEvents(dir);
+    assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Task created: T-STRICT"));
   });
 });

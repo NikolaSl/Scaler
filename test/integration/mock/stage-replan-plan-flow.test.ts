@@ -54,6 +54,22 @@ function createState(stage: ScalerState["stage"] = "execution"): ScalerState {
   return state;
 }
 
+function validPlanTask(id: string, title: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    title,
+    taskKind: "software",
+    atomicityRationale: `${id} is independently completable and testable for the replan flow.`,
+    allowedPathPrefixes: ["index.js"],
+    definitionOfDone: ["Task output and validation evidence are complete."],
+    validationCommands: [
+      { id: "test-first", command: "node -e \"process.exit(0)\"", gate: "test_first", required: true },
+      { id: "unit", command: "npm test", gate: "unit_tests", required: true },
+    ],
+    ...overrides,
+  };
+}
+
 async function stageArtifactRunner(request: TaskAgentRequest): Promise<TaskAgentRunResult> {
   const stage = request.taskId.replace(/^stage-/, "");
   const pathByStage: Record<string, string | undefined> = {
@@ -136,21 +152,17 @@ async function replanProposalRunner(request: TaskAgentRequest): Promise<TaskAgen
         title: "Integrated replan proposal",
         source: "integration-test",
         tasks: [
-          {
-            id: "T-KEEP",
-            title: "Keep validated work",
+          validPlanTask("T-KEEP", "Keep validated work", {
             prdRefs: ["REQ-KEEP"],
             allowedPathPrefixes: ["index.js"],
-            validationRefs: ["validation-keep"],
-          },
-          {
-            id: "T-NEW",
-            title: "Cover new requirement",
+            validationRefs: ["validation-keep", "test-first"],
+          }),
+          validPlanTask("T-NEW", "Cover new requirement", {
             prdRefs: ["REQ-NEW"],
             allowedPathPrefixes: ["new-feature.js"],
             dependsOn: ["T-KEEP"],
-            validationRefs: ["validation-new"],
-          },
+            validationRefs: ["validation-new", "test-first"],
+          }),
         ],
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
@@ -198,7 +210,7 @@ test("integration: runtime PRD replan request becomes preserved plan, accepted d
       planVersion: 1,
       status: "active",
       title: "Current plan",
-      tasks: [{ id: "T-KEEP", title: "Keep validated work", prdRefs: ["REQ-KEEP"], allowedPathPrefixes: ["index.js"] }],
+      tasks: [validPlanTask("T-KEEP", "Keep validated work", { prdRefs: ["REQ-KEEP"], allowedPathPrefixes: ["index.js"], validationRefs: ["validation-keep", "test-first"] })],
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });

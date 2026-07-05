@@ -73,6 +73,22 @@ function stateAt(stage: ScalerState["stage"] = "execution"): ScalerState {
   return state;
 }
 
+function validPlanTask(id: string, title: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    title,
+    taskKind: "software",
+    atomicityRationale: `${id} is independently completable and testable for this integration flow.`,
+    allowedPathPrefixes: ["src/app.js"],
+    definitionOfDone: ["Implementation and relevant validation pass."],
+    validationCommands: [
+      { id: "test-first", command: "node -e \"process.exit(0)\"", gate: "test_first", required: true },
+      { id: "unit", command: "npm test", gate: "unit_tests", required: true },
+    ],
+    ...overrides,
+  };
+}
+
 function taskReport(taskId: string): Record<string, unknown> {
   return { type: "scaler_task_report", taskId, status: "completed", summary: "Task completed.", changedFiles: [], memoryRefs: [], validations: [], validationRefs: [], evidenceRefs: [], blockers: [], missingData: [], recommendedNextAction: "validate" };
 }
@@ -242,8 +258,8 @@ test("mock integration: planning report syncs runtime PRD coverage before execut
         planVersion: 2,
         status: "active",
         tasks: [
-          { id: "T-PLAN-EXIST", title: "Existing planned", prdRefs: ["REQ-PLAN-1"], allowedPathPrefixes: ["src/app.js"] },
-          { id: "T-PLAN-NEW", title: "New planned", prdRefs: ["REQ-PLAN-2"], allowedPathPrefixes: ["src/app.js"] },
+          validPlanTask("T-PLAN-EXIST", "Existing planned", { prdRefs: ["REQ-PLAN-1"], allowedPathPrefixes: ["src/app.js"] }),
+          validPlanTask("T-PLAN-NEW", "New planned", { prdRefs: ["REQ-PLAN-2"], allowedPathPrefixes: ["src/app.js"] }),
         ],
       },
     });

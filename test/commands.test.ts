@@ -57,6 +57,10 @@ test("parseTaskCreateArgs parses task id only", () => {
     dependsOn: undefined,
     prdRefs: undefined,
     definitionOfDone: undefined,
+    taskKind: undefined,
+    atomicityRationale: undefined,
+    validationRefs: undefined,
+    qualityWaivers: undefined,
   });
 });
 
@@ -68,6 +72,10 @@ test("parseTaskCreateArgs parses title, allowed paths, dependencies, PRD refs, a
     dependsOn: ["T-000", "T-BASE"],
     prdRefs: ["REQ-001", "REQ-002"],
     definitionOfDone: ["tests pass", "docs updated"],
+    taskKind: undefined,
+    atomicityRationale: undefined,
+    validationRefs: undefined,
+    qualityWaivers: undefined,
   });
 });
 
@@ -80,6 +88,10 @@ test("parseTaskUpdateArgs parses task update fields", () => {
     dependsOn: ["T-000"],
     prdRefs: ["REQ-001"],
     definitionOfDone: undefined,
+    taskKind: undefined,
+    atomicityRationale: undefined,
+    validationRefs: undefined,
+    qualityWaivers: undefined,
   });
 });
 

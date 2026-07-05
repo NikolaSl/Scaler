@@ -59,7 +59,7 @@ test("registerScalerTools registers all tool definitions", () => {
   assert.deepEqual(registered, [...scalerToolNames]);
 });
 
-test("scaler_task_create records stable audit summary when quality warnings exist", async () => {
+test("scaler_task_create records stable audit summary when quality metadata is complete", async () => {
   await withTempDir(async (dir) => {
     const registered = new Map<string, { execute: (...args: any[]) => Promise<unknown> }>();
     registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<unknown> }) { registered.set(definition.name, definition); } } as never);
@@ -70,9 +70,16 @@ test("scaler_task_create records stable audit summary when quality warnings exis
         taskId: "T-AUDIT",
         title: "Audit stable task create",
         status: "ready",
+        taskKind: "software",
+        atomicityRationale: "T-AUDIT is independently completable and testable.",
         allowedPathPrefixes: ["src/audit"],
         dependsOn: [],
         prdRefs: ["REQ-AUDIT"],
+        definitionOfDone: ["Audit task complete"],
+        validationCommands: [
+          { id: "test-first", command: "node -e \"process.exit(0)\"", gate: "test_first", required: true },
+          { id: "unit", command: "node -e \"process.exit(0)\"", gate: "unit_tests", required: true },
+        ],
       },
       undefined,
       undefined,
@@ -279,7 +286,23 @@ test("scaler_planning_report syncs planner output", async () => {
       {
         id: "PLAN-TOOL",
         requirements: [{ id: "REQ-TOOL", statement: "Tool requirement" }],
-        plan: { planVersion: 3, status: "active", tasks: [{ id: "T-TOOL-PLAN", title: "Tool task", prdRefs: ["REQ-TOOL"] }] },
+        plan: {
+          planVersion: 3,
+          status: "active",
+          tasks: [{
+            id: "T-TOOL-PLAN",
+            title: "Tool task",
+            taskKind: "software",
+            atomicityRationale: "T-TOOL-PLAN is independently completable and testable.",
+            prdRefs: ["REQ-TOOL"],
+            allowedPathPrefixes: ["src"],
+            definitionOfDone: ["Tool task complete"],
+            validationCommands: [
+              { id: "test-first", command: "node -e \"process.exit(0)\"", gate: "test_first", required: true },
+              { id: "unit", command: "node -e \"process.exit(0)\"", gate: "unit_tests", required: true },
+            ],
+          }],
+        },
       },
       undefined,
       undefined,

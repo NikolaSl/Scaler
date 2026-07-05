@@ -39,6 +39,22 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
+function validPlanTask(id: string, title: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    title,
+    taskKind: "software",
+    atomicityRationale: `${id} is independently completable and testable for this plan slice.`,
+    allowedPathPrefixes: ["src"],
+    definitionOfDone: ["Implementation and relevant tests are complete."],
+    validationCommands: [
+      { id: "test-first", command: "node -e \"process.exit(0)\"", gate: "test_first", required: true },
+      { id: "unit", command: "node -e \"process.exit(0)\"", gate: "unit_tests", required: true },
+    ],
+    ...overrides,
+  };
+}
+
 test("loadExecutionPlan returns empty default when missing", async () => {
   await withTempDir(async (dir) => {
     const plan = await loadExecutionPlan(dir);
@@ -133,7 +149,7 @@ test("applyExecutionPlanTasks creates missing tasks and preserves existing tasks
       status: "active",
       tasks: [
         { id: "T-001", title: "Existing changed" },
-        { id: "T-002", title: "New task", prdRefs: ["REQ-001"], allowedPathPrefixes: ["src"], dependsOn: ["T-001"] },
+        validPlanTask("T-002", "New task", { prdRefs: ["REQ-001"], allowedPathPrefixes: ["src"], dependsOn: ["T-001"] }),
       ],
       createdAt: state.createdAt,
       updatedAt: state.createdAt,
@@ -167,8 +183,8 @@ test("applyPlanningReport syncs requirements plan tasks prd refs and coverage di
         planVersion: 7,
         status: "active",
         tasks: [
-          { id: "T-EXIST", title: "Existing updated", prdRefs: ["REQ-1"], allowedPathPrefixes: ["src"] },
-          { id: "T-NEW", title: "New", prdRefs: ["REQ-2"], allowedPathPrefixes: ["test"] },
+          validPlanTask("T-EXIST", "Existing updated", { prdRefs: ["REQ-1"], allowedPathPrefixes: ["src"] }),
+          validPlanTask("T-NEW", "New", { prdRefs: ["REQ-2"], allowedPathPrefixes: ["test"] }),
         ],
       },
     }, new Date("2026-01-01T00:00:01.000Z"));
@@ -197,8 +213,8 @@ test("applyPlanningReport reports coverage warnings for unlinked and unknown ref
         planVersion: 1,
         status: "active",
         tasks: [
-          { id: "T-LINK", title: "Unknown ref", prdRefs: ["REQ-UNKNOWN"] },
-          { id: "T-NOREF", title: "No ref" },
+          validPlanTask("T-LINK", "Unknown ref", { prdRefs: ["REQ-UNKNOWN"] }),
+          validPlanTask("T-NOREF", "No ref"),
         ],
       },
     });
@@ -382,7 +398,7 @@ test("acceptReplanProposal snapshots, saves proposed plan, applies tasks, resolv
       status: "draft",
       tasks: [
         { id: "T-001", title: "Validated", prdRefs: ["REQ-001"] },
-        { id: "T-002", title: "New work", prdRefs: ["REQ-002"], allowedPathPrefixes: ["src"] },
+        validPlanTask("T-002", "New work", { prdRefs: ["REQ-002"], allowedPathPrefixes: ["src"] }),
       ],
       createdAt: state.createdAt,
       updatedAt: state.createdAt,

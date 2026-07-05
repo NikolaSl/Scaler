@@ -296,6 +296,25 @@ test("real Pi extension: slash command dispatch lists commit reports", { skip: !
   });
 });
 
+test("real Pi extension: slash command dispatch creates strictly qualified task", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-task-create T-REAL-STRICT | Strict real task | src/real-strict | | REQ-REAL-STRICT | DoD complete | software | T-REAL-STRICT is independently completable and testable. | test-first,unit",
+    });
+
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Task created: T-REAL-STRICT/);
+    assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
+
+    const state = await loadState(dir);
+    const task = state.tasks.find((candidate) => candidate.id === "T-REAL-STRICT");
+    assert.equal(task?.taskKind, "software");
+    assert.deepEqual(task?.validationRefs, ["test-first", "unit"]);
+    assert.equal((await loadTaskDefinitionReviews(dir))[0]?.status, "ok");
+  });
+});
+
 test("real Pi extension: slash command dispatch records task quality warnings", { skip: !REAL_PI_ENABLED }, async () => {
   await withRealPiTempRepo(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
@@ -1370,9 +1389,16 @@ test("real Pi extension: cardinal model calls a SCALER tool and mutates SCALER s
       taskId: "REAL-TOOL-001",
       title: "Real Pi cardinal task",
       status: "ready",
+      taskKind: "software",
+      atomicityRationale: "REAL-TOOL-001 is independently completable and testable.",
       allowedPathPrefixes: ["src/real-pi-cardinal"],
       dependsOn: [],
       prdRefs: ["REQ-REAL-PI"],
+      definitionOfDone: ["Real Pi cardinal task is persisted with validation metadata."],
+      validationCommands: [
+        { id: "test-first", command: "node -e \"process.exit(0)\"", gate: "test_first", required: true },
+        { id: "unit", command: "node -e \"process.exit(0)\"", gate: "unit_tests", required: true },
+      ],
     };
     const result = await runScalerPi({
       cwd: dir,
