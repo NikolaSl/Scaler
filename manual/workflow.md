@@ -95,7 +95,7 @@ Inspect execution records with:
 /scaler-validate-loop T-001 execute max=5
 ```
 
-Validation runs the task manifest commands and records results under `.scaler/reports/`. Non-host environment lifecycle records can be inspected with `/scaler-validation-envs`; generated sandbox/local-CI provisioning records can be inspected with `/scaler-cicd-envs`. Passing validation moves a validating/debugging task to `validated`; failing validation moves a validating task to `debugging`; blocked validation moves the task to `blocked` and requests replanning where stage rules allow. `/scaler-validate-loop` keeps `/scaler-validate` semantics, then starts the bounded debug loop after failed validation and after the validation lock is released.
+Validation runs the task manifest commands and records results under `.scaler/reports/`. Non-host environment lifecycle records can be inspected with `/scaler-validation-envs`; generated sandbox/local-CI provisioning records can be inspected with `/scaler-cicd-envs`. Passing validation moves a validating/debugging task to `validated` only when git commit evidence or explicit commit-skip evidence exists; otherwise the task remains `validating` with a passed validation run and `/scaler-commit` or `/scaler-commit-skip` must finish acceptance. Failing validation moves a validating task to `debugging`; blocked validation moves the task to `blocked` and requests replanning where stage rules allow. `/scaler-validate-loop` keeps `/scaler-validate` semantics, then starts the bounded debug loop after failed validation and after the validation lock is released.
 
 When debugging stalls, use either individual focused-agent commands or the bounded debug loop:
 
@@ -125,7 +125,7 @@ After a `next_approach`, use:
 /scaler-commit
 ```
 
-Commits are allowed only for validated tasks. The git helper refuses commits when unrelated changes are present, when a task is not validated, or when the project is not a git repository. Allowed paths come from task metadata or explicit command arguments. Successful commits record post-commit artifacts in `.scaler/reports/commits.json`; inspect them with `/scaler-commits [taskId]`.
+Commits are allowed for validated or validation-passed tasks. The git helper refuses commits when unrelated changes are present, when a task is neither validated nor validation-passed, or when the project is not a git repository. Allowed paths come from task metadata or explicit command arguments. Successful commits record post-commit artifacts in `.scaler/reports/commits.json` and transition validation-passed tasks to `validated`; inspect them with `/scaler-commits [taskId]`. Use `/scaler-commit-skip [taskId] | <reason>` only when an empty/no-file-change or deliberately skipped commit is acceptable; skip evidence is listed with `/scaler-commit-skips`.
 
 ## Useful maintenance commands
 

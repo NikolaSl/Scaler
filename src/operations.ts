@@ -1,6 +1,8 @@
 import { incrementBudgetUsage, persistBudgetDecision } from "./budgets.js";
-import { commitValidatedTask, type GitCommitTaskResult } from "./git.js";
+import { commitValidatedTask, skipTaskCommit, type GitCommitTaskResult } from "./git.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
+import { saveState } from "./state.js";
+import { transitionTask } from "./supervisor.js";
 import type { ScalerState } from "./types.js";
 import { runTaskValidation, type ValidationRunRecord } from "./validation.js";
 
@@ -29,7 +31,8 @@ export async function runValidationWithExecutionLock(
     const policyFailures = run.policyDiagnostics?.filter((diagnostic) => diagnostic.severity === "failure").length ?? 0;
     const policyWarnings = run.policyDiagnostics?.filter((diagnostic) => diagnostic.severity === "warning").length ?? 0;
     const policySummary = policyFailures || policyWarnings ? ` policyFailures=${policyFailures} policyWarnings=${policyWarnings}` : "";
-    return { accepted: true, message: `Validation ${run.status}: ${taskId} commands=${run.commandRuns.length}${policySummary}`, result: run };
+    const acceptanceSummary = run.acceptance && !run.acceptance.accepted ? ` acceptance=${run.acceptance.message}` : "";
+    return { accepted: run.acceptance?.accepted ?? true, message: `Validation ${run.status}: ${taskId} commands=${run.commandRuns.length}${policySummary}${acceptanceSummary}`, result: run };
   } finally {
     await releaseExecutionLock(cwd, lock.lock.id);
   }
@@ -46,6 +49,31 @@ export async function commitWithExecutionLock(
 
   try {
     const result = await commitValidatedTask(cwd, state, taskId, allowedPaths);
+    if (result.accepted && state.tasks.find((task) => task.id === taskId)?.status === "validating") {
+      const nextState = transitionTask(state, taskId, "validated", { reason: result.commitHash ? `Git commit ${result.commitHash} recorded after validation.` : result.message });
+      await saveState(cwd, nextState);
+    }
+    return { accepted: result.accepted, message: result.message, result };
+  } finally {
+    await releaseExecutionLock(cwd, lock.lock.id);
+  }
+}
+
+export async function skipCommitWithExecutionLock(
+  cwd: string,
+  state: ScalerState,
+  taskId: string,
+  reason: string,
+): Promise<LockedOperationResult<GitCommitTaskResult>> {
+  const lock = await acquireExecutionLock(cwd, { operation: "commit_skip", taskId, reason: "Task commit skip requested." });
+  if (!lock.acquired) return { accepted: false, message: lock.message };
+
+  try {
+    const result = await skipTaskCommit(cwd, state, taskId, reason);
+    if (result.accepted && state.tasks.find((task) => task.id === taskId)?.status === "validating") {
+      const nextState = transitionTask(state, taskId, "validated", { reason: result.message });
+      await saveState(cwd, nextState);
+    }
     return { accepted: result.accepted, message: result.message, result };
   } finally {
     await releaseExecutionLock(cwd, lock.lock.id);

@@ -225,6 +225,7 @@ When adding a new integration scenario:
   - replanner-agent structured proposal ingestion, preservation checks, proposed-plan persistence, run records, and audit logs;
   - replan proposal acceptance, current-plan replacement, version snapshot, replan decision, request resolution, and task creation;
   - validated-task git commit through the execution lock while preserving `.scaler/` runtime artifacts and recording git audit logs plus post-commit report artifacts.
+  - git bootstrap/status rules, pre-task dirty-tree checkpoints, validation commit-required ordering, and explicit commit-skip promotion.
 - `mock/budget-command-flow.test.ts`
   - provider usage turn metadata increments token/cost budget counters and writes budget audit events;
   - command-driven budget configuration persisted to state;
@@ -281,7 +282,7 @@ When adding a new integration scenario:
   - debug report to replan request to acceptance retry-gate clearance;
   - blocked validation to replan proposal acceptance;
   - execution-lock contention across conductor, validation, stage, replan, research, debug, and commit workflows;
-  - safety/allowed-path and commit-refusal chains;
+  - safety/allowed-path and commit-refusal chains, git bootstrap/pre-task dirty-tree checkpoints, and commit-skip acceptance ordering;
   - research raw evidence memory references, memory search/tag filtering, and summary-scoped memory context in later context;
   - stage consistency rejection;
   - dependency-blocked task selection and release after dependency validation.
@@ -304,7 +305,7 @@ When adding a new integration scenario:
   - real Pi slash-command safety-policy persistence;
   - real Pi slash-command debug next-approach retry prepare mode with persisted `.scaler/debug/retries.json` and prompt audit logs;
   - real Pi slash-command MCP enumeration, tool transaction, transaction replay, replay approval, schedule planning, and bounded iteration prepare modes with persisted `.scaler/tool-requests/mcp-servers.json` / `.scaler/tool-requests/transactions.json` / `.scaler/tool-requests/replay-approvals.json` / `.scaler/tool-requests/schedules.json` / `.scaler/tool-requests/iteration-runs.json`, plus tool iteration policy persistence;
-  - real Pi slash-command typed validation gate metadata, validation gate/environment/disposition policy enforcement, validation environment lifecycle status, deterministic CI/CD sandbox provisioning/status, skipped/blocked disposition persistence, non-software checklist persistence, and evidence-policy enforcement;
+  - real Pi slash-command typed validation gate metadata, validation gate/environment/disposition policy enforcement, validation environment lifecycle status, deterministic CI/CD sandbox provisioning/status, skipped/blocked disposition persistence, non-software checklist persistence, evidence-policy enforcement, git bootstrap evidence, and commit-skip promotion after passed validation;
   - command audit events and detail payload references in `.scaler/logs/events.jsonl`;
   - cardinal real-model call to `scaler_tool_request` with exact rich metadata and persisted tool-request state;
   - cardinal real-model call to `scaler_tool_result` with exact result metadata, persisted result ledger, and closed request status;

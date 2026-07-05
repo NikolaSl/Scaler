@@ -25,7 +25,7 @@ Design requirements live in `assignement.md` and `specs/`. Compliance reviews mu
 - Minimal one-step conductor execution with validation handoff artifacts and a debug retry gate for unresolved repeated failed fingerprints.
 - Debug failure/attempt/report ledgers, longer hidden fingerprint-cycle detection, and a focused debug-agent workflow that emits structured `scaler_debug_report` events; reports can create research requests or debug-blocked replan requests.
 - Deterministic validation manifests, command-run records, validation environment lifecycle records, and generated CI/CD sandbox/local-CI wrapper records under `.scaler/reports/cicd-environments.json` plus generated files under `.scaler/cicd/`.
-- Git status safety, validated-task commit helpers, and `.scaler/reports/commits.json` post-commit reports.
+- Git bootstrap/status records, pre-task dirty-tree checkpoints, commit/skip acceptance evidence, and post-commit reports.
 - Implemented create/list/step/validate/commit workflow, including enforced task-definition quality for user-facing/planner task creation and explicit waivers for missing DoD, validation, allowed paths, atomicity, or test-first coverage.
 - Task-agent run records with timeout/abort diagnostics and task-agent report ledgers under `.scaler/reports/task-agent-reports.json`.
 - Mandatory repo-wide sequential execution lock for SCALER operations.

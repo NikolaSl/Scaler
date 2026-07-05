@@ -184,6 +184,11 @@ export interface ParsedCommitArgs {
   allowedPathPrefixes?: string[];
 }
 
+export interface ParsedCommitSkipArgs {
+  taskId?: string;
+  reason?: string;
+}
+
 export interface ParsedReplanRequestArgs {
   reason: string;
   taskId?: string;
@@ -630,6 +635,14 @@ export function parseCommitArgs(args: string | undefined): ParsedCommitArgs {
   };
 }
 
+export function parseCommitSkipArgs(args: string | undefined): ParsedCommitSkipArgs {
+  const parts = splitPipeArgs(args);
+  return {
+    taskId: parts[0]?.trim() || undefined,
+    reason: parts[1]?.trim() || undefined,
+  };
+}
+
 export function parseReplanRequestArgs(args: string | undefined): ParsedReplanRequestArgs | undefined {
   const parts = splitPipeArgs(args);
   const reason = parts[0]?.trim();
@@ -916,10 +929,10 @@ export function parseStageRecordArgs(args: string | undefined): ParsedStageRecor
 
 export function selectTaskForCommit(state: ScalerState, requestedTaskId?: string): string | undefined {
   if (requestedTaskId) return requestedTaskId;
-  if (state.currentTaskId && state.tasks.some((task) => task.id === state.currentTaskId && task.status === "validated")) {
+  if (state.currentTaskId && state.tasks.some((task) => task.id === state.currentTaskId && (task.status === "validated" || task.status === "validating"))) {
     return state.currentTaskId;
   }
-  return state.tasks.find((task) => task.status === "validated")?.id;
+  return state.tasks.find((task) => task.status === "validated")?.id ?? state.tasks.find((task) => task.status === "validating")?.id;
 }
 
 export function resolveCommitAllowedPaths(state: ScalerState, taskId: string, explicitPaths?: string[]): string[] {

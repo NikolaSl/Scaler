@@ -238,6 +238,14 @@ export function getCommitReportsPath(cwd: string): string {
   return join(getReportsDir(cwd), "commits.json");
 }
 
+export function getCommitSkipsPath(cwd: string): string {
+  return join(getReportsDir(cwd), "commit-skips.json");
+}
+
+export function getGitBootstrapReportsPath(cwd: string): string {
+  return join(getReportsDir(cwd), "git-bootstrap.json");
+}
+
 export function getPlanningReportsPath(cwd: string): string {
   return join(getReportsDir(cwd), "planning-reports.json");
 }

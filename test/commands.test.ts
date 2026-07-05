@@ -6,6 +6,7 @@ import {
   parseCommaList,
   parseSemicolonList,
   parseCommitArgs,
+  parseCommitSkipArgs,
   parseContextTaskArgs,
   parseDebugLoopArgs,
   parseDebugRunArgs,
@@ -478,6 +479,11 @@ test("parseResearchReportArgs parses compact report fields", () => {
 test("parseCommitArgs parses optional task and paths", () => {
   assert.deepEqual(parseCommitArgs("T-001 | src,test"), { taskId: "T-001", allowedPathPrefixes: ["src", "test"] });
   assert.deepEqual(parseCommitArgs(""), { taskId: undefined, allowedPathPrefixes: undefined });
+});
+
+test("parseCommitSkipArgs parses optional task and reason", () => {
+  assert.deepEqual(parseCommitSkipArgs("T-001 | generated docs only"), { taskId: "T-001", reason: "generated docs only" });
+  assert.deepEqual(parseCommitSkipArgs(""), { taskId: undefined, reason: undefined });
 });
 
 test("selectTaskForCommit prefers requested, current validated, then first validated", () => {

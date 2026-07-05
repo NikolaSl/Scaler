@@ -74,13 +74,13 @@ Example:
 
 ## `/scaler-commit [taskId] | [allowed paths comma list]`
 
-Commits a validated task using the git safety helper. Commits run under the repo-wide execution lock.
+Commits a validated or validation-passed task using the git safety helper. Commits run under the repo-wide execution lock. A task that is still `validating` after a passed validation becomes `validated` only after this commit or an explicit commit skip.
 
 Selection rules:
 
 1. explicit task id
-2. current task if it is validated
-3. first validated task
+2. current task if it is validated or validation-passed
+3. first validated task, then first validation-passed task
 
 Allowed paths come from explicit command args or the task's stored allowed paths.
 
@@ -91,11 +91,23 @@ Examples:
 /scaler-commit
 ```
 
-The command refuses commits when unrelated changes are detected, the task is not validated, or the project is not a git repository. Successful commits record `.scaler/reports/commits.json` with the commit id, task id, included paths, git safety summary, and latest validation summary.
+The command refuses commits when unrelated changes are detected, the task is not validated/validation-passed, or the project is not a git repository. Successful commits record `.scaler/reports/commits.json` with the commit id, task id, included paths, git safety summary, and latest validation summary. Clean or runtime-only trees record commit-skip evidence instead of creating empty commits.
 
 ## `/scaler-commits [taskId]`
 
 Lists post-commit report records from `.scaler/reports/commits.json`. Optional `taskId` filters records.
+
+## `/scaler-commit-skip [taskId] | <reason>`
+
+Records explicit commit-skip evidence under `.scaler/reports/commit-skips.json` after validation has passed. This is the accepted path for no-file-change tasks or deliberately uncommitted scratch/generated output. When accepted for a `validating` task with a passed validation run, the task transitions to `validated`.
+
+## `/scaler-commit-skips [taskId]`
+
+Lists explicit commit-skip records from `.scaler/reports/commit-skips.json`.
+
+## `/scaler-git-bootstrap`
+
+Initializes/verifies the git repository when needed, writes SCALER runtime ignore rules to `.git/info/exclude`, records initial status under `.scaler/reports/git-bootstrap.json`, and lists recent bootstrap records.
 
 ## `/scaler-validate-loop [taskId] [execute] [max=N]`
 
@@ -111,9 +123,9 @@ Current behavior:
 - otherwise falls back to default project commands from `package.json` scripts (`npm test`, `npm run build`)
 - evaluates dependency/test-first, environment, and skipped/blocked disposition policy diagnostics before command execution
 - prepares declared non-host validation environments (`local_ci`, Docker, Compose, devcontainer, Minikube), blocks required commands when required tooling is unavailable, generates deterministic CI/CD wrapper/config files under `.scaler/cicd/`, executes validation through the selected wrapper, and records prepare/cleanup evidence in `.scaler/reports/validation-environments.json`
-- writes validation runs to `.scaler/reports/validation-runs.json` with CI/CD provision refs, executed wrapper commands, and artifact refs when non-host environments are used
+- writes validation runs to `.scaler/reports/validation-runs.json` with CI/CD provision refs, executed wrapper commands, artifact refs, and acceptance metadata when non-host environments are used
 - records dispositioned commands as `skipped` or `blocked` without executing them
-- moves all-passing validating tasks to `validated`
+- moves all-passing validating tasks to `validated` only after git commit evidence or explicit commit-skip evidence exists; if project changes are present, validation remains passed-but-unaccepted and instructs `/scaler-commit` or `/scaler-commit-skip`
 - moves failing validating tasks to `debugging`
 - moves blocked validating tasks to `blocked` and requests replanning where allowed
 

@@ -11,11 +11,11 @@ import { loadFreshContextHandoffRecords, prepareFreshContextHandoff } from "../.
 import { loadContextSplitRecords } from "../../../src/context-splits.js";
 import { assessDebugRetryGate, loadDebugReports, recordDebugAttempt } from "../../../src/debug.js";
 import { runDebugAgentStep } from "../../../src/debug-agent.js";
-import { assessGitStatusSafety, loadCommitReports } from "../../../src/git.js";
+import { assessGitStatusSafety, ensureGitRepository, loadCommitReports, loadCommitSkips } from "../../../src/git.js";
 import { acquireExecutionLock, releaseExecutionLock } from "../../../src/locks.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { loadMemoryIndex, searchMemory, writeMemory } from "../../../src/memory.js";
-import { commitWithExecutionLock, runValidationWithExecutionLock } from "../../../src/operations.js";
+import { commitWithExecutionLock, runValidationWithExecutionLock, skipCommitWithExecutionLock } from "../../../src/operations.js";
 import {
   acceptReplanProposal,
   appendReplanRequest,
@@ -491,5 +491,63 @@ test("mock integration: commit refusals precede allowed validated commit", async
     assert.equal(commit.accepted, true, commit.message);
     const shown = await execFileAsync("git", ["show", "HEAD:src/app.js"], { cwd: dir });
     assert.equal(shown.stdout, "export const value = 4;\n");
+  });
+});
+
+test("mock integration: git bootstrap records exclude rules and pre-task dirty tree pauses", async () => {
+  await withTempRepo(async (dir) => {
+    const bootstrap = await ensureGitRepository(dir);
+    assert.equal(bootstrap.status, "existing");
+    assert.match(await readFile(join(dir, ".git/info/exclude"), "utf8"), /.scaler\/logs\//);
+
+    const state = stateAt("execution");
+    state.currentTaskId = "T-DIRTY";
+    state.tasks = [{ id: "T-DIRTY", status: "ready", title: "Dirty blocker", allowedPathPrefixes: ["src/app.js"], updatedAt: state.createdAt }];
+    await saveState(dir, state);
+    await writeFile(join(dir, "notes.txt"), "pre-existing user notes\n");
+
+    const result = await runConductorStep(dir, state, { execute: false });
+    const persisted = await loadState(dir);
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /dirty-tree blocker/);
+    assert.equal(persisted.stage, "paused");
+    assert.ok(result.checkpointPath?.includes("pre-task-dirty-tree"));
+  });
+});
+
+test("mock integration: passed validation requires commit or explicit skip before validated", async () => {
+  await withTempRepo(async (dir) => {
+    const state = stateAt("execution");
+    state.currentTaskId = "T-GIT-ACCEPT";
+    state.tasks = [{ id: "T-GIT-ACCEPT", status: "validating", title: "Git acceptance", allowedPathPrefixes: ["src/app.js"], updatedAt: state.createdAt }];
+    await saveState(dir, state);
+    await writeFile(join(dir, "src/app.js"), "export const value = 5;\n");
+
+    const validation = await runValidationWithExecutionLock(dir, state, "T-GIT-ACCEPT");
+    assert.equal(validation.accepted, false);
+    assert.match(validation.message, /commit or explicit commit skip is required/);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validating");
+
+    const commit = await commitWithExecutionLock(dir, await loadState(dir), "T-GIT-ACCEPT", ["src/app.js"]);
+    assert.equal(commit.accepted, true, commit.message);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
+    assert.equal((await loadCommitReports(dir))[0]?.taskId, "T-GIT-ACCEPT");
+  });
+});
+
+test("mock integration: explicit commit skip records evidence and validates after passed validation", async () => {
+  await withTempRepo(async (dir) => {
+    const state = stateAt("execution");
+    state.currentTaskId = "T-GIT-SKIP";
+    state.tasks = [{ id: "T-GIT-SKIP", status: "validating", title: "Git skip", allowedPathPrefixes: ["src/app.js"], updatedAt: state.createdAt }];
+    await saveState(dir, state);
+    await writeFile(join(dir, "src/app.js"), "export const value = 6;\n");
+
+    const validation = await runValidationWithExecutionLock(dir, state, "T-GIT-SKIP");
+    assert.equal(validation.accepted, false);
+    const skip = await skipCommitWithExecutionLock(dir, await loadState(dir), "T-GIT-SKIP", "User requested no commit for scratch output.");
+    assert.equal(skip.accepted, true, skip.message);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
+    assert.equal((await loadCommitSkips(dir))[0]?.taskId, "T-GIT-SKIP");
   });
 });

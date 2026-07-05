@@ -33,6 +33,8 @@ export async function withRealPiTempRepo<T>(fn: (dir: string) => Promise<T>): Pr
   const dir = await mkdtemp(join(tmpdir(), "scaler-real-pi-extension-test-"));
   try {
     await runCommand("git", ["init"], dir);
+    await runCommand("git", ["config", "user.email", "scaler-real@example.invalid"], dir);
+    await runCommand("git", ["config", "user.name", "Scaler Real"], dir);
     await writeFile(join(dir, "package.json"), JSON.stringify({
       type: "module",
       scripts: {
@@ -40,6 +42,8 @@ export async function withRealPiTempRepo<T>(fn: (dir: string) => Promise<T>): Pr
         build: "node -e \"process.exit(0)\"",
       },
     }, null, 2));
+    await runCommand("git", ["add", "package.json"], dir);
+    await runCommand("git", ["commit", "-m", "initial real fixture"], dir);
     return await fn(dir);
   } finally {
     await rm(dir, { recursive: true, force: true });

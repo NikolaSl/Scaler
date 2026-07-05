@@ -5,6 +5,7 @@ import {
   parseBudgetSetArgs,
   parseCicdEnvArgs,
   parseCommitArgs,
+  parseCommitSkipArgs,
   parseContextTaskArgs,
   parseDebugLoopArgs,
   parseDebugRunArgs,
@@ -57,12 +58,12 @@ import { loadDebugAttempts, loadDebugFailures, loadDebugReports, loadDebugRetrie
 import { formatDebugAgentRunList, loadDebugAgentRunRecords, runDebugAgentStep } from "./debug-agent.js";
 import { runDebugConductorLoop } from "./debug-conductor.js";
 import { approveDebugRetry, formatDebugRetryApprovals, formatDebugRetryPolicy, formatDebugRetrySummary, loadDebugRetryApprovals, loadDebugRetryPolicy, runDebugRetryPolicyWorkflow, saveDebugRetryPolicy } from "./debug-retry.js";
-import { formatCommitReports, loadCommitReports } from "./git.js";
+import { ensureGitRepository, formatCommitReports, formatCommitSkips, formatGitBootstrapRecords, loadCommitReports, loadCommitSkips, loadGitBootstrapRecords } from "./git.js";
 import { clearExecutionLock, formatExecutionLock, loadExecutionLock } from "./locks.js";
 import { createLogEvent, appendLogEvent, logCommandAudit, logStateEvent, logToolAudit } from "./logging.js";
 import { formatMemorySearchResults, loadMemoryIndex, searchMemory, type MemoryValidity } from "./memory.js";
 import { dispatchMissingContextRequest, formatMissingContextRequests, loadMissingContextRequests, resolveMissingContextRequest, unblockTasksWithResolvedMissingContext } from "./missing-context.js";
-import { commitWithExecutionLock, runValidationWithExecutionLock } from "./operations.js";
+import { commitWithExecutionLock, runValidationWithExecutionLock, skipCommitWithExecutionLock } from "./operations.js";
 import { getEventLogPath } from "./paths.js";
 import { formatValidationEnvironmentRecords, loadValidationEnvironmentRecords } from "./validation-environments.js";
 import {
@@ -313,9 +314,10 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const state = await ensureState(ctx.cwd);
       const nextState = startScalerRun(state, args ?? "");
       await saveState(ctx.cwd, nextState);
-      await logStateEvent(ctx.cwd, nextState, "Scaler run requested", { command: "scaler", request: args ?? "" });
+      const gitBootstrap = await ensureGitRepository(ctx.cwd);
+      await logStateEvent(ctx.cwd, nextState, "Scaler run requested", { command: "scaler", request: args ?? "", gitBootstrap });
 
-      const message = `${formatStateStatus(nextState)} reason=${nextState.orchestrationReason ?? "n/a"}`;
+      const message = `${formatStateStatus(nextState)} reason=${nextState.orchestrationReason ?? "n/a"} git=${gitBootstrap.status}`;
       if (ctx.hasUI) {
         ctx.ui.notify(message, "info");
       } else {
@@ -1506,13 +1508,13 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("scaler-commit", {
-    description: "Commit a validated SCALER task: /scaler-commit [taskId] | [allowed paths comma list]",
+    description: "Commit a validated or validation-passed SCALER task: /scaler-commit [taskId] | [allowed paths comma list]",
     handler: async (args, ctx) => {
       const state = await ensureState(ctx.cwd);
       const parsed = parseCommitArgs(args);
       const taskId = selectTaskForCommit(state, parsed.taskId);
       if (!taskId) {
-        const message = "No validated task found for /scaler-commit.";
+        const message = "No validated or validation-passed task found for /scaler-commit.";
         if (ctx.hasUI) ctx.ui.notify(message, "warning");
         else console.log(message);
         return;
@@ -1531,6 +1533,46 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const taskId = args?.trim() || undefined;
       const message = formatCommitReports(await loadCommitReports(ctx.cwd), taskId);
       if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-commit-skip", {
+    description: "Record explicit commit-skip evidence after passed validation: /scaler-commit-skip [taskId] | <reason>",
+    handler: async (args, ctx) => {
+      const state = await ensureState(ctx.cwd);
+      const parsed = parseCommitSkipArgs(args);
+      const taskId = selectTaskForCommit(state, parsed.taskId);
+      if (!taskId || !parsed.reason) {
+        const message = "Usage: /scaler-commit-skip [taskId] | <reason>";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+      const result = await skipCommitWithExecutionLock(ctx.cwd, state, taskId, parsed.reason);
+      if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
+      else console.log(result.message);
+    },
+  });
+
+  pi.registerCommand("scaler-commit-skips", {
+    description: "List SCALER explicit commit-skip records: /scaler-commit-skips [taskId]",
+    handler: async (args, ctx) => {
+      const taskId = args?.trim() || undefined;
+      const message = formatCommitSkips(await loadCommitSkips(ctx.cwd), taskId);
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-git-bootstrap", {
+    description: "Initialize/verify git repository and SCALER runtime ignore rules, then list bootstrap records.",
+    handler: async (_args, ctx) => {
+      const state = await ensureState(ctx.cwd);
+      const record = await ensureGitRepository(ctx.cwd);
+      await logStateEvent(ctx.cwd, state, "Scaler git bootstrap requested", { record });
+      const message = formatGitBootstrapRecords(await loadGitBootstrapRecords(ctx.cwd));
+      if (ctx.hasUI) ctx.ui.notify(message, record.status === "failed" ? "warning" : "info");
       else console.log(message);
     },
   });

@@ -8,6 +8,10 @@ GAP-030: repository bootstrap, pre-task dirty-tree handling, and the supervisor 
 - IMPL-351: Enforce pre-task dirty-tree checks before conductor starts task work, pausing with checkpoint evidence on unrelated existing changes.
 - IMPL-352: Gate validation acceptance on commit/skip evidence, allow commit after passed validation, add explicit commit-skip records/command, and document/test the lifecycle.
 
+## Status
+
+Implemented by IMPL-350..352. Git bootstrap/status records, pre-task dirty-tree checkpoints, validation acceptance ordering, commit promotion, and explicit commit-skip evidence are in code/tests/docs. Final validation commands recorded in gap backlog/traceability updates.
+
 ## Validation
 - Unit tests for bootstrap records, ignore updates, commit-skip records, and validation acceptance gating.
 - Mocked integration for dirty pre-task pause, commit-required validation, commit-after-validation transition, and explicit skip transition.

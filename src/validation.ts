@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { prepareCicdValidationExecution } from "./cicd-environments.js";
+import { evaluateValidationGitAcceptance, type GitValidationAcceptanceDecision } from "./git.js";
 import { appendLogEvent, createLogEvent, logValidationSummaryAudit } from "./logging.js";
 import { getValidationChecklistsPath, getValidationManifestsPath, getValidationRunsPath } from "./paths.js";
 import { cleanupValidationEnvironment, prepareValidationEnvironment, type ValidationEnvironmentProbe } from "./validation-environments.js";
@@ -191,12 +192,20 @@ export interface ValidationManifestPolicyResult {
   diagnostics: ValidationManifestPolicyDiagnostic[];
 }
 
+export interface ValidationAcceptanceRecord {
+  accepted: boolean;
+  message: string;
+  targetStatus?: ScalerTaskStatus;
+  git?: GitValidationAcceptanceDecision;
+}
+
 export interface ValidationRunRecord {
   id: string;
   taskId: string;
   status: "passed" | "failed" | "blocked";
   commandRuns: ValidationCommandRunRecord[];
   policyDiagnostics?: ValidationManifestPolicyDiagnostic[];
+  acceptance?: ValidationAcceptanceRecord;
   createdAt: string;
 }
 
@@ -816,13 +825,42 @@ export async function runTaskValidation(cwd: string, state: ScalerState, taskId:
     policyDiagnostics: policy.diagnostics.length ? policy.diagnostics : undefined,
     createdAt: new Date().toISOString(),
   };
+  let result: ValidationApplyResult;
+  let gitAcceptance: GitValidationAcceptanceDecision | undefined;
+  if (record.status === "passed") {
+    gitAcceptance = await evaluateValidationGitAcceptance(cwd, state, taskId, {
+      runId: record.id,
+      status: record.status,
+      commandCount: commandRuns.length,
+      failedCommandIds: commandRuns.filter(isNonPassingValidationProblem).map((run) => run.commandId),
+      createdAt: record.createdAt,
+    });
+    if (gitAcceptance.accepted) {
+      result = await applyValidationReport(cwd, state, {
+        taskId,
+        status: record.status,
+        summary: `Validation ${record.status}: ${taskId}`,
+        details: { runId: record.id, commandRuns, gitAcceptance },
+      });
+    } else {
+      await appendLogEvent(cwd, createLogEvent(state, {
+        eventType: "validation",
+        summary: gitAcceptance.message,
+        taskId,
+        details: { runId: record.id, commandRuns, gitAcceptance },
+      }));
+      result = { state, accepted: false, message: gitAcceptance.message };
+    }
+  } else {
+    result = await applyValidationReport(cwd, state, {
+      taskId,
+      status: record.status,
+      summary: `Validation ${record.status}: ${taskId}`,
+      details: { runId: record.id, commandRuns },
+    });
+  }
+  record.acceptance = { accepted: result.accepted, message: result.message, targetStatus: result.targetStatus, git: gitAcceptance };
   await writeValidationRuns(cwd, [record, ...(await loadValidationRuns(cwd))]);
-  const result = await applyValidationReport(cwd, state, {
-    taskId,
-    status: record.status,
-    summary: `Validation ${record.status}: ${taskId}`,
-    details: { runId: record.id, commandRuns },
-  });
   await logValidationSummaryAudit(cwd, result.state, {
     taskId,
     runId: record.id,

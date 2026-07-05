@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { getBudgetState } from "../../../src/budgets.js";
 import { loadCicdEnvironmentRecords } from "../../../src/cicd-environments.js";
 import { assessCompression } from "../../../src/compression.js";
-import { loadCommitReports, recordCommitReport } from "../../../src/git.js";
+import { loadCommitReports, loadCommitSkips, loadGitBootstrapRecords, recordCommitReport } from "../../../src/git.js";
 import { loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
 import { loadDebugRetryPolicy } from "../../../src/debug-retry.js";
 import { buildScalerCompactionResult, loadFreshContextHandoffRecords, loadScalerCompactionRecords } from "../../../src/context-compaction.js";
@@ -294,6 +294,34 @@ test("real Pi extension: slash command dispatch lists commit reports", { skip: !
     assert.match(`${result.stdout}\n${result.stderr}`, /T-REAL-COMMIT: abc1234/);
     assert.ok(result.events.some((event) => isRecord(event) && event.type === "session"), "expected Pi JSON session event");
     assert.equal((await loadCommitReports(dir))[0]?.commitHash, "abc1234");
+  });
+});
+
+test("real Pi extension: slash command dispatch records git bootstrap and commit skip evidence", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const bootstrap = await runScalerPi({ cwd: dir, prompt: "/scaler-git-bootstrap" });
+    assert.equal(bootstrap.exitCode, 0, bootstrap.stderr || bootstrap.stdout);
+    assert.match(`${bootstrap.stdout}\n${bootstrap.stderr}`, /Git bootstrap records/);
+    assert.equal((await loadGitBootstrapRecords(dir))[0]?.status, "existing");
+
+    await mkdir(join(dir, "src"), { recursive: true });
+    await writeFile(join(dir, "src/real-skip.js"), "export const value = 1;\n", "utf8");
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-REAL-SKIP-COMMIT";
+    state.tasks = [{ id: "T-REAL-SKIP-COMMIT", status: "validating", title: "Real skip commit", allowedPathPrefixes: ["package.json", "src/"], updatedAt: state.createdAt }];
+    await saveState(dir, state);
+
+    const validate = await runScalerPi({ cwd: dir, prompt: "/scaler-validate T-REAL-SKIP-COMMIT" });
+    assert.equal(validate.exitCode, 0, validate.stderr || validate.stdout);
+    assert.match(`${validate.stdout}\n${validate.stderr}`, /commit or explicit commit skip is required/);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validating");
+
+    const skip = await runScalerPi({ cwd: dir, prompt: "/scaler-commit-skip T-REAL-SKIP-COMMIT | Real test explicitly skips commit" });
+    assert.equal(skip.exitCode, 0, skip.stderr || skip.stdout);
+    assert.match(`${skip.stdout}\n${skip.stderr}`, /Commit skipped/);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
+    assert.equal((await loadCommitSkips(dir))[0]?.taskId, "T-REAL-SKIP-COMMIT");
   });
 });
 
@@ -898,7 +926,7 @@ test("real Pi extension: slash command dispatch records validation environment l
 
     const addResult = await runScalerPi({
       cwd: dir,
-      prompt: "/scaler-validation-add T-REAL-LIFECYCLE | ci | node -e \"require('node:fs').writeFileSync('real-lifecycle-ran.txt','ok')\" | Local CI validation | required | local_ci | exits 0 | evidence:ci | local_ci",
+      prompt: "/scaler-validation-add T-REAL-LIFECYCLE | ci | node -e \"const fs=require('node:fs');fs.mkdirSync('.scaler/artifacts',{recursive:true});fs.writeFileSync('.scaler/artifacts/real-lifecycle-ran.txt','ok')\" | Local CI validation | required | local_ci | exits 0 | evidence:ci | local_ci",
     });
     assert.equal(addResult.exitCode, 0, addResult.stderr || addResult.stdout);
 
@@ -916,7 +944,7 @@ test("real Pi extension: slash command dispatch records validation environment l
     assert.equal(runs[0]?.commandRuns[0]?.environmentLifecycleRefs?.length, 2);
     assert.deepEqual(lifecycle.map((record) => record.phase), ["cleanup", "prepare"]);
     assert.deepEqual(lifecycle.map((record) => record.status), ["cleanup_completed", "prepared"]);
-    assert.equal(await readFile(join(dir, "real-lifecycle-ran.txt"), "utf8"), "ok");
+    assert.equal(await readFile(join(dir, ".scaler/artifacts/real-lifecycle-ran.txt"), "utf8"), "ok");
   });
 });
 

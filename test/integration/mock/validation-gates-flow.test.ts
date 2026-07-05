@@ -184,7 +184,7 @@ test("mock integration: validation records local-CI lifecycle evidence and statu
 
     const commands = registeredCommands();
     await commands.get("scaler-validation-add")?.handler(
-      "T-LIFECYCLE | ci | node -e \"require('node:fs').writeFileSync('lifecycle-ran.txt','ok')\" | Local CI validation | required | local_ci | local CI exits 0 | manifest:ci | local_ci",
+      "T-LIFECYCLE | ci | node -e \"const fs=require('node:fs');fs.mkdirSync('.scaler/artifacts',{recursive:true});fs.writeFileSync('.scaler/artifacts/lifecycle-ran.txt','ok')\" | Local CI validation | required | local_ci | local CI exits 0 | manifest:ci | local_ci",
       { cwd: dir, hasUI: false },
     );
 
@@ -200,7 +200,7 @@ test("mock integration: validation records local-CI lifecycle evidence and statu
     assert.equal(runs[0]?.commandRuns[0]?.environmentLifecycleRefs?.length, 2);
     assert.deepEqual(lifecycle.map((record) => record.phase), ["cleanup", "prepare"]);
     assert.deepEqual(lifecycle.map((record) => record.status), ["cleanup_completed", "prepared"]);
-    assert.equal(await readFile(join(dir, "lifecycle-ran.txt"), "utf8"), "ok");
+    assert.equal(await readFile(join(dir, ".scaler/artifacts/lifecycle-ran.txt"), "utf8"), "ok");
     assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
   });
 });

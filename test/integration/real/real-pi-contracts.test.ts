@@ -36,10 +36,14 @@ async function withTempRepo<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-real-integration-test-"));
   try {
     await execFileAsync("git", ["init"], { cwd: dir });
+    await execFileAsync("git", ["config", "user.email", "scaler-real@example.invalid"], { cwd: dir });
+    await execFileAsync("git", ["config", "user.name", "Scaler Real"], { cwd: dir });
     await writeFile(join(dir, "package.json"), JSON.stringify({
       type: "module",
       scripts: { test: "node -e \"process.exit(0)\"", build: "node -e \"process.exit(0)\"" },
     }, null, 2));
+    await execFileAsync("git", ["add", "package.json"], { cwd: dir });
+    await execFileAsync("git", ["commit", "-m", "initial real fixture"], { cwd: dir });
     return await fn(dir);
   } finally {
     await rm(dir, { recursive: true, force: true });

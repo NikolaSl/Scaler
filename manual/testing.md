@@ -72,7 +72,7 @@ The current mocked integration harness covers:
 - research raw evidence externalization to memory, memory search/tag filtering, summary-scoped context references, and later context references;
 - stage consistency rejection;
 - dependency-blocked task selection and release after dependency validation;
-- validated-task git commits through execution locks while `.scaler/` runtime artifacts remain uncommitted and git audit logs plus `.scaler/reports/commits.json` post-commit reports are recorded.
+- validated/validation-passed git commits through execution locks, git bootstrap ignore-rule records, pre-task dirty-tree checkpoints, commit-required validation acceptance ordering, explicit commit-skip promotion, `.scaler/` runtime artifacts remaining uncommitted, and git audit logs plus `.scaler/reports/commits.json`/`commit-skips.json`/`git-bootstrap.json` reports.
 
 ## Optional real Pi/model mode
 
@@ -120,6 +120,6 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - cardinal `scaler_tool_schema` invocation with persisted discovered metadata;
 - cardinal `scaler_tool_request` invocation with persisted rich metadata;
 - cardinal `scaler_tool_result` invocation with persisted result ledger and closed request status;
-- slash-command safety-policy and safety-approval persistence plus cardinal built-in `bash` invocation blocked by the SCALER safety hook for protected-path and external publish commands, recorded in `.scaler/logs/events.jsonl`.
+- slash-command git bootstrap, commit-skip acceptance after passed validation, safety-policy and safety-approval persistence plus cardinal built-in `bash` invocation blocked by the SCALER safety hook for protected-path and external publish commands, recorded in `.scaler/logs/events.jsonl`.
 
 Real Pi/model tests are intentionally opt-in because they can cost tokens, require local model/provider setup, and may be less deterministic than mock integration tests.

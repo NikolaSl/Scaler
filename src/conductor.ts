@@ -4,6 +4,7 @@ import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
 import { writeCheckpoint } from "./checkpoints.js";
 import { assessCompression, formatCompressionGuidance, type CompressionAssessment } from "./compression.js";
 import { assessDebugRetryGate } from "./debug.js";
+import { assessGitStatusSafety } from "./git.js";
 import {
   ensureTaskContextManifest,
   resolveContext,
@@ -20,7 +21,7 @@ import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.
 import { saveState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import { ingestTaskAgentReportFromRun, type TaskAgentReportIngestionResult } from "./task-reports.js";
-import { transitionTask } from "./supervisor.js";
+import { transitionStage, transitionTask } from "./supervisor.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
 
 export interface NextTaskSelection {
@@ -171,6 +172,21 @@ export async function runConductorStep(
   if (!debugGate.allowed) {
     await appendLogEvent(cwd, createLogEvent(state, { eventType: "debug", summary: debugGate.reason, taskId: selection.task.id, details: debugGate }));
     return { accepted: false, message: debugGate.reason, state, task: selection.task };
+  }
+
+  const gitSafety = await assessGitStatusSafety(cwd, selection.task.allowedPathPrefixes ?? []);
+  if (gitSafety.status === "unrelated") {
+    const reason = `Pre-task git dirty-tree blocker for ${selection.task.id}: ${gitSafety.reason}`;
+    const paused = transitionStage(state, "paused", { reason });
+    const checkpoint = await writeCheckpoint(cwd, paused, "pre-task-dirty-tree", reason);
+    await appendLogEvent(cwd, createLogEvent(checkpoint.state, {
+      eventType: "git",
+      summary: reason,
+      taskId: selection.task.id,
+      details: { gitSafety, checkpointPath: checkpoint.path },
+      detailsPath: checkpoint.path,
+    }));
+    return { accepted: false, message: reason, state: checkpoint.state, task: selection.task, checkpointPath: checkpoint.path };
   }
 
   const lock = await acquireExecutionLock(cwd, {
