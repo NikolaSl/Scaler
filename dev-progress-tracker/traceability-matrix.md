@@ -1,6 +1,8 @@
 # SCALER PRD Traceability Matrix
 
-Maps `requirements-catalog.md` requirements to implementation tasks, code, tests, manuals, and gaps.
+Maps [`../requirements-catalog.md`](../requirements-catalog.md) requirements to implementation tasks, code, tests, manuals, and gaps.
+
+Source requirements remain outside this folder: [`../assignement.md`](../assignement.md), [`../requirements-catalog.md`](../requirements-catalog.md), and [`../specs/`](../specs/). Companion trackers are [`implementation-inventory.md`](implementation-inventory.md) and [`gap-backlog.md`](gap-backlog.md). Code-formatted paths in matrix tables are repository-root relative unless explicitly linked.
 
 Status vocabulary:
 
@@ -11,7 +13,7 @@ Status vocabulary:
 
 ## Compliance source rule
 
-Requirement coverage must be reviewed against `assignement.md` and all relevant `specs/*.md` files in addition to this matrix and `requirements-catalog.md`. This matrix is the tracking artifact; the assignment and specs remain source requirements.
+Requirement coverage must be reviewed against [`../assignement.md`](../assignement.md) and all relevant [`../specs/*.md`](../specs/) files in addition to this matrix and [`../requirements-catalog.md`](../requirements-catalog.md). This matrix is the tracking artifact; the assignment and specs remain source requirements.
 
 ## Matrix
 
@@ -72,5 +74,5 @@ Requirement coverage must be reviewed against `assignement.md` and all relevant 
 - Implemented: PRD-P01, PRD-P02, PRD-P03, PRD-P04, PRD-P05, PRD-P06, PRD-G01, PRD-G02, PRD-G03, PRD-S01, PRD-S02, PRD-S03, PRD-S04, PRD-S05, PRD-S06, PRD-S07, PRD-S08, PRD-S09, PRD-S10, PRD-S11, PRD-S12, PRD-S13, PRD-S14, PRD-S15, PRD-S16, PRD-S17, PRD-S18, PRD-S19, PRD-S20, PRD-S21, PRD-S22, PRD-S23, PRD-S24, PRD-S25, PRD-S26, PRD-S27, PRD-S28, PRD-S29, PRD-S30, PRD-S31, PRD-W01, PRD-W02, PRD-W03, PRD-W04, PRD-W05, PRD-W06, PRD-W07, PRD-W08.
 - Partial: none currently tracked.
 - Policy-only coverage: none currently tracked.
-- No open source-spec gaps remain in `gap-backlog.md` from the latest assignment/spec review.
+- No open source-spec gaps remain in [`gap-backlog.md`](gap-backlog.md) from the latest assignment/spec review.
 - Implemented foundations exist for deterministic orchestration, context minimization, task agents, validation, safety, budgets, logging, replanning, sequential execution, bounded debug conductor chaining, split mocked/real integration-test coverage, optional real Pi/model contract validation, opt-in real Pi extension command/tool/hook integrity validation, and opt-in real Pi flow-parity/remaining-flow validation.

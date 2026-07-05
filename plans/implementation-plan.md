@@ -9,7 +9,7 @@ Each implementation task must:
 - Keep the project buildable/testable.
 - Include or update tests where practical.
 - Update manual/docs only for implemented behavior.
-- Update traceability artifacts when it changes requirement coverage: `implementation-inventory.md`, `traceability-matrix.md`, and when applicable `gap-backlog.md`.
+- Update traceability artifacts when it changes requirement coverage: `dev-progress-tracker/implementation-inventory.md`, `dev-progress-tracker/traceability-matrix.md`, and when applicable `dev-progress-tracker/gap-backlog.md`.
 - Commit with task id and short message.
 
 ## Initial tasks

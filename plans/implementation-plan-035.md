@@ -4,12 +4,12 @@
 Tighten debugging toward the original `assignement.md` and `specs/attempt-tracking.md` intent: avoid visible and hidden debug cycles, ask a focused debug agent for the next evidence-backed approach after failures, escalate to local/internet research when needed, and request replanning only after realistic debug/research approaches are exhausted.
 
 ## Normative compliance rule
-Implementation and traceability reviews must consult all of these sources, not only `requirements-catalog.md` / `traceability-matrix.md`:
+Implementation and traceability reviews must consult all of these sources, not only `requirements-catalog.md` / `dev-progress-tracker/traceability-matrix.md`:
 
 1. `assignement.md`
 2. every relevant file under `specs/`
 3. `requirements-catalog.md`
-4. `traceability-matrix.md`
+4. `dev-progress-tracker/traceability-matrix.md`
 5. runtime/manual docs that describe implemented behavior
 
 The matrix is the tracking view; `assignement.md` and `specs/` remain source requirements.

@@ -102,7 +102,7 @@ Run `npm test` and `npm run build`.
 ### IMPL-151 — Documentation and traceability
 - Update `test/integration/README.md` with separate mock/real suites, scripts, and current scenarios.
 - Update `manual/testing.md`.
-- Update `implementation-inventory.md`, `traceability-matrix.md`, and `gap-backlog.md` for coverage changes.
+- Update `dev-progress-tracker/implementation-inventory.md`, `dev-progress-tracker/traceability-matrix.md`, and `dev-progress-tracker/gap-backlog.md` for coverage changes.
 - Run `npm test` and `npm run build`.
 
 ## Validation

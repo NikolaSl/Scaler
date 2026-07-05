@@ -62,7 +62,7 @@ The tests must still reject or fail if the model does not perform the requested 
 
 ### IMPL-156 — Document real Pi integrity validation
 - Update `test/integration/README.md` and `manual/testing.md` to describe the real Pi extension integrity suite and cardinal tool/hook pattern.
-- Update `implementation-inventory.md`, `traceability-matrix.md`, and `gap-backlog.md` if coverage changes.
+- Update `dev-progress-tracker/implementation-inventory.md`, `dev-progress-tracker/traceability-matrix.md`, and `dev-progress-tracker/gap-backlog.md` if coverage changes.
 - Ensure the runner script remains the easiest way to execute all opt-in real Pi tests.
 - Run the real suite, `npm test`, and `npm run build`.
 

@@ -13,7 +13,7 @@ The runtime PRD ledger is project-local runtime data under `.scaler/prd/`.
 It is separate from:
 
 - the project-level SCALER assignment (`assignement.md`)
-- implementation traceability artifacts (`requirements-catalog.md`, `traceability-matrix.md`, `gap-backlog.md`)
+- implementation traceability artifacts (`requirements-catalog.md`, `dev-progress-tracker/traceability-matrix.md`, `dev-progress-tracker/gap-backlog.md`)
 - long-term external memory under `.scaler/memory/`
 
 ## Required artifacts

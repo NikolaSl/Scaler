@@ -55,7 +55,7 @@ Add an opt-in real Pi/model test that mirrors the mocked runtime PRD coverage-ga
 
 ### IMPL-160 — Document real flow-parity layer
 - Update `test/integration/README.md` and `manual/testing.md` with the new chained real flow-parity layer.
-- Update `implementation-inventory.md`, `traceability-matrix.md`, and `gap-backlog.md` if coverage statements change.
+- Update `dev-progress-tracker/implementation-inventory.md`, `dev-progress-tracker/traceability-matrix.md`, and `dev-progress-tracker/gap-backlog.md` if coverage statements change.
 - Run real suite, `npm test`, and `npm run build`.
 
 ## Validation commands

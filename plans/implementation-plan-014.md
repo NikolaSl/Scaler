@@ -17,5 +17,5 @@ Acceptance:
 - Add `specs/runtime-prd-ledger.md` with normative artifact, coverage, versioning, and replanning integration rules.
 - Link the new spec from `specs/index.md`.
 - Add a stable requirement ID to `requirements-catalog.md`.
-- Update `traceability-matrix.md`, `implementation-inventory.md`, and `gap-backlog.md` to reflect the requirement and current implementation coverage.
+- Update `dev-progress-tracker/traceability-matrix.md`, `dev-progress-tracker/implementation-inventory.md`, and `dev-progress-tracker/gap-backlog.md` to reflect the requirement and current implementation coverage.
 - Run `npm test` and `npm run build`.

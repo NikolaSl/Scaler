@@ -1,6 +1,8 @@
 # SCALER Gap Backlog
 
-Derived from `traceability-matrix.md`. Keep this file focused on uncovered or partial PRD requirements.
+Derived from [`traceability-matrix.md`](traceability-matrix.md). Keep this file focused on uncovered or partial PRD requirements.
+
+Source requirements remain outside this folder: [`../assignement.md`](../assignement.md), [`../requirements-catalog.md`](../requirements-catalog.md), and [`../specs/`](../specs/). Code-formatted paths below are repository-root relative unless explicitly linked.
 
 Priority scale:
 
@@ -31,5 +33,5 @@ A gap can be closed only when:
 1. The implementation is committed under an IMPL task.
 2. Relevant tests pass and are committed.
 3. Manual docs describe only implemented behavior.
-4. `traceability-matrix.md` and this backlog are updated in the same task or immediately following traceability task.
-5. Review includes `assignement.md` and relevant `specs/*.md`, not only the PRD matrix artifacts.
+4. [`traceability-matrix.md`](traceability-matrix.md) and this backlog are updated in the same task or immediately following traceability task.
+5. Review includes [`../assignement.md`](../assignement.md) and relevant [`../specs/*.md`](../specs/), not only the PRD matrix artifacts.

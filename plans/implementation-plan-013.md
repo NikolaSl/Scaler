@@ -60,5 +60,5 @@ Document the implemented PRD ledger and update traceability artifacts.
 Acceptance:
 
 - Add or update manual docs for runtime PRD ledger commands/artifacts.
-- Update `implementation-inventory.md`, `traceability-matrix.md`, and `gap-backlog.md` for replanning/traceability coverage changes.
+- Update `dev-progress-tracker/implementation-inventory.md`, `dev-progress-tracker/traceability-matrix.md`, and `dev-progress-tracker/gap-backlog.md` for replanning/traceability coverage changes.
 - Keep wording limited to implemented behavior.

@@ -1,8 +1,8 @@
 # SCALER Manual
 
-This manual documents implemented Scaler behavior. For a scenario-first walkthrough aimed at first-time autonomous use, see `tutorial/index.md`; for GitHub-renderable Mermaid orchestration diagrams, see `tutorial/diagrams.md`.
+This manual documents implemented Scaler behavior. For a scenario-first walkthrough aimed at first-time autonomous use, see [`../tutorial/index.md`](../tutorial/index.md); for GitHub-renderable Mermaid orchestration diagrams, see [`../tutorial/diagrams.md`](../tutorial/diagrams.md).
 
-Design requirements live in `assignement.md` and `specs/`. Compliance reviews must read those source requirements alongside `requirements-catalog.md`, `traceability-matrix.md`, and this manual; the matrix is a tracking view, not the only source of truth. This manual stays aligned with code that actually exists.
+Design requirements live in [`../assignement.md`](../assignement.md) and [`../specs/`](../specs/). Compliance reviews must read those source requirements alongside [`../requirements-catalog.md`](../requirements-catalog.md), [`../dev-progress-tracker/traceability-matrix.md`](../dev-progress-tracker/traceability-matrix.md), and this manual; the matrix is a tracking view, not the only source of truth. This manual stays aligned with code that actually exists.
 
 ## Current implemented behavior
 
@@ -67,16 +67,16 @@ npm test
 npm run build
 ```
 
-See `manual/testing.md` for mock integration tests and optional real Pi/model integration mode.
+See [`testing.md`](testing.md) for mock integration tests and optional real Pi/model integration mode.
 
 Traceability artifacts:
 
-- `requirements-catalog.md` defines stable PRD requirement IDs.
-- `implementation-inventory.md` maps implementation task ranges to code/tests/manuals.
-- `traceability-matrix.md` maps PRD IDs to coverage status and next actions.
-- `gap-backlog.md` tracks uncovered or partial requirements.
+- [`../requirements-catalog.md`](../requirements-catalog.md) defines stable PRD requirement IDs.
+- [`../dev-progress-tracker/implementation-inventory.md`](../dev-progress-tracker/implementation-inventory.md) maps implementation task ranges to code/tests/manuals.
+- [`../dev-progress-tracker/traceability-matrix.md`](../dev-progress-tracker/traceability-matrix.md) maps PRD IDs to coverage status and next actions.
+- [`../dev-progress-tracker/gap-backlog.md`](../dev-progress-tracker/gap-backlog.md) tracks uncovered or partial requirements.
 
-Future implementation plans/tasks must update these artifacts when requirement coverage changes. Coverage review must consult `assignement.md` and relevant `specs/*.md` source requirements as well as the PRD catalog/matrix.
+Future implementation plans/tasks must update these artifacts when requirement coverage changes. Coverage review must consult [`../assignement.md`](../assignement.md) and relevant [`../specs/*.md`](../specs/) source requirements as well as the PRD catalog/matrix.
 
 ## `/scaler-status`
 

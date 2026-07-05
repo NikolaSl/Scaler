@@ -26,7 +26,7 @@ Create an inventory connecting implementation task ids to commits, code areas, t
 
 Acceptance:
 
-- Add `implementation-inventory.md`.
+- Add `dev-progress-tracker/implementation-inventory.md`.
 - Include Plan/IMPL ranges completed so far.
 - Include key code/test/manual paths per implementation area.
 - Mark inventory as a maintenance artifact for future plans.
@@ -37,7 +37,7 @@ Create the main requirement coverage table.
 
 Acceptance:
 
-- Add `traceability-matrix.md`.
+- Add `dev-progress-tracker/traceability-matrix.md`.
 - Each requirement ID maps to status, implementation tasks, code, tests, manual pages, and gap/next action.
 - Status vocabulary is documented in the file.
 
@@ -47,7 +47,7 @@ Create an actionable backlog from partial/uncovered PRD requirements.
 
 Acceptance:
 
-- Add `gap-backlog.md` grouped by priority/theme.
+- Add `dev-progress-tracker/gap-backlog.md` grouped by priority/theme.
 - Each backlog item references requirement IDs.
 - Distinguish MVP gaps from full-vision gaps.
 

@@ -1,8 +1,8 @@
 # SCALER Requirements Catalog
 
-Stable requirement IDs derived from `assignement.md`. Keep this file compact and update it when the PRD changes.
+Stable requirement IDs derived from [`assignement.md`](assignement.md). Keep this file compact and update it when the PRD changes.
 
-Status/coverage is tracked in `traceability-matrix.md`; this file only defines requirements.
+Status/coverage is tracked in [`dev-progress-tracker/traceability-matrix.md`](dev-progress-tracker/traceability-matrix.md); this file only defines requirements.
 
 ## Problem statements
 

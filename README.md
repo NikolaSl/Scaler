@@ -38,6 +38,7 @@ Inside Pi:
 - [`manual/index.md`](manual/index.md) — implemented behavior manual.
 - [`manual/commands.md`](manual/commands.md) — full SCALER command reference.
 - [`specs/index.md`](specs/index.md) — design/specification index.
+- [`dev-progress-tracker/README.md`](dev-progress-tracker/README.md) — traceability matrix, implementation inventory, and gap backlog.
 
 ## Runtime files
 

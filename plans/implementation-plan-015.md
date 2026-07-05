@@ -49,5 +49,5 @@ Acceptance:
 Acceptance:
 
 - Add manual documentation for execution plan artifacts and commands.
-- Update `implementation-inventory.md`, `traceability-matrix.md`, and `gap-backlog.md` for versioned execution plan coverage.
+- Update `dev-progress-tracker/implementation-inventory.md`, `dev-progress-tracker/traceability-matrix.md`, and `dev-progress-tracker/gap-backlog.md` for versioned execution plan coverage.
 - Run `npm test` and `npm run build`.

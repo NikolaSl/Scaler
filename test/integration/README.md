@@ -28,7 +28,7 @@ Integration scenarios should be designed from source requirements, not only from
 1. `assignement.md`
 2. relevant `specs/*.md`
 3. `requirements-catalog.md`
-4. `traceability-matrix.md`
+4. `dev-progress-tracker/traceability-matrix.md`
 5. manual pages for implemented behavior
 
 The goal is to test that the implemented system still matches the intended SCALER workflow.
@@ -193,7 +193,7 @@ When adding a new integration scenario:
 5. Assert returned results and persisted artifacts.
 6. Add structured-only negative coverage if a child report is ingested.
 7. Update this README when adding a new pattern or environment variable.
-8. Update `manual/testing.md`, `implementation-inventory.md`, and `traceability-matrix.md` if coverage changes.
+8. Update `manual/testing.md`, `dev-progress-tracker/implementation-inventory.md`, and `dev-progress-tracker/traceability-matrix.md` if coverage changes.
 9. Run `npm test` and `npm run build`.
 
 ## Current mocked scenarios

@@ -4,7 +4,7 @@
 Add deterministic integration tests that exercise SCALER workflows across modules and persisted `.scaler/` artifacts, avoiding over-reliance on local unit tests that can preserve incorrect component behavior.
 
 ## Compliance rule
-Integration scenarios must be derived from `assignement.md` and relevant `specs/*.md` in addition to `requirements-catalog.md` and `traceability-matrix.md`.
+Integration scenarios must be derived from `assignement.md` and relevant `specs/*.md` in addition to `requirements-catalog.md` and `dev-progress-tracker/traceability-matrix.md`.
 
 ## Scope
 - Add a temp-repository integration harness with deterministic fake child-agent runners.
