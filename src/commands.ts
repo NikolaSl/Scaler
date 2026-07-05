@@ -7,6 +7,10 @@ export interface ParsedTaskCreateArgs {
   dependsOn?: string[];
   prdRefs?: string[];
   definitionOfDone?: string[];
+  taskKind?: string;
+  atomicityRationale?: string;
+  validationRefs?: string[];
+  qualityWaivers?: string;
 }
 
 export interface ParsedTaskUpdateArgs {
@@ -17,6 +21,10 @@ export interface ParsedTaskUpdateArgs {
   dependsOn?: string[];
   prdRefs?: string[];
   definitionOfDone?: string[];
+  taskKind?: string;
+  atomicityRationale?: string;
+  validationRefs?: string[];
+  qualityWaivers?: string;
 }
 
 export interface ParsedTaskRetryArgs {
@@ -334,6 +342,10 @@ export function parseTaskCreateArgs(args: string | undefined): ParsedTaskCreateA
     dependsOn: parseCommaList(parts[3]),
     prdRefs: parseCommaList(parts[4]),
     definitionOfDone: parseSemicolonList(parts[5]),
+    taskKind: parts[6]?.trim() || undefined,
+    atomicityRationale: parts[7]?.trim() || undefined,
+    validationRefs: parseCommaList(parts[8]),
+    qualityWaivers: parts[9]?.trim() || undefined,
   };
 }
 
@@ -349,6 +361,10 @@ export function parseTaskUpdateArgs(args: string | undefined): ParsedTaskUpdateA
     dependsOn: parseCommaList(parts[4]),
     prdRefs: parseCommaList(parts[5]),
     definitionOfDone: parseSemicolonList(parts[6]),
+    taskKind: parts[7]?.trim() || undefined,
+    atomicityRationale: parts[8]?.trim() || undefined,
+    validationRefs: parseCommaList(parts[9]),
+    qualityWaivers: parts[10]?.trim() || undefined,
   };
 }
 

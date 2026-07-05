@@ -145,13 +145,14 @@ export function buildReplanAgentPrompt(input: ReplanAgentPromptInput): string {
     "- Preserve every validated task id already in the current plan.",
     "- Preserve validated requirement coverage; do not unlink known runtime requirements.",
     "- Link every proposed task to runtime PRD refs when possible.",
-    "- Keep tasks atomic, sequential, independently validateable, and include allowedPathPrefixes when known.",
+    "- Keep tasks atomic, sequential, independently validateable, and include taskKind, atomicityRationale, allowedPathPrefixes, definitionOfDone, and validationRefs or validationCommands.",
+    "- Software/mixed tasks must include a test_first validation command/check before implementation gates, or a qualityWaivers entry with an explicit reason and alternative validation path.",
     "- Keep existing task ids stable unless a task is unvalidated and replacement is justified by evidence.",
     "",
     "Required final response:",
     "- Summarize the proposed plan and how each open replan request is addressed.",
     "- Emit exactly one JSON event with type `scaler_replan_proposal` and a `plan` field containing an ExecutionPlanArtifact v1.",
-    "- The plan must be draft status, include planVersion, tasks, PRD refs, dependencies, and validationRefs where known.",
+    "- The plan must be draft status, include planVersion, tasks, PRD refs, dependencies, taskKind, atomicityRationale, definitionOfDone, validationRefs/validationCommands, and explicit qualityWaivers where a requirement is intentionally waived.",
     "- If no safe plan can be produced, emit a JSON event with type `scaler_replan_proposal` and an `error` string instead of a plan.",
   ];
 

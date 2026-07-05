@@ -21,14 +21,27 @@ export type ScalerTaskStatus =
   | "needs_replan"
   | "failed";
 
+export type ScalerTaskKind = "software" | "non_software" | "mixed";
+
+export interface ScalerTaskQualityWaiver {
+  code: string;
+  reason: string;
+  evidenceRefs?: string[];
+  approvedBy?: string;
+}
+
 export interface ScalerTaskState {
   id: string;
   status: ScalerTaskStatus;
   title?: string;
+  taskKind?: ScalerTaskKind;
+  atomicityRationale?: string;
   allowedPathPrefixes?: string[];
   dependsOn?: string[];
   prdRefs?: string[];
   definitionOfDone?: string[];
+  validationRefs?: string[];
+  qualityWaivers?: ScalerTaskQualityWaiver[];
   updatedAt: string;
 }
 

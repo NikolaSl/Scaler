@@ -87,7 +87,7 @@ import { formatResearchWebRunResult, formatResearchWebTransactions, loadResearch
 import { applySafetyApproval, assessToolCallSafety, createSafetyApproval, formatSafetyApprovals, formatSafetyPolicy, formatSafetyScanRecords, formatSafetyScanResult, loadSafetyApprovals, loadSafetyPolicy, loadSafetyScanRecords, mergeSafetyPolicy, revokeSafetyApproval, runSafetyScans, saveSafetyPolicy } from "./safety.js";
 import { createTask, formatTaskList, retryTask, updateTask } from "./tasks.js";
 import { formatTaskAgentReportList, loadTaskAgentReports } from "./task-reports.js";
-import { formatTaskDefinitionReviews, loadTaskDefinitionReviews, reviewAllTaskDefinitions, reviewTaskDefinition } from "./task-quality.js";
+import { formatTaskDefinitionReviews, loadTaskDefinitionReviews, parseTaskQualityWaivers, reviewAllTaskDefinitions, reviewTaskDefinition } from "./task-quality.js";
 import { ensureState, formatDetailedStateStatus, formatStateStatus, saveState } from "./state.js";
 import { advanceStageAfterReadyArtifact } from "./stage-advancement.js";
 import { formatStageAgentRunList, loadStageAgentRunRecords, runStageAgentStep } from "./stage-agents.js";
@@ -767,11 +767,11 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("scaler-task-create", {
-    description: "Create a SCALER task: /scaler-task-create <taskId> | <title> | <allowed paths comma list> | <dependency ids comma list> | <PRD refs comma list> | <DoD items semicolon list>",
+    description: "Create a SCALER task with enforced DoD/paths/validation/atomicity/test-first quality: /scaler-task-create <taskId> | <title> | <allowed paths> | <dependencies> | <PRD refs> | <DoD items> | <kind> | <atomicity rationale> | <validation refs> | <waivers code:reason>",
     handler: async (args, ctx) => {
       const parsed = parseTaskCreateArgs(args);
       if (!parsed) {
-        const message = "Usage: /scaler-task-create <taskId> | <title> | <allowed paths comma list> | <dependency ids comma list> | <PRD refs comma list> | <DoD items semicolon list>";
+        const message = "Usage: /scaler-task-create <taskId> | <title> | <allowed paths comma list> | <dependency ids comma list> | <PRD refs comma list> | <DoD items semicolon list> | <kind software|non_software|mixed> | <atomicity rationale> | <validation refs comma list> | <waivers code:reason;...>";
         if (ctx.hasUI) ctx.ui.notify(message, "warning");
         else console.log(message);
         return;
@@ -785,6 +785,11 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         dependsOn: parsed.dependsOn,
         prdRefs: parsed.prdRefs,
         definitionOfDone: parsed.definitionOfDone,
+        taskKind: parsed.taskKind,
+        atomicityRationale: parsed.atomicityRationale,
+        validationRefs: parsed.validationRefs,
+        qualityWaivers: parseTaskQualityWaivers(parsed.qualityWaivers),
+        qualityMode: "enforce",
       });
       if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
       else console.log(result.message);
@@ -792,11 +797,11 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("scaler-task-update", {
-    description: "Update a SCALER task: /scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies> | <PRD refs> | <DoD items semicolon list>",
+    description: "Update a SCALER task with enforced quality: /scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies> | <PRD refs> | <DoD items> | <kind> | <atomicity rationale> | <validation refs> | <waivers code:reason>",
     handler: async (args, ctx) => {
       const parsed = parseTaskUpdateArgs(args);
       if (!parsed) {
-        const message = "Usage: /scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies> | <PRD refs> | <DoD items semicolon list>";
+        const message = "Usage: /scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies> | <PRD refs> | <DoD items semicolon list> | <kind software|non_software|mixed> | <atomicity rationale> | <validation refs comma list> | <waivers code:reason;...>";
         if (ctx.hasUI) ctx.ui.notify(message, "warning");
         else console.log(message);
         return;
@@ -811,6 +816,11 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         dependsOn: parsed.dependsOn,
         prdRefs: parsed.prdRefs,
         definitionOfDone: parsed.definitionOfDone,
+        taskKind: parsed.taskKind,
+        atomicityRationale: parsed.atomicityRationale,
+        validationRefs: parsed.validationRefs,
+        qualityWaivers: parseTaskQualityWaivers(parsed.qualityWaivers),
+        qualityMode: "enforce",
       });
       if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
       else console.log(result.message);

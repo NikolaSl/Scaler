@@ -197,22 +197,55 @@ const ToolResultParams = Type.Object({
   recommendations: Type.Optional(Type.Array(Type.String(), { description: "Follow-up recommendations." })),
 });
 
+const TaskQualityWaiverParams = Type.Object({
+  code: Type.String({ description: "Quality issue code being explicitly waived, e.g. missing_test_first." }),
+  reason: Type.String({ description: "Why the waiver is acceptable and what alternative evidence/validation applies." }),
+  evidenceRefs: Type.Optional(Type.Array(Type.String())),
+  approvedBy: Type.Optional(Type.String()),
+});
+
+const TaskValidationCommandParams = Type.Object({
+  id: Type.String(),
+  command: Type.String(),
+  description: Type.Optional(Type.String()),
+  timeoutMs: Type.Optional(Type.Number()),
+  required: Type.Optional(Type.Boolean()),
+  gate: Type.Optional(Type.String({ description: "dependency_check, test_first, build_compile, unit_tests, integration_tests, static_checks, security_checks, local_ci, acceptance_smoke, regression, or custom." })),
+  expectedResult: Type.Optional(Type.String()),
+  evidenceRefs: Type.Optional(Type.Array(Type.String())),
+  environment: Type.Optional(Type.String()),
+  disposition: Type.Optional(Type.String()),
+  dispositionReason: Type.Optional(Type.String()),
+});
+
 const TaskCreateParams = Type.Object({
   taskId: Type.String(),
   title: Type.Optional(Type.String()),
   status: Type.Optional(Type.String({ description: "Initial task status. Defaults to pending." })),
+  taskKind: Type.Optional(Type.String({ description: "software, non_software, or mixed. Software/mixed tasks require test_first coverage or a waiver." })),
+  atomicityRationale: Type.Optional(Type.String({ description: "Why this is the smallest independently completable/testable task." })),
   allowedPathPrefixes: Type.Optional(Type.Array(Type.String(), { description: "Paths this task is allowed to modify/commit." })),
   dependsOn: Type.Optional(Type.Array(Type.String(), { description: "Task ids that must be validated first." })),
   prdRefs: Type.Optional(Type.Array(Type.String(), { description: "Runtime PRD requirement ids this task implements." })),
+  definitionOfDone: Type.Optional(Type.Array(Type.String(), { description: "Concrete Definition of Done items." })),
+  validationRefs: Type.Optional(Type.Array(Type.String(), { description: "Validation/checklist references when commands are not embedded." })),
+  validationCommands: Type.Optional(Type.Array(TaskValidationCommandParams, { description: "Task-specific validation commands/checks to persist with the task." })),
+  qualityWaivers: Type.Optional(Type.Array(TaskQualityWaiverParams, { description: "Explicit waivers for missing quality requirements." })),
 });
 
 const TaskUpdateParams = Type.Object({
   taskId: Type.String(),
   title: Type.Optional(Type.String()),
   status: Type.Optional(Type.String({ description: "Target task status; must be a valid transition." })),
+  taskKind: Type.Optional(Type.String({ description: "software, non_software, or mixed." })),
+  atomicityRationale: Type.Optional(Type.String()),
   allowedPathPrefixes: Type.Optional(Type.Array(Type.String(), { description: "Replacement allowed paths." })),
   dependsOn: Type.Optional(Type.Array(Type.String(), { description: "Replacement dependency ids." })),
   prdRefs: Type.Optional(Type.Array(Type.String(), { description: "Replacement runtime PRD requirement ids." })),
+  definitionOfDone: Type.Optional(Type.Array(Type.String())),
+  validationRefs: Type.Optional(Type.Array(Type.String())),
+  validationCommands: Type.Optional(Type.Array(TaskValidationCommandParams)),
+  qualityWaivers: Type.Optional(Type.Array(TaskQualityWaiverParams)),
 });
 
 const PlanningReportParams = Type.Object({
@@ -237,10 +270,15 @@ const PlanningReportParams = Type.Object({
       id: Type.String(),
       title: Type.String(),
       description: Type.Optional(Type.String()),
+      taskKind: Type.Optional(Type.String()),
+      atomicityRationale: Type.Optional(Type.String()),
       prdRefs: Type.Optional(Type.Array(Type.String())),
       allowedPathPrefixes: Type.Optional(Type.Array(Type.String())),
       dependsOn: Type.Optional(Type.Array(Type.String())),
+      definitionOfDone: Type.Optional(Type.Array(Type.String())),
       validationRefs: Type.Optional(Type.Array(Type.String())),
+      validationCommands: Type.Optional(Type.Array(TaskValidationCommandParams)),
+      qualityWaivers: Type.Optional(Type.Array(TaskQualityWaiverParams)),
     })),
   }),
 });
@@ -543,9 +581,16 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         id: params.taskId,
         title: params.title,
         status: params.status,
+        taskKind: params.taskKind,
+        atomicityRationale: params.atomicityRationale,
         allowedPathPrefixes: params.allowedPathPrefixes,
         dependsOn: params.dependsOn,
         prdRefs: params.prdRefs,
+        definitionOfDone: params.definitionOfDone,
+        validationRefs: params.validationRefs,
+        validationCommands: params.validationCommands,
+        qualityWaivers: params.qualityWaivers,
+        qualityMode: "enforce",
       });
       await logTool(ctx.cwd, "scaler_task_create", result.accepted ? `Task created: ${params.taskId}` : `Task create rejected: ${params.taskId}`, { params, result });
       return textResult(result.message, { status: result.accepted ? "created" : "rejected", taskId: params.taskId });
@@ -563,9 +608,16 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         id: params.taskId,
         title: params.title,
         status: params.status,
+        taskKind: params.taskKind,
+        atomicityRationale: params.atomicityRationale,
         allowedPathPrefixes: params.allowedPathPrefixes,
         dependsOn: params.dependsOn,
         prdRefs: params.prdRefs,
+        definitionOfDone: params.definitionOfDone,
+        validationRefs: params.validationRefs,
+        validationCommands: params.validationCommands,
+        qualityWaivers: params.qualityWaivers,
+        qualityMode: "enforce",
       });
       await logTool(ctx.cwd, "scaler_task_update", result.message, params);
       return textResult(result.message, { status: result.accepted ? "updated" : "rejected", taskId: params.taskId });

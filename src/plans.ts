@@ -11,7 +11,8 @@ import {
 } from "./paths.js";
 import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, upsertPrdRequirement, type RuntimePrdRequirementStatus, type RuntimePrdRequirementsFile } from "./prd.js";
 import { createTask, updateTask } from "./tasks.js";
-import type { ScalerState } from "./types.js";
+import type { ScalerState, ScalerTaskKind, ScalerTaskQualityWaiver } from "./types.js";
+import type { EmbeddedValidationManifestCommandInput } from "./validation.js";
 
 export const executionPlanStatuses = ["draft", "active", "superseded", "completed"] as const;
 export type ExecutionPlanStatus = (typeof executionPlanStatuses)[number];
@@ -26,10 +27,15 @@ export interface ExecutionPlanTask {
   id: string;
   title: string;
   description?: string;
+  taskKind?: ScalerTaskKind | string;
+  atomicityRationale?: string;
   prdRefs?: string[];
   allowedPathPrefixes?: string[];
   dependsOn?: string[];
+  definitionOfDone?: string[];
   validationRefs?: string[];
+  validationCommands?: EmbeddedValidationManifestCommandInput[];
+  qualityWaivers?: ScalerTaskQualityWaiver[];
 }
 
 export interface ExecutionPlanArtifact {
@@ -362,9 +368,16 @@ export async function applyExecutionPlanTasks(
         const result = await updateTask(cwd, nextState, {
           id: task.id,
           title: existing.status === "validated" ? existing.title : task.title,
+          taskKind: task.taskKind,
+          atomicityRationale: task.atomicityRationale,
           allowedPathPrefixes: task.allowedPathPrefixes,
           dependsOn: task.dependsOn,
           prdRefs: task.prdRefs,
+          definitionOfDone: task.definitionOfDone,
+          validationRefs: task.validationRefs,
+          validationCommands: task.validationCommands,
+          qualityWaivers: task.qualityWaivers,
+          qualityMode: "enforce",
         });
         nextState = result.state;
         if (result.accepted) updatedTaskIds.push(task.id);
@@ -376,9 +389,16 @@ export async function applyExecutionPlanTasks(
     const result = await createTask(cwd, nextState, {
       id: task.id,
       title: task.title,
+      taskKind: task.taskKind,
+      atomicityRationale: task.atomicityRationale,
       allowedPathPrefixes: task.allowedPathPrefixes,
       dependsOn: task.dependsOn,
       prdRefs: task.prdRefs,
+      definitionOfDone: task.definitionOfDone,
+      validationRefs: task.validationRefs,
+      validationCommands: task.validationCommands,
+      qualityWaivers: task.qualityWaivers,
+      qualityMode: "enforce",
     });
     nextState = result.state;
     if (result.accepted) createdTaskIds.push(task.id);
@@ -735,10 +755,15 @@ function normalizeExecutionPlan(plan: ExecutionPlanArtifact, now: Date): Executi
     updatedAt: now.toISOString(),
     tasks: plan.tasks.map((task) => ({
       ...task,
+      taskKind: normalizeOptionalString(task.taskKind),
+      atomicityRationale: normalizeOptionalString(task.atomicityRationale),
       prdRefs: normalizeList(task.prdRefs),
       allowedPathPrefixes: normalizePathList(task.allowedPathPrefixes),
       dependsOn: normalizeList(task.dependsOn),
+      definitionOfDone: normalizeList(task.definitionOfDone),
       validationRefs: normalizeList(task.validationRefs),
+      validationCommands: task.validationCommands?.map((command) => ({ ...command, id: command.id.trim(), command: command.command.trim() })).filter((command) => command.id && command.command),
+      qualityWaivers: task.qualityWaivers?.map((waiver) => ({ ...waiver, code: waiver.code.trim(), reason: waiver.reason.trim() })).filter((waiver) => waiver.code && waiver.reason),
     })),
   };
 }
@@ -753,4 +778,8 @@ function normalizePathList(values: string[] | undefined): string[] | undefined {
     .map((value) => value.trim().replace(/^\.\//, "").replace(/\/$/, ""))
     .filter((value) => value.length > 0);
   return normalized.length > 0 ? [...new Set(normalized)] : undefined;
+}
+
+function normalizeOptionalString(value: string | undefined): string | undefined {
+  return value?.trim() || undefined;
 }

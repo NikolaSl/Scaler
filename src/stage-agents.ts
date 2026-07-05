@@ -357,6 +357,8 @@ function stageContract(stage: StageArtifactStage): string[] {
       return [
         "Create or refresh the sequential execution plan from PRD and knowledge artifacts.",
         "Keep tasks atomic, ordered, independently validateable, and linked to runtime PRD ids.",
+        "Every task must include taskKind, atomicityRationale, allowedPathPrefixes, definitionOfDone, and validationRefs or validationCommands.",
+        "Software/mixed tasks must include a test_first validation command/check before implementation gates, or an explicit qualityWaivers entry with a reason and alternative validation path.",
         "Write `.scaler/plans/current-plan.json` when producing the active plan.",
         "When executed by the autonomous workflow, emit or call `scaler_planning_report` so SCALER can synchronize requirements, tasks, and coverage.",
         "Include validation references and allowed path prefixes where known.",

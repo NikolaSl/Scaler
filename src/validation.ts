@@ -64,6 +64,9 @@ export interface ValidationCommandManifest {
 
 export interface TaskValidationManifest {
   taskId: string;
+  definitionOfDone?: string[];
+  acceptanceCriteria?: string[];
+  qualityWaivers?: Array<{ code: string; reason: string; evidenceRefs?: string[]; approvedBy?: string }>;
   commands: ValidationCommandManifest[];
   createdAt: string;
   updatedAt: string;
@@ -83,6 +86,8 @@ export interface ValidationManifestCommandInput {
   disposition?: ValidationGateDisposition | string;
   dispositionReason?: string;
 }
+
+export type EmbeddedValidationManifestCommandInput = Omit<ValidationManifestCommandInput, "taskId"> & { taskId?: string };
 
 export interface ValidationChecklistItemInput {
   id: string;
@@ -415,6 +420,9 @@ export async function saveValidationManifest(cwd: string, manifest: TaskValidati
   const timestamp = new Date().toISOString();
   const normalized: TaskValidationManifest = {
     ...manifest,
+    definitionOfDone: normalizeStringList(manifest.definitionOfDone),
+    acceptanceCriteria: normalizeStringList(manifest.acceptanceCriteria),
+    qualityWaivers: normalizeValidationQualityWaivers(manifest.qualityWaivers),
     createdAt: manifest.createdAt || timestamp,
     updatedAt: timestamp,
     commands: manifest.commands.map((command, index) => ({
@@ -1013,6 +1021,18 @@ function normalizeStringList(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const list = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim());
   return list.length > 0 ? Array.from(new Set(list)) : undefined;
+}
+
+function normalizeValidationQualityWaivers(value: TaskValidationManifest["qualityWaivers"]): TaskValidationManifest["qualityWaivers"] {
+  const waivers = (value ?? [])
+    .map((waiver) => ({
+      code: waiver.code.trim(),
+      reason: waiver.reason.trim(),
+      evidenceRefs: normalizeStringList(waiver.evidenceRefs),
+      approvedBy: normalizeOptionalString(waiver.approvedBy),
+    }))
+    .filter((waiver) => waiver.code.length > 0 && waiver.reason.length > 0);
+  return waivers.length > 0 ? waivers : undefined;
 }
 
 function extractEvidenceRefs(details: unknown): string[] | undefined {

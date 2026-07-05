@@ -967,10 +967,15 @@ function parsePlanningReportInput(report: Record<string, unknown>): PlanningRepo
       id,
       title,
       description: stringField(value, "description"),
+      taskKind: stringField(value, "taskKind"),
+      atomicityRationale: stringField(value, "atomicityRationale"),
       prdRefs: stringArrayField(value, "prdRefs"),
       allowedPathPrefixes: stringArrayField(value, "allowedPathPrefixes"),
       dependsOn: stringArrayField(value, "dependsOn"),
+      definitionOfDone: stringArrayField(value, "definitionOfDone"),
       validationRefs: stringArrayField(value, "validationRefs"),
+      validationCommands: parseEmbeddedValidationCommands(arrayField(value, "validationCommands")),
+      qualityWaivers: parseTaskQualityWaiverRecords(arrayField(value, "qualityWaivers")),
     };
   });
   if (tasks.some((task) => !task)) return undefined;
@@ -1071,6 +1076,42 @@ function stringArrayField(record: Record<string, unknown>, key: string): string[
 function arrayField(record: Record<string, unknown>, key: string): unknown[] {
   const value = record[key];
   return Array.isArray(value) ? value : [];
+}
+
+function parseEmbeddedValidationCommands(values: unknown[]): ExecutionPlanArtifact["tasks"][number]["validationCommands"] {
+  const commands: NonNullable<ExecutionPlanArtifact["tasks"][number]["validationCommands"]> = [];
+  for (const value of values) {
+    if (!isRecord(value)) continue;
+    const id = stringField(value, "id");
+    const command = stringField(value, "command");
+    if (!id || !command) continue;
+    commands.push({
+      id,
+      command,
+      description: stringField(value, "description"),
+      timeoutMs: numberField(value, "timeoutMs"),
+      required: value.required === undefined ? undefined : booleanField(value, "required"),
+      gate: stringField(value, "gate"),
+      expectedResult: stringField(value, "expectedResult"),
+      evidenceRefs: stringArrayField(value, "evidenceRefs"),
+      environment: stringField(value, "environment"),
+      disposition: stringField(value, "disposition"),
+      dispositionReason: stringField(value, "dispositionReason"),
+    });
+  }
+  return commands.length > 0 ? commands : undefined;
+}
+
+function parseTaskQualityWaiverRecords(values: unknown[]): ExecutionPlanArtifact["tasks"][number]["qualityWaivers"] {
+  const waivers: NonNullable<ExecutionPlanArtifact["tasks"][number]["qualityWaivers"]> = [];
+  for (const value of values) {
+    if (!isRecord(value)) continue;
+    const code = stringField(value, "code");
+    const reason = stringField(value, "reason");
+    if (!code || !reason) continue;
+    waivers.push({ code, reason, evidenceRefs: stringArrayField(value, "evidenceRefs"), approvedBy: stringField(value, "approvedBy") });
+  }
+  return waivers.length > 0 ? waivers : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

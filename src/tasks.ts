@@ -1,18 +1,25 @@
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { isScalerTaskStatus } from "./reports.js";
 import { saveState } from "./state.js";
-import { reviewTaskDefinition, type TaskDefinitionReviewRecord } from "./task-quality.js";
+import { reviewTaskDefinition, normalizeTaskKind, normalizeTaskQualityWaivers, type TaskDefinitionReviewRecord, type TaskQualityEnforcementMode, type TaskQualityWaiverInput } from "./task-quality.js";
 import { addTask, transitionTask } from "./supervisor.js";
-import type { ScalerState, ScalerTaskStatus } from "./types.js";
+import type { ScalerState, ScalerTaskKind, ScalerTaskStatus } from "./types.js";
+import { saveValidationManifest, type EmbeddedValidationManifestCommandInput } from "./validation.js";
 
 export interface CreateTaskInput {
   id: string;
   title?: string;
   status?: ScalerTaskStatus | string;
+  taskKind?: ScalerTaskKind | string;
+  atomicityRationale?: string;
   allowedPathPrefixes?: string[];
   dependsOn?: string[];
   prdRefs?: string[];
   definitionOfDone?: string[];
+  validationRefs?: string[];
+  validationCommands?: EmbeddedValidationManifestCommandInput[];
+  qualityWaivers?: TaskQualityWaiverInput[];
+  qualityMode?: TaskQualityEnforcementMode;
 }
 
 export interface CreateTaskResult {
@@ -26,10 +33,16 @@ export interface UpdateTaskInput {
   id: string;
   title?: string;
   status?: ScalerTaskStatus | string;
+  taskKind?: ScalerTaskKind | string;
+  atomicityRationale?: string;
   allowedPathPrefixes?: string[];
   dependsOn?: string[];
   prdRefs?: string[];
   definitionOfDone?: string[];
+  validationRefs?: string[];
+  validationCommands?: EmbeddedValidationManifestCommandInput[];
+  qualityWaivers?: TaskQualityWaiverInput[];
+  qualityMode?: TaskQualityEnforcementMode;
 }
 
 export interface UpdateTaskResult {
@@ -119,10 +132,14 @@ export async function updateTask(cwd: string, state: ScalerState, input: UpdateT
         ? {
             ...task,
             title: input.title ?? task.title,
+            taskKind: input.taskKind !== undefined ? normalizeTaskKind(input.taskKind) : task.taskKind,
+            atomicityRationale: input.atomicityRationale !== undefined ? normalizeOptionalString(input.atomicityRationale) : task.atomicityRationale,
             allowedPathPrefixes: input.allowedPathPrefixes ? normalizeAllowedPaths(input.allowedPathPrefixes) : task.allowedPathPrefixes,
             dependsOn: input.dependsOn ? normalizeIdList(input.dependsOn) : task.dependsOn,
             prdRefs: input.prdRefs ? normalizeIdList(input.prdRefs) : task.prdRefs,
             definitionOfDone: input.definitionOfDone ? normalizeDefinitionOfDone(input.definitionOfDone) : task.definitionOfDone,
+            validationRefs: input.validationRefs ? normalizeIdList(input.validationRefs) : task.validationRefs,
+            qualityWaivers: input.qualityWaivers ? normalizeTaskQualityWaivers(input.qualityWaivers) : task.qualityWaivers,
             updatedAt: timestamp,
           }
         : task,
@@ -130,8 +147,22 @@ export async function updateTask(cwd: string, state: ScalerState, input: UpdateT
     updatedAt: timestamp,
   };
 
+  const qualityMode = input.qualityMode ?? "warn";
+  if (qualityMode === "enforce") {
+    const enforcementReview = await reviewTaskDefinition(cwd, nextState, input.id, new Date(), {
+      enforcement: "enforce",
+      supplementalValidationCommands: input.validationCommands,
+    });
+    if (enforcementReview.status === "blocked") {
+      const message = `Task update rejected: ${input.id} quality blocked (${enforcementReview.warnings.map((warning) => warning.code).join(",")})`;
+      await appendLogEvent(cwd, createLogEvent(state, { eventType: "state", summary: message, taskId: input.id, details: { input, qualityReview: enforcementReview } }));
+      return { state, accepted: false, message, qualityReview: enforcementReview };
+    }
+  }
+
+  await persistTaskValidationCommands(cwd, input.id, input.validationCommands, nextState.tasks.find((task) => task.id === input.id)?.definitionOfDone);
   await saveState(cwd, nextState);
-  const qualityReview = await reviewTaskDefinition(cwd, nextState, input.id);
+  const qualityReview = await reviewTaskDefinition(cwd, nextState, input.id, new Date(), { enforcement: qualityMode });
   await appendLogEvent(
     cwd,
     createLogEvent(nextState, { eventType: "state", summary: `Task updated: ${input.id}`, taskId: input.id, details: { input, qualityReview } }),
@@ -164,20 +195,52 @@ export async function createTask(cwd: string, state: ScalerState, input: CreateT
     id: input.id,
     title: input.title,
     status,
+    taskKind: normalizeTaskKind(input.taskKind),
+    atomicityRationale: normalizeOptionalString(input.atomicityRationale),
     allowedPathPrefixes: normalizeAllowedPaths(input.allowedPathPrefixes),
     dependsOn: normalizeIdList(input.dependsOn),
     prdRefs: normalizeIdList(input.prdRefs),
     definitionOfDone: normalizeDefinitionOfDone(input.definitionOfDone),
+    validationRefs: normalizeIdList(input.validationRefs),
+    qualityWaivers: normalizeTaskQualityWaivers(input.qualityWaivers),
   });
   const accepted = nextState.rejectedTransitions.length === beforeRejected;
+  if (!accepted) {
+    await saveState(cwd, nextState);
+    await appendLogEvent(
+      cwd,
+      createLogEvent(nextState, {
+        eventType: "state",
+        summary: `Task create rejected: ${input.id}`,
+        taskId: input.id,
+        details: { input },
+      }),
+    );
+    return { state: nextState, accepted: false, message: `Task create rejected: ${input.id}` };
+  }
 
+  const qualityMode = input.qualityMode ?? "warn";
+  if (qualityMode === "enforce") {
+    const enforcementReview = await reviewTaskDefinition(cwd, nextState, input.id, new Date(), {
+      enforcement: "enforce",
+      supplementalValidationCommands: input.validationCommands,
+      supplementalValidationRefs: input.validationRefs,
+    });
+    if (enforcementReview.status === "blocked") {
+      const message = `Task create rejected: ${input.id} quality blocked (${enforcementReview.warnings.map((warning) => warning.code).join(",")})`;
+      await appendLogEvent(cwd, createLogEvent(state, { eventType: "state", summary: message, taskId: input.id, details: { input, qualityReview: enforcementReview } }));
+      return { state, accepted: false, message, qualityReview: enforcementReview };
+    }
+  }
+
+  await persistTaskValidationCommands(cwd, input.id, input.validationCommands, nextState.tasks.find((task) => task.id === input.id)?.definitionOfDone);
   await saveState(cwd, nextState);
-  const qualityReview = accepted ? await reviewTaskDefinition(cwd, nextState, input.id) : undefined;
+  const qualityReview = await reviewTaskDefinition(cwd, nextState, input.id, new Date(), { enforcement: qualityMode });
   await appendLogEvent(
     cwd,
     createLogEvent(nextState, {
       eventType: "state",
-      summary: accepted ? `Task created: ${input.id}` : `Task create rejected: ${input.id}`,
+      summary: `Task created: ${input.id}`,
       taskId: input.id,
       details: { input, qualityReview },
     }),
@@ -186,8 +249,8 @@ export async function createTask(cwd: string, state: ScalerState, input: CreateT
   const warningSuffix = qualityReview && qualityReview.warnings.length > 0 ? ` warnings=${qualityReview.warnings.length}` : "";
   return {
     state: nextState,
-    accepted,
-    message: accepted ? `Task created: ${input.id}${warningSuffix}` : `Task create rejected: ${input.id}`,
+    accepted: true,
+    message: `Task created: ${input.id}${warningSuffix}`,
     qualityReview,
   };
 }
@@ -213,4 +276,25 @@ function normalizeIdList(ids: string[] | undefined): string[] | undefined {
 function normalizeDefinitionOfDone(items: string[] | undefined): string[] | undefined {
   const normalized = (items ?? []).map((item) => item.trim()).filter((item) => item.length > 0);
   return normalized.length > 0 ? [...new Set(normalized)] : undefined;
+}
+
+function normalizeOptionalString(value: string | undefined): string | undefined {
+  return value?.trim() || undefined;
+}
+
+async function persistTaskValidationCommands(
+  cwd: string,
+  taskId: string,
+  commands: EmbeddedValidationManifestCommandInput[] | undefined,
+  definitionOfDone: string[] | undefined,
+): Promise<void> {
+  if (!commands || commands.length === 0) return;
+  const timestamp = new Date().toISOString();
+  await saveValidationManifest(cwd, {
+    taskId,
+    definitionOfDone,
+    commands: commands.map((command) => ({ ...command, required: command.required ?? true })),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  });
 }
