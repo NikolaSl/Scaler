@@ -71,7 +71,7 @@ export function assessCompression(input: CompressionAssessmentInput): Compressio
     if (exactness === "exact") exactRefs.push(item.id);
     if (exactness === "summary-ok") summaryOkRefs.push(item.id);
     if (exactness === "reference-only") referenceOnlyRefs.push(item.id);
-    if (exactness === "exact" && estimateItemTokens(item) > policy.largeItemThresholdTokens) externalizeRefs.push(item.id);
+    if ((exactness === "exact" || exactness === "summary-ok") && estimateItemTokens(item) > policy.largeItemThresholdTokens) externalizeRefs.push(item.id);
   }
 
   const overByTokens = Math.max(0, input.estimatedTokens - policy.activeContextLimitTokens);
@@ -105,7 +105,7 @@ export function formatCompressionGuidance(assessment: CompressionAssessment): st
   if (assessment.exactRefs.length > 0) lines.push(`Exact refs: ${assessment.exactRefs.join(", ")}`);
   if (assessment.summaryOkRefs.length > 0) lines.push(`Summary-ok refs: ${assessment.summaryOkRefs.join(", ")}`);
   if (assessment.referenceOnlyRefs.length > 0) lines.push(`Reference-only refs: ${assessment.referenceOnlyRefs.join(", ")}`);
-  if (assessment.externalizeRefs.length > 0) lines.push(`Externalize exact refs if they must be carried forward: ${assessment.externalizeRefs.join(", ")}`);
+  if (assessment.externalizeRefs.length > 0) lines.push(`Externalize large exact/summary-ok refs before carrying them forward: ${assessment.externalizeRefs.join(", ")}`);
   for (const recommendation of assessment.recommendations) lines.push(`- ${recommendation}`);
   return lines.join("\n");
 }
@@ -136,7 +136,7 @@ function buildRecommendations(input: {
     recommendations.push("Do not expand reference-only refs unless they become required for the current task.");
   }
   if (input.externalizeRefs.length > 0) {
-    recommendations.push("Externalize large exact refs before continuing so exact data is preserved outside active context.");
+    recommendations.push("Externalize large exact or summary-ok refs before continuing so full data is preserved outside active context.");
   }
   if (input.overTarget) {
     recommendations.push(`Context exceeds the active target by ${input.overByTokens} tokens; split the work or spawn a fresh minimal-context agent after externalizing necessary exact data.`);

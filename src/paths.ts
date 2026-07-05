@@ -126,6 +126,22 @@ export function getContextSplitsPath(cwd: string): string {
   return join(getContextDir(cwd), "splits.json");
 }
 
+export function getContextExternalizedDir(cwd: string): string {
+  return join(getContextDir(cwd), "externalized");
+}
+
+export function getContextCompactionsPath(cwd: string): string {
+  return join(getContextDir(cwd), "compactions.json");
+}
+
+export function getContextHandoffsPath(cwd: string): string {
+  return join(getContextDir(cwd), "handoffs.json");
+}
+
+export function getContextHandoffPromptsDir(cwd: string): string {
+  return join(getContextDir(cwd), "handoffs");
+}
+
 export function getMissingContextRequestsPath(cwd: string): string {
   return join(getContextDir(cwd), "missing-requests.json");
 }

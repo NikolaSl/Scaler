@@ -48,6 +48,7 @@ import {
 } from "./commands.js";
 import { pauseScalerRun, resumeScalerRun } from "./checkpoints.js";
 import { ensureTaskContextManifest, formatTaskContextManifest, loadTaskContextManifest } from "./context.js";
+import { buildScalerCompactionInstructions, buildScalerCompactionResult, formatFreshContextHandoffs, formatScalerCompactionRecords, loadFreshContextHandoffRecords, loadScalerCompactionRecords, prepareFreshContextHandoff, shouldTriggerScalerCompaction } from "./context-compaction.js";
 import { formatContextSplitRecords, loadContextSplitRecords } from "./context-splits.js";
 import { formatTaskAgentRunList, loadTaskAgentRunRecords, runConductorStep } from "./conductor.js";
 import { loadDebugAttempts, loadDebugFailures, loadDebugReports, loadDebugRetries, formatDebugReportSummary } from "./debug.js";
@@ -131,15 +132,38 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   });
   (pi as unknown as { registerCommand: ExtensionAPI["registerCommand"] }).registerCommand = auditedRegisterCommand;
 
+  let lastAutoCompactKey: string | undefined;
+
   pi.on("turn_end", async (event, ctx) => {
     const usage = extractProviderUsage([event]);
-    if (!usage) return undefined;
-    const state = await ensureState(ctx.cwd);
-    await recordProviderUsageBudget(ctx.cwd, state, usage, {
-      source: "parent-turn-end",
-      agentType: "parent",
-    });
+    let state = await ensureState(ctx.cwd);
+    if (usage) {
+      state = (await recordProviderUsageBudget(ctx.cwd, state, usage, {
+        source: "parent-turn-end",
+        agentType: "parent",
+      })).state;
+    }
+
+    const compactDecision = shouldTriggerScalerCompaction(ctx.getContextUsage?.());
+    if (compactDecision.trigger && compactDecision.usage?.tokens !== null) {
+      const compactKey = `${compactDecision.usage?.tokens}:${compactDecision.usage?.contextWindow}:${state.updatedAt}`;
+      if (compactKey !== lastAutoCompactKey) {
+        lastAutoCompactKey = compactKey;
+        await logStateEvent(ctx.cwd, state, "SCALER automatic compaction requested", compactDecision);
+        ctx.compact({ customInstructions: buildScalerCompactionInstructions(state, compactDecision) });
+      }
+    }
     return undefined;
+  });
+
+  pi.on("session_before_compact", async (event, ctx) => {
+    const state = await ensureState(ctx.cwd);
+    const compaction = await buildScalerCompactionResult(ctx.cwd, state, event.preparation, {
+      reason: event.reason,
+      willRetry: event.willRetry,
+      customInstructions: event.customInstructions,
+    });
+    return { compaction };
   });
 
   pi.on("session_start", async (_event, ctx) => {
@@ -360,6 +384,51 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       const taskId = args?.trim() || undefined;
       const message = formatContextSplitRecords(await loadContextSplitRecords(ctx.cwd), taskId);
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-compact", {
+    description: "Trigger SCALER-aware Pi compaction with deterministic state-preservation instructions.",
+    handler: async (_args, ctx) => {
+      const state = await ensureState(ctx.cwd);
+      const decision = shouldTriggerScalerCompaction(ctx.getContextUsage?.());
+      ctx.compact({ customInstructions: buildScalerCompactionInstructions(state, decision) });
+      const message = `SCALER compaction requested. ${decision.reason}`;
+      await logStateEvent(ctx.cwd, state, message, decision);
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-compactions", {
+    description: "List SCALER-aware compaction records.",
+    handler: async (_args, ctx) => {
+      const message = formatScalerCompactionRecords(await loadScalerCompactionRecords(ctx.cwd));
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-context-handoff", {
+    description: "Prepare or execute a fresh minimal-context continuation from a split: /scaler-context-handoff [splitId|taskId] [execute]",
+    handler: async (args, ctx) => {
+      const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+      const execute = parts.some((part) => part.toLowerCase() === "execute");
+      const id = parts.find((part) => part.toLowerCase() !== "execute");
+      const state = await ensureState(ctx.cwd);
+      const result = await prepareFreshContextHandoff(ctx.cwd, state, { splitId: id, taskId: id, execute });
+      if (ctx.hasUI) ctx.ui.notify(`${result.message}\n${result.record.diagnostics.join("\n")}`, result.accepted ? "info" : "warning");
+      else console.log(`${result.message}\n${result.record.diagnostics.join("\n")}`);
+    },
+  });
+
+  pi.registerCommand("scaler-context-handoffs", {
+    description: "List fresh minimal-context continuation handoffs: /scaler-context-handoffs [taskId|splitId|handoffId]",
+    handler: async (args, ctx) => {
+      const taskId = args?.trim() || undefined;
+      const message = formatFreshContextHandoffs(await loadFreshContextHandoffRecords(ctx.cwd), taskId);
       if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
     },
