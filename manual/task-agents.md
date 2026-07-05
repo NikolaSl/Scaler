@@ -21,6 +21,8 @@ Child agents now default to `--no-tools` for omitted or empty tool lists. When a
 
 Current implementation provides the invocation builder, subprocess runner, persisted run records under `.scaler/reports/task-agent-runs.json`, structured task-agent report records under `.scaler/reports/task-agent-reports.json`, and repo-wide execution locking for task-agent execution.
 
+Task definitions are quality-gated before user-facing creation/update and planner application. A task must carry allowed paths, Definition of Done, an atomicity rationale, task-specific validation refs/commands, and task kind metadata; software/mixed tasks must also include test-first/update-tests-before-implementation coverage or an explicit waiver with a reason. Reviews and waivers are persisted under `.scaler/reports/task-quality.json`.
+
 `scaler_spawn_task` supports:
 
 - `execute: false` or omitted — prepare invocation only.

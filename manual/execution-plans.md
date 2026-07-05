@@ -16,10 +16,15 @@ Current plan task fields:
 - `id`
 - `title`
 - optional `description`
+- optional `taskKind` (`software`, `non_software`, or `mixed`)
+- optional `atomicityRationale`
 - optional `prdRefs`
 - optional `allowedPathPrefixes`
 - optional `dependsOn`
+- optional `definitionOfDone`
 - optional `validationRefs`
+- optional `validationCommands`
+- optional `qualityWaivers`
 
 Plan statuses:
 
@@ -52,9 +57,9 @@ Plan statuses:
 - plan tasks without PRD refs
 - runtime PRD requirements not linked by plan tasks
 
-`/scaler-plan-apply` creates missing supervisor task records from the current plan. Existing task records are preserved. Created tasks inherit title, allowed paths, dependencies, and PRD refs from plan tasks.
+`/scaler-plan-apply` creates missing supervisor task records from the current plan. Existing task records are preserved. Created tasks inherit title, kind, atomicity rationale, allowed paths, dependencies, PRD refs, DoD, validation refs/commands, and quality waivers from plan tasks. Unwaived missing quality requirements reject the affected task instead of silently creating a loose task.
 
-Structured `scaler_planning_report` output synchronizes planner-provided runtime requirements, saves the current execution plan, creates missing tasks, updates existing task metadata/`prdRefs` when requested by the planner report, links requirement coverage to plan tasks, and records diagnostics for unlinked requirements, unknown plan refs, and plan tasks without PRD refs. `/scaler-planning-reports` lists those report records.
+Structured `scaler_planning_report` output synchronizes planner-provided runtime requirements, saves the current execution plan, creates missing tasks, updates existing task metadata/`prdRefs` when requested by the planner report, links requirement coverage to plan tasks, and records diagnostics for unlinked requirements, unknown plan refs, rejected loose tasks, and plan tasks without PRD refs. Planner tasks must include the same quality metadata as direct task creation or explicit `qualityWaivers`. `/scaler-planning-reports` lists those report records.
 
 `/scaler-replans` lists recorded replan requests.
 
@@ -84,6 +89,6 @@ Execution plan replacement preservation checks are available in code. They repor
 
 ## Current limitations
 
-SCALER does not yet include an autonomous planner loop, but structured planner output can be ingested through `scaler_planning_report` to write the initial/current plan, synchronize PRD requirements, align task `prdRefs`, and record coverage diagnostics before execution. The current-plan artifact can also be written directly and applied through `/scaler-plan-apply`.
+Autonomous planner-loop coordination exists through `/scaler-stage-workflow`, and structured planner output can be ingested through `scaler_planning_report` to write the initial/current plan, synchronize PRD requirements, align task metadata/quality fields, and record coverage diagnostics before execution. The current-plan artifact can also be written directly and applied through `/scaler-plan-apply`.
 
 Replanner proposal generation exists through `/scaler-replan-run execute`, but proposal acceptance remains an explicit preservation-gated step via `/scaler-replan-accept`.

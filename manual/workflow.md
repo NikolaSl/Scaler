@@ -43,8 +43,8 @@ Lower-level stage commands are also available:
 Tasks can be created directly:
 
 ```text
-/scaler-task-create T-001 | Add parser tests | src,test | | | tests pass; parser behavior documented
-/scaler-task-create T-002 | Add dependent work | src | T-001 | REQ-002 | dependency validated
+/scaler-task-create T-001 | Add parser tests | src,test | | REQ-001 | tests pass; parser behavior documented | software | T-001 is independently completable and testable. | test-first,unit
+/scaler-task-create T-002 | Add dependent work | src | T-001 | REQ-002 | dependency validated | software | T-002 is independently completable after T-001 validates. | test-first,unit
 /scaler-tasks
 ```
 
@@ -55,7 +55,7 @@ Or created from the current execution plan artifact:
 /scaler-plan-apply
 ```
 
-Tasks may include allowed paths for later commit safety, dependency ids, runtime PRD refs, and Definition of Done items. The conductor will not select a task until its dependencies are validated. Runtime PRD refs are shown by `/scaler-prd-status` and help identify which requirements have validated task coverage. Task creation/update records non-blocking quality warnings when DoD, task-specific validation, or allowed paths are missing; recompute them with `/scaler-task-quality [taskId]`.
+Tasks must include allowed paths for later commit safety, dependency ids where applicable, runtime PRD refs, Definition of Done items, a task kind, an atomicity rationale, and validation refs/commands. Software or mixed tasks also need test-first/update-tests-before-implementation coverage or an explicit waiver reason. The conductor will not select a task until its dependencies are validated. Runtime PRD refs are shown by `/scaler-prd-status` and help identify which requirements have validated task coverage. `/scaler-task-quality [taskId]` recomputes the review ledger and shows warnings, errors, and explicit waivers.
 
 ## 3. Optionally add validation commands
 

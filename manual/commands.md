@@ -530,19 +530,19 @@ Records a manual replan request and attempts to transition the supervisor stage 
 
 Links an existing task to runtime PRD requirement ids by updating the task's `prdRefs` metadata.
 
-## `/scaler-task-create <taskId> | <title> | <allowed paths comma list> | <dependency ids comma list> | <PRD refs comma list> | <DoD items semicolon list>`
+## `/scaler-task-create <taskId> | <title> | <allowed paths comma list> | <dependency ids comma list> | <PRD refs comma list> | <DoD items semicolon list> | <kind> | <atomicity rationale> | <validation refs comma list> | <waivers code:reason;...>`
 
-Creates a supervisor task record and records a non-blocking task-definition quality review.
+Creates a supervisor task record and enforces the task-definition quality contract. Creation is rejected unless the task has allowed paths, DoD, an atomicity rationale, task-specific validation refs/commands, and software/mixed tasks have a `test_first`/test-first validation ref or an explicit waiver reason.
 
 Examples:
 
 ```text
-/scaler-task-create T-001 | Add parser tests | src,test | | | tests pass; parser behavior documented
-/scaler-task-create T-002 | Add dependent task | src | T-001 | REQ-002 | dependency validated
-/scaler-task-create T-003
+/scaler-task-create T-001 | Add parser tests | src,test | | REQ-001 | tests pass; parser behavior documented | software | T-001 is independently completable and testable. | test-first,unit
+/scaler-task-create T-002 | Add dependent task | src | T-001 | REQ-002 | dependency validated | software | T-002 is independently completable after T-001 validates. | test-first,unit
+/scaler-task-create T-DOC | Update docs | manual | | REQ-DOC | docs updated | non_software | Single documentation update with checklist validation. | completeness,source_validation
 ```
 
-Allowed paths are used later for safe per-task git commits. Dependencies prevent the conductor from selecting a task until all listed task ids are validated. PRD refs link the task to runtime PRD requirements for coverage/replanning summaries. DoD items are stored as task metadata and used by task-quality warnings. Missing DoD, missing task-specific validation commands, or missing allowed paths are warnings, not hard rejections.
+Allowed paths are used later for safe per-task git commits. Dependencies prevent the conductor from selecting a task until all listed task ids are validated. PRD refs link the task to runtime PRD requirements for coverage/replanning summaries. DoD items are stored as task metadata. Waivers use `code:reason` entries such as `missing_test_first:Documentation-only task has a checklist validation path`; waived issues are stored in task-quality review records.
 
 ## `/scaler-task-retry <taskId> | <reason>`
 
@@ -554,9 +554,9 @@ Retries a task through deterministic supervisor task transitions:
 
 Terminal `failed` tasks are rejected by current retry rules.
 
-## `/scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies> | <PRD refs> | <DoD items semicolon list>`
+## `/scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies> | <PRD refs> | <DoD items semicolon list> | <kind> | <atomicity rationale> | <validation refs comma list> | <waivers code:reason;...>`
 
-Updates task metadata and records a non-blocking task-definition quality review. If `status` is provided, the update must be a valid supervisor task transition.
+Updates task metadata and enforces the same task-definition quality contract as creation. If `status` is provided, the update must also be a valid supervisor task transition.
 
 Examples:
 
@@ -568,7 +568,7 @@ Examples:
 
 ## `/scaler-task-quality [taskId]`
 
-Recomputes and records task-definition quality reviews under `.scaler/reports/task-quality.json`. Reviews warn when a task lacks Definition of Done items, task-specific validation manifest commands, or allowed path scope. Optional `taskId` limits the review to one task.
+Recomputes and records task-definition quality reviews under `.scaler/reports/task-quality.json`. Reviews report missing Definition of Done items, task-specific validation refs/commands, allowed path scope, atomicity rationale, test-first coverage for software/mixed tasks, and active tasks whose dependencies are not validated. Explicit waivers are shown alongside waived issue codes. Optional `taskId` limits the review to one task.
 
 ## `/scaler-status`
 

@@ -38,7 +38,7 @@ Default integration tests use deterministic mock child-agent runners. They do no
 The current mocked integration harness covers:
 
 - conductor task execution into structured task-agent report ingestion before validation handoff, including missing/invalid report blocking and structured missing-context request creation/resolution/retry;
-- task-definition quality reviews for missing Definition of Done, validation, and allowed path scope;
+- task-definition quality reviews and enforced user-facing/planner task creation for missing Definition of Done, validation refs/commands, allowed path scope, atomicity rationale, test-first coverage, and explicit waiver records;
 - failing validation into debugging;
 - debug attempt cycle detection and retry-gate refusal;
 - focused debug-agent report ingestion;
@@ -116,7 +116,7 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - slash-command debug next-approach retry prepare mode plus retry-policy persistence with persisted retry records and prompt audit logs;
 - slash-command MCP enumeration, tool transaction, tool transaction replay, tool replay approval, tool scheduling plan, tool iteration policy/prepare mode, and schema discovery prepare modes with persisted MCP/transaction/probe/schedule/iteration/approval records;
 - slash-command typed validation gate metadata, gate/environment/disposition policy enforcement, validation environment lifecycle records/status, skipped/blocked disposition persistence, non-software checklist persistence, evidence-policy enforcement, and audit logs;
-- cardinal SCALER tool invocation with persisted `.scaler/state.json` mutation;
+- slash-command strict task creation with quality review persistence and cardinal SCALER tool invocation with persisted `.scaler/state.json` mutation;
 - cardinal `scaler_tool_schema` invocation with persisted discovered metadata;
 - cardinal `scaler_tool_request` invocation with persisted rich metadata;
 - cardinal `scaler_tool_result` invocation with persisted result ledger and closed request status;
