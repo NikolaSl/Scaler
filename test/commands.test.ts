@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   parseBudgetSetArgs,
+  parseCicdEnvArgs,
   parseCommaList,
   parseSemicolonList,
   parseCommitArgs,
@@ -245,6 +246,27 @@ test("parseSafetyApprovalArgs parses approval and revocation workflows", () => {
 test("parseSafetyScanArgs parses execute flag and kind filters", () => {
   assert.deepEqual(parseSafetyScanArgs("execute kinds=npm_audit,trivy_fs"), { execute: true, kinds: ["npm_audit", "trivy_fs"] });
   assert.deepEqual(parseSafetyScanArgs(" "), { execute: false, kinds: undefined });
+});
+
+test("parseCicdEnvArgs parses environment provisioning fields", () => {
+  assert.deepEqual(parseCicdEnvArgs("docker | npm test | T-1 | ci | node | execute scan=off"), {
+    environment: "docker",
+    validationCommand: "npm test",
+    taskId: "T-1",
+    commandId: "ci",
+    stack: "node",
+    execute: true,
+    runScanners: false,
+  });
+  assert.deepEqual(parseCicdEnvArgs("local_ci"), {
+    environment: "local_ci",
+    validationCommand: undefined,
+    taskId: undefined,
+    commandId: undefined,
+    stack: undefined,
+    execute: false,
+    runScanners: true,
+  });
 });
 
 test("parseTaskCreateArgs returns undefined without task id", () => {

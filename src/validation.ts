@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { prepareCicdValidationExecution } from "./cicd-environments.js";
 import { appendLogEvent, createLogEvent, logValidationSummaryAudit } from "./logging.js";
 import { getValidationChecklistsPath, getValidationManifestsPath, getValidationRunsPath } from "./paths.js";
 import { cleanupValidationEnvironment, prepareValidationEnvironment, type ValidationEnvironmentProbe } from "./validation-environments.js";
@@ -164,6 +165,9 @@ export interface ValidationCommandRunRecord {
   disposition?: ValidationGateDisposition;
   dispositionReason?: string;
   environmentLifecycleRefs?: string[];
+  cicdProvisionRef?: string;
+  executionCommand?: string;
+  artifactRefs?: string[];
 }
 
 export interface ValidationCommandRunOptions {
@@ -900,8 +904,54 @@ export async function runValidationCommand(
     }
   }
 
+  let executionCommand = command.command;
+  let cicdProvisionRef: string | undefined;
+  let artifactRefs: string[] | undefined;
+  if (environment && environment !== "host") {
+    try {
+      const cicd = await prepareCicdValidationExecution(cwd, {
+        environment,
+        taskId: options.taskId,
+        commandId: command.id,
+        command: command.command,
+      });
+      executionCommand = cicd.executionCommand;
+      cicdProvisionRef = cicd.record.id;
+      artifactRefs = cicd.artifactRefs;
+    } catch (error) {
+      const now = new Date();
+      const message = error instanceof Error ? error.message : String(error);
+      const cleanup = await cleanupValidationEnvironment(cwd, environment, {
+        taskId: options.taskId,
+        commandId: command.id,
+        probe: options.environmentProbe,
+      });
+      lifecycleRefs.push(cleanup.id);
+      return {
+        id: `${command.id}-cicd-blocked-${now.getTime()}`,
+        commandId: command.id,
+        command: command.command,
+        status: "blocked",
+        exitCode: null,
+        stdoutSummary: message,
+        stderrSummary: "",
+        startedAt: now.toISOString(),
+        finishedAt: now.toISOString(),
+        required: command.required,
+        description: command.description,
+        gate: normalizeValidationGateKind(command.gate),
+        expectedResult: normalizeOptionalString(command.expectedResult),
+        evidenceRefs: normalizeStringList(command.evidenceRefs),
+        environment,
+        disposition: "blocked",
+        dispositionReason: message,
+        environmentLifecycleRefs: lifecycleRefs,
+      };
+    }
+  }
+
   const startedAt = new Date();
-  const result = await executeCommand(cwd, command.command, command.timeoutMs);
+  const result = await executeCommand(cwd, executionCommand, command.timeoutMs);
   const finishedAt = new Date();
   const status: ValidationCommandStatus = result.timedOut ? "timed_out" : result.exitCode === 0 ? "passed" : "failed";
   if (environment && environment !== "host") {
@@ -931,6 +981,9 @@ export async function runValidationCommand(
     disposition: normalizeValidationGateDisposition(command.disposition) ?? "run",
     dispositionReason: normalizeOptionalString(command.dispositionReason),
     environmentLifecycleRefs: lifecycleRefs.length ? lifecycleRefs : undefined,
+    cicdProvisionRef,
+    executionCommand: executionCommand === command.command ? undefined : executionCommand,
+    artifactRefs,
   };
 }
 

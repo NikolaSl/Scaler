@@ -51,6 +51,8 @@ test("runValidationCommand records local-CI prepare and cleanup lifecycle eviden
     const records = await loadValidationEnvironmentRecords(dir);
     assert.equal(result.status, "passed");
     assert.equal(result.environment, "local_ci");
+    assert.ok(result.cicdProvisionRef);
+    assert.match(result.executionCommand ?? "", /run-local-ci\.sh/);
     assert.deepEqual(new Set(result.environmentLifecycleRefs), new Set(records.map((record) => record.id)));
     assert.deepEqual(records.map((record) => record.phase), ["cleanup", "prepare"]);
     assert.deepEqual(records.map((record) => record.status), ["cleanup_completed", "prepared"]);

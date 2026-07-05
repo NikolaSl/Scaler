@@ -3,6 +3,7 @@ import { applyAdaptiveOrchestration, assessAdaptiveOrchestration, formatAdaptive
 import { formatBudgetStatus, getBudgetState, isBudgetUsageKey, persistBudgetDecision, setBudgetLimits, setBudgetUsage } from "./budgets.js";
 import {
   parseBudgetSetArgs,
+  parseCicdEnvArgs,
   parseCommitArgs,
   parseContextTaskArgs,
   parseDebugLoopArgs,
@@ -47,6 +48,7 @@ import {
   selectTaskForCommit,
 } from "./commands.js";
 import { pauseScalerRun, resumeScalerRun } from "./checkpoints.js";
+import { formatCicdEnvironmentRecords, loadCicdEnvironmentRecords, provisionCicdEnvironment } from "./cicd-environments.js";
 import { ensureTaskContextManifest, formatTaskContextManifest, loadTaskContextManifest } from "./context.js";
 import { buildScalerCompactionInstructions, buildScalerCompactionResult, formatFreshContextHandoffs, formatScalerCompactionRecords, loadFreshContextHandoffRecords, loadScalerCompactionRecords, prepareFreshContextHandoff, shouldTriggerScalerCompaction } from "./context-compaction.js";
 import { formatContextSplitRecords, loadContextSplitRecords } from "./context-splits.js";
@@ -1584,6 +1586,35 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     description: "Show recent validation environment prepare/cleanup lifecycle records.",
     handler: async (_args, ctx) => {
       const message = formatValidationEnvironmentRecords(await loadValidationEnvironmentRecords(ctx.cwd));
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-cicd-env", {
+    description: "Plan or generate a deterministic CI/CD validation sandbox: /scaler-cicd-env <env> | <command> | [taskId] | [commandId] | [stack] | [execute scan=on/off]",
+    handler: async (args, ctx) => {
+      const parsed = parseCicdEnvArgs(args);
+      const record = await provisionCicdEnvironment(ctx.cwd, {
+        environment: parsed.environment,
+        validationCommand: parsed.validationCommand,
+        taskId: parsed.taskId,
+        commandId: parsed.commandId,
+        stack: parsed.stack,
+      }, {
+        execute: parsed.execute,
+        runScanners: parsed.runScanners,
+      });
+      const message = formatCicdEnvironmentRecords([record]);
+      if (ctx.hasUI) ctx.ui.notify(message, record.status === "blocked" ? "warning" : "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-cicd-envs", {
+    description: "Show recent SCALER CI/CD sandbox provisioning records.",
+    handler: async (_args, ctx) => {
+      const message = formatCicdEnvironmentRecords(await loadCicdEnvironmentRecords(ctx.cwd));
       if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
     },

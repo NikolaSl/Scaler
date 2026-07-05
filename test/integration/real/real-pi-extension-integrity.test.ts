@@ -3,6 +3,7 @@ import { mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { getBudgetState } from "../../../src/budgets.js";
+import { loadCicdEnvironmentRecords } from "../../../src/cicd-environments.js";
 import { assessCompression } from "../../../src/compression.js";
 import { loadCommitReports, recordCommitReport } from "../../../src/git.js";
 import { loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
@@ -916,6 +917,27 @@ test("real Pi extension: slash command dispatch records validation environment l
     assert.deepEqual(lifecycle.map((record) => record.phase), ["cleanup", "prepare"]);
     assert.deepEqual(lifecycle.map((record) => record.status), ["cleanup_completed", "prepared"]);
     assert.equal(await readFile(join(dir, "real-lifecycle-ran.txt"), "utf8"), "ok");
+  });
+});
+
+test("real Pi extension: slash command dispatch records CI/CD sandbox provisioning", { skip: !REAL_PI_ENABLED }, async () => {
+  await withRealPiTempRepo(async (dir) => {
+    const result = await runScalerPi({
+      cwd: dir,
+      prompt: "/scaler-cicd-env local_ci | node -e \"process.exit(0)\" | T-REAL-CICD | ci | node | execute scan=off",
+    });
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /CI\/CD environments: records=1/);
+
+    const statusResult = await runScalerPi({ cwd: dir, prompt: "/scaler-cicd-envs" });
+    assert.equal(statusResult.exitCode, 0, statusResult.stderr || statusResult.stdout);
+    assert.match(`${statusResult.stdout}\n${statusResult.stderr}`, /env=local_ci status=generated/);
+
+    const records = await loadCicdEnvironmentRecords(dir);
+    assert.equal(records[0]?.environment, "local_ci");
+    assert.equal(records[0]?.status, "generated");
+    assert.equal(records[0]?.generatedFiles.some((file) => file.path === ".scaler/cicd/run-local-ci.sh" && file.action === "written"), true);
+    assert.match(await readFile(join(dir, ".scaler/cicd/run-local-ci.sh"), "utf8"), /AWS_SECRET_ACCESS_KEY/);
   });
 });
 

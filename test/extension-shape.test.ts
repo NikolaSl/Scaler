@@ -118,6 +118,8 @@ test("extension registers scaler commands", () => {
     "scaler-validate-loop",
     "scaler-validate",
     "scaler-validation-envs",
+    "scaler-cicd-env",
+    "scaler-cicd-envs",
     "scaler-pause",
     "scaler-resume",
     "scaler-storage-status",

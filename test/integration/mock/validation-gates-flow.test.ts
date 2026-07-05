@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
+import { loadCicdEnvironmentRecords } from "../../../src/cicd-environments.js";
 import scalerExtension from "../../../src/index.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { runValidationWithExecutionLock } from "../../../src/operations.js";
@@ -194,11 +195,41 @@ test("mock integration: validation records local-CI lifecycle evidence and statu
     const lifecycle = await loadValidationEnvironmentRecords(dir);
     assert.equal(runs[0]?.status, "passed");
     assert.equal(runs[0]?.commandRuns[0]?.environment, "local_ci");
+    assert.ok(runs[0]?.commandRuns[0]?.cicdProvisionRef);
+    assert.match(runs[0]?.commandRuns[0]?.executionCommand ?? "", /run-local-ci\.sh/);
     assert.equal(runs[0]?.commandRuns[0]?.environmentLifecycleRefs?.length, 2);
     assert.deepEqual(lifecycle.map((record) => record.phase), ["cleanup", "prepare"]);
     assert.deepEqual(lifecycle.map((record) => record.status), ["cleanup_completed", "prepared"]);
     assert.equal(await readFile(join(dir, "lifecycle-ran.txt"), "utf8"), "ok");
     assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
+  });
+});
+
+test("mock integration: CI/CD provision command generates wrapper records and validation uses them", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-CICD";
+    state.tasks = [{ id: "T-CICD", status: "validating", title: "CI/CD task", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+
+    const commands = registeredCommands();
+    await commands.get("scaler-cicd-env")?.handler(
+      "local_ci | node -e \"process.exit(0)\" | T-CICD | ci | node | execute scan=off",
+      { cwd: dir, hasUI: false },
+    );
+    await commands.get("scaler-validation-add")?.handler(
+      "T-CICD | ci | node -e \"require('node:fs').writeFileSync('cicd-wrapper-ran.txt','ok')\" | Local CI validation | required | local_ci | local CI exits 0 | manifest:ci | local_ci",
+      { cwd: dir, hasUI: false },
+    );
+    await commands.get("scaler-validate")?.handler("T-CICD", { cwd: dir, hasUI: false });
+    await commands.get("scaler-cicd-envs")?.handler(undefined, { cwd: dir, hasUI: false });
+
+    const records = await loadCicdEnvironmentRecords(dir);
+    const runs = await loadValidationRuns(dir);
+    assert.equal(records.some((record) => record.status === "generated" && record.environment === "local_ci"), true);
+    assert.ok(runs[0]?.commandRuns[0]?.cicdProvisionRef);
+    assert.equal(await readFile(join(dir, "cicd-wrapper-ran.txt"), "utf8"), "ok");
   });
 });
 

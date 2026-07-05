@@ -164,6 +164,16 @@ export interface ParsedSafetyScanArgs {
   kinds?: string[];
 }
 
+export interface ParsedCicdEnvArgs {
+  environment?: string;
+  validationCommand?: string;
+  taskId?: string;
+  commandId?: string;
+  stack?: string;
+  execute: boolean;
+  runScanners: boolean;
+}
+
 export interface ParsedPrdLinkArgs {
   taskId: string;
   prdRefs: string[];
@@ -586,6 +596,20 @@ export function parseSafetyScanArgs(args: string | undefined): ParsedSafetyScanA
   return {
     execute: parts.some((part) => part.toLowerCase() === "execute"),
     kinds: kindsPart ? parseCommaList(kindsPart.split("=").slice(1).join("=")) : undefined,
+  };
+}
+
+export function parseCicdEnvArgs(args: string | undefined): ParsedCicdEnvArgs {
+  const parts = splitPipeArgs(args);
+  const optionParts = parts.slice(5).flatMap((part) => part.trim().split(/\s+/).filter(Boolean));
+  return {
+    environment: parts[0]?.trim() || undefined,
+    validationCommand: parts[1]?.trim() || undefined,
+    taskId: parts[2]?.trim() || undefined,
+    commandId: parts[3]?.trim() || undefined,
+    stack: parts[4]?.trim() || undefined,
+    execute: optionParts.some((part) => part.toLowerCase() === "execute"),
+    runScanners: parseOnOffOption(optionParts.find((part) => /^scan=/i.test(part))) ?? true,
   };
 }
 
