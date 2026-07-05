@@ -7,7 +7,7 @@ Design requirements live in `assignement.md` and `specs/`. Compliance reviews mu
 ## Current implemented behavior
 
 - Pi extension entrypoint: `src/index.ts`.
-- Commands: `/scaler`, `/scaler-lock`, `/scaler-lock-clear`, `/scaler-runs`, `/scaler-tasks`, `/scaler-context-init`, `/scaler-context-status`, `/scaler-context-splits`, `/scaler-compact`, `/scaler-compactions`, `/scaler-context-handoff`, `/scaler-context-handoffs`, `/scaler-memory-search`, `/scaler-stage-status`, `/scaler-stage-validate`, `/scaler-stage-advance`, `/scaler-stage-step`, `/scaler-stage-loop`, `/scaler-stage-run`, `/scaler-stage-runs`, `/scaler-stage-record`, `/scaler-task-create`, `/scaler-task-update`, `/scaler-prd-status`, `/scaler-plan-status`, `/scaler-plan-apply`, `/scaler-planning-reports`, `/scaler-replans`, `/scaler-replan-run`, `/scaler-replan-runs`, `/scaler-debug-run`, `/scaler-debug-loop`, `/scaler-debug-runs`, `/scaler-debug-reports`, `/scaler-research-run`, `/scaler-research-runs`, `/scaler-research-status`, `/scaler-research-request`, `/scaler-research-report`, `/scaler-replan-proposal-status`, `/scaler-replan-accept`, `/scaler-replan-request`, `/scaler-prd-link`, `/scaler-task-retry`, `/scaler-step`, `/scaler-validation-add`, `/scaler-validate-loop`, `/scaler-validate`, `/scaler-storage-status`, `/scaler-watchdogs`, `/scaler-heartbeat`, `/scaler-watchdog-cleanup`, `/scaler-resume-check`, `/scaler-budget-policy`, `/scaler-budget-status`, `/scaler-budget-set`, `/scaler-commit`, `/scaler-commits`, `/scaler-pause`, `/scaler-resume`, `/scaler-status`.
+- Commands include the supervisor/task/stage/debug/research/replan/tool/storage/safety/watchdog/budget/git workflow plus validation commands such as `/scaler-validation-add`, `/scaler-validation-envs`, `/scaler-cicd-env`, `/scaler-cicd-envs`, `/scaler-validate-loop`, and `/scaler-validate`; see `manual/commands.md` for the current full command reference.
 - State file: `.scaler/state.json`.
 - Basic deterministic supervisor transition helpers.
 - Audit log: `.scaler/logs/events.jsonl` with detail payload files under `.scaler/logs/details/` for commands, prompts, tools, reports, validation summaries, and commits.
@@ -24,7 +24,7 @@ Design requirements live in `assignement.md` and `specs/`. Compliance reviews mu
 - Checkpoint writing under `.scaler/checkpoints/` for pause/resume, watchdog pause, and conductor steps.
 - Minimal one-step conductor execution with validation handoff artifacts and a debug retry gate for unresolved repeated failed fingerprints.
 - Debug failure/attempt/report ledgers, longer hidden fingerprint-cycle detection, and a focused debug-agent workflow that emits structured `scaler_debug_report` events; reports can create research requests or debug-blocked replan requests.
-- Deterministic validation manifests and command-run records.
+- Deterministic validation manifests, command-run records, validation environment lifecycle records, and generated CI/CD sandbox/local-CI wrapper records under `.scaler/reports/cicd-environments.json` plus generated files under `.scaler/cicd/`.
 - Git status safety, validated-task commit helpers, and `.scaler/reports/commits.json` post-commit reports.
 - Implemented create/list/step/validate/commit workflow, including enforced task-definition quality for user-facing/planner task creation and explicit waivers for missing DoD, validation, allowed paths, atomicity, or test-first coverage.
 - Task-agent run records with timeout/abort diagnostics and task-agent report ledgers under `.scaler/reports/task-agent-reports.json`.

@@ -110,8 +110,8 @@ Current behavior:
 - uses a per-task validation manifest from `.scaler/reports/validation-manifests.json` when present
 - otherwise falls back to default project commands from `package.json` scripts (`npm test`, `npm run build`)
 - evaluates dependency/test-first, environment, and skipped/blocked disposition policy diagnostics before command execution
-- prepares declared non-host validation environments (`local_ci`, Docker, Compose, devcontainer, Minikube), blocks required commands when required tooling is unavailable, and records prepare/cleanup evidence in `.scaler/reports/validation-environments.json`
-- writes validation runs to `.scaler/reports/validation-runs.json`
+- prepares declared non-host validation environments (`local_ci`, Docker, Compose, devcontainer, Minikube), blocks required commands when required tooling is unavailable, generates deterministic CI/CD wrapper/config files under `.scaler/cicd/`, executes validation through the selected wrapper, and records prepare/cleanup evidence in `.scaler/reports/validation-environments.json`
+- writes validation runs to `.scaler/reports/validation-runs.json` with CI/CD provision refs, executed wrapper commands, and artifact refs when non-host environments are used
 - records dispositioned commands as `skipped` or `blocked` without executing them
 - moves all-passing validating tasks to `validated`
 - moves failing validating tasks to `debugging`
@@ -120,6 +120,23 @@ Current behavior:
 ## `/scaler-validation-envs`
 
 Shows recent validation environment lifecycle records from `.scaler/reports/validation-environments.json`, including command id, environment, prepare/cleanup phase, status, and message.
+
+## `/scaler-cicd-env <env> | <validation-command> | [taskId] | [commandId] | [stack] | [execute scan=on/off]`
+
+Plans or generates deterministic local validation environments and wrapper scripts. Supported environments are `local_ci`, `docker`, `compose`, `devcontainer`, and `minikube`. Records are stored in `.scaler/reports/cicd-environments.json`; generated wrappers/configs are written under `.scaler/cicd/` only when `execute` is present. Scanner planning is on by default and can be disabled with `scan=off`.
+
+Examples:
+
+```text
+/scaler-cicd-env local_ci | npm test | T-001 | ci | node | execute scan=off
+/scaler-cicd-env docker | npm test | T-001 | unit | node | scan=on
+```
+
+Generated records include stack/tooling detection, generated file list, safety checks for secrets, bounded mounts, network/resource policy, cleanup behavior, scanner results or limitations, log/artifact refs, and remaining limitations.
+
+## `/scaler-cicd-envs`
+
+Lists recent CI/CD environment provisioning records from `.scaler/reports/cicd-environments.json`.
 
 ## `/scaler-pause [reason]`
 

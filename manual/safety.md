@@ -43,4 +43,4 @@ Optional security scanner records live at `.scaler/safety/scans.json`. `/scaler-
 
 Blocked and approval-allowed actions are written to `.scaler/logs/events.jsonl` as safety events with risk values such as `secret`, `destructive`, or `external` and approval ids when applicable.
 
-Validation environment lifecycle evidence exists for declared local-CI/sandbox validation gates. Sandbox safety exceptions are still explicit and bounded; they do not grant host-destructive, secret, deployment, publishing, or external-mutation access.
+Validation environment lifecycle evidence exists for declared local-CI/sandbox validation gates, and non-host validation now generates deterministic `.scaler/cicd/` wrappers/configs with safety checks for secrets, bounded mounts, network/resource policy, cleanup, scanner records or limitations, and log/artifact refs. Sandbox safety exceptions are still explicit and bounded; they do not grant host-destructive, secret, deployment, publishing, or external-mutation access.
