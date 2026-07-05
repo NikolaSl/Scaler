@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractProviderUsage, type ProviderUsage } from "./provider-usage.js";
+import { recordWatchdogCleanup } from "./watchdogs.js";
 
 export interface TaskAgentRequest {
   taskId: string;
@@ -152,8 +153,20 @@ export async function runTaskAgent(
       reject(error);
     });
 
-    child.on("close", (code) => {
+    child.on("close", async (code) => {
       if (stdoutBuffer.trim()) processLine(stdoutBuffer);
+      if (request.cwd && (timedOut || aborted)) {
+        await recordWatchdogCleanup(request.cwd, {
+          scopeKind: "agent",
+          scopeId: request.taskId,
+          taskId: request.taskId,
+          agentId: request.taskId,
+          reason: timedOut ? "timeout" : "abort",
+          signal: timedOut ? "SIGTERM/SIGKILL" : "abort-signal",
+          status: "completed",
+          message: timedOut ? `Task agent timed out and was terminated after ${options.timeoutMs}ms.` : "Task agent aborted and termination was requested.",
+        });
+      }
       settle({
         taskId: request.taskId,
         exitCode: code ?? 0,

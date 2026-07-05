@@ -19,6 +19,7 @@ export type BudgetUsageKey =
   | "estimatedCostMicros";
 export type BudgetDecisionStatus = "ok" | "soft_limit" | "hard_limit";
 export type BudgetRecommendedAction = "continue" | "reduce_scope" | "pause";
+export type BudgetScopeKind = "run" | "stage" | "plan" | "task" | "task_agent" | "research_agent" | "tool_agent" | "debug_loop" | "validation_loop";
 
 export interface BudgetLimit {
   soft?: number;
@@ -33,6 +34,18 @@ export interface BudgetCheckpoint {
   summary?: string;
 }
 
+export interface ScopedBudgetPolicy {
+  id: string;
+  scopeKind: BudgetScopeKind;
+  scopeId: string;
+  limits: Partial<Record<BudgetUsageKey, BudgetLimit>>;
+  requiresApproval?: boolean;
+  approvalId?: string;
+  reason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ScalerBudgetState {
   [key: string]: unknown;
   version: 1;
@@ -40,6 +53,7 @@ export interface ScalerBudgetState {
   updatedAt: string;
   usage: Partial<Record<BudgetUsageKey, number>>;
   limits: Partial<Record<BudgetUsageKey, BudgetLimit>>;
+  scopedPolicies: ScopedBudgetPolicy[];
   checkpoints: BudgetCheckpoint[];
 }
 
@@ -93,6 +107,7 @@ export function getBudgetState(state: ScalerState, now = new Date()): ScalerBudg
     updatedAt: typeof raw?.updatedAt === "string" ? raw.updatedAt : timestamp,
     usage,
     limits: normalizeLimits(raw?.limits),
+    scopedPolicies: normalizeScopedBudgetPolicies(raw?.scopedPolicies),
     checkpoints: Array.isArray(raw?.checkpoints) ? raw.checkpoints : [],
   };
 }
@@ -109,6 +124,39 @@ export function setBudgetLimits(
     updatedAt: now.toISOString(),
   };
   return { ...state, budgets: nextBudgetState, updatedAt: now.toISOString() };
+}
+
+export function setScopedBudgetPolicy(
+  state: ScalerState,
+  policy: Omit<ScopedBudgetPolicy, "createdAt" | "updatedAt"> & Partial<Pick<ScopedBudgetPolicy, "createdAt" | "updatedAt">>,
+  now = new Date(),
+): ScalerState {
+  const budgetState = getBudgetState(state, now);
+  const timestamp = now.toISOString();
+  const normalized: ScopedBudgetPolicy = {
+    ...policy,
+    limits: normalizeLimits(policy.limits),
+    createdAt: policy.createdAt ?? timestamp,
+    updatedAt: policy.updatedAt ?? timestamp,
+  };
+  const scopedPolicies = [
+    normalized,
+    ...budgetState.scopedPolicies.filter((candidate) => candidate.id !== normalized.id),
+  ];
+  const nextBudgetState: ScalerBudgetState = {
+    ...budgetState,
+    scopedPolicies,
+    updatedAt: timestamp,
+  };
+  return { ...state, budgets: nextBudgetState, updatedAt: timestamp };
+}
+
+export function getScopedBudgetPolicies(state: ScalerState, scopeKind?: BudgetScopeKind, scopeId?: string): ScopedBudgetPolicy[] {
+  return getBudgetState(state).scopedPolicies.filter((policy) => {
+    if (scopeKind && policy.scopeKind !== scopeKind) return false;
+    if (scopeId && policy.scopeId !== scopeId) return false;
+    return true;
+  });
 }
 
 export function incrementBudgetUsage(
@@ -216,7 +264,7 @@ export function formatBudgetStatus(state: ScalerState, now = new Date()): string
   const strongest = getStrongestBudgetDecision(decisions);
   const lines = [
     `Budgets: strongest=${strongest.status} key=${strongest.key} action=${strongest.recommendedAction}`,
-    `Started: ${budgets.startedAt} Updated: ${budgets.updatedAt} checkpoints=${budgets.checkpoints.length}`,
+    `Started: ${budgets.startedAt} Updated: ${budgets.updatedAt} checkpoints=${budgets.checkpoints.length} scopedPolicies=${budgets.scopedPolicies.length}`,
     "Usage:",
   ];
   for (const key of budgetUsageKeys) {
@@ -226,6 +274,10 @@ export function formatBudgetStatus(state: ScalerState, now = new Date()): string
     const soft = limit?.soft === undefined ? "-" : String(limit.soft);
     const hard = limit?.hard === undefined ? "-" : String(limit.hard);
     lines.push(`- ${key}: usage=${usage} soft=${soft} hard=${hard} status=${decision.status}`);
+  }
+  for (const policy of budgets.scopedPolicies.slice(0, 10)) {
+    const limitKeys = Object.keys(policy.limits).sort().join(",") || "none";
+    lines.push(`- scoped ${policy.id}: ${policy.scopeKind}/${policy.scopeId} limits=${limitKeys} approval=${policy.requiresApproval ? policy.approvalId ?? "required" : "not_required"}`);
   }
   return lines.join("\n");
 }
@@ -324,6 +376,34 @@ function normalizeLimits(value: unknown): Partial<Record<BudgetUsageKey, BudgetL
     };
   }
   return limits;
+}
+
+function normalizeScopedBudgetPolicies(value: unknown): ScopedBudgetPolicy[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isRecord)
+    .map((raw) => {
+      const scopeKind = normalizeScopeKind(raw.scopeKind);
+      const scopeId = typeof raw.scopeId === "string" && raw.scopeId.trim() ? raw.scopeId.trim() : "run";
+      const createdAt = typeof raw.createdAt === "string" ? raw.createdAt : new Date(0).toISOString();
+      return {
+        id: typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : `${scopeKind}-${scopeId}`,
+        scopeKind,
+        scopeId,
+        limits: normalizeLimits(raw.limits),
+        requiresApproval: raw.requiresApproval === true,
+        approvalId: typeof raw.approvalId === "string" ? raw.approvalId : undefined,
+        reason: typeof raw.reason === "string" ? raw.reason : undefined,
+        createdAt,
+        updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : createdAt,
+      } satisfies ScopedBudgetPolicy;
+    });
+}
+
+function normalizeScopeKind(value: unknown): BudgetScopeKind {
+  const normalized = typeof value === "string" ? value : "run";
+  const allowed: BudgetScopeKind[] = ["run", "stage", "plan", "task", "task_agent", "research_agent", "tool_agent", "debug_loop", "validation_loop"];
+  return allowed.includes(normalized as BudgetScopeKind) ? normalized as BudgetScopeKind : "run";
 }
 
 async function scanPathBytes(path: string): Promise<number> {

@@ -110,6 +110,26 @@ export function getCheckpointsDir(cwd: string): string {
   return join(getScalerDir(cwd), "checkpoints");
 }
 
+export function getWatchdogsDir(cwd: string): string {
+  return join(getScalerDir(cwd), "watchdogs");
+}
+
+export function getWatchdogHeartbeatsPath(cwd: string): string {
+  return join(getWatchdogsDir(cwd), "heartbeats.json");
+}
+
+export function getWatchdogEventsPath(cwd: string): string {
+  return join(getWatchdogsDir(cwd), "events.json");
+}
+
+export function getWatchdogCleanupPath(cwd: string): string {
+  return join(getWatchdogsDir(cwd), "cleanup.json");
+}
+
+export function getResumeChecksPath(cwd: string): string {
+  return join(getWatchdogsDir(cwd), "resume-checks.json");
+}
+
 export function getContextDir(cwd: string): string {
   return join(getScalerDir(cwd), "context");
 }

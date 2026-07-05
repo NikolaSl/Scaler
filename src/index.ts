@@ -106,6 +106,7 @@ import { createToolReplayApproval, formatKnownToolCatalog, formatMcpEnumerationR
 import { registerScalerTools } from "./tools.js";
 import { formatValidationChecklist, recordValidationChecklist, upsertValidationManifestCommand } from "./validation.js";
 import { runValidationDebugLoopWorkflow, selectTaskForValidationDebugLoop } from "./validation-debug-loop.js";
+import { applyComplexityBudgetPolicy, formatComplexityBudgetPolicies, formatResumeVerificationRecords, formatWatchdogCleanupRecords, formatWatchdogEvents, formatWatchdogHeartbeats, loadResumeVerificationRecords, loadWatchdogCleanupRecords, loadWatchdogEvents, loadWatchdogHeartbeats, recordWatchdogHeartbeat, runWatchdogAssessment, verifyResumeReadiness } from "./watchdogs.js";
 import { formatWorkflowSummary, summarizeWorkflow } from "./workflow.js";
 
 export default function scalerExtension(pi: ExtensionAPI): void {
@@ -143,6 +144,14 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         agentType: "parent",
       })).state;
     }
+    await recordWatchdogHeartbeat(ctx.cwd, {
+      scopeKind: "run",
+      scopeId: state.runId,
+      status: "progress",
+      action: "turn_end",
+      taskId: state.currentTaskId ?? undefined,
+      details: { usage },
+    });
 
     const compactDecision = shouldTriggerScalerCompaction(ctx.getContextUsage?.());
     if (compactDecision.trigger && compactDecision.usage?.tokens !== null) {
@@ -164,6 +173,58 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       customInstructions: event.customInstructions,
     });
     return { compaction };
+  });
+
+  pi.on("agent_start", async (event, ctx) => {
+    const state = await ensureState(ctx.cwd);
+    await recordWatchdogHeartbeat(ctx.cwd, {
+      scopeKind: "agent",
+      scopeId: state.currentTaskId ?? state.runId,
+      status: "running",
+      action: "agent_start",
+      taskId: state.currentTaskId ?? undefined,
+      details: event,
+    });
+    return undefined;
+  });
+
+  pi.on("agent_end", async (event, ctx) => {
+    const state = await ensureState(ctx.cwd);
+    await recordWatchdogHeartbeat(ctx.cwd, {
+      scopeKind: "agent",
+      scopeId: state.currentTaskId ?? state.runId,
+      status: "completed",
+      action: "agent_end",
+      taskId: state.currentTaskId ?? undefined,
+      details: event,
+    });
+    return undefined;
+  });
+
+  pi.on("tool_execution_start", async (event, ctx) => {
+    const state = await ensureState(ctx.cwd);
+    await recordWatchdogHeartbeat(ctx.cwd, {
+      scopeKind: "tool",
+      scopeId: (event as { toolName?: string }).toolName ?? "tool",
+      status: "running",
+      action: "tool_execution_start",
+      taskId: state.currentTaskId ?? undefined,
+      details: event,
+    });
+    return undefined;
+  });
+
+  pi.on("tool_execution_end", async (event, ctx) => {
+    const state = await ensureState(ctx.cwd);
+    await recordWatchdogHeartbeat(ctx.cwd, {
+      scopeKind: "tool",
+      scopeId: (event as { toolName?: string }).toolName ?? "tool",
+      status: "completed",
+      action: "tool_execution_end",
+      taskId: state.currentTaskId ?? undefined,
+      details: event,
+    });
+    return undefined;
   });
 
   pi.on("session_start", async (_event, ctx) => {
@@ -1754,6 +1815,77 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     },
   });
 
+  pi.registerCommand("scaler-watchdogs", {
+    description: "Assess watchdog heartbeats/replanning/budget approvals: /scaler-watchdogs [execute]",
+    handler: async (args, ctx) => {
+      const execute = (args ?? "").trim().split(/\s+/).some((part) => part.toLowerCase() === "execute");
+      const state = await ensureState(ctx.cwd);
+      const result = await runWatchdogAssessment(ctx.cwd, state, { execute });
+      const records = await loadWatchdogEvents(ctx.cwd);
+      const message = `${result.message}\n${formatWatchdogEvents(records, 10)}`;
+      if (ctx.hasUI) ctx.ui.notify(message, result.paused ? "warning" : "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-heartbeat", {
+    description: "Record/list watchdog heartbeats: /scaler-heartbeat [scope|action|status|taskId] or /scaler-heartbeat list [scopeId]",
+    handler: async (args, ctx) => {
+      const parts = (args ?? "").split("|").map((part) => part.trim());
+      if ((parts[0] ?? "").toLowerCase() === "list" || parts.length === 1 && !parts[0]) {
+        const message = formatWatchdogHeartbeats(await loadWatchdogHeartbeats(ctx.cwd), parts[1] || undefined);
+        if (ctx.hasUI) ctx.ui.notify(message, "info");
+        else console.log(message);
+        return;
+      }
+      const state = await ensureState(ctx.cwd);
+      const scopeId = parts[0] || state.currentTaskId || state.runId;
+      const action = parts[1] || "manual heartbeat";
+      const status = normalizeHeartbeatStatus(parts[2]);
+      const record = await recordWatchdogHeartbeat(ctx.cwd, { scopeKind: "task", scopeId, taskId: parts[3] || state.currentTaskId || undefined, status, action });
+      const message = `Watchdog heartbeat recorded: ${record.id} ${record.status}`;
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-watchdog-cleanup", {
+    description: "List watchdog subprocess/container cleanup records.",
+    handler: async (_args, ctx) => {
+      const message = formatWatchdogCleanupRecords(await loadWatchdogCleanupRecords(ctx.cwd));
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-resume-check", {
+    description: "Verify resume readiness and list resume verification records.",
+    handler: async (_args, ctx) => {
+      const state = await ensureState(ctx.cwd);
+      await verifyResumeReadiness(ctx.cwd, state);
+      const message = formatResumeVerificationRecords(await loadResumeVerificationRecords(ctx.cwd));
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-budget-policy", {
+    description: "Apply/list complexity scoped budget policy: /scaler-budget-policy [level=N] [approve]",
+    handler: async (args, ctx) => {
+      const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+      const state = await ensureState(ctx.cwd);
+      const levelPart = parts.find((part) => /^level=\d+$/i.test(part));
+      const level = levelPart ? Number.parseInt(levelPart.split("=")[1] ?? "", 10) : state.complexityLevel;
+      const approved = parts.some((part) => part.toLowerCase() === "approve");
+      const result = applyComplexityBudgetPolicy(state, { level, approved });
+      if (result.accepted) await saveState(ctx.cwd, result.state);
+      await logStateEvent(ctx.cwd, result.state, result.accepted ? "Scaler budget policy applied" : "Scaler budget policy requires approval", result);
+      const message = `${result.message}\n${formatComplexityBudgetPolicies(result.accepted ? getBudgetState(result.state).scopedPolicies : result.policies)}`;
+      if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
+      else console.log(message);
+    },
+  });
+
   pi.registerCommand("scaler-budget-status", {
     description: "Show SCALER budget usage, limits, and strongest decision.",
     handler: async (_args, ctx) => {
@@ -1825,6 +1957,12 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       }
     },
   });
+}
+
+function normalizeHeartbeatStatus(value: string | undefined): "running" | "progress" | "completed" | "failed" | "timeout" | "aborted" {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === "running" || normalized === "progress" || normalized === "completed" || normalized === "failed" || normalized === "timeout" || normalized === "aborted") return normalized;
+  return "progress";
 }
 
 function normalizeMemoryValidityFilter(value: string | undefined): MemoryValidity | "any" | undefined {

@@ -5,6 +5,7 @@ import { appendLogEvent, createLogEvent, logStateEvent } from "./logging.js";
 import { getCheckpointsDir } from "./paths.js";
 import { ensureState, saveState } from "./state.js";
 import { transitionStage } from "./supervisor.js";
+import { verifyResumeReadiness } from "./watchdogs.js";
 import type { ScalerState } from "./types.js";
 
 export interface ScalerCheckpointFile {
@@ -75,13 +76,20 @@ export async function pauseScalerRun(cwd: string, reason = "manual pause"): Prom
 
 export async function resumeScalerRun(cwd: string, reason = "manual resume"): Promise<CommandTransitionResult> {
   const state = await ensureState(cwd);
+  const verification = await verifyResumeReadiness(cwd, state);
   const targetStage = state.previousStage ?? "idle";
+  if (verification.status === "failed") {
+    const { path, state: checkpointState } = await writeCheckpoint(cwd, state, "resume-rejected", `Resume verification failed: ${reason}`);
+    await logStateEvent(cwd, checkpointState, `Scaler resume rejected by verification: ${reason}`, { checkpointPath: path, verification });
+    return { state: checkpointState, checkpointPath: path, message: `SCALER resume rejected: verification failed for ${targetStage}` };
+  }
   const nextState = transitionStage(state, targetStage, { reason });
   await saveState(cwd, nextState);
   const { path, state: checkpointState } = await writeCheckpoint(cwd, nextState, "resume", reason);
   await logStateEvent(cwd, checkpointState, `Scaler resume requested: ${reason}`, {
     checkpointPath: path,
     targetStage,
+    verification,
   });
   return {
     state: checkpointState,
