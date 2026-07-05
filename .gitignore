@@ -7,3 +7,4 @@ coverage/
 .scaler/cache/
 .scaler/artifacts/
 .scaler/tmp/
+.scaler/cicd/

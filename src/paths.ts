@@ -114,6 +114,14 @@ export function getWatchdogsDir(cwd: string): string {
   return join(getScalerDir(cwd), "watchdogs");
 }
 
+export function getCicdDir(cwd: string): string {
+  return join(getScalerDir(cwd), "cicd");
+}
+
+export function getCicdEnvironmentRecordsPath(cwd: string): string {
+  return join(getReportsDir(cwd), "cicd-environments.json");
+}
+
 export function getWatchdogHeartbeatsPath(cwd: string): string {
   return join(getWatchdogsDir(cwd), "heartbeats.json");
 }
