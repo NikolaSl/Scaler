@@ -53,6 +53,7 @@ The current mocked integration harness covers:
 - budget hard-stop refusal for conductor/validation paths with pause and audit behavior;
 - command-driven budget configuration feeding later validation hard-stop behavior;
 - provider usage metadata from Pi turn events updating token/cost budget counters and audit logs;
+- watchdog heartbeats, no-progress/replanning triggers, pause checkpoints, resume verification, scoped complexity budget policies, and subprocess cleanup records;
 - storage status inventory indexing plus budget hard-pause behavior;
 - storage maintenance command execution with safe gzip compression, explicit cache cleanup, approved archive/raw-log/memory retention deletion, scheduled maintenance due checks, persisted reports/schedule config, storage budget usage, and audit logs;
 - typed validation gate metadata plus dependency/test-first and CI/sandbox environment policy diagnostics, validation environment lifecycle evidence, and `/scaler-validation-envs` status persisted through `/scaler-validation-add`, validation runs, lifecycle records, and audit logs;
@@ -109,7 +110,7 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - report-only child agents launched with `--no-tools` for cardinal JSON-output tests, plus real subprocess assertions that granted-tool children include the SCALER extension and report-only stage children remain toolless;
 - real Pi extension loading via `-e src/index.ts`;
 - slash-command dispatch and command audit logs;
-- slash-command budget configuration/status persistence, provider usage turn accounting, and audit logs;
+- slash-command budget configuration/status persistence, complexity budget-policy approval, watchdog heartbeat/status/cleanup/resume-check persistence, provider usage turn accounting, and audit logs;
 - slash-command storage status inventory persistence and audit logs;
 - slash-command storage maintenance execution, scheduled maintenance due checks, active-ledger rotation, approved archive/raw-log/memory retention deletion, persisted maintenance/schedule reports, and audit logs;
 - slash-command debug next-approach retry prepare mode plus retry-policy persistence with persisted retry records and prompt audit logs;

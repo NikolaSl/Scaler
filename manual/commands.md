@@ -186,9 +186,29 @@ Approvals are audited and consumed by use count. They can approve non-secret ris
 
 Discovers optional dependency/image security scanner candidates from manifests and records results under `.scaler/safety/scans.json`. Without `execute`, the command records planned or unavailable scanner candidates only. With `execute`, available scanners are run and recorded as passed or failed. Supported candidate kinds include `npm_audit`, `pnpm_audit`, `yarn_audit`, `pip_audit`, `cargo_audit`, `trivy_fs`, and `grype_fs`.
 
+## `/scaler-watchdogs [execute]`
+
+Assesses watchdog ledgers for stale/no-progress heartbeats, repeated replanning without validated progress, and high-complexity budget policy approval needs. With `execute`, hard watchdog triggers pause the run and write a checkpoint under `.scaler/checkpoints/`. Events are stored in `.scaler/watchdogs/events.json`.
+
+## `/scaler-heartbeat [scopeId] | [action] | [status] | [taskId]`
+
+Records a deterministic progress heartbeat in `.scaler/watchdogs/heartbeats.json`. Use `/scaler-heartbeat list [scopeId]` to list recent heartbeat records. Pi agent/tool lifecycle hooks also write heartbeat records automatically.
+
+## `/scaler-watchdog-cleanup`
+
+Lists subprocess cleanup records from `.scaler/watchdogs/cleanup.json`, including task-agent timeout/abort termination evidence.
+
+## `/scaler-resume-check`
+
+Runs resume verification and lists `.scaler/watchdogs/resume-checks.json` records. Checks include supervisor state, git status, audit log availability, memory index readability, checkpoint presence, and budget metadata.
+
+## `/scaler-budget-policy [level=N] [approve]`
+
+Applies scoped run/task-agent budget policies for the requested or current complexity level. Level 4+ expansions require the explicit `approve` flag before limits are written to state.
+
 ## `/scaler-budget-status`
 
-Shows state-backed budget usage, soft/hard limits, checkpoint count, and the strongest current budget decision. When Pi/provider usage metadata is available, parent turns and child-agent runs increment `contextTokens` and `estimatedCostMicros` before this status is rendered.
+Shows state-backed budget usage, soft/hard limits, checkpoint count, scoped policy count, and the strongest current budget decision. When Pi/provider usage metadata is available, parent turns and child-agent runs increment `contextTokens` and `estimatedCostMicros` before this status is rendered.
 
 ## `/scaler-budget-set <key> | <soft> | <hard>`
 
