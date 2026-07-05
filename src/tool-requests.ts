@@ -21,6 +21,19 @@ export interface ToolCatalogEntry {
   notes?: string;
 }
 
+export interface RuntimeToolInfoSummary {
+  name: string;
+  description?: string;
+  parameters?: unknown;
+  promptGuidelines?: unknown;
+  sourceInfo?: unknown;
+}
+
+export interface RuntimeToolCatalogEntry extends ToolCatalogEntry {
+  active: boolean;
+  sourceInfo?: string;
+}
+
 export interface ToolSchemaInput {
   toolName: string;
   source: string;
@@ -428,6 +441,23 @@ const toolRiskLevels = new Set<ToolRiskLevel>(["low", "medium", "high", "destruc
 const toolResultStatuses = new Set<ToolResultStatus>(["completed", "failed", "blocked"]);
 const toolLedgerWriteQueues = new Map<string, Promise<void>>();
 
+export const parentRequesterToolNames = [
+  "scaler_report",
+  "scaler_memory_search",
+  "scaler_memory_retrieve",
+  "scaler_research_report",
+  "scaler_task_report",
+  "scaler_tool_request",
+  "scaler_task_create",
+  "scaler_task_update",
+  "scaler_planning_report",
+  "scaler_prd_write",
+  "scaler_prd_requirement_update",
+  "scaler_validation_manifest_write",
+  "scaler_validation_report",
+  "scaler_debug_attempt",
+] as const;
+
 const defaultToolCatalog: ToolCatalogEntry[] = [
   { name: "read", description: "Read a project file or image from the working tree.", riskLevel: "low", docsAvailable: false, schemaAvailable: true },
   { name: "write", description: "Create or overwrite a project file.", riskLevel: "medium", docsAvailable: false, schemaAvailable: true },
@@ -487,6 +517,64 @@ export function formatToolCatalog(entries: ToolCatalogEntry[]): string {
       return `- ${entry.name}: ${entry.description} risk=${entry.riskLevel} docs=${entry.docsAvailable ? "yes" : "no"} schema=${entry.schemaAvailable ? "yes" : "no"}${refs ? ` ${refs}` : ""}${notes}`;
     }),
   ].join("\n");
+}
+
+export function buildRuntimeToolCatalog(
+  allTools: RuntimeToolInfoSummary[],
+  activeToolNames: string[],
+  discoveredRecords: ToolSchemaRecord[] = [],
+): RuntimeToolCatalogEntry[] {
+  const active = new Set(activeToolNames);
+  const discoveredByName = latestToolSchemaRecords(discoveredRecords);
+  return allTools
+    .filter((tool) => typeof tool.name === "string" && tool.name.trim().length > 0)
+    .map((tool) => {
+      const name = tool.name.trim();
+      const discovered = discoveredByName.get(name);
+      const fallback = getToolCatalogEntries([name], discoveredRecords)[0];
+      const description = compactToolDescription(tool.description ?? discovered?.description ?? fallback?.description ?? "Configured Pi tool/MCP.");
+      const riskLevel = discovered?.riskLevel && discovered.riskLevel !== "unknown" ? discovered.riskLevel : fallback?.riskLevel ?? "unknown";
+      return {
+        name,
+        description,
+        riskLevel,
+        docsAvailable: Boolean(discovered?.docsRef) || Boolean(tool.promptGuidelines),
+        schemaAvailable: Boolean(discovered?.schemaRef) || Boolean(tool.parameters),
+        source: discovered?.source ?? fallback?.source,
+        docsRef: discovered?.docsRef,
+        schemaRef: discovered?.schemaRef,
+        notes: discovered?.notes,
+        active: active.has(name),
+        sourceInfo: summarizeRuntimeToolSource(tool.sourceInfo),
+      };
+    })
+    .sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name));
+}
+
+export function formatRuntimeToolCatalog(entries: RuntimeToolCatalogEntry[], limit = 25): string {
+  if (entries.length === 0) return "Parent tool catalog: none";
+  const shown = entries.slice(0, limit);
+  const lines = [
+    `Parent tool catalog: showing=${shown.length}/${entries.length}`,
+    "Only compact metadata is shown; parameter schemas, prompt guidelines, and full docs are intentionally withheld from requester context.",
+  ];
+  for (const entry of shown) {
+    const source = entry.sourceInfo ? ` source=${entry.sourceInfo}` : "";
+    lines.push(`- ${entry.name}: ${entry.description} active=${entry.active ? "yes" : "no"} risk=${entry.riskLevel} docs=${entry.docsAvailable ? "yes" : "no"} schema=${entry.schemaAvailable ? "yes" : "no"}${source}`);
+  }
+  if (entries.length > shown.length) lines.push(`- ... omitted ${entries.length - shown.length} additional tools; request /scaler-tool-catalog or a specific tool request if needed.`);
+  return lines.join("\n");
+}
+
+export function selectParentRequesterActiveTools(allToolNames: string[], activeToolNames: string[]): string[] {
+  const available = new Set(allToolNames);
+  const selected = parentRequesterToolNames.filter((name) => available.has(name));
+  if (selected.length === 0) return [...activeToolNames];
+  return [...selected];
+}
+
+export function shouldApplyParentToolFocus(state: ScalerState): boolean {
+  return Boolean(state.currentTaskId) || ["knowledge", "planning", "execution", "debugging", "replanning"].includes(state.stage);
 }
 
 export async function loadToolRequests(cwd: string): Promise<ToolRequestRecord[]> {
@@ -1542,6 +1630,20 @@ async function recordToolSchedule(
   };
   await writeToolScheduleIndex(cwd, [record, ...(await loadToolSchedules(cwd))]);
   return record;
+}
+
+function compactToolDescription(description: string): string {
+  const firstLine = description.replace(/\s+/g, " ").trim();
+  return firstLine.length > 160 ? `${firstLine.slice(0, 157)}...` : firstLine;
+}
+
+function summarizeRuntimeToolSource(sourceInfo: unknown): string | undefined {
+  if (!sourceInfo || typeof sourceInfo !== "object") return undefined;
+  const record = sourceInfo as Record<string, unknown>;
+  const parts = [record.type, record.name, record.packageName, record.extensionName]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .map((value) => value.trim());
+  return parts.length > 0 ? parts.join(":") : undefined;
 }
 
 function latestToolSchemaRecords(records: ToolSchemaRecord[]): Map<string, ToolSchemaRecord> {

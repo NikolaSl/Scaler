@@ -107,12 +107,56 @@ import {
   validateStageArtifactReadiness,
 } from "./stages.js";
 import { formatStorageInventory, formatStorageMaintenanceReport, formatStorageMaintenanceSchedule, loadStorageMaintenanceSchedule, runScheduledStorageMaintenance, runStorageMaintenance, saveStorageInventory, scanScalerStorageInventory, updateStorageMaintenanceSchedule, type StorageMaintenancePolicy } from "./storage.js";
-import { createToolReplayApproval, formatKnownToolCatalog, formatMcpEnumerationRuns, formatMcpServerRecords, formatToolIterationPolicy, formatToolIterationRuns, formatToolReplayApprovals, formatToolSchedules, formatToolSchemaDiscoveryRuns, formatToolTransactions, loadMcpEnumerationRuns, loadMcpServerRecords, loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolSchedules, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, replayToolTransaction, revokeToolReplayApproval, runMcpServerEnumeration, runToolIterationWorkflow, runToolRequestAgent, runToolSchedule, runToolSchemaDiscoveryAgent, saveToolIterationPolicy } from "./tool-requests.js";
+import { buildRuntimeToolCatalog, createToolReplayApproval, formatKnownToolCatalog, formatMcpEnumerationRuns, formatMcpServerRecords, formatRuntimeToolCatalog, formatToolIterationPolicy, formatToolIterationRuns, formatToolReplayApprovals, formatToolSchedules, formatToolSchemaDiscoveryRuns, formatToolTransactions, loadMcpEnumerationRuns, loadMcpServerRecords, loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolSchedules, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, replayToolTransaction, revokeToolReplayApproval, runMcpServerEnumeration, runToolIterationWorkflow, runToolRequestAgent, runToolSchedule, runToolSchemaDiscoveryAgent, saveToolIterationPolicy, selectParentRequesterActiveTools, shouldApplyParentToolFocus, type RuntimeToolInfoSummary } from "./tool-requests.js";
 import { registerScalerTools } from "./tools.js";
 import { formatValidationChecklist, recordValidationChecklist, upsertValidationManifestCommand } from "./validation.js";
 import { runValidationDebugLoopWorkflow, selectTaskForValidationDebugLoop } from "./validation-debug-loop.js";
 import { applyComplexityBudgetPolicy, formatComplexityBudgetPolicies, formatResumeVerificationRecords, formatWatchdogCleanupRecords, formatWatchdogEvents, formatWatchdogHeartbeats, loadResumeVerificationRecords, loadWatchdogCleanupRecords, loadWatchdogEvents, loadWatchdogHeartbeats, recordWatchdogHeartbeat, runWatchdogAssessment, verifyResumeReadiness } from "./watchdogs.js";
 import { formatWorkflowSummary, summarizeWorkflow } from "./workflow.js";
+
+interface RuntimeToolContext {
+  getAllTools?: () => RuntimeToolInfoSummary[];
+  getActiveTools?: () => string[];
+  setActiveTools?: (toolNames: string[]) => void;
+}
+
+function asRuntimeToolContext(ctx: unknown): RuntimeToolContext {
+  return ctx as RuntimeToolContext;
+}
+
+function runtimeToolApisAvailable(ctx: RuntimeToolContext): ctx is Required<RuntimeToolContext> {
+  return typeof ctx.getAllTools === "function" && typeof ctx.getActiveTools === "function" && typeof ctx.setActiveTools === "function";
+}
+
+async function buildParentRuntimeToolCatalogText(cwd: string, ctx: RuntimeToolContext): Promise<string | undefined> {
+  if (!ctx.getAllTools || !ctx.getActiveTools) return undefined;
+  const catalog = buildRuntimeToolCatalog(ctx.getAllTools(), ctx.getActiveTools(), await loadToolSchemaRecords(cwd));
+  return formatRuntimeToolCatalog(catalog);
+}
+
+function applyParentToolFocus(cwd: string, state: Awaited<ReturnType<typeof ensureState>>, ctx: RuntimeToolContext, snapshots: Map<string, string[]>, force = false): { applied: boolean; active: string[]; previous: string[] } | undefined {
+  if (!runtimeToolApisAvailable(ctx) || (!force && !shouldApplyParentToolFocus(state))) return undefined;
+  const allTools = ctx.getAllTools();
+  const previous = ctx.getActiveTools();
+  const desired = selectParentRequesterActiveTools(allTools.map((tool) => tool.name), previous);
+  if (desired.length === 0 || arraysEqual(previous, desired)) return { applied: false, active: previous, previous };
+  if (!snapshots.has(cwd)) snapshots.set(cwd, previous);
+  ctx.setActiveTools(desired);
+  return { applied: true, active: desired, previous };
+}
+
+function restoreParentToolFocus(cwd: string, ctx: RuntimeToolContext, snapshots: Map<string, string[]>): string[] | undefined {
+  if (!runtimeToolApisAvailable(ctx)) return undefined;
+  const snapshot = snapshots.get(cwd);
+  if (!snapshot) return undefined;
+  ctx.setActiveTools(snapshot);
+  snapshots.delete(cwd);
+  return snapshot;
+}
+
+function arraysEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
 
 export default function scalerExtension(pi: ExtensionAPI): void {
   registerScalerTools(pi);
@@ -139,6 +183,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   (pi as unknown as { registerCommand: ExtensionAPI["registerCommand"] }).registerCommand = auditedRegisterCommand;
 
   let lastAutoCompactKey: string | undefined;
+  const activeToolFocusSnapshots = new Map<string, string[]>();
 
   pi.on("turn_end", async (event, ctx) => {
     const usage = extractProviderUsage([event]);
@@ -167,6 +212,8 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         ctx.compact({ customInstructions: buildScalerCompactionInstructions(state, compactDecision) });
       }
     }
+    const restoredTools = restoreParentToolFocus(ctx.cwd, asRuntimeToolContext(ctx), activeToolFocusSnapshots);
+    if (restoredTools) await logStateEvent(ctx.cwd, state, "SCALER parent tool focus restored", { activeTools: restoredTools });
     return undefined;
   });
 
@@ -182,18 +229,31 @@ export default function scalerExtension(pi: ExtensionAPI): void {
 
   pi.on("context", async (event, ctx) => {
     const state = await ensureState(ctx.cwd);
+    const focus = applyParentToolFocus(ctx.cwd, state, asRuntimeToolContext(ctx), activeToolFocusSnapshots);
+    if (focus?.applied) {
+      await logStateEvent(ctx.cwd, state, "SCALER parent tool focus applied", {
+        taskId: state.currentTaskId,
+        previousActiveTools: focus.previous,
+        activeTools: focus.active,
+      });
+    }
     const injection = await buildContextHookInjection(ctx.cwd, state);
-    if (!injection) return undefined;
+    const runtimeToolCatalog = shouldApplyParentToolFocus(state) ? await buildParentRuntimeToolCatalogText(ctx.cwd, asRuntimeToolContext(ctx)) : undefined;
+    const sections = [injection, runtimeToolCatalog].filter((section): section is string => Boolean(section));
+    if (sections.length === 0) return undefined;
+    const message = sections.join("\n\n");
     await logStateEvent(ctx.cwd, state, "SCALER context hook injected approved manifest context", {
       taskId: state.currentTaskId,
-      characters: injection.length,
+      characters: message.length,
+      parentToolFocusApplied: Boolean(focus?.applied),
+      parentToolCatalog: Boolean(runtimeToolCatalog),
     });
     return {
       messages: [
         ...event.messages,
         {
           role: "user",
-          content: [{ type: "text", text: injection }],
+          content: [{ type: "text", text: message }],
         },
       ] as never,
     };
@@ -214,6 +274,8 @@ export default function scalerExtension(pi: ExtensionAPI): void {
 
   pi.on("agent_end", async (event, ctx) => {
     const state = await ensureState(ctx.cwd);
+    const restoredTools = restoreParentToolFocus(ctx.cwd, asRuntimeToolContext(ctx), activeToolFocusSnapshots);
+    if (restoredTools) await logStateEvent(ctx.cwd, state, "SCALER parent tool focus restored", { activeTools: restoredTools, reason: "agent_end" });
     await recordWatchdogHeartbeat(ctx.cwd, {
       scopeKind: "agent",
       scopeId: state.currentTaskId ?? state.runId,
@@ -1119,6 +1181,42 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       const parsed = parseToolCatalogArgs(args);
       const message = formatKnownToolCatalog(await loadToolSchemaRecords(ctx.cwd), parsed.toolName);
+      if (ctx.hasUI) ctx.ui.notify(message, "info");
+      else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-active-tools", {
+    description: "Show or manage parent-session active-tool focus: /scaler-active-tools [catalog|focus|restore]",
+    handler: async (args, ctx) => {
+      const action = args?.trim().toLowerCase() || "catalog";
+      const runtimeCtx = asRuntimeToolContext(ctx);
+      if (!runtimeCtx.getAllTools || !runtimeCtx.getActiveTools || !runtimeCtx.setActiveTools) {
+        const message = "Parent active-tool APIs are unavailable in this Pi context.";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+      const state = await ensureState(ctx.cwd);
+      if (action === "restore") {
+        const restored = restoreParentToolFocus(ctx.cwd, runtimeCtx, activeToolFocusSnapshots);
+        const message = restored ? `Parent active tools restored: ${restored.join(", ")}` : "No parent active-tool focus snapshot to restore.";
+        if (restored) await logStateEvent(ctx.cwd, state, "SCALER parent tool focus restored", { activeTools: restored, reason: "command" });
+        if (ctx.hasUI) ctx.ui.notify(message, restored ? "info" : "warning");
+        else console.log(message);
+        return;
+      }
+      if (action === "focus") {
+        const focus = applyParentToolFocus(ctx.cwd, state, runtimeCtx, activeToolFocusSnapshots, true);
+        const message = focus?.applied
+          ? `Parent active tools focused: ${focus.active.join(", ")}`
+          : `Parent active tools already focused: ${runtimeCtx.getActiveTools?.().join(", ") ?? "unavailable"}`;
+        if (focus?.applied) await logStateEvent(ctx.cwd, state, "SCALER parent tool focus applied", { previousActiveTools: focus.previous, activeTools: focus.active, reason: "command" });
+        if (ctx.hasUI) ctx.ui.notify(message, "info");
+        else console.log(message);
+        return;
+      }
+      const message = await buildParentRuntimeToolCatalogText(ctx.cwd, runtimeCtx) ?? "Parent tool catalog: unavailable";
       if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
     },

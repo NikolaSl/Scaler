@@ -5,12 +5,14 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { createDefaultState } from "../src/state.js";
 import {
+  buildRuntimeToolCatalog,
   buildToolAgentPrompt,
   buildToolSchemaDiscoveryPrompt,
   createToolReplayApproval,
   formatDiscoveredToolCatalog,
   formatMcpEnumerationRuns,
   formatMcpServerRecords,
+  formatRuntimeToolCatalog,
   formatToolCatalog,
   formatToolIterationPolicy,
   formatToolIterationRuns,
@@ -42,6 +44,8 @@ import {
   runToolSchedule,
   runToolSchemaDiscoveryAgent,
   saveToolIterationPolicy,
+  selectParentRequesterActiveTools,
+  shouldApplyParentToolFocus,
 } from "../src/tool-requests.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -95,6 +99,33 @@ test("runMcpServerEnumeration records project-local MCP declarations without sec
     assert.match(formatMcpServerRecords(records), /token=<redacted>/);
     assert.match(formatMcpEnumerationRuns(await loadMcpEnumerationRuns(dir)), /discovered=4 invalid=1/);
   });
+});
+
+test("runtime tool catalog omits schemas and selects requester-safe active tools", () => {
+  const entries = buildRuntimeToolCatalog([
+    {
+      name: "bash",
+      description: "Run shell commands.\nFULL DETAILS SHOULD NOT APPEAR",
+      parameters: { secretSchema: "DO_NOT_INCLUDE_SCHEMA" },
+      promptGuidelines: "DO_NOT_INCLUDE_GUIDELINES",
+      sourceInfo: { type: "builtin", name: "core" },
+    },
+    { name: "scaler_tool_request", description: "Request isolated tool work.", parameters: { safe: true }, promptGuidelines: "hidden" },
+    { name: "scaler_task_report", description: "Report task completion." },
+  ], ["bash", "scaler_tool_request"]);
+  const formatted = formatRuntimeToolCatalog(entries);
+
+  assert.match(formatted, /Parent tool catalog/);
+  assert.match(formatted, /bash: Run shell commands/);
+  assert.match(formatted, /schema=yes/);
+  assert.doesNotMatch(formatted, /DO_NOT_INCLUDE_SCHEMA/);
+  assert.doesNotMatch(formatted, /DO_NOT_INCLUDE_GUIDELINES/);
+  assert.deepEqual(selectParentRequesterActiveTools(entries.map((entry) => entry.name), ["bash", "scaler_tool_request"]), ["scaler_task_report", "scaler_tool_request"]);
+
+  const state = createDefaultState();
+  assert.equal(shouldApplyParentToolFocus(state), false);
+  state.currentTaskId = "T-TOOLS";
+  assert.equal(shouldApplyParentToolFocus(state), true);
 });
 
 test("recordToolSchema persists discovered metadata and merges latest catalog entry", async () => {

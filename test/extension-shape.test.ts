@@ -89,6 +89,7 @@ test("extension registers scaler commands", () => {
     "scaler-debug-reports",
     "scaler-debug-retries",
     "scaler-tool-catalog",
+    "scaler-active-tools",
     "scaler-mcp-enumerate",
     "scaler-mcp-servers",
     "scaler-tool-discover",
@@ -231,6 +232,52 @@ test("extension context hook injects approved compact task manifest context", as
     assert.match(JSON.stringify(result?.messages?.[1]), /APPROVED HOOK CONTEXT/);
     const events = await readLogEvents(dir);
     assert.ok(events.some((event) => event.summary === "SCALER context hook injected approved manifest context"));
+  });
+});
+
+test("extension context hook focuses parent tools and injects compact runtime catalog", async () => {
+  await withTempDir(async (dir) => {
+    const handlers = new Map<string, (event: unknown, ctx: Record<string, unknown>) => Promise<unknown>>();
+    const fakePi = {
+      on(name: string, handler: (event: unknown, ctx: Record<string, unknown>) => Promise<unknown>) {
+        handlers.set(name, handler);
+      },
+      registerTool() {},
+      registerCommand() {},
+    };
+
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-TOOLS";
+    state.tasks = [{ id: "T-TOOLS", status: "running", title: "Tool focus task", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+
+    let activeTools = ["bash", "read", "scaler_tool_request", "scaler_task_report"];
+    const runtimeCtx = {
+      cwd: dir,
+      hasUI: false,
+      getAllTools: () => [
+        { name: "bash", description: "Run shell commands", parameters: { hidden: "SECRET_SCHEMA" }, promptGuidelines: "SECRET_GUIDELINES" },
+        { name: "read", description: "Read files" },
+        { name: "scaler_tool_request", description: "Request isolated tool work" },
+        { name: "scaler_task_report", description: "Report task completion" },
+      ],
+      getActiveTools: () => activeTools,
+      setActiveTools: (names: string[]) => { activeTools = names; },
+    };
+
+    scalerExtension(fakePi as never);
+    const result = await handlers.get("context")?.({ type: "context", messages: [{ role: "user", content: "hello" }] }, runtimeCtx) as { messages?: unknown[] } | undefined;
+
+    assert.deepEqual(activeTools, ["scaler_task_report", "scaler_tool_request"]);
+    const injected = JSON.stringify(result?.messages?.[1]);
+    assert.match(injected, /Parent tool catalog/);
+    assert.match(injected, /scaler_tool_request/);
+    assert.doesNotMatch(injected, /SECRET_SCHEMA/);
+    assert.doesNotMatch(injected, /SECRET_GUIDELINES/);
+
+    await handlers.get("turn_end")?.({ type: "turn_end", message: {}, toolResults: [] }, runtimeCtx);
+    assert.deepEqual(activeTools, ["bash", "read", "scaler_tool_request", "scaler_task_report"]);
   });
 });
 

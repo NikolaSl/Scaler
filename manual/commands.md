@@ -460,6 +460,10 @@ Lists enumerated MCP server records, optionally filtered to one server name. Pas
 
 Lists static Tool/MCP catalog entries plus discovered schema/docs metadata from `.scaler/tool-requests/catalog.json`, optionally filtered to one tool.
 
+## `/scaler-active-tools [catalog|focus|restore]`
+
+Uses Pi runtime tool APIs when available to show a compact parent-session tool catalog, focus active tools to SCALER requester/report tools for a requester turn, or restore the previous active-tool set. Some command contexts may expose this as unavailable; automatic context-hook focus still uses the runtime APIs when Pi supplies them. Catalog output intentionally omits parameter schemas and prompt guidelines.
+
 ## `/scaler-tool-discover <toolName> [execute] [tools=a,b]`
 
 Prepares or executes a supervised Tool/MCP schema discovery probe. SCALER grants only `scaler_tool_schema` plus explicitly supplied `tools=...`; the target tool name is not a tool grant. Execute mode marks the probe `completed` only if a new structured `scaler_tool_schema` record is ingested for the target tool, otherwise `missing_schema`.

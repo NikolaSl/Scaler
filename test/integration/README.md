@@ -149,7 +149,7 @@ Current real mode has three layers:
 2. real Pi extension integrity tests that launch `pi --mode json -p --no-session -e <src/index.ts>` in a temporary repository and verify extension command dispatch, SCALER tool calls, safety hooks, safety policy/approval persistence, `.scaler/logs/events.jsonl`, detail payload references, and persisted state; and
 3. real flow-parity chains that run real Pi/model child agents through SCALER's normal debug, research, stage, and replanner pathways while asserting persisted ledgers.
 
-Command-dispatch extension tests may avoid model output. Current real command coverage also includes strict task creation/task-quality review, context candidate listing/approval, context-split/fresh-handoff, compaction-record listing, watchdog heartbeat/status/cleanup, resume-check, and budget-policy approval so supervisor boundary ledgers are exercised without requiring expensive model summarization. Cardinal SCALER-tool and hook tests use the selected real model with restricted `--tools` lists. Child-agent invocation is deny-by-default: omitted or empty tool lists become `--no-tools`, and granted-tool child invocations include the SCALER extension unless an explicit extension path is supplied. Report-only child-agent flow tests assert `--no-tools` so the real model cannot mutate the temporary repository outside the expected structured report.
+Command-dispatch extension tests may avoid model output. Current real command coverage also includes strict task creation/task-quality review, context candidate listing/approval, context-split/fresh-handoff, compaction-record listing, active-tool catalog, watchdog heartbeat/status/cleanup, resume-check, and budget-policy approval so supervisor boundary ledgers are exercised without requiring expensive model summarization. Cardinal SCALER-tool and hook tests use the selected real model with restricted `--tools` lists. Child-agent invocation is deny-by-default: omitted or empty tool lists become `--no-tools`, and granted-tool child invocations include the SCALER extension unless an explicit extension path is supplied. Report-only child-agent flow tests assert `--no-tools` so the real model cannot mutate the temporary repository outside the expected structured report.
 
 ## Cardinal instruction pattern for real mode
 
@@ -276,7 +276,7 @@ When adding a new integration scenario:
   - persisted safety audit logs record blocked risks.
 - `mock/remaining-flows.test.ts`
   - budget hard stops for conductor and validation plus pause/audit behavior;
-  - context discovery into conductor prompts, context candidate curation/approval, parent-session context-hook filtering, exactness/compression guidance, and automatic context-split artifacts;
+  - context discovery into conductor prompts, context candidate curation/approval, parent-session context-hook filtering, compact runtime tool-catalog injection, active-tool focus/restore, exactness/compression guidance, and automatic context-split artifacts;
   - structured-only rejection for stage, replan, and research agents;
   - unsafe replan proposal acceptance rejection;
   - debug report to replan request to acceptance retry-gate clearance;
@@ -305,7 +305,7 @@ When adding a new integration scenario:
   - real Pi slash-command safety-policy persistence;
   - real Pi `tool_result` large-output externalization into `.scaler/logs/tools/` with redacted audit details;
   - real Pi slash-command debug next-approach retry prepare mode with persisted `.scaler/debug/retries.json` and prompt audit logs;
-  - real Pi slash-command MCP enumeration, tool transaction, transaction replay, replay approval, schedule planning, and bounded iteration prepare modes with persisted `.scaler/tool-requests/mcp-servers.json` / `.scaler/tool-requests/transactions.json` / `.scaler/tool-requests/replay-approvals.json` / `.scaler/tool-requests/schedules.json` / `.scaler/tool-requests/iteration-runs.json`, plus tool iteration policy persistence;
+  - real Pi slash-command active-tool catalog, MCP enumeration, tool transaction, transaction replay, replay approval, schedule planning, and bounded iteration prepare modes with persisted `.scaler/tool-requests/mcp-servers.json` / `.scaler/tool-requests/transactions.json` / `.scaler/tool-requests/replay-approvals.json` / `.scaler/tool-requests/schedules.json` / `.scaler/tool-requests/iteration-runs.json`, plus tool iteration policy persistence;
   - real Pi slash-command typed validation gate metadata, validation gate/environment/disposition policy enforcement, validation environment lifecycle status, deterministic CI/CD sandbox provisioning/status, skipped/blocked disposition persistence, non-software checklist persistence, evidence-policy enforcement, git bootstrap evidence, and commit-skip promotion after passed validation;
   - command audit events and detail payload references in `.scaler/logs/events.jsonl`;
   - cardinal real-model call to `scaler_tool_request` with exact rich metadata and persisted tool-request state;

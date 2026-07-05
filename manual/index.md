@@ -13,7 +13,7 @@ Design requirements live in `assignement.md` and `specs/`. Compliance reviews mu
 - Audit log: `.scaler/logs/events.jsonl` with redacted detail payload files under `.scaler/logs/details/` for commands, prompts, tools, reports, validation summaries, and commits, plus `.scaler/logs/tools/` references for oversized Pi tool results.
 - Deterministic safety gate for protected paths, destructive shell commands, protected-path shell access, and current-task allowed paths.
 - Experimental task-agent subprocess invocation builder with required structured `scaler_task_report` handoff gating before validation.
-- Structured Scaler tool skeletons registered with Pi.
+- Structured Scaler tool skeletons registered with Pi, compact parent-session tool catalogs, and active-tool focus/restore for SCALER-guided requester turns.
 - External memory write/search/retrieve under `.scaler/memory/` with tags, summary references, and scoped retrieval.
 - Storage inventory indexes under `.scaler/storage/index.json` via `/scaler-storage-status`, coupled to the `storageBytes` budget gate.
 - Research request/report ledgers under `.scaler/research/` with source quality, confidence, contradictions, raw evidence storage in memory, and focused research-agent run records/structured ingestion.

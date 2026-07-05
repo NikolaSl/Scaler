@@ -38,6 +38,7 @@ Current behavior:
 - `/scaler-mcp-enumerate` scans project-local MCP config files and records concise server declarations under `.scaler/tool-requests/mcp-servers.json` without executing servers or storing env secret values
 - `/scaler-mcp-servers [name|runs]` lists enumerated MCP server records or enumeration runs
 - `/scaler-tool-catalog [toolName]` lists static plus discovered Tool/MCP metadata
+- `/scaler-active-tools [catalog|focus|restore]` uses Pi runtime tool APIs to show a compact parent-session catalog, narrow requester turns to SCALER requester tools, or restore the previous active-tool set
 - `/scaler-tool-discover <toolName> [execute] [tools=a,b]` prepares or executes a supervised schema discovery probe under `.scaler/tool-requests/schema-runs.json`; the target tool is not granted implicitly, and execute mode completes only when a new structured `scaler_tool_schema` record appears
 - `/scaler-tool-discovery-runs [toolName]` lists schema discovery probe runs
 - `/scaler-tool-run [requestId] [execute]` records isolated tool-agent transactions under `.scaler/tool-requests/transactions.json`; prepare mode persists the invocation, execute mode runs only the request's allowed tools and marks completion only if a structured `scaler_tool_result` closes the request
@@ -60,4 +61,6 @@ Debug-agent subprocesses emit structured `scaler_debug_report` JSON events rathe
 
 Tool request prompts intentionally include only selected catalog entries for the requested/allowed tools. Unknown tools are represented as `unknown` risk unless a prior `scaler_tool_schema` record supplied local docs/schema metadata. Tool-agent prompts require a structured `scaler_tool_result` completion; free-form prose is not the durable completion signal.
 
-The current tool/MCP implementation covers catalog isolation, schema discovery, local MCP enumeration, isolated transactions/replay, closed replay approvals, bounded correction loops, and conservative parallel scheduling. Future work may still improve requester-agent catalog injection and cross-process ledger locking.
+For parent requester sessions, SCALER uses Pi `getAllTools`/`getActiveTools`/`setActiveTools` during SCALER-guided turns when those runtime APIs are available. The context hook injects only a compact runtime catalog (name, short purpose, risk, active flag, docs/schema availability) and omits parameter schemas and prompt guidelines. It snapshots the previous active-tool set, narrows the requester turn to SCALER requester/report tools, and restores the original tools at turn/agent end or via `/scaler-active-tools restore` when the command context exposes active-tool APIs.
+
+The current tool/MCP implementation covers catalog isolation, parent requester catalog injection/active-tool focus, schema discovery, local MCP enumeration, isolated transactions/replay, closed replay approvals, bounded correction loops, and conservative parallel scheduling. Future work may still improve cross-process ledger locking.
