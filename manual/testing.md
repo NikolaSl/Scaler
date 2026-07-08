@@ -9,7 +9,7 @@ npm test
 npm run build
 ```
 
-`npm test` runs unit/component tests and the deterministic mocked integration suite. It must remain safe for normal local/CI runs and must not invoke real Pi/model subprocesses.
+`npm test` runs unit/component tests and the deterministic mocked integration suite. It must remain safe for normal local/CI runs and must not invoke real Pi/model subprocesses. `npm run test:conformance` runs the top-level product conformance checks that guard against requirement/manual/code drift and `/scaler` automation regressions.
 
 ## Test layers
 
@@ -18,6 +18,7 @@ Current tests include:
 - component/unit tests in `test/*.test.ts`;
 - persistence-oriented tests that use temporary `.scaler/` directories;
 - deterministic mocked integration tests in `test/integration/mock/*.test.ts`;
+- product conformance tests in `test/conformance.test.ts` and `/scaler` automation acceptance coverage in `test/autopilot.test.ts`;
 - optional real Pi/model contract tests in `test/integration/real/*.test.ts`.
 
 Integration scenarios should be derived from `assignement.md` and relevant `specs/*.md` as well as the PRD catalog/matrix. The goal is to catch system-level orchestration errors that local unit tests can miss. See `test/integration/README.md` for the detailed suite contract and extension guide.
@@ -26,6 +27,7 @@ Integration scenarios should be derived from `assignement.md` and relevant `spec
 
 ```bash
 npm run test:unit                # unit tests only
+npm run test:conformance         # top-level product conformance and /scaler automation acceptance
 npm run test:integration         # mocked integration by default
 npm run test:integration:mock    # mocked integration only
 npm run test:integration:real    # real suite only; skipped unless enabled

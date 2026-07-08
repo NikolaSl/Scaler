@@ -91,6 +91,8 @@ export interface StageAgentArtifactReport {
   taskRefs?: string[];
 }
 
+const defaultLocalProjectInspectionTools = ["read", "bash"];
+
 export interface StageAgentReportExtractionResult {
   ok: boolean;
   artifactInput?: StageArtifactInput;
@@ -134,17 +136,32 @@ export function prepareStageAgentInvocation(
 ): StageAgentPreparation {
   const stage = normalizeStage(input.stage);
   const prompt = buildStageAgentPrompt({ ...input, stage });
+  const grantedTools = options.tools ?? defaultStageAgentTools(stage);
   const request: TaskAgentRequest = {
     taskId: `stage-${stage}`,
     prompt,
     cwd,
-    tools: options.tools,
+    tools: grantedTools,
     model: options.model,
     appendSystemPromptPath: options.appendSystemPromptPath,
     extensionPaths: options.extensionPaths,
   };
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");
   return { stage, prompt, request, invocation };
+}
+
+export function defaultStageAgentTools(stageInput: StageArtifactStage | string, extraTools: string[] = []): string[] {
+  const stage = normalizeStage(stageInput);
+  switch (stage) {
+    case "prd":
+      return uniqueTools([...defaultLocalProjectInspectionTools, ...extraTools, "scaler_prd_write"]);
+    case "planning":
+      return uniqueTools([...defaultLocalProjectInspectionTools, ...extraTools, "scaler_planning_report"]);
+    case "knowledge":
+    case "execution":
+    case "replanning":
+      return uniqueTools([...defaultLocalProjectInspectionTools, ...extraTools]);
+  }
 }
 
 export async function runStageAgentStep(
@@ -346,9 +363,9 @@ function stageContract(stage: StageArtifactStage): string[] {
     case "prd":
       return [
         "Review user/project PRD inputs and produce a polished, internally consistent PRD.",
-        "Write or update `agent-prd.md` when enough information exists.",
+        "Persist the polished runtime PRD through `scaler_prd_write` when that tool is granted; SCALER will write `.scaler/prd/current.md` and requirement ledgers.",
         "Update the runtime PRD ledger with stable requirement ids when possible.",
-        "When executed by the autonomous workflow, you may emit a `scaler_prd_write` JSON event with content and requirements; SCALER will persist it.",
+        "Do not require direct filesystem writes for PRD persistence when `scaler_prd_write` is available.",
         "Request clarification instead of inventing requirements when contradictions or gaps block progress.",
       ];
     case "knowledge":
@@ -365,7 +382,7 @@ function stageContract(stage: StageArtifactStage): string[] {
         "Every task must include taskKind, atomicityRationale, allowedPathPrefixes, definitionOfDone, and validationRefs or validationCommands.",
         "Software/mixed tasks must include a test_first validation command/check before implementation gates, or an explicit qualityWaivers entry with a reason and alternative validation path.",
         "For software plans, decide whether local_ci, Docker, Compose, devcontainer, or Minikube validation is needed; set validationCommands.environment accordingly and include setup as an atomic task when configuration must be generated.",
-        "Write `.scaler/plans/current-plan.json` when producing the active plan.",
+        "Persist the active plan through `scaler_planning_report` when that tool is granted; SCALER will write `.scaler/plans/current-plan.json`.",
         "When executed by the autonomous workflow, emit or call `scaler_planning_report` so SCALER can synchronize requirements, tasks, and coverage.",
         "Include validation references and allowed path prefixes where known.",
       ];
@@ -383,6 +400,10 @@ function stageContract(stage: StageArtifactStage): string[] {
         "Explain preservation risks and unresolved gaps explicitly.",
       ];
   }
+}
+
+function uniqueTools(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }
 
 function formatArtifactLines(artifacts: StageArtifact[]): string[] {

@@ -36,6 +36,7 @@ export interface NextTaskSelection {
 }
 
 const ignoredTaskStatuses = new Set(["running", "validating", "debugging", "validated", "blocked", "needs_replan", "failed"]);
+const defaultTaskTools = ["read", "bash", "edit", "write", "scaler_task_report"];
 
 export interface ConductorStepOptions {
   execute?: boolean;
@@ -117,6 +118,10 @@ export interface TaskPromptResult {
   prompt: string;
   resolvedContext: ResolvedContext;
   compressionAssessment: CompressionAssessment;
+}
+
+export function defaultTaskAgentTools(extraTools: string[] = []): string[] {
+  return Array.from(new Set([...defaultTaskTools, ...extraTools].map((tool) => tool.trim()).filter(Boolean)));
 }
 
 export function selectNextTask(state: ScalerState): NextTaskSelection {
@@ -249,7 +254,7 @@ export async function runConductorStep(
   const request = {
     taskId: runningTask.id,
     prompt,
-    tools: options.tools,
+    tools: options.tools ?? defaultTaskAgentTools(),
     model: options.model,
     cwd,
   };

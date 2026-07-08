@@ -80,6 +80,8 @@ test("deriveKnowledgeResearchRequests creates deterministic Stage II requests fo
 
 async function stageRunner(request: TaskAgentRequest): Promise<TaskAgentRunResult> {
   if (request.taskId === "stage-prd") {
+    assert.ok(request.tools?.includes("read"));
+    assert.ok(request.tools?.includes("bash"));
     assert.ok(request.tools?.includes("scaler_prd_write"));
     return {
       taskId: request.taskId,
@@ -96,6 +98,8 @@ async function stageRunner(request: TaskAgentRequest): Promise<TaskAgentRunResul
   }
 
   if (request.taskId === "stage-planning") {
+    assert.ok(request.tools?.includes("read"));
+    assert.ok(request.tools?.includes("bash"));
     assert.ok(request.tools?.includes("scaler_planning_report"));
     return {
       taskId: request.taskId,
@@ -206,6 +210,50 @@ async function replanRunner(request: TaskAgentRequest): Promise<TaskAgentRunResu
     aborted: false,
   };
 }
+
+test("runAutonomousStageWorkflow augments explicit tools with required stage tools", async () => {
+  await withTempDir(async (dir) => {
+    const state = createState("planning");
+    await saveState(dir, state);
+
+    const result = await runAutonomousStageWorkflow(dir, state, { execute: true, maxSteps: 1, tools: ["custom-inspector"] }, {
+      stage: async (request) => {
+        assert.equal(request.taskId, "stage-planning");
+        assert.ok(request.tools?.includes("read"));
+        assert.ok(request.tools?.includes("bash"));
+        assert.ok(request.tools?.includes("custom-inspector"));
+        assert.ok(request.tools?.includes("scaler_planning_report"));
+        return {
+          taskId: request.taskId,
+          exitCode: 0,
+          stdoutEvents: [{
+            type: "scaler_planning_report",
+            id: "planning-with-extra-tools",
+            reason: "Plan with explicitly requested inspection tool.",
+            source: "stage-workflow-test",
+            requirements: [{ id: "REQ-TOOLS", title: "Tools", statement: "Stage agents can inspect local project files.", status: "in_progress" }],
+            plan: {
+              planVersion: 1,
+              status: "active",
+              title: "Tool grant plan",
+              source: "stage-workflow-test",
+              tasks: [validWorkflowTask("T-TOOLS", "Implement tool grant", {
+                prdRefs: ["REQ-TOOLS"],
+                allowedPathPrefixes: ["src/stage-workflow.ts"],
+                validationRefs: ["unit", "test-first"],
+              })],
+            },
+          }],
+          stderr: "",
+          timedOut: false,
+          aborted: false,
+        };
+      },
+    });
+
+    assert.equal(result.accepted, true, result.message);
+  });
+});
 
 test("runAutonomousStageWorkflow refreshes planning after execution coverage discoveries", async () => {
   await withTempDir(async (dir) => {

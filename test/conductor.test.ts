@@ -332,14 +332,21 @@ test("runConductorStep executes task with injected runner", async () => {
       dir,
       state,
       { execute: true, timeoutMs: 123 },
-      async (request, options) => ({
-        taskId: request.taskId,
-        exitCode: options?.timeoutMs === 123 ? 0 : 1,
-        stdoutEvents: [{ type: "done" }, completedTaskReport(request.taskId)],
-        stderr: "",
-        timedOut: false,
-        aborted: false,
-      }),
+      async (request, options) => {
+        assert.ok(request.tools?.includes("read"));
+        assert.ok(request.tools?.includes("bash"));
+        assert.ok(request.tools?.includes("edit"));
+        assert.ok(request.tools?.includes("write"));
+        assert.ok(request.tools?.includes("scaler_task_report"));
+        return {
+          taskId: request.taskId,
+          exitCode: options?.timeoutMs === 123 ? 0 : 1,
+          stdoutEvents: [{ type: "done" }, completedTaskReport(request.taskId)],
+          stderr: "",
+          timedOut: false,
+          aborted: false,
+        };
+      },
     );
 
     const persisted = await loadState(dir);

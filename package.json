@@ -13,6 +13,7 @@
     "build": "tsc --noEmit",
     "test": "npm run test:unit && npm run test:integration:mock",
     "test:unit": "node --test --import tsx test/*.test.ts",
+    "test:conformance": "node --test --import tsx test/conformance.test.ts test/autopilot.test.ts",
     "test:integration": "npm run test:integration:mock",
     "test:integration:mock": "node --test --import tsx test/integration/mock/*.test.ts",
     "test:integration:real": "node --test --import tsx test/integration/real/*.test.ts"

@@ -43,7 +43,7 @@ import {
 import { runResearchAgentStep, type ResearchAgentRunner, type ResearchAgentStepResult } from "./research-agent.js";
 import { saveState } from "./state.js";
 import { advanceStageAfterReadyArtifact, type StageAdvancementResult } from "./stage-advancement.js";
-import { runStageAgentStep, type StageAgentRunner, type StageAgentStepResult } from "./stage-agents.js";
+import { defaultStageAgentTools, runStageAgentStep, type StageAgentRunner, type StageAgentStepResult } from "./stage-agents.js";
 import {
   loadStageArtifacts,
   upsertStageArtifact,
@@ -187,6 +187,7 @@ interface SupplementalIngestionInput {
 }
 
 const executionPlanStatuses = new Set<ExecutionPlanStatus>(["draft", "active", "superseded", "completed"]);
+const localProjectInspectionTools = ["read", "bash"];
 
 export async function runAutonomousStageWorkflow(
   cwd: string,
@@ -1014,18 +1015,21 @@ function isStageKnowledgeRequest(request: ResearchRequest): boolean {
 
 function resolveStageTools(stage: StageArtifactStage, options: StageWorkflowOptions): string[] | undefined {
   if (options.stageTools) return options.stageTools;
-  if (options.tools) return options.tools;
-  if (stage === "prd") return ["scaler_prd_write"];
-  if (stage === "planning") return ["scaler_planning_report"];
-  return undefined;
+  return defaultStageAgentTools(stage, options.tools ?? []);
 }
 
 function resolveResearchTools(options: StageWorkflowOptions): string[] | undefined {
-  return options.researchTools ?? options.tools;
+  if (options.researchTools) return options.researchTools;
+  return uniqueTools([...localProjectInspectionTools, ...(options.tools ?? []), "scaler_research_report"]);
 }
 
 function resolveReplanTools(options: StageWorkflowOptions): string[] | undefined {
-  return options.replanTools ?? options.tools;
+  if (options.replanTools) return options.replanTools;
+  return options.tools ? uniqueTools(options.tools) : undefined;
+}
+
+function uniqueTools(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }
 
 function summarizeStepForAudit(step: StageWorkflowStepResult): Record<string, unknown> {

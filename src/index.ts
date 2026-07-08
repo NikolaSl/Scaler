@@ -5,6 +5,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { applyAdaptiveOrchestration, assessAdaptiveOrchestration, formatAdaptiveAssessment, startScalerRun } from "./adaptive.js";
+import { runScalerAutomation } from "./autopilot.js";
 import { formatBudgetStatus, getBudgetState, isBudgetUsageKey, persistBudgetDecision, setBudgetLimits, setBudgetUsage } from "./budgets.js";
 import {
   parseBudgetSetArgs,
@@ -418,7 +419,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("scaler", {
-    description: "Start a minimal adaptive SCALER run for a request.",
+    description: "Run SCALER automation for a request until completion or a deterministic blocker.",
     handler: async (args, ctx) => {
       const state = await ensureState(ctx.cwd);
       const nextState = startScalerRun(state, args ?? "");
@@ -426,9 +427,17 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const gitBootstrap = await ensureGitRepository(ctx.cwd);
       await logStateEvent(ctx.cwd, nextState, "Scaler run requested", { command: "scaler", request: args ?? "", gitBootstrap });
 
-      const message = `${formatStateStatus(nextState)} reason=${nextState.orchestrationReason ?? "n/a"} git=${gitBootstrap.status}`;
+      if (!args?.trim()) {
+        const message = `${formatStateStatus(nextState)} reason=${nextState.orchestrationReason ?? "n/a"} git=${gitBootstrap.status}`;
+        if (ctx.hasUI) ctx.ui.notify(message, "info");
+        else console.log(message);
+        return;
+      }
+
+      const automation = await runScalerAutomation(ctx.cwd, nextState);
+      const message = `${formatStateStatus(automation.finalState)} reason=${automation.finalState.orchestrationReason ?? "n/a"} git=${gitBootstrap.status}\n${automation.message}`;
       if (ctx.hasUI) {
-        ctx.ui.notify(message, "info");
+        ctx.ui.notify(message, automation.accepted ? "info" : "warning");
       } else {
         console.log(message);
       }

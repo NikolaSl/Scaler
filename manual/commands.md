@@ -4,17 +4,24 @@ All registered SCALER commands write command audit events to `.scaler/logs/event
 
 ## `/scaler <request>`
 
-Starts a minimal adaptive Scaler run.
+Runs SCALER automation for the request until completion or a deterministic blocker.
 
 Current behavior:
 
 - creates/loads `.scaler/state.json`
+- initializes git safety metadata when needed
 - selects a complexity level from the request text
 - moves supervisor state to the initial stage for that level
-- logs the request to `.scaler/logs/events.jsonl`
-- shows compact status
+- executes the staged workflow to produce/ingest PRD, knowledge, and planning artifacts as needed
+- applies the execution plan into tasks
+- executes runnable task agents with default project-local tools (`read`, `bash`, `edit`, `write`) plus `scaler_task_report`
+- runs validation for completed task-agent reports
+- when validation fails, runs the debug conductor, follows a `next_approach` debug retry, and then revalidates
+- commits or records accepted commit-skip evidence when validation passes
+- repeats until all tasks validate and the run completes, or until budgets, safety, missing data, unresolved debug/replan blockers, or approvals require a stop
+- logs the request and automation summary to `.scaler/logs/events.jsonl`
 
-This is an early entrypoint. It does not yet execute the full Stage I-IV workflow.
+Calling `/scaler` with no request only initializes/prints current state.
 
 ## `/scaler-adapt [apply]`
 
@@ -45,7 +52,7 @@ Current behavior:
 
 By default it prepares only. Passing `execute` runs the task-agent subprocess. A successful task-agent run must emit one structured `scaler_task_report` before validation handoff. Status `completed` moves the task to `validating`; missing or invalid reports move the task to `blocked`; report status `blocked`, `needs_data`, or `needs_replan` blocks validation; report status `failed` fails the task. Executed task-agent runs are recorded under `.scaler/reports/task-agent-runs.json`, accepted reports under `.scaler/reports/task-agent-reports.json`, and handoffs under `.scaler/reports/validation-handoffs.json`.
 
-`/scaler-step` runs under the repo-wide execution lock.
+`/scaler-step` runs under the repo-wide execution lock. Executed task agents receive default project-local tools (`read`, `bash`, `edit`, `write`) plus `scaler_task_report` unless a caller supplies an explicit tool set.
 
 ## `/scaler-validation-add <taskId> | <id> | <command> | <description> | <required> | <gate> | <expected> | <evidence refs> | <environment> | <disposition>`
 
@@ -348,7 +355,7 @@ Runs bounded deterministic stage-conductor steps, carrying forward supervisor st
 
 Runs the autonomous staged coordinator. It advances ready artifacts; executes PRD/planning stage agents when needed; creates Stage II research requests from runtime PRD requirements; runs bounded research-agent fanout; merges/deduplicates research reports into `.scaler/knowledge/knowledge-report.md`; ingests `scaler_prd_write` and `scaler_planning_report` child outputs into runtime PRD/current-plan ledgers; detects execution-time coverage gaps; and refreshes Stage III through the replanner while preserving validated tasks. Runs are recorded in `.scaler/reports/stage-workflow-runs.json`.
 
-Without `execute`, the workflow prepares the next required child agent or records the deterministic next action without running model subprocesses. `research=N` bounds research agents per workflow pass, `requests=N` bounds newly derived Stage II research requests, and `auto-accept-replan=off` stages a safe proposed plan without accepting it.
+Without `execute`, the workflow prepares the next required child agent or records the deterministic next action without running model subprocesses. By default, PRD/planning/research children are granted project-local inspection tools (`read`, `bash`) plus the required SCALER report tool; `tools=a,b` adds extra tools without dropping those required report tools. `research=N` bounds research agents per workflow pass, `requests=N` bounds newly derived Stage II research requests, and `auto-accept-replan=off` stages a safe proposed plan without accepting it.
 
 ## `/scaler-stage-workflow-runs`
 
@@ -356,7 +363,7 @@ Lists autonomous stage workflow coordinator run records from `.scaler/reports/st
 
 ## `/scaler-stage-run <stage> [execute]`
 
-Prepares or executes a focused stage-agent subprocess for `prd`, `knowledge`, `planning`, `execution`, or `replanning`. Successful executed runs ingest a valid `scaler_stage_artifact` JSON event and attempt ready-artifact advancement automatically.
+Prepares or executes a focused stage-agent subprocess for `prd`, `knowledge`, `planning`, `execution`, or `replanning`. Stage agents receive project-local inspection tools (`read`, `bash`) and stage-specific SCALER report tools by default. Successful executed runs ingest a valid `scaler_stage_artifact` JSON event and attempt ready-artifact advancement automatically.
 
 ## `/scaler-stage-runs [stage]`
 

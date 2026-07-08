@@ -140,7 +140,7 @@ test("prepareStageAgentInvocation builds isolated Pi invocation", () => {
   assert.ok(preparation.invocation.args.includes("--model"));
   assert.ok(preparation.invocation.args.includes("test-model"));
   assert.equal(preparation.request.taskId, "stage-prd");
-  assert.match(preparation.prompt, /Write or update `agent-prd.md`/);
+  assert.match(preparation.prompt, /Persist the polished runtime PRD through `scaler_prd_write`/);
 });
 
 test("stage agent run records round trip and format", async () => {
@@ -174,15 +174,21 @@ test("runStageAgentStep prepares and executes under lock", async () => {
   assert.equal(prepared.accepted, true);
   assert.equal(prepared.runRecord?.status, "prepared");
   assert.match(prepared.prompt ?? "", /Target stage: prd/);
+  assert.ok(prepared.invocation?.args.includes("read,bash,scaler_prd_write"));
 
-  const executed = await runStageAgentStep(cwd, state, "planning", { execute: true }, async (request) => ({
-    taskId: request.taskId,
-    exitCode: 0,
-    stdoutEvents: [{ type: "done" }],
-    stderr: "",
-    timedOut: false,
-    aborted: false,
-  }));
+  const executed = await runStageAgentStep(cwd, state, "planning", { execute: true }, async (request) => {
+    assert.ok(request.tools?.includes("read"));
+    assert.ok(request.tools?.includes("bash"));
+    assert.ok(request.tools?.includes("scaler_planning_report"));
+    return {
+      taskId: request.taskId,
+      exitCode: 0,
+      stdoutEvents: [{ type: "done" }],
+      stderr: "",
+      timedOut: false,
+      aborted: false,
+    };
+  });
 
   assert.equal(executed.accepted, true);
   assert.equal(executed.runRecord?.status, "passed");

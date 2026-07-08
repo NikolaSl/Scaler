@@ -11,7 +11,7 @@ SCALER operations are sequential per repository. Task steps, task-agent executio
 /scaler-status
 ```
 
-`/scaler` creates or loads `.scaler/state.json`, selects an adaptive complexity level, and logs the request. `/scaler-status` shows supervisor state plus a deterministic workflow summary, including stage-artifact recommendations when a PRD, knowledge, planning, or replanning stage lacks a ready artifact. `/scaler-adapt [apply]` can reassess during a run and, when requested, update complexity or move through a valid supervisor transition based on failures, blockers, uncertainty, and budgets.
+`/scaler` creates or loads `.scaler/state.json`, selects an adaptive complexity level, then runs the bounded automation loop: staged workflow, plan/task synchronization, task-agent execution, validation, debug next-approach retry/revalidation, and commit/commit-skip progression until completion or a deterministic blocker. `/scaler-status` shows supervisor state plus a deterministic workflow summary, including stage-artifact recommendations when a PRD, knowledge, planning, or replanning stage lacks a ready artifact. `/scaler-adapt [apply]` can reassess during a run and, when requested, update complexity or move through a valid supervisor transition based on failures, blockers, uncertainty, and budgets.
 
 Stage outputs can be advanced one deterministic step at a time, through a bounded artifact loop, or through the autonomous Stage I-III/replanning coordinator with:
 
@@ -27,7 +27,7 @@ Stage outputs can be advanced one deterministic step at a time, through a bounde
 /scaler-stage-workflow-runs
 ```
 
-`/scaler-stage-workflow` coordinates PRD polishing, Stage II research request generation/fanout/merge, planner report ingestion, plan/task synchronization, CI/CD environment decisions for software validation, and execution-time Stage III refreshes through preservation-gated replanning. Use non-`execute` mode to inspect the next child-agent handoff before running model subprocesses.
+`/scaler-stage-workflow` coordinates PRD polishing, Stage II research request generation/fanout/merge, planner report ingestion, plan/task synchronization, CI/CD environment decisions for software validation, and execution-time Stage III refreshes through preservation-gated replanning. Use non-`execute` mode to inspect the next child-agent handoff before running model subprocesses. Executed PRD/planning/research children receive project-local inspection tools (`read`, `bash`) plus required SCALER report tools by default; `tools=a,b` adds extra tools.
 
 Lower-level stage commands are also available:
 
