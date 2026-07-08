@@ -46,6 +46,8 @@ test("buildStageAgentPrompt includes stage contract, state, and artifact refs", 
   assert.match(prompt, /Target stage: planning/);
   assert.match(prompt, /SCALER stage=planning/);
   assert.match(prompt, /Create or refresh the sequential execution plan/);
+  assert.match(prompt, /not a task implementation agent/);
+  assert.match(prompt, /After emitting or calling the required stage report tool, stop/);
   assert.match(prompt, /ART-PLAN \| draft \| Draft plan \| path=.scaler\/plans\/current-plan.json/);
   assert.match(prompt, /Prefer small tasks/);
   assert.match(prompt, /scaler_stage_artifact/);

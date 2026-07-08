@@ -364,14 +364,20 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       summary: `Tool call observed: ${event.toolName}`,
       input: event.input,
     });
-    const currentTask = state.currentTaskId ? state.tasks.find((task) => task.id === state.currentTaskId) : undefined;
+    const currentTaskCandidate = state.currentTaskId ? state.tasks.find((task) => task.id === state.currentTaskId) : undefined;
+    const currentTask = currentTaskCandidate && isActiveTaskForSafety(currentTaskCandidate.status) ? currentTaskCandidate : undefined;
+    const managedRunActive = isManagedRunActiveForSafety(state.stage);
     const persistedSafetyPolicy = await loadSafetyPolicy(ctx.cwd);
     const decision = assessToolCallSafety(
       {
         toolName: event.toolName,
         input: event.input as Record<string, unknown>,
       },
-      mergeSafetyPolicy(persistedSafetyPolicy, { allowedPathPrefixes: currentTask?.allowedPathPrefixes }),
+      mergeSafetyPolicy(persistedSafetyPolicy, {
+        allowedPathPrefixes: currentTask?.allowedPathPrefixes,
+        requireAllowedPathPrefixesForWrite: managedRunActive,
+        allowBashProjectMutations: managedRunActive ? Boolean(currentTask) : undefined,
+      }),
     );
 
     if (decision.allowed) return undefined;
@@ -2234,6 +2240,14 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       }
     },
   });
+}
+
+function isManagedRunActiveForSafety(stage: string): boolean {
+  return stage !== "idle" && stage !== "completed" && stage !== "failed";
+}
+
+function isActiveTaskForSafety(status: string): boolean {
+  return status === "running" || status === "validating" || status === "debugging";
 }
 
 function normalizeHeartbeatStatus(value: string | undefined): "running" | "progress" | "completed" | "failed" | "timeout" | "aborted" {

@@ -36,6 +36,8 @@ export interface SafetyPolicy {
   allowInternet?: boolean;
   allowExternalMutations?: boolean;
   allowSandbox?: boolean;
+  requireAllowedPathPrefixesForWrite?: boolean;
+  allowBashProjectMutations?: boolean;
 }
 
 export interface PersistedSafetyPolicy {
@@ -153,12 +155,15 @@ export async function saveSafetyPolicy(cwd: string, update: SafetyPolicyUpdate):
 }
 
 export function mergeSafetyPolicy(persisted: PersistedSafetyPolicy, policy: SafetyPolicy = {}): SafetyPolicy {
-  return {
+  const merged: SafetyPolicy = {
     allowedPathPrefixes: policy.allowedPathPrefixes,
     allowInternet: policy.allowInternet ?? persisted.allowInternet,
     allowExternalMutations: policy.allowExternalMutations ?? persisted.allowExternalMutations,
     allowSandbox: policy.allowSandbox ?? persisted.allowSandbox,
   };
+  if (policy.requireAllowedPathPrefixesForWrite !== undefined) merged.requireAllowedPathPrefixesForWrite = policy.requireAllowedPathPrefixesForWrite;
+  if (policy.allowBashProjectMutations !== undefined) merged.allowBashProjectMutations = policy.allowBashProjectMutations;
+  return merged;
 }
 
 export function formatSafetyPolicy(policy: PersistedSafetyPolicy): string {
@@ -384,13 +389,24 @@ export function assessToolCallSafety(toolCall: ToolCallLike, policy: SafetyPolic
     };
   }
 
-  if ((toolCall.toolName === "write" || toolCall.toolName === "edit") && !isAllowedPathTarget(toolCall.input, policy.allowedPathPrefixes)) {
-    return {
-      allowed: false,
-      risk: "medium",
-      reason: "Write/edit target is outside the current task allowed paths.",
-      requiresApproval: true,
-    };
+  if (toolCall.toolName === "write" || toolCall.toolName === "edit") {
+    if (policy.requireAllowedPathPrefixesForWrite && normalizePathPrefixes(policy.allowedPathPrefixes).length === 0) {
+      return {
+        allowed: false,
+        risk: "medium",
+        reason: "Write/edit requires an active SCALER task with explicit allowed paths.",
+        requiresApproval: true,
+      };
+    }
+
+    if (!isAllowedPathTarget(toolCall.input, policy.allowedPathPrefixes)) {
+      return {
+        allowed: false,
+        risk: "medium",
+        reason: "Write/edit target is outside the current task allowed paths.",
+        requiresApproval: true,
+      };
+    }
   }
 
   if (toolCall.toolName === "bash") {
@@ -444,6 +460,15 @@ export function assessToolCallSafety(toolCall: ToolCallLike, policy: SafetyPolic
         allowed: false,
         risk: "external",
         reason: "Bash command may transmit data over the internet.",
+        requiresApproval: true,
+      };
+    }
+
+    if (command && policy.allowBashProjectMutations === false && projectMutationCommandPatterns.some((pattern) => pattern.test(command))) {
+      return {
+        allowed: false,
+        risk: "medium",
+        reason: "Bash command may mutate project files outside an active SCALER task.",
         requiresApproval: true,
       };
     }
@@ -773,6 +798,14 @@ const internetTransferCommandPatterns = [
   /\bssh\s+[^\s@]+@[^\s]+/i,
   /\bscp\b[^\n]*[^\s@]+@[^\s:]+:/i,
   /\brsync\b[^\n]*(?:[^\s@]+@[^\s:]+:|rsync:\/\/)/i,
+];
+
+const projectMutationCommandPatterns = [
+  /(^|[;&|]\s*)(?:mkdir|touch|cp|mv)\b/i,
+  /\b(?:cat|printf|echo)\b[\s\S]*(?:>|>>)\s*\S+/i,
+  /\btee\s+(?:-a\s+)?\S+/i,
+  /\b(?:npm|pnpm|yarn|bun)\s+(?:install|i|add|remove|uninstall|ci)\b/i,
+  /\bgit\s+(?:add|commit|checkout|merge|rebase|tag|stash|restore)\b/i,
 ];
 
 const sandboxCommandPatterns = [

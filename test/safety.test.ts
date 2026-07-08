@@ -80,6 +80,26 @@ test("allows write when no explicit allowed path policy exists", () => {
   assert.equal(decision.allowed, true);
 });
 
+test("blocks write without active task paths when SCALER requires task-scoped mutations", () => {
+  const decision = assessToolCallSafety(
+    { toolName: "write", input: { path: "package.json" } },
+    { requireAllowedPathPrefixesForWrite: true },
+  );
+
+  assert.equal(decision.allowed, false);
+  assert.equal(decision.reason, "Write/edit requires an active SCALER task with explicit allowed paths.");
+});
+
+test("blocks common project-mutating bash when no SCALER task is active", () => {
+  const decision = assessToolCallSafety(
+    { toolName: "bash", input: { command: "npm install ethers" } },
+    { allowBashProjectMutations: false },
+  );
+
+  assert.equal(decision.allowed, false);
+  assert.equal(decision.reason, "Bash command may mutate project files outside an active SCALER task.");
+});
+
 test("blocks destructive rm command", () => {
   const decision = assessToolCallSafety({ toolName: "bash", input: { command: "rm -rf build" } });
 

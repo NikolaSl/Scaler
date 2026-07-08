@@ -11,7 +11,7 @@ Design requirements live in [`../assignement.md`](../assignement.md) and [`../sp
 - State file: `.scaler/state.json`.
 - Basic deterministic supervisor transition helpers.
 - Audit log: `.scaler/logs/events.jsonl` with redacted detail payload files under `.scaler/logs/details/` for commands, prompts, tools, reports, validation summaries, and commits, plus `.scaler/logs/tools/` references for oversized Pi tool results.
-- Deterministic safety gate for protected paths, destructive shell commands, protected-path shell access, and current-task allowed paths.
+- Deterministic safety gate for protected paths, destructive shell commands, protected-path shell access, current-task allowed paths, and active-run parent-session mutation blocking when no task is current.
 - Experimental task-agent subprocess invocation builder with required structured `scaler_task_report` handoff gating before validation.
 - Structured Scaler tool skeletons registered with Pi, compact parent-session tool catalogs, and active-tool focus/restore for SCALER-guided requester turns.
 - External memory write/search/retrieve under `.scaler/memory/` with tags, summary references, and scoped retrieval.

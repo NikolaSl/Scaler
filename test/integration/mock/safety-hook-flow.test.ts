@@ -162,3 +162,50 @@ test("mock integration: extension hook blocks external mutation and secret envir
     assert.ok(safetyEvents.every((event) => (event.details as { requiresApproval: boolean }).requiresApproval === true));
   });
 });
+
+test("mock integration: active SCALER run blocks parent-session project mutations without a current task", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "planning";
+    await saveState(dir, state);
+    const hook = registeredToolCallHook();
+
+    const write = await hook({ toolName: "write", input: { path: "package.json", content: "{}\n" } }, { cwd: dir, hasUI: false });
+    const npmInstall = await hook({ toolName: "bash", input: { command: "npm install ethers" } }, { cwd: dir, hasUI: false });
+
+    assert.deepEqual(write, { block: true, reason: "Write/edit requires an active SCALER task with explicit allowed paths." });
+    assert.deepEqual(npmInstall, { block: true, reason: "Bash command may mutate project files outside an active SCALER task." });
+  });
+});
+
+test("mock integration: active SCALER task allows writes only inside task allowed paths", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T001";
+    state.tasks = [{ id: "T001", status: "running", title: "Scoped task", allowedPathPrefixes: ["src"], updatedAt: state.updatedAt }];
+    await saveState(dir, state);
+    const hook = registeredToolCallHook();
+
+    const allowed = await hook({ toolName: "write", input: { path: "src/app.js", content: "export const value = 2;\n" } }, { cwd: dir, hasUI: false });
+    const blocked = await hook({ toolName: "write", input: { path: "README.md", content: "# nope\n" } }, { cwd: dir, hasUI: false });
+
+    assert.equal(allowed, undefined);
+    assert.deepEqual(blocked, { block: true, reason: "Write/edit target is outside the current task allowed paths." });
+  });
+});
+
+test("mock integration: stale currentTaskId from a non-active task does not authorize writes", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T001";
+    state.tasks = [{ id: "T001", status: "validated", title: "Old task", allowedPathPrefixes: ["src"], updatedAt: state.updatedAt }];
+    await saveState(dir, state);
+    const hook = registeredToolCallHook();
+
+    const blocked = await hook({ toolName: "write", input: { path: "src/app.js", content: "export const value = 3;\n" } }, { cwd: dir, hasUI: false });
+
+    assert.deepEqual(blocked, { block: true, reason: "Write/edit requires an active SCALER task with explicit allowed paths." });
+  });
+});

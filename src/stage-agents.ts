@@ -105,6 +105,8 @@ export function buildStageAgentPrompt(input: StageAgentPromptInput): string {
   const lines = [
     "You are a focused SCALER stage agent.",
     "Follow the deterministic supervisor state. Do not claim completion unless the required artifact exists or is explicitly described as blocked.",
+    "You are not a task implementation agent: do not implement product code, scaffold the app, install dependencies, run commits, or modify project files outside SCALER artifact/report tools for this stage.",
+    "After emitting or calling the required stage report tool, stop; do not continue into task execution.",
     "",
     `Target stage: ${stage}`,
     `Supervisor: ${formatStateStatus(input.state)}`,

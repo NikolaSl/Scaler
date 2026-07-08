@@ -11,7 +11,7 @@ Implemented blocking rules:
 - internet-transfer commands such as `curl`/`wget` to HTTP(S), `ssh`, `scp`, and remote `rsync` unless the caller explicitly supplies an allow-internet policy, persisted SCALER safety policy enables it, or a scoped exact approval applies.
 - external mutation/deploy/publish commands such as `npm publish`, package-manager publish variants, `git push`, `docker push`, `kubectl apply`, `helm upgrade/install`, `terraform apply`, `pulumi up`, common cloud deploy/update/delete/sync commands, and release creation unless the caller explicitly supplies an allow-external-mutations policy, persisted SCALER safety policy enables it, or a scoped exact approval applies.
 
-When a current task has explicit `allowedPathPrefixes`, `write`/`edit` calls outside those prefixes are blocked. The current task is read from `.scaler/state.json` using `currentTaskId`.
+When a SCALER run is active (`prd`, `knowledge`, `planning`, `execution`, `debugging`, `replanning`, or `paused`), direct parent-session project mutations are blocked unless there is an active `currentTaskId` with explicit `allowedPathPrefixes`. With no active task, `write`/`edit` requires approval and common mutating `bash` commands such as package installs, redirections, `tee`, `mkdir`, `touch`, `cp`, `mv`, and git staging/commit commands are blocked. When a current task has explicit `allowedPathPrefixes`, `write`/`edit` calls outside those prefixes are blocked. The current task is read from `.scaler/state.json` using `currentTaskId`.
 
 Task-agent prompts also include safety instructions to respect allowed paths, avoid protected paths, and avoid destructive/external commands.
 
