@@ -6,7 +6,7 @@ Design requirements live in [`../assignement.md`](../assignement.md) and [`../sp
 
 ## Current implemented behavior
 
-- Pi extension entrypoint: `src/index.ts`.
+- Pi package extension entrypoint: `extensions/scaler/index.ts` wrapper, delegating to implementation in `src/index.ts`, so Pi displays the extension as `scaler`.
 - Commands include the supervisor/task/stage/debug/research/replan/tool/storage/safety/watchdog/budget/git workflow plus validation commands such as `/scaler-validation-add`, `/scaler-validation-envs`, `/scaler-cicd-env`, `/scaler-cicd-envs`, `/scaler-validate-loop`, and `/scaler-validate`; see `manual/commands.md` for the current full command reference.
 - State file: `.scaler/state.json`.
 - Basic deterministic supervisor transition helpers.
@@ -18,7 +18,7 @@ Design requirements live in [`../assignement.md`](../assignement.md) and [`../sp
 - Storage inventory indexes under `.scaler/storage/index.json` via `/scaler-storage-status`, coupled to the `storageBytes` budget gate.
 - Research request/report ledgers under `.scaler/research/` with source quality, confidence, contradictions, raw evidence storage in memory, and focused research-agent run records/structured ingestion.
 - Task context manifests under `.scaler/context/tasks/` with file, summary-scoped memory, state, task, PRD ref, validation-manifest resolution, exactness metadata, compression guidance, automatic split artifacts for oversized resolved context, deterministic externalization of large exact/summary-ok items, SCALER-aware compaction/context hooks, fresh minimal-context handoffs, semantic-style candidate curation/approval commands, and relevance discovery from changed files, plans, PRD coverage, validation history, and memory/tag matches.
-- Minimal adaptive `/scaler` entrypoint.
+- Full `/scaler <request>` automation loop for staged planning, task execution, validation, debug next-approach retry/revalidation, commit or commit-skip, and completion until deterministic blocker.
 - Budget usage helpers, scoped budget policies, complexity-level budget approval rules, and hard-limit gates for tools, spawned agents, debug attempts, context-token estimates, validation loops, storage scans, research reports, wall-clock time, and checkpoints.
 - Watchdog ledgers under `.scaler/watchdogs/` for progress heartbeats, no-progress/replanning triggers, subprocess cleanup evidence, and resume verification.
 - Checkpoint writing under `.scaler/checkpoints/` for pause/resume, watchdog pause, and conductor steps.

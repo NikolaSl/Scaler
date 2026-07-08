@@ -110,7 +110,7 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - real unsafe replan proposal rejection without replacing the current plan;
 - real planner-report listing plus real chained replanner proposal → acceptance flow-parity through proposed/current plan artifacts, snapshots, decisions, and task creation;
 - report-only child agents launched with `--no-tools` for cardinal JSON-output tests, plus real subprocess assertions that granted-tool children include the SCALER extension and report-only stage children remain toolless;
-- real Pi extension loading via `-e src/index.ts`;
+- real Pi extension loading via `-e extensions/scaler/index.ts`;
 - slash-command dispatch and command audit logs;
 - slash-command budget configuration/status persistence, complexity budget-policy approval, watchdog heartbeat/status/cleanup/resume-check persistence, provider usage turn accounting, and audit logs;
 - slash-command storage status inventory persistence and audit logs;

@@ -16,7 +16,7 @@ Run type checks:
 npm run build
 ```
 
-Use SCALER from this checkout as a Pi package/extension. The package manifest exposes the extension entrypoint at `src/index.ts`.
+Use SCALER from this checkout as a Pi package/extension. The package manifest exposes a named wrapper at `extensions/scaler/index.ts` so Pi lists the loaded extension as `scaler` instead of the implementation directory `src`.
 
 ```bash
 pi install .

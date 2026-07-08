@@ -7,7 +7,7 @@
   "license": "Apache-2.0",
   "author": "Nikola Slavchev LZ1NKL",
   "pi": {
-    "extensions": ["./src/index.ts"]
+    "extensions": ["./extensions/scaler/index.ts"]
   },
   "scripts": {
     "build": "tsc --noEmit",

@@ -6,7 +6,7 @@ Development usage:
 npm install
 npm test
 npm run build
-pi -e ./src/index.ts
+pi -e ./extensions/scaler/index.ts
 ```
 
 Inside Pi, run:
@@ -15,4 +15,4 @@ Inside Pi, run:
 /scaler-status
 ```
 
-Project-local auto-discovery packaging will be added later.
+The package manifest also points at `./extensions/scaler/index.ts`, so `pi install .` loads the same wrapper and Pi displays the extension as `scaler`.

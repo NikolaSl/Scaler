@@ -12,6 +12,7 @@ import { getBudgetState } from "../src/budgets.js";
 import { saveTaskContextManifest } from "../src/context.js";
 import { loadScalerCompactionRecords } from "../src/context-compaction.js";
 import scalerExtension from "../src/index.js";
+import packagedScalerExtension from "../extensions/scaler/index.js";
 import { loadWatchdogHeartbeats } from "../src/watchdogs.js";
 import { readLogEvents } from "../src/logging.js";
 import { getLogToolsDir } from "../src/paths.js";
@@ -29,6 +30,12 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
 
 test("extension factory exports a function", () => {
   assert.equal(typeof scalerExtension, "function");
+});
+
+test("package manifest loads extension through scaler-named wrapper", async () => {
+  const packageJson = JSON.parse(await readFile("package.json", "utf8")) as { pi?: { extensions?: string[] } };
+  assert.deepEqual(packageJson.pi?.extensions, ["./extensions/scaler/index.ts"]);
+  assert.equal(packagedScalerExtension, scalerExtension);
 });
 
 test("extension registers scaler commands", () => {
