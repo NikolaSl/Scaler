@@ -73,6 +73,11 @@ pass 29/29, and the actual installed Pi catalog-command check passes 1/1 without
 a model request. This resolves the API-owner counterexample in SC-25; full host
 context accounting, isolation and model execution remain unverified.
 
+The complete P1 regression gate passes: build, 501 unit tests and 67 mocked
+integration tests. The real-host check used Pi 0.80.3. Model-driven verification
+remains blocked by the environment authentication network policy; no model
+request was made. See PLAN-099 for the exact boundary and next P2 handoff.
+
 ## Second-iteration assessment boundary
 
 The second requirements iteration changes no implementation. Existing Failed and

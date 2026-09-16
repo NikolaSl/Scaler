@@ -88,6 +88,29 @@ SCALER_REAL_PI_TIMEOUT_MS=60000 \
 npm run test:integration:real
 ```
 
+For a single bounded Spark contract check, first authenticate in Pi with `/login`
+and select the Codex subscription provider. On a headless machine choose device
+code login. Both the authorization service and model endpoint must be reachable;
+a browser confirmation alone does not establish that Pi received credentials.
+Keep credentials in Pi's private runtime storage, outside the repository.
+
+Run from this checkout after authentication:
+
+```bash
+SCALER_REAL_PI_INTEGRATION=1 \
+SCALER_REAL_PI_MODEL=openai-codex/gpt-5.3-codex-spark \
+SCALER_REAL_PI_COMMAND="$PWD/node_modules/.bin/pi" \
+SCALER_REAL_PI_TIMEOUT_MS=30000 \
+node --test --import tsx \
+  --test-name-pattern='^real integration: task agent report gates validation handoff$' \
+  test/integration/real/real-pi-contracts.test.ts
+```
+
+This requests one model-backed report/handoff contract scenario with tools disabled.
+Its fixture report does not establish real task correctness or full SC-10
+acceptance. A missing account/model entitlement or blocked network is a blocked
+check, not a pass; do not silently substitute another model.
+
 Environment variables:
 
 - `SCALER_REAL_PI_INTEGRATION=1` enables real contract tests. They are skipped otherwise.

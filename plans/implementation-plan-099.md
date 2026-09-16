@@ -112,3 +112,18 @@ Real-model and full-host end-to-end claims require actual execution in P7.
   and the three-mode routing migration remain P3/P7 work.
 - Background execution: no cloud job or automation was created. Resume from this
   plan and repository history, checking current branch/PR state before writing.
+
+## P1 final gate and next handoff
+
+- 2026-09-16: `npm run build` passed; `npm test` passed 501/501 unit tests
+  and 67/67 mocked integration tests. The installed Pi 0.80.3 catalog-command
+  integration passed 1/1 without a model request. `git diff --check` passed.
+- Spark's exact provider/model ID is recognized by installed Pi. The user
+  authorized a test and completed browser-side device authorization, but the
+  environment blocked the request to `auth.openai.com` during token retrieval.
+  Pi reported no saved Codex authentication. No model request was made; the
+  model-backed check remains blocked, not passed. No credentials or device codes
+  are stored in this repository.
+- Next: refine P2 into mutation-path inventory, minimal versioned acceptance
+  contracts, revision checks and interruption fixtures before editing those paths.
+  P1 closes specific regressions; it does not establish overall v2 conformance.
