@@ -48,6 +48,13 @@ Those results do not verify revision 2, a local model, or the real host end to e
 
 ## Second-iteration assessment boundary
 
+Implementation has now started on merged baseline `8f4cf19`, following
+[PLAN-099](../plans/implementation-plan-099.md). The original assessment table
+above is retained as the reviewed baseline. P1.1 adds read-only existing-state
+lookup, atomic snapshot replacement and exclusive initialization; 15 focused
+state/checkpoint tests and the build pass. This is partial SC-13 evidence, not
+closure of the lost-update, stale-proposal or interruption requirements.
+
 The second requirements iteration changes no implementation. Existing Failed and
 Partial findings above remain applicable; none is upgraded by adding prose or
 acceptance scenarios. The following refinements are **Not assessed** within those

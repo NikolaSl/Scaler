@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -60,6 +60,73 @@ test("ensureState creates .scaler/state.json", async () => {
 
     assert.equal(state.stage, "idle");
     assert.match(raw, /\"stage\": \"idle\"/);
+  });
+});
+
+test("ensureState reads existing state without changing bytes or modification time", async () => {
+  await withTempDir(async (dir) => {
+    await saveState(dir, createDefaultState());
+    const path = getStatePath(dir);
+    const oldTime = new Date("2020-01-01T00:00:00Z");
+    await utimes(path, oldTime, oldTime);
+    const before = await readFile(path, "utf8");
+    const result = await ensureState(dir);
+    assert.deepEqual(result, JSON.parse(before));
+    assert.equal(await readFile(path, "utf8"), before);
+    assert.equal((await stat(path)).mtimeMs, oldTime.getTime());
+  });
+});
+
+test("concurrent initialization returns one durable run identity", async () => {
+  await withTempDir(async (dir) => {
+    const states = await Promise.all(Array.from({ length: 16 }, () => ensureState(dir)));
+    const stored = await loadState(dir);
+    assert.ok(states.every((state) => state.runId === stored.runId));
+    assert.deepEqual(await readdir(join(dir, ".scaler")), ["state.json"]);
+  });
+});
+
+test("ensureState preserves malformed state and fails instead of resetting it", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, ".scaler"));
+    await writeFile(getStatePath(dir), '{"runId":');
+    await assert.rejects(ensureState(dir), SyntaxError);
+    assert.equal(await readFile(getStatePath(dir), "utf8"), '{"runId":');
+  });
+});
+
+test("readers see complete state snapshots while replacements are written", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    state.orchestrationReason = "x".repeat(256_000);
+    await saveState(dir, state);
+    const results = await Promise.allSettled([
+      (async () => {
+        for (let i = 0; i < 16; i++) {
+          await saveState(dir, { ...state, orchestrationReason: String(i).repeat(256_000) });
+        }
+      })(),
+      (async () => {
+        for (let i = 0; i < 64; i++) {
+          const loaded = await loadState(dir);
+          assert.equal(loaded.runId, state.runId);
+          assert.ok(loaded.orchestrationReason && loaded.orchestrationReason.length >= 256_000);
+        }
+      })(),
+    ]);
+    for (const result of results) if (result.status === "rejected") throw result.reason;
+    assert.deepEqual(await readdir(join(dir, ".scaler")), ["state.json"]);
+  });
+});
+
+test("failed state publication preserves the destination and cleans temporary data", async () => {
+  await withTempDir(async (dir) => {
+    const destination = getStatePath(dir);
+    await mkdir(destination, { recursive: true });
+    await writeFile(join(destination, "existing"), "preserve");
+    await assert.rejects(saveState(dir, createDefaultState()));
+    assert.equal(await readFile(join(destination, "existing"), "utf8"), "preserve");
+    assert.deepEqual(await readdir(join(dir, ".scaler")), ["state.json"]);
   });
 });
 

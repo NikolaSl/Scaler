@@ -48,7 +48,7 @@ affected acceptance. No whole-product rewrite or speculative provider work.
 
 | Unit | Change / why needed | Focused validation | Status |
 |---|---|---|---|
-| P1.1 | Read existing state without rewriting; publish complete JSON atomically; initialization must not replace an existing run. | `test/state.test.ts`: stable bytes/mtime, concurrent initializers, invalid JSON, interrupted publication/reader visibility. | Pending |
+| P1.1 | Read existing state without rewriting; publish complete JSON atomically; initialization must not replace an existing run. | `test/state.test.ts`: stable bytes/mtime, concurrent initializers, invalid JSON, failed publication/reader visibility. | Implemented; focused checks pass |
 | P1.2 | Preparation cannot mark a task running; account/admit before dispatch; reload worker-persisted state before usage/handoff instead of overwriting it. | `test/conductor.test.ts`: prepare then execute, refused admission, persisted child updates and changed-run rejection. | Pending |
 | P1.3 | Escalate timeout/abort based on actual exit; signal termination is a failed run; remove timers/listeners and report cleanup accurately. | `test/subagents.test.ts`: real TERM-ignoring child, timeout, abort, natural completion and spawn failure. | Pending |
 | P1.4 | Use Pi ExtensionAPI for tool discovery/focus/restore; mocks must place methods on their actual owner. | `test/extension-shape.test.ts`, installed host types, TypeScript build. | Pending |
@@ -78,6 +78,14 @@ Real-model and full-host end-to-end claims require actual execution in P7.
 
 - Planning: inspected the merged requirements and relevant implementation paths;
   selected the four bounded P1 units above. All later phases remain pending.
-- Baseline build/test results: pending execution.
+- Baseline (`8f4cf19`): TypeScript build passed; 488/488 unit tests and 66/67 mock
+  integration tests passed. The sole failure is the known retention fixture using
+  December 2025 timestamps against the current clock. Add P1.0: correct only that
+  fixture's time reference in a separate commit, retaining old/new deletion checks.
+- P1.1: regression tests first reproduced a read-side timestamp rewrite and a torn
+  JSON read. Atomic same-directory publication and exclusive initialization now
+  pass state/checkpoint checks (15/15) and the TypeScript build. Failed publication
+  preserves the destination and cleans temporary data. Multi-writer revision
+  checks and power-loss recovery are not established by these tests.
 - Background execution: no cloud job or automation was created. Resume from this
   plan and repository history, checking current branch/PR state before writing.
