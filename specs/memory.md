@@ -1,60 +1,46 @@
-# SCALER External Memory Spec
+# Versioned Memory and Provenance
+Requirements: SC-06. Acceptance: AC-06.
 
-## Principle
+## Record
 
-External memory is cheap. Tokens are expensive.
+Memory stores reusable evidence and findings outside active context.
+Each item MUST identify its source, source version/hash or retrieval timestamp,
+scope, task/requirement links, exact artifact reference, concise description,
+validity and known limitations. Claims and summaries MUST identify supporting
+sources and important inference/uncertainty.
 
-The active context should contain only what is needed for the current step. Details that may be useful later should be stored in files and referenced briefly.
+Distinguish observations, user requirements, interpretations and hypotheses.
+Repetition, summarization or agreement between agents MUST NOT promote an
+assumption to an established fact. Promotion requires supporting evidence;
+material contradictions and the evidence needed to resolve them remain visible.
 
-## Location
+Handoffs MUST retain the relevant exact constraints, unresolved material
+assumptions, rejected approaches with reasons, and the next discriminating check.
+Use compact records plus retrievable exact sources rather than the full transcript.
+Context compaction or a new agent MUST NOT erase failure history or its budget.
 
-Store memory files under `.scaler/memory/`.
+Validity distinguishes current, stale, obsolete and unknown. A label is not
+evidence of freshness. For mutable sources, define a freshness/revalidation rule.
 
-Keep an index at `.scaler/memory/index.json` or `.scaler/memory/index.md`.
+## Invalidation
 
-See `specs/storage.md` for compression, retention, and disk safety rules.
+Track the source dependencies needed to detect material change. When a referenced
+file, requirement, schema, environment or external fact changes, mark affected
+derived findings for revalidation before relying on them. Historical evidence
+remains intact; it is not rewritten to match current conclusions.
 
-## Memory reference
-
-The active context should keep only:
-
-- Memory id.
-- Short description.
-- File path.
-- Related task/stage.
-- When it may be useful.
-
-## Memory metadata
-
-Each memory should include:
-
-- id
-- title/topic
-- source
-- related task/stage
-- created/updated time
-- validity status: `active`, `stale`, `obsolete`, `unknown`
-- short summary
-- file path
+Cache reuse MUST check version, authority/data scope, relevant inputs and
+freshness. Cached tool documentation MUST be keyed by server/tool schema version
+or a checked fingerprint; if unavailable use an explicit revalidation policy.
+Repeated retrieval need not create new LLM summaries.
 
 ## Retrieval
 
-Memory retrieval follows the context selection rules in `specs/context-selection.md`.
+Support references plus scoped exact content as required by SC-07.
+Large objects remain outside context, but MUST be retrievable while supporting
+active work or retained acceptance evidence.
+A missing/expired artifact MUST be reported, never silently replaced with a
+summary presented as its exact source.
 
-Agents should not load memory files directly into context unless needed.
-
-When needed, the agent creates a structured memory-retrieval request with:
-
-- memory id/path
-- reason for retrieval
-- expected use
-- requested scope: full file or specific section
-
-The agent loop retrieves the memory and injects only the requested useful content before the next iteration.
-
-## Limits
-
-- Retrieve only memories needed for the current task.
-- Prefer summaries or specific sections over full files.
-- Do not retrieve memories only because they are related in general.
-- Mark obsolete memories instead of repeatedly summarizing contradictory data.
+File storage is sufficient for the initial profile. Vector databases, embeddings,
+cross-project memory and automatic memory curation are optional.

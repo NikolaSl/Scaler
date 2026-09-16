@@ -1,147 +1,64 @@
-# SCALER Supervisor Spec
+# Supervisor, Recovery and Lifecycle
+Requirements: SC-01, SC-13, SC-26. Acceptance: AC-01, AC-13, AC-26.
 
-## Purpose
+## Authority
 
-The supervisor is the deterministic state machine that controls Scaler execution.
+The supervisor MUST be the sole logical authority for accepted state. All entry
+points, including manual commands, agent reports, hooks and resume paths, MUST
+use the same admission and completion guards. The implementation may use multiple
+processes, but MUST prevent stale writes and unauthorized acceptance.
 
-It is not an LLM. It reads structured reports, validates required fields, updates persistent state, and allows or rejects state transitions.
+Agents submit proposals and observations. A report status is not an instruction
+to bypass validation. Invalid or unauthorized proposals MUST leave accepted
+progress unchanged and produce a rejection reason. Corrections are bounded.
 
-Agents do the reasoning work. The supervisor controls process discipline.
+State reads MUST NOT change logical state or its revision. State and evidence
+writes MUST be recoverable after interruption; a partially written snapshot MUST
+NOT be treated as valid. Duplicate event/report delivery MUST NOT double-apply
+progress, usage or effects. Delayed reports MUST be checked against their run,
+task version and attempt identity.
 
-## Principles
+## Lifecycle semantics
 
-- Use the lightest reliable workflow according to `specs/adaptive-orchestration.md`.
-- All progress is report-driven.
-- Agents can propose state changes, but cannot directly change state.
-- Invalid transitions are rejected and recorded.
-- State transitions are written to the structured log.
-- Debug failure and attempt records are persisted.
-- A task is complete only after validation is accepted.
-- State is persisted so execution can pause, resume, recover, or replan.
+The implementation may choose state names, but MUST distinguish these meanings:
 
-## Persistent state
+| Meaning | Required guard |
+|---|---|
+| Planned | Contract exists; not yet eligible or admitted |
+| Ready | Current inputs, dependencies, authority and resources permit execution |
+| Prepared | Proposal/context preview exists; no execution has started |
+| Running | An attempt has been admitted and its start is recorded |
+| Awaiting validation | Output proposal exists for a specified artifact version |
+| Accepted | Required evidence and history policy satisfied for that version |
+| Blocked/paused | Named unmet condition with a resumable continuation |
+| Failed/cancelled | Stopped attempt/run with explicit outcome and cleanup status |
+| Obsolete | Previously valid result no longer supports current requirements |
 
-Store supervisor state in `.scaler/state.json`.
+A prepared operation MUST NOT become running. If launch fails, reconcile the
+admitted attempt as not started/failed; do not leave an apparently live worker.
+Accepted history is retained when current validity changes.
 
-Minimum state:
+## Recovery
 
-```json
-{
-  "complexityLevel": 3,
-  "stage": "execution",
-  "currentTaskId": "T-003",
-  "tasks": [],
-  "completedTaskIds": [],
-  "validatedTaskIds": [],
-  "failedTaskId": null,
-  "blockers": [],
-  "memoryRefs": [],
-  "budgets": {},
-  "orchestrationReason": "Stage III plan requires multiple validated tasks",
-  "updatedAt": "ISO-8601"
-}
-```
+Persist enough identity, revision, input/output references, operation ownership
+and log position to reconstruct accepted progress. On restart, reconcile running
+attempts, unfinished validation, Git state, external effects and process ownership
+before scheduling work. Resume MUST NOT blindly clear a lock, rerun a committed
+task or accept an output that changed after validation.
+See [effects-recovery.md](effects-recovery.md) for uncertain external outcomes.
 
-## Stage states
+## Autonomy and completion
 
-- `prd`
-- `knowledge`
-- `planning`
-- `execution`
-- `debugging`
-- `replanning`
-- `paused`
-- `completed`
-- `failed`
+Continue within existing task authority and budgets without confirmation at every
+step. Pause only for an unmet requirement, insufficient capability/resources,
+unresolved consequential ambiguity, a policy boundary, or a user pause request.
+A pause report MUST identify the blocker, preserved work and exact continuation.
 
-## Task states
+Cancellation MUST stop new work, request termination of owned operations,
+record remaining live/uncertain operations and retain evidence. A signal being
+sent is not proof of process exit. Cancellation is not successful completion.
 
-- `pending`
-- `ready`
-- `running`
-- `validating`
-- `debugging`
-- `validated`
-- `blocked`
-- `needs_replan`
-- `failed`
-
-## Stage transitions
-
-| From | To | Trigger |
-| --- | --- | --- |
-| `prd` | `knowledge` | PRD report accepted and `agent-prd.md` exists. |
-| `knowledge` | `planning` | Knowledge report accepted and required references exist. |
-| `planning` | `execution` | Sequential plan accepted with task definitions and DoD. |
-| `execution` | `debugging` | Current task validation fails. |
-| `debugging` | `execution` | Debug report accepted and task validation passes or can retry. |
-| `execution` | `replanning` | Task reports missing/incorrect plan, impossible task, invalid assumption, or POC need. |
-| `debugging` | `replanning` | Debug investigation cannot find working approach. |
-| `replanning` | `execution` | Updated plan version accepted with validated progress preserved. |
-| any active state | `paused` | Budget, approval, missing input, or user pause condition. |
-| `paused` | previous active state | Pause reason resolved. |
-| `execution` | `completed` | All planned tasks are validated. |
-| any active state | `failed` | Fatal error or unrecoverable state. |
-
-## Task transitions
-
-| From | To | Trigger |
-| --- | --- | --- |
-| `pending` | `ready` | Required inputs, references, and DoD are available. |
-| `ready` | `running` | Task agent is spawned. |
-| `running` | `validating` | Task agent submits completion report. |
-| `validating` | `validated` | DoD and validation report are accepted. |
-| `validating` | `debugging` | Validation fails. |
-| `debugging` | `running` | New debug approach is selected and retry is allowed. |
-| `debugging` | `validated` | Debug fix passes full validation. |
-| `running` | `blocked` | Task agent requests missing data or permission. |
-| `blocked` | `ready` | Missing data or permission is provided. |
-| `debugging` | `needs_replan` | Investigation cannot produce a working approach. |
-| `needs_replan` | `ready` | Updated plan redefines the task and required inputs. |
-| any non-final state | `failed` | Fatal task failure or cancelled execution. |
-
-## Task validation acceptance
-
-A task can become `validated` only when:
-
-1. Required output exists.
-2. Definition of Done is checked.
-3. Required validation gates passed or skipped gates have accepted reasons.
-4. Task and validation reports are stored.
-5. Git commit is created or explicitly skipped according to `specs/git-workflow.md`.
-6. Supervisor accepted the reports.
-
-## Rejected transitions
-
-When a transition is rejected, the supervisor should:
-
-1. Keep the previous state unchanged.
-2. Record rejection reason in state and logs.
-3. Ask the responsible agent for a corrected report or missing evidence.
-4. Pause only if correction requires user input, new investigation, or budget approval.
-
-## Reports consumed by supervisor
-
-Minimum report types:
-
-- PRD report.
-- Knowledge report.
-- Plan report.
-- Task completion report.
-- Validation report.
-- Debug report.
-- Replan report.
-- Blocker/missing-input report.
-
-Each report must include enough structured data for the supervisor to decide whether the requested transition is valid.
-
-See also:
-
-- `specs/adaptive-orchestration.md` for proportional workflow escalation.
-- `specs/budgets-watchdogs.md` for budgets, watchdogs, checkpoints, and resume behavior.
-- `specs/logging.md` for required audit trail events.
-- `specs/attempt-tracking.md` for debug failure and attempt records.
-- `specs/validation.md` for validation gates and reports.
-- `specs/replanning.md` for plan versioning and replanning protocol.
-- `specs/safety-permissions.md` for safety gates, permissions, and secure development.
-- `specs/git-workflow.md` for per-task commit rules.
+Run completion MUST check the latest requirements, required tasks, integrated
+acceptance, remaining blockers and unresolved effects. An empty task list is not
+proof that a nonempty request has been fulfilled. Report quality limitations,
+usage and history references without claiming unverified success.

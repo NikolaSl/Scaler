@@ -1,5 +1,10 @@
 # SCALER PRD Traceability Matrix
 
+> **Historical revision 1 record.** Statements such as Implemented or no open
+> gaps below refer to the earlier PRD-* baseline and are not current assurance.
+> Use [revision 2 coverage and open assessment queue](requirements-v2-coverage.md)
+> for current requirements. Historical detail is retained for traceability.
+
 Maps [`../requirements-catalog.md`](../requirements-catalog.md) requirements to implementation tasks, code, tests, manuals, and gaps.
 
 Source requirements remain outside this folder: [`../assignement.md`](../assignement.md), [`../requirements-catalog.md`](../requirements-catalog.md), and [`../specs/`](../specs/). Companion trackers are [`implementation-inventory.md`](implementation-inventory.md) and [`gap-backlog.md`](gap-backlog.md). Code-formatted paths in matrix tables are repository-root relative unless explicitly linked.

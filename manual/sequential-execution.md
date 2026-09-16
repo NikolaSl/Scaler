@@ -1,5 +1,9 @@
 # Sequential Execution Policy
 
+> Revision 2 retains this sequential workspace policy. Normative behavior is in
+> [execution-policy.md](../specs/execution-policy.md); crash-recovery acceptance
+> remains to be verified in the implementation.
+
 SCALER enforces mandatory sequential work per repository.
 
 ## Policy
