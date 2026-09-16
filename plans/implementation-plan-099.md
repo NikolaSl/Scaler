@@ -50,7 +50,7 @@ affected acceptance. No whole-product rewrite or speculative provider work.
 |---|---|---|---|
 | P1.1 | Read existing state without rewriting; publish complete JSON atomically; initialization must not replace an existing run. | `test/state.test.ts`: stable bytes/mtime, concurrent initializers, invalid JSON, failed publication/reader visibility. | Implemented; focused checks pass |
 | P1.2 | Preparation cannot mark a task running; account/admit before dispatch; reload worker-persisted state before usage/handoff instead of overwriting it. | `test/conductor.test.ts`: prepare then execute, refused admission, persisted child updates and changed-run rejection. | Implemented; focused checks pass |
-| P1.3 | Escalate timeout/abort based on actual exit; signal termination is a failed run; remove timers/listeners and report cleanup accurately. | `test/subagents.test.ts`: real TERM-ignoring child, timeout, abort, natural completion and spawn failure. | Pending |
+| P1.3 | Escalate timeout/abort based on actual exit; signal termination is a failed run; remove timers/listeners and report cleanup accurately. | `test/subagents.test.ts`: real TERM-ignoring child, timeout, abort, natural completion and spawn failure. | Implemented; focused checks pass |
 | P1.4 | Use Pi ExtensionAPI for tool discovery/focus/restore; mocks must place methods on their actual owner. | `test/extension-shape.test.ts`, installed host types, TypeScript build. | Pending |
 
 These are prerequisites, not the full recovery or authority implementation. Atomic
@@ -96,5 +96,12 @@ Real-model and full-host end-to-end claims require actual execution in P7.
   execution sets running. Handoff reloads durable state and rejects a replaced
   run or ineligible task. This is not general revision-checked concurrency or
   authenticated attempt acceptance; those remain P2 work.
+- P1.3: four regressions reproduced false-success exits for timeout/abort,
+  ineffective escalation of a TERM-ignoring process, and launching after prior
+  cancellation. Subagent/watchdog checks now pass 20/20; the real resistant child
+  exits on SIGKILL and its PID is gone before completed cleanup is recorded.
+  Normal completion and spawn failure release cancellation listeners. Build passes.
+  The evidence covers the directly owned POSIX process, not descendant containment
+  or equivalent Windows signal semantics.
 - Background execution: no cloud job or automation was created. Resume from this
   plan and repository history, checking current branch/PR state before writing.

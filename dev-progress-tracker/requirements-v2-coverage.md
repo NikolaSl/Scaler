@@ -61,6 +61,12 @@ cover preparation followed by execution, refused spawn accounting, child updates
 and rejection after run replacement. General revision checks and other worker
 paths remain unverified. SC-13 remains open.
 
+P1.3 replaces the `child.killed` exit assumption with observed process exit,
+enforces non-success outcomes for timeout/abort, and cleans cancellation handlers.
+Subagent/watchdog tests pass 20/20, including a real TERM-resistant POSIX child.
+This addresses the observed direct-process defect in SC-15; aggregate budgets,
+descendant containment and semantic progress detection remain open.
+
 ## Second-iteration assessment boundary
 
 The second requirements iteration changes no implementation. Existing Failed and
