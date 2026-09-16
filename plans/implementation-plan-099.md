@@ -130,6 +130,25 @@ Real-model and full-host end-to-end claims require actual execution in P7.
 
 ## PR #2 Copilot follow-up
 
+### Subsequent model access verification
+
+- Pi 0.85.1 was configured with `opencode-free-test/big-pickle` using OpenCode
+  Zen's public free access. A no-tools prompt returned exactly `OK`.
+- The existing real contract `task agent report gates validation handoff`
+  passed 1/1 with that model (about 24 seconds, 45-second timeout). It exercises
+  structured report ingestion, persisted task status `validating`, and durable
+  `validation_required` handoff using a synthetic fixture. It does not verify
+  actual coding or QA execution. No full real-model suite was run.
+- Earlier Codex authentication notes above describe the initial attempt only.
+  Subsequent OAuth exchanges saved credentials successfully, but model requests
+  still returned HTTP 401. Free-provider success removes that dependency for
+  these tests; it does not resolve the separate Codex issue.
+- Reproducible non-secret configuration and commands are in `manual/testing.md`
+  and `test/integration/real/pi-free-models.example.json`. Pi's existing auth
+  entries were not changed for the free-provider setup.
+
+### Review changes
+
 - Review comment 4030518863: valid maintainability concern, not a reproduced
   current failure. Refused dispatch now excludes projected `spawnedAgents` by
   key instead of retaining only array position zero. All other budget updates
