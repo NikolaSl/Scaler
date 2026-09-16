@@ -23,7 +23,7 @@ import { appendLogEvent, createLogEvent, logAgentPromptAudit } from "./logging.j
 import { createMissingContextRequestsFromTaskReport, refreshAndUnblockMissingContext } from "./missing-context.js";
 import { getTaskAgentRunsPath, getValidationHandoffsPath } from "./paths.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
-import { saveState } from "./state.js";
+import { loadState, saveState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import { ingestTaskAgentReportFromRun, type TaskAgentReportIngestionResult } from "./task-reports.js";
 import { transitionStage, transitionTask } from "./supervisor.js";
@@ -211,11 +211,9 @@ export async function runConductorStep(
 
   try {
     let nextState = state;
-    if (selection.promotePending) {
+    if (options.execute && selection.promotePending) {
     nextState = transitionTask(nextState, selection.task.id, "ready", { reason: "Conductor selected pending task." });
   }
-    nextState = transitionTask(nextState, selection.task.id, "running", { reason: "Conductor started task." });
-  await saveState(cwd, nextState);
 
   const runningTask = nextState.tasks.find((task) => task.id === selection.task!.id)!;
   const contextManifest = options.contextItems ? undefined : await ensureTaskContextManifest(cwd, nextState, runningTask.id);
@@ -232,7 +230,12 @@ export async function runConductorStep(
     ...(options.execute ? [{ key: "spawnedAgents" as const, amount: 1, mode: "increment" as const }] : []),
   ];
   const budgetResult = applyBudgetUsageUpdates(nextState, budgetUpdates);
-  nextState = await persistBudgetDecision(cwd, budgetResult.state, budgetResult.decision);
+  // A refused dispatch has not spawned an agent. Keep its decision/checkpoint,
+  // but do not consume the projected spawn or claim that the task is running.
+  const admittedBudgetState = budgetResult.decision.status === "hard_limit"
+    ? applyBudgetUsageUpdates(nextState, [budgetUpdates[0]!]).state
+    : budgetResult.state;
+  nextState = await persistBudgetDecision(cwd, admittedBudgetState, budgetResult.decision);
   if (budgetResult.decision.status === "hard_limit") {
     return {
       accepted: false,
@@ -259,7 +262,25 @@ export async function runConductorStep(
     cwd,
   };
   const invocation = buildTaskAgentInvocation(request);
+  if (options.execute) {
+    nextState = transitionTask(nextState, runningTask.id, "running", { reason: "Conductor dispatching task." });
+    await saveState(cwd, nextState);
+  }
   const runResult = options.execute ? await runner(request, { timeoutMs: options.timeoutMs }) : undefined;
+  if (runResult) {
+    // Child extension hooks may have persisted usage, memory or lifecycle changes.
+    // Never save the pre-dispatch snapshot over those updates during handoff.
+    const durableState = await loadState(cwd);
+    const durableTask = durableState.tasks.find((task) => task.id === runningTask.id);
+    if (durableState.runId !== nextState.runId || !durableTask
+      || (durableTask.status !== "running" && durableTask.status !== "validating")) {
+      const message = `Rejected stale task result: run or task changed during execution of ${runningTask.id}.`;
+      await recordTaskAgentRun(cwd, runResult, new Date(), { reportStatus: "invalid", reportDiagnostics: [message] });
+      await appendLogEvent(cwd, createLogEvent(durableState, { eventType: "rejected_transition", summary: message, taskId: runningTask.id }));
+      return { accepted: false, message, state: durableState, task: durableTask, runResult, prompt, invocation, contextSplit };
+    }
+    nextState = durableState;
+  }
   if (runResult?.usage) {
     nextState = (await recordProviderUsageBudget(cwd, nextState, runResult.usage, {
       source: "task-agent-run",

@@ -46,7 +46,7 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-26 | Partial | Automation loop exists; revised complete-run, cancellation and recovery guarantees not demonstrated. | `src/autopilot.ts` | [AC-26](../specs/acceptance-scenarios.md#ac-26) |
 | SC-27 | Partial | Requirement versions/links exist; task status alone is insufficient proof of current requirement acceptance. | `src/prd.ts` | [AC-27](../specs/acceptance-scenarios.md#ac-27) |
 
-## Second-iteration assessment boundary
+## Implementation progress — PLAN-099
 
 Implementation has now started on merged baseline `8f4cf19`, following
 [PLAN-099](../plans/implementation-plan-099.md). The original assessment table
@@ -54,6 +54,14 @@ above is retained as the reviewed baseline. P1.1 adds read-only existing-state
 lookup, atomic snapshot replacement and exclusive initialization; 15 focused
 state/checkpoint tests and the build pass. This is partial SC-13 evidence, not
 closure of the lost-update, stale-proposal or interruption requirements.
+
+P1.2 adds task-conductor preparation/dispatch separation and reloads persisted
+worker state before accounting/handoff. Its 27 focused conductor/autopilot tests
+cover preparation followed by execution, refused spawn accounting, child updates
+and rejection after run replacement. General revision checks and other worker
+paths remain unverified. SC-13 remains open.
+
+## Second-iteration assessment boundary
 
 The second requirements iteration changes no implementation. Existing Failed and
 Partial findings above remain applicable; none is upgraded by adding prose or

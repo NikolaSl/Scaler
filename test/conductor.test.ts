@@ -25,7 +25,7 @@ import { loadContextSplitRecords } from "../src/context-splits.js";
 import { recordDebugAttempt } from "../src/debug.js";
 import { loadTaskAgentReports } from "../src/task-reports.js";
 import { acquireExecutionLock, loadExecutionLock } from "../src/locks.js";
-import { createDefaultState, loadState } from "../src/state.js";
+import { createDefaultState, loadState, saveState } from "../src/state.js";
 import type { ScalerTaskStatus } from "../src/types.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -216,7 +216,14 @@ test("runConductorStep prepares selected task and writes checkpoint", async () =
 
     assert.equal(result.accepted, true);
     assert.equal(result.task?.id, "T-001");
-    assert.equal(persisted.tasks[0]?.status, "running");
+    assert.equal(persisted.tasks[0]?.status, "pending");
+    assert.equal(persisted.currentTaskId, null);
+    const executed = await runConductorStep(dir, persisted, { execute: true }, async (request) => {
+      assert.equal((await loadState(dir)).tasks[0]?.status, "running");
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [completedTaskReport(request.taskId)], stderr: "", timedOut: false, aborted: false };
+    });
+    assert.equal(executed.accepted, true);
+    assert.equal(executed.state.tasks[0]?.status, "validating");
     assert.ok(result.invocation?.args.includes("--tools"));
     assert.ok(result.checkpointPath?.includes("conductor-step-t-001"));
   });
@@ -320,7 +327,49 @@ test("runConductorStep refuses hard budget limits before executing runner", asyn
     assert.equal(result.accepted, false);
     assert.equal(called, false);
     assert.match(result.message, /Budget hard limit refused task T-001/);
-    assert.equal(getBudgetState(result.state).usage.spawnedAgents, 1);
+    assert.equal(getBudgetState(result.state).usage.spawnedAgents ?? 0, 0);
+    assert.equal(result.state.tasks[0]?.status, "ready");
+    assert.equal(result.state.currentTaskId, null);
+  });
+});
+
+test("runConductorStep preserves worker-persisted state before accounting and handoff", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready", "pending"]);
+    state.stage = "execution";
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
+      const childState = await loadState(dir);
+      childState.memoryRefs.push("child-evidence");
+      childState.tasks[1]!.title = "Preserved child update";
+      await saveState(dir, childState);
+      return {
+        taskId: request.taskId, exitCode: 0,
+        stdoutEvents: [completedTaskReport(request.taskId)], stderr: "", timedOut: false, aborted: false,
+        usage: { inputTokens: 21, outputTokens: 9, totalTokens: 30, costMicros: 44, sources: ["mock"] },
+      };
+    });
+    const persisted = await loadState(dir);
+    assert.equal(result.accepted, true);
+    assert.deepEqual(persisted.memoryRefs, ["child-evidence"]);
+    assert.equal(persisted.tasks[1]?.title, "Preserved child update");
+    assert.equal(persisted.tasks[0]?.status, "validating");
+    assert.equal(getBudgetState(persisted).usage.estimatedCostMicros, 44);
+  });
+});
+
+test("runConductorStep rejects a child result after the durable run is replaced", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    const replacement = createDefaultState();
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
+      await saveState(dir, replacement);
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [completedTaskReport(request.taskId)], stderr: "", timedOut: false, aborted: false };
+    });
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /stale.*run|run.*changed/i);
+    assert.equal((await loadState(dir)).runId, replacement.runId);
+    assert.equal((await loadValidationHandoffs(dir)).length, 0);
+    assert.equal(await loadExecutionLock(dir), undefined);
   });
 });
 

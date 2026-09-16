@@ -49,7 +49,7 @@ affected acceptance. No whole-product rewrite or speculative provider work.
 | Unit | Change / why needed | Focused validation | Status |
 |---|---|---|---|
 | P1.1 | Read existing state without rewriting; publish complete JSON atomically; initialization must not replace an existing run. | `test/state.test.ts`: stable bytes/mtime, concurrent initializers, invalid JSON, failed publication/reader visibility. | Implemented; focused checks pass |
-| P1.2 | Preparation cannot mark a task running; account/admit before dispatch; reload worker-persisted state before usage/handoff instead of overwriting it. | `test/conductor.test.ts`: prepare then execute, refused admission, persisted child updates and changed-run rejection. | Pending |
+| P1.2 | Preparation cannot mark a task running; account/admit before dispatch; reload worker-persisted state before usage/handoff instead of overwriting it. | `test/conductor.test.ts`: prepare then execute, refused admission, persisted child updates and changed-run rejection. | Implemented; focused checks pass |
 | P1.3 | Escalate timeout/abort based on actual exit; signal termination is a failed run; remove timers/listeners and report cleanup accurately. | `test/subagents.test.ts`: real TERM-ignoring child, timeout, abort, natural completion and spawn failure. | Pending |
 | P1.4 | Use Pi ExtensionAPI for tool discovery/focus/restore; mocks must place methods on their actual owner. | `test/extension-shape.test.ts`, installed host types, TypeScript build. | Pending |
 
@@ -83,12 +83,18 @@ Real-model and full-host end-to-end claims require actual execution in P7.
   December 2025 timestamps against the current clock. Add P1.0: correct only that
   fixture's time reference in a separate commit, retaining old/new deletion checks.
 - P1.0: the command-level retention fixture now uses 300-day-old and one-day-old
-  artifacts around the unchanged 200-day boundary. All four storage-maintenance
+  artifacts around the unchanged 200-day boundary. All five storage-maintenance
   integration tests pass; deletion and preservation assertions remain intact.
 - P1.1: regression tests first reproduced a read-side timestamp rewrite and a torn
   JSON read. Atomic same-directory publication and exclusive initialization now
   pass state/checkpoint checks (15/15) and the TypeScript build. Failed publication
   preserves the destination and cleans temporary data. Multi-writer revision
   checks and power-loss recovery are not established by these tests.
+- P1.2: four regressions failed before the fix (preview status, rejected spawn
+  accounting, overwritten child updates, replaced-run result). Conductor/autopilot
+  tests now pass 27/27. Preview preserves pending/ready status; only admitted
+  execution sets running. Handoff reloads durable state and rejects a replaced
+  run or ineligible task. This is not general revision-checked concurrency or
+  authenticated attempt acceptance; those remain P2 work.
 - Background execution: no cloud job or automation was created. Resume from this
   plan and repository history, checking current branch/PR state before writing.
