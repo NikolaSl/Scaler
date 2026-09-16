@@ -61,6 +61,34 @@ the directly owned process; descendant containment belongs to P6's provider work
 
 ## Working and verification process
 
+## P2 executable units
+
+P1 merged in PR #2 as `90f347852b758ecb56168dafc6068f2480aef7f7`.
+Deliver P2 through bounded PRs; none alone establishes SC-13 or full acceptance.
+
+| Unit | Change | Acceptance boundary | Status |
+|---|---|---|---|
+| P2.1 | Serialize state publication across processes and compare run identity/revision before replacement. Preserve read-only legacy loading. | Stale writers and concurrent writers cannot lose committed updates; missing/malformed state and interrupted publication fail safely. Build and unit/mock integration gate. | In progress |
+| P2.2 | Persist attempt identity and input/output/policy fingerprints; reconcile interrupted attempts. | Reject replaced attempts and stale output after restart without replaying uncertain effects. | Pending |
+| P2.3 | Route reports, commands, hooks and validation through shared version-bound acceptance. | Current independent evidence and integration criteria required; legacy accepted labels are not fresh proof. | Pending |
+
+Mutation inventory for P2.1: all production `state.json` publications are in
+`src/state.ts`. Callers are `autopilot`, `budgets`, `checkpoints`, `conductor`,
+`debug-retry`, `index` commands/hooks, `missing-context`, `operations`, `replanning`,
+`reports`, `stage-advancement`, `stage-workflow`, `tasks`, `validation`, and
+`watchdogs`. Derived snapshots must carry the revision they read, and successful
+saves must propagate the committed revision before the next write. Conflicts are
+explicit failures, not automatic retries of actions or merges of stale objects.
+The state publication lock is distinct from the longer execution lock so worker
+usage hooks can save while their parent waits. No time-based lock stealing.
+
+Other JSON ledgers, multi-file atomicity, process authority and semantic evidence
+acceptance remain P2.2/P2.3/P6 work; a state revision does not solve them.
+Fixtures: two copies of one revision, two OS processes released from a common
+barrier, a deleted state file, legacy/malformed revision metadata, and an existing
+publication lock. Focused command: `node --test --import tsx test/state.test.ts`;
+final gate: `npm run build` and `npm test`.
+
 1. Add a regression for the concrete defect and observe failure on the prior code.
 2. Implement the smallest sufficient fix; preserve unrelated user changes.
 3. Run focused checks, then build/integration when the boundary warrants it.
