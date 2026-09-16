@@ -59,8 +59,6 @@ migrate every mutation path before claiming SC-13. P1.2 addresses the task
 conductor only; audit all other child execution paths in P2. P1.3 initially covers
 the directly owned process; descendant containment belongs to P6's provider work.
 
-## Working and verification process
-
 ## P2 executable units
 
 P1 merged in PR #2 as `90f347852b758ecb56168dafc6068f2480aef7f7`.
@@ -68,7 +66,7 @@ Deliver P2 through bounded PRs; none alone establishes SC-13 or full acceptance.
 
 | Unit | Change | Acceptance boundary | Status |
 |---|---|---|---|
-| P2.1 | Serialize state publication across processes and compare run identity/revision before replacement. Preserve read-only legacy loading. | Stale writers and concurrent writers cannot lose committed updates; missing/malformed state and interrupted publication fail safely. Build and unit/mock integration gate. | In progress |
+| P2.1 | Serialize state publication across processes and compare run identity/revision before replacement. Preserve read-only legacy loading. | Stale writers and concurrent writers cannot lose committed updates; missing/malformed state and held publication locks fail safely. Build and unit/mock integration gate. | Implemented; gate passed, separate ledger flake recorded below |
 | P2.2 | Persist attempt identity and input/output/policy fingerprints; reconcile interrupted attempts. | Reject replaced attempts and stale output after restart without replaying uncertain effects. | Pending |
 | P2.3 | Route reports, commands, hooks and validation through shared version-bound acceptance. | Current independent evidence and integration criteria required; legacy accepted labels are not fresh proof. | Pending |
 
@@ -88,6 +86,35 @@ Fixtures: two copies of one revision, two OS processes released from a common
 barrier, a deleted state file, legacy/malformed revision metadata, and an existing
 publication lock. Focused command: `node --test --import tsx test/state.test.ts`;
 final gate: `npm run build` and `npm test`.
+
+### P2.1 validation record and handoff
+
+- Four new regressions failed on P1: stale overwrite, both independent processes
+  accepting the same base, recreation of deleted state, and silent run replacement.
+  All now pass. Seven added tests also cover logical legacy revision migration,
+  invalid revision preservation, and bounded contention without age-based stealing.
+- `npm run build` passed. Final `npm test` passed 508/508 unit/component tests
+  and 67/67 mock integrations. `git diff --check` passed.
+- Pi 0.85.1 with `opencode-free-test/big-pickle` passed the existing synthetic
+  task-report/validation-handoff contract 1/1 (about 14 seconds, 45-second limit).
+  This checks actual subprocess/report compatibility, not end-to-end quality.
+- Fixture changes preserve existing assertions: subsequent actions use the last
+  committed snapshot instead of a fresh run or stale pre-action state; the
+  replaced-run test now injects an external file replacement explicitly because
+  `saveState` correctly refuses it. The Git fixture creates valid state directly
+  instead of first writing an incomplete `{}` placeholder.
+- A preliminary mock run observed `Unexpected end of JSON input` in
+  `loadToolResults` during the parallel tool-schedule test. The ledger code is
+  unchanged here. Six bounded isolated checks on merged P1 passed, and the final
+  changed-branch gate passed, so baseline reproducibility is not established.
+  Do not interpret the final green run as fixing this race risk. Parallel tool
+  ledger read/modify/write serialization remains an explicit follow-up.
+- P2.2 next: inventory durable attempt/evidence records, include the tool-ledger
+  race above, then bind attempt IDs to input/output/policy versions and define
+  interruption reconciliation. State conflicts fail explicitly; no automatic
+  action replay, stale merge, or multi-file transaction is introduced in P2.1.
+
+## Working and verification process
 
 1. Add a regression for the concrete defect and observe failure on the prior code.
 2. Implement the smallest sufficient fix; preserve unrelated user changes.
