@@ -233,7 +233,7 @@ export async function runConductorStep(
   // A refused dispatch has not spawned an agent. Keep its decision/checkpoint,
   // but do not consume the projected spawn or claim that the task is running.
   const admittedBudgetState = budgetResult.decision.status === "hard_limit"
-    ? applyBudgetUsageUpdates(nextState, [budgetUpdates[0]!]).state
+    ? applyBudgetUsageUpdates(nextState, budgetUpdates.filter((update) => update.key !== "spawnedAgents")).state
     : budgetResult.state;
   nextState = await persistBudgetDecision(cwd, admittedBudgetState, budgetResult.decision);
   if (budgetResult.decision.status === "hard_limit") {

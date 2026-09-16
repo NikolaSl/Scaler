@@ -127,3 +127,11 @@ Real-model and full-host end-to-end claims require actual execution in P7.
 - Next: refine P2 into mutation-path inventory, minimal versioned acceptance
   contracts, revision checks and interruption fixtures before editing those paths.
   P1 closes specific regressions; it does not establish overall v2 conformance.
+
+## PR #2 Copilot follow-up
+
+- Review comment 4030518863: valid maintainability concern, not a reproduced
+  current failure. Refused dispatch now excludes projected `spawnedAgents` by
+  key instead of retaining only array position zero. All other budget updates
+  remain eligible regardless of ordering. Existing conductor/budget checks pass
+  32/32, covering rejected dispatch and successful context/spawn accounting.
