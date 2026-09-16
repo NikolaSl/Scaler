@@ -109,11 +109,17 @@ export async function runTaskAgent(
   request: TaskAgentRequest,
   options: RunTaskAgentOptions = {},
 ): Promise<TaskAgentRunResult> {
+  if (options.signal?.aborted) {
+    return { taskId: request.taskId, exitCode: 130, stdoutEvents: [], stderr: "Task agent cancelled before launch.", timedOut: false, aborted: true };
+  }
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");
 
   return await new Promise<TaskAgentRunResult>((resolve, reject) => {
     const child = spawn(invocation.command, invocation.args, {
       cwd: invocation.cwd,
+      // Routing metadata only: children keep their explicitly selected tools.
+      // This flag does not grant authority or disable permission enforcement.
+      env: { ...process.env, SCALER_CHILD_AGENT: "1" },
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -123,14 +129,16 @@ export async function runTaskAgent(
     let stderr = "";
     let settled = false;
     let timeout: NodeJS.Timeout | undefined;
+    let escalation: NodeJS.Timeout | undefined;
+    let exited = false;
+    let abort: (() => void) | undefined;
     let timedOut = false;
     let aborted = false;
 
-    const settle = (result: TaskAgentRunResult): void => {
-      if (settled) return;
-      settled = true;
+    const cleanup = (): void => {
       if (timeout) clearTimeout(timeout);
-      resolve(result);
+      if (escalation) clearTimeout(escalation);
+      if (abort) options.signal?.removeEventListener("abort", abort);
     };
 
     const processLine = (line: string): void => {
@@ -153,45 +161,62 @@ export async function runTaskAgent(
       stderr += chunk.toString("utf8");
     });
 
-    child.on("error", (error) => {
-      if (timeout) clearTimeout(timeout);
+    child.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
       reject(error);
     });
 
-    child.on("close", async (code) => {
-      if (stdoutBuffer.trim()) processLine(stdoutBuffer);
-      if (request.cwd && (timedOut || aborted)) {
-        await recordWatchdogCleanup(request.cwd, {
-          scopeKind: "agent",
-          scopeId: request.taskId,
+    child.once("exit", () => {
+      exited = true;
+      cleanup();
+    });
+
+    child.once("close", async (code, signal) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      try {
+        if (stdoutBuffer.trim()) processLine(stdoutBuffer);
+        if (request.cwd && (timedOut || aborted)) {
+          await recordWatchdogCleanup(request.cwd, {
+            scopeKind: "agent",
+            scopeId: request.taskId,
+            taskId: request.taskId,
+            agentId: request.taskId,
+            reason: timedOut ? "timeout" : "abort",
+            signal: signal ?? "none",
+            status: "completed",
+            message: `Owned task-agent process exited after ${timedOut ? "timeout" : "abort"}: code=${code ?? "null"} signal=${signal ?? "none"}.`,
+          });
+        }
+        resolve({
           taskId: request.taskId,
-          agentId: request.taskId,
-          reason: timedOut ? "timeout" : "abort",
-          signal: timedOut ? "SIGTERM/SIGKILL" : "abort-signal",
-          status: "completed",
-          message: timedOut ? `Task agent timed out and was terminated after ${options.timeoutMs}ms.` : "Task agent aborted and termination was requested.",
+          exitCode: timedOut ? 124 : aborted ? 130 : code ?? 1,
+          stdoutEvents,
+          stderr,
+          timedOut,
+          aborted,
+          usage: extractProviderUsage(stdoutEvents),
         });
+      } catch (error) {
+        reject(error);
       }
-      settle({
-        taskId: request.taskId,
-        exitCode: code ?? 0,
-        stdoutEvents,
-        stderr,
-        timedOut,
-        aborted,
-        usage: extractProviderUsage(stdoutEvents),
-      });
     });
 
     const terminate = (): void => {
+      if (exited || settled || escalation) return;
+      if (timeout) clearTimeout(timeout);
       child.kill("SIGTERM");
-      setTimeout(() => {
-        if (!child.killed) child.kill("SIGKILL");
+      escalation = setTimeout(() => {
+        // killed means a signal was sent, not that the process exited.
+        if (!exited && child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
       }, 5_000).unref();
     };
 
     if (options.signal) {
-      const abort = (): void => {
+      abort = (): void => {
         aborted = true;
         terminate();
       };
@@ -199,7 +224,7 @@ export async function runTaskAgent(
       else options.signal.addEventListener("abort", abort, { once: true });
     }
 
-    if (options.timeoutMs && options.timeoutMs > 0) {
+    if (!aborted && options.timeoutMs && options.timeoutMs > 0) {
       timeout = setTimeout(() => {
         timedOut = true;
         stderr += `\nTask agent timed out after ${options.timeoutMs}ms.`;

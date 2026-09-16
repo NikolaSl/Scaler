@@ -4,7 +4,9 @@
  */
 
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
+import { getEventListeners } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -142,12 +144,21 @@ test("runTaskAgent attaches provider usage from JSON stdout events", async () =>
   });
 });
 
+test("runTaskAgent marks children so host hooks preserve their selected tools", async () => {
+  await withScript('#!/bin/sh\nprintf \'{"child":"%s"}\\n\' "$SCALER_CHILD_AGENT"\n', async (script, dir) => {
+    const result = await runTaskAgent({ taskId: "T-child", prompt: "ignored", cwd: dir }, { command: script });
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(result.stdoutEvents, [{ child: "1" }]);
+  });
+});
+
 test("runTaskAgent reports timeout diagnostics", async () => {
   await withScript("#!/bin/sh\nsleep 0.2\n", async (script, dir) => {
     const result = await runTaskAgent({ taskId: "T-005", prompt: "ignored", cwd: dir }, { command: script, timeoutMs: 10 });
 
     assert.equal(result.timedOut, true);
     assert.equal(result.aborted, false);
+    assert.notEqual(result.exitCode, 0);
     assert.match(result.stderr, /timed out/);
     assert.equal((await loadWatchdogCleanupRecords(dir))[0]?.reason, "timeout");
   });
@@ -161,6 +172,71 @@ test("runTaskAgent reports abort diagnostics", async () => {
 
     assert.equal(result.timedOut, false);
     assert.equal(result.aborted, true);
+    assert.notEqual(result.exitCode, 0);
     assert.equal((await loadWatchdogCleanupRecords(dir))[0]?.reason, "abort");
+  });
+});
+
+test("runTaskAgent escalates a TERM-ignoring process and confirms its exit", { skip: process.platform === "win32" }, async () => {
+  await withScript(`#!/usr/bin/env node
+const fs = require('node:fs');
+process.on('SIGTERM', () => {});
+fs.writeFileSync('ready.pid', String(process.pid));
+setInterval(() => {}, 1000);
+// Safety stop makes the regression fail without leaving an immortal child.
+setTimeout(() => process.exit(0), 7000);
+`, async (script, dir) => {
+    const controller = new AbortController();
+    const run = runTaskAgent({ taskId: "T-ignore-term", prompt: "ignored", cwd: dir }, { command: script, signal: controller.signal });
+    let pid: number | undefined;
+    try {
+      for (let i = 0; i < 200; i++) {
+        try { pid = Number(await readFile(join(dir, "ready.pid"), "utf8")); break; }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+        await delay(10);
+      }
+      assert.ok(pid, "child must install its TERM handler before cancellation");
+      controller.abort();
+      const result = await run;
+      assert.equal(result.aborted, true);
+      assert.notEqual(result.exitCode, 0);
+      assert.throws(() => process.kill(pid!, 0), { code: "ESRCH" });
+      const cleanup = (await loadWatchdogCleanupRecords(dir))[0];
+      assert.equal(cleanup?.status, "completed");
+      assert.match(cleanup?.signal ?? "", /SIGKILL/);
+    } finally {
+      if (pid) { try { process.kill(pid, "SIGKILL"); } catch {} }
+      await run.catch(() => undefined);
+    }
+  });
+});
+
+test("runTaskAgent does not launch when already cancelled", async () => {
+  await withScript('#!/bin/sh\necho launched > launched.txt\n', async (script, dir) => {
+    const controller = new AbortController();
+    controller.abort();
+    const result = await runTaskAgent({ taskId: "T-cancelled", prompt: "ignored", cwd: dir }, { command: script, signal: controller.signal });
+    assert.equal(result.aborted, true);
+    assert.notEqual(result.exitCode, 0);
+    await assert.rejects(readFile(join(dir, "launched.txt")), { code: "ENOENT" });
+  });
+});
+
+test("runTaskAgent rejects a missing executable without waiting for its timeout", async () => {
+  await withScript('#!/bin/sh\nexit 0\n', async (_script, dir) => {
+    const controller = new AbortController();
+    await assert.rejects(runTaskAgent({ taskId: "T-missing", prompt: "ignored", cwd: dir }, { command: join(dir, "missing"), timeoutMs: 10_000, signal: controller.signal }), { code: "ENOENT" });
+    assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+  });
+});
+
+test("runTaskAgent removes cancellation listeners after normal completion", async () => {
+  await withScript('#!/bin/sh\nexit 0\n', async (script, dir) => {
+    const controller = new AbortController();
+    const result = await runTaskAgent({ taskId: "T-complete", prompt: "ignored", cwd: dir }, { command: script, timeoutMs: 10_000, signal: controller.signal });
+    assert.equal(result.exitCode, 0);
+    assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+    controller.abort();
+    assert.deepEqual(await loadWatchdogCleanupRecords(dir), []);
   });
 });

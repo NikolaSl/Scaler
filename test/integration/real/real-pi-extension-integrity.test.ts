@@ -1063,7 +1063,8 @@ test("real Pi extension: slash command dispatch lists compact active tool catalo
     const result = await runScalerPi({ cwd: dir, prompt: "/scaler-active-tools catalog" });
 
     assert.equal(result.exitCode, 0, result.stderr || result.stdout);
-    assert.match(`${result.stdout}\n${result.stderr}`, /Parent tool catalog|Parent active-tool APIs are unavailable/);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Parent tool catalog/);
+    assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /Parent active-tool APIs are unavailable/);
     assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /promptGuidelines|parameters/);
   });
 });

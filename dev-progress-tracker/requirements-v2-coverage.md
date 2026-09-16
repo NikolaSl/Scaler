@@ -46,6 +46,38 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-26 | Partial | Automation loop exists; revised complete-run, cancellation and recovery guarantees not demonstrated. | `src/autopilot.ts` | [AC-26](../specs/acceptance-scenarios.md#ac-26) |
 | SC-27 | Partial | Requirement versions/links exist; task status alone is insufficient proof of current requirement acceptance. | `src/prd.ts` | [AC-27](../specs/acceptance-scenarios.md#ac-27) |
 
+## Implementation progress — PLAN-099
+
+Implementation has now started on merged baseline `8f4cf19`, following
+[PLAN-099](../plans/implementation-plan-099.md). The original assessment table
+above is retained as the reviewed baseline. P1.1 adds read-only existing-state
+lookup, atomic snapshot replacement and exclusive initialization; 15 focused
+state/checkpoint tests and the build pass. This is partial SC-13 evidence, not
+closure of the lost-update, stale-proposal or interruption requirements.
+
+P1.2 adds task-conductor preparation/dispatch separation and reloads persisted
+worker state before accounting/handoff. Its 27 focused conductor/autopilot tests
+cover preparation followed by execution, refused spawn accounting, child updates
+and rejection after run replacement. General revision checks and other worker
+paths remain unverified. SC-13 remains open.
+
+P1.3 replaces the `child.killed` exit assumption with observed process exit,
+enforces non-success outcomes for timeout/abort, and cleans cancellation handlers.
+Subagent/watchdog tests pass 20/20, including a real TERM-resistant POSIX child.
+This addresses the observed direct-process defect in SC-15; aggregate budgets,
+descendant containment and semantic progress detection remain open.
+
+P1.4 corrects tool discovery/focus/restore to use Pi ExtensionAPI and keeps child
+tool selection separate from parent focus. The combined extension/subagent checks
+pass 29/29, and the actual installed Pi catalog-command check passes 1/1 without
+a model request. This resolves the API-owner counterexample in SC-25; full host
+context accounting, isolation and model execution remain unverified.
+
+The complete P1 regression gate passes: build, 501 unit tests and 67 mocked
+integration tests. The real-host check used Pi 0.80.3. Model-driven verification
+remains blocked by the environment authentication network policy; no model
+request was made. See PLAN-099 for the exact boundary and next P2 handoff.
+
 ## Second-iteration assessment boundary
 
 The second requirements iteration changes no implementation. Existing Failed and

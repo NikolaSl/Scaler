@@ -25,7 +25,7 @@ Task definitions are quality-gated before user-facing creation/update and planne
 
 `scaler_spawn_task` supports:
 
-- `execute: false` or omitted — prepare invocation only.
+- `execute: false` or omitted — prepare invocation only; the task is not marked running.
 - `execute: true` — run the task-agent subprocess.
 - `timeoutMs` — optional timeout.
 
@@ -37,6 +37,10 @@ Task-agent run results include:
 - `timedOut` flag
 - `aborted` flag
 - task-report ingestion status (`accepted`, `missing`, `invalid`, or `not_required`)
+
+Timeouts return exit code 124, cancellation returns 130, and signal-only exits are failures. The runner sends SIGTERM and escalates to SIGKILL after five seconds if the directly owned process has not exited. Cleanup evidence is recorded after process closure. Descendant-process containment is not established by this mechanism.
+
+The conductor marks a task running only after admission, immediately before dispatch. After execution it reloads persisted state to preserve child updates and rejects results when the run was replaced or the task is no longer eligible. General revision-checked writes and attempt-bound acceptance remain planned work.
 
 Use `/scaler-runs [taskId]` to inspect recent run records and `/scaler-task-reports [taskId]` to inspect accepted structured reports.
 

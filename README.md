@@ -1,6 +1,7 @@
 # SCALER
 
-> **Requirements revision 2 is proposed, not implemented.** Start with the
+> **Requirements revision 2 is merged; implementation migration has started.** Follow the
+> [incremental implementation plan](plans/implementation-plan-099.md),
 > [review summary](requirements-review.md), [product requirements](assignement.md)
 > and [current coverage assessment](dev-progress-tracker/requirements-v2-coverage.md).
 > Existing commands and manuals describe the current implementation.

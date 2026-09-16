@@ -33,6 +33,42 @@ npm run test:integration:mock    # mocked integration only
 npm run test:integration:real    # real suite only; skipped unless enabled
 ```
 
+## Free model smoke test
+
+Tested with Pi 0.85.1: OpenCode Zen's `big-pickle` model supports public free
+access. The [official provider implementation](https://github.com/anomalyco/opencode/blob/88c6c7abc7f320b6aabed2634ac0b2d6e6ecea67/packages/core/src/plugin/provider/opencode.ts)
+uses the literal `public` key for unauthenticated free models. This is not a
+personal credential. Check [current availability and pricing](https://opencode.ai/docs/zen/)
+before reuse; the free offer is temporary and requests may be rate-limited.
+Use synthetic fixtures: the provider says free-model data may be used for training.
+
+Merge the `opencode-free-test` provider from
+[`pi-free-models.example.json`](../test/integration/real/pi-free-models.example.json)
+into the `providers` object in `~/.pi/agent/models.json`, preserving existing
+entries. Its 8192-token context and 1024-token output settings are conservative
+test limits, not advertised model maxima. The profile selects one free model
+and does not configure a paid fallback. Zero cost metadata is for Pi's accounting;
+the provider's pricing determines actual charges.
+
+```bash
+pi --offline --no-extensions --no-skills --no-context-files \
+  --no-prompt-templates --no-tools --no-session \
+  --model opencode-free-test/big-pickle --thinking off \
+  -p 'Reply with exactly OK.'
+
+SCALER_REAL_PI_INTEGRATION=1 \
+SCALER_REAL_PI_MODEL=opencode-free-test/big-pickle \
+SCALER_REAL_PI_COMMAND=pi \
+SCALER_REAL_PI_TIMEOUT_MS=45000 \
+node --test --import tsx \
+  --test-name-pattern='^real integration: task agent report gates validation handoff$' \
+  test/integration/real/real-pi-contracts.test.ts
+```
+
+`--offline` disables catalog refresh, not inference. The contract test checks
+structured report ingestion and durable handoff to validation. It does not
+establish coding ability, completed QA, or overall requirements conformance.
+
 ## Mock integration mode
 
 Default integration tests use deterministic mock child-agent runners. They do not call a real Pi model and are safe for normal CI/local runs.
@@ -87,6 +123,29 @@ SCALER_REAL_PI_COMMAND=pi \
 SCALER_REAL_PI_TIMEOUT_MS=60000 \
 npm run test:integration:real
 ```
+
+For a single bounded Spark contract check, first authenticate in Pi with `/login`
+and select the Codex subscription provider. On a headless machine choose device
+code login. Both the authorization service and model endpoint must be reachable;
+a browser confirmation alone does not establish that Pi received credentials.
+Keep credentials in Pi's private runtime storage, outside the repository.
+
+Run from this checkout after authentication:
+
+```bash
+SCALER_REAL_PI_INTEGRATION=1 \
+SCALER_REAL_PI_MODEL=openai-codex/gpt-5.3-codex-spark \
+SCALER_REAL_PI_COMMAND="$PWD/node_modules/.bin/pi" \
+SCALER_REAL_PI_TIMEOUT_MS=30000 \
+node --test --import tsx \
+  --test-name-pattern='^real integration: task agent report gates validation handoff$' \
+  test/integration/real/real-pi-contracts.test.ts
+```
+
+This requests one model-backed report/handoff contract scenario with tools disabled.
+Its fixture report does not establish real task correctness or full SC-10
+acceptance. A missing account/model entitlement or blocked network is a blocked
+check, not a pass; do not silently substitute another model.
 
 Environment variables:
 

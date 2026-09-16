@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { link, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 import { getStatePath } from "./paths.js";
@@ -46,15 +46,44 @@ export async function loadState(cwd: string): Promise<ScalerState> {
 }
 
 export async function saveState(cwd: string, state: ScalerState): Promise<void> {
+  await publishState(cwd, state, false);
+}
+
+// Publish a complete snapshot on the same filesystem. This prevents torn reads;
+// it is not a compare-and-swap transaction and does not serialize state writers.
+async function publishState(cwd: string, state: ScalerState, createOnly: boolean): Promise<void> {
   const statePath = getStatePath(cwd);
   await mkdir(dirname(statePath), { recursive: true });
   const nextState = { ...state, updatedAt: new Date().toISOString() } satisfies ScalerState;
-  await writeFile(statePath, `${JSON.stringify(nextState, null, 2)}\n`, "utf8");
+  const temporaryPath = `${statePath}.${randomUUID()}.tmp`;
+  try {
+    const file = await open(temporaryPath, "wx", 0o600);
+    try {
+      await file.writeFile(`${JSON.stringify(nextState, null, 2)}\n`, "utf8");
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    // Initialization links the completed snapshot only if statePath is absent
+    // (EEXIST preserves any existing state). Normal saves replace it via rename.
+    if (createOnly) await link(temporaryPath, statePath);
+    else await rename(temporaryPath, statePath);
+  } finally {
+    await rm(temporaryPath, { force: true });
+  }
 }
 
 export async function ensureState(cwd: string): Promise<ScalerState> {
-  const state = await loadState(cwd);
-  await saveState(cwd, state);
+  try {
+    return JSON.parse(await readFile(getStatePath(cwd), "utf8")) as ScalerState;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  try {
+    await publishState(cwd, createDefaultState(), true);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
   return loadState(cwd);
 }
 
