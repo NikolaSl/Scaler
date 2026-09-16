@@ -64,8 +64,8 @@ async function publishState(cwd: string, state: ScalerState, createOnly: boolean
     } finally {
       await file.close();
     }
-    // Linking only after the write publishes initialization atomically and fails
-    // with EEXIST if another initializer/writer already established the run.
+    // Initialization links the completed snapshot only if statePath is absent
+    // (EEXIST preserves any existing state). Normal saves replace it via rename.
     if (createOnly) await link(temporaryPath, statePath);
     else await rename(temporaryPath, statePath);
   } finally {

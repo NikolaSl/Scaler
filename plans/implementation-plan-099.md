@@ -135,3 +135,14 @@ Real-model and full-host end-to-end claims require actual execution in P7.
   key instead of retaining only array position zero. All other budget updates
   remain eligible regardless of ordering. Existing conductor/budget checks pass
   32/32, covering rejected dispatch and successful context/spawn accounting.
+- Review comment 4030518931: valid readability issue. Corrected indentation
+  throughout the conductor's existing try body; whitespace-insensitive diff
+  confirms no semantic change in this commit.
+- Review comment 4030518996: wording clarification only. The previous comment
+  correctly allowed for an existing state published by a writer, but did not
+  clearly distinguish exclusive initialization from normal replacement. The
+  revised comment explicitly describes link for initialization and rename for
+  saves, preserving the existing-state protection.
+- Follow-up gate: conductor/budget tests 32/32, TypeScript build and
+  `git diff --check` pass. Formatting/comment edits do not change runtime logic;
+  no new model request or full-conformance claim is introduced.
