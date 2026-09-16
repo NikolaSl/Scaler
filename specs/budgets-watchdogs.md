@@ -29,8 +29,18 @@ unavailable provider cancellation; never promise a stronger cap than enforced.
 ## Progress
 
 Heartbeat/liveness is separate from meaningful progress: accepted artifacts,
-resolved uncertainty, changed failure evidence or completed checks.
+fixed reproducible failures, ruled-out consequential hypotheses, retrieved missing
+facts, or completed checks that resolve an open acceptance question. Progress MUST
+identify relevant evidence and what changed toward the task's acceptance.
+Repeated green checks, rewritten plans, new agents, searches or hypotheses alone
+MUST NOT reset the progress clock. A different error is diagnostic evidence only
+when it advances diagnosis; producing new errors is not automatically progress.
 Detect bounded time without progress, repeated attempts and repeated replanning.
+Configure attempt/time limits and aggregate limits for tactic switches and reviews.
+At no-progress limits, enforce the change-or-stop rule in SC-11; new tasks, sessions
+and reviewers MUST NOT reset the enclosing run's usage or failure history.
+Long-running legitimate operations use a declared bounded allowance and relevant
+observable milestones where available; do not force arbitrary edits to look active.
 Terminate owned processes with verified exit and escalation where supported.
 Do not report cleanup complete because a termination signal was sent.
 

@@ -46,6 +46,26 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-26 | Partial | Automation loop exists; revised complete-run, cancellation and recovery guarantees not demonstrated. | `src/autopilot.ts` | [AC-26](../specs/acceptance-scenarios.md#ac-26) |
 | SC-27 | Partial | Requirement versions/links exist; task status alone is insufficient proof of current requirement acceptance. | `src/prd.ts` | [AC-27](../specs/acceptance-scenarios.md#ac-27) |
 
+## Second-iteration assessment boundary
+
+The second requirements iteration changes no implementation. Existing Failed and
+Partial findings above remain applicable; none is upgraded by adding prose or
+acceptance scenarios. The following refinements are **Not assessed** within those
+aggregate rows and require the extended AC scenarios before any Verified claim:
+
+- SC-02/03/12/27: original intent versus interpretations, task necessity at every
+  decomposition/replan, necessary prerequisites versus invented scope, and
+  reviewer-originated requirements.
+- SC-04/09/10: risk-triggered direction checks, independent reviewer preparation,
+  bounded evidence-based disagreement, local eligibility and validation integrity.
+- SC-06/11/15: assumption status and failed-approach handoffs, discriminating
+  diagnosis, enforced tactic changes/stopping and aggregate progress limits.
+- SC-21/24: evidence for actual API capabilities, bounded repetitive research and
+  evaluation with planted errors, correct controls, false alarms and total cost.
+
+Copilot's index and wording corrections improve document consistency only; they
+do not close runtime findings. No real-model reviewer evaluation was run here.
+
 ## Next-phase assessment backlog
 
 1. Consolidate authority, state ownership and output-bound acceptance (SC-01/10/13).
@@ -53,7 +73,9 @@ Those results do not verify revision 2, a local model, or the real host end to e
 3. Specify minimal contracts, routing profiles and local capability envelope (SC-02/04/08/09).
 4. Reconcile effects, process termination, budgets and durable history (SC-14/15/17/18).
 5. Add validity-aware requirement, memory and plan updates (SC-06/12/27).
-6. Exercise complete workflows, optional environment providers and declared scale
+6. Verify scope necessity, evidence-led tactic changes and proportional independent
+   assessment, including rejection of reviewer-created scope (SC-03/04/10/11/15/27).
+7. Exercise complete workflows, optional environment providers and declared scale
    fixtures with honest measured outcomes (SC-20/23/24/26).
 
 This is an assessment queue, not an approved component architecture or code plan.

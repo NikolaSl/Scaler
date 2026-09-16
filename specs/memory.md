@@ -9,6 +9,16 @@ scope, task/requirement links, exact artifact reference, concise description,
 validity and known limitations. Claims and summaries MUST identify supporting
 sources and important inference/uncertainty.
 
+Distinguish observations, user requirements, interpretations and hypotheses.
+Repetition, summarization or agreement between agents MUST NOT promote an
+assumption to an established fact. Promotion requires supporting evidence;
+material contradictions and the evidence needed to resolve them remain visible.
+
+Handoffs MUST retain the relevant exact constraints, unresolved material
+assumptions, rejected approaches with reasons, and the next discriminating check.
+Use compact records plus retrievable exact sources rather than the full transcript.
+Context compaction or a new agent MUST NOT erase failure history or its budget.
+
 Validity distinguishes current, stale, obsolete and unknown. A label is not
 evidence of freshness. For mutable sources, define a freshness/revalidation rule.
 

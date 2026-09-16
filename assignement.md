@@ -2,6 +2,8 @@
 
 Status: proposed product baseline for review; implementation has not been upgraded.
 Revision date: 2026-09-16. Reviewed implementation baseline: d866b6957d0b79b455875e56b635ff8f774d0129.
+Review iteration: 2; includes scope discipline, bounded tactic changes and
+risk-triggered independent assessment. These behaviors remain proposed and unverified.
 
 ## 1. Outcome
 
@@ -25,6 +27,8 @@ work, and report capability limits without fabricating success.
 - Agent claims, stale validation and inconsistent state can create false progress.
 - Interruptions and uncertain external effects can make retries unsafe.
 - Process overhead can exceed the benefit of delegation.
+- Plausible interpretations can replace user intent or introduce unrequested work.
+- Workers and reviewers can share assumptions or weaken checks to claim success.
 
 ## 3. Scope and terminology
 
@@ -80,6 +84,18 @@ Acceptance criteria add examples; they do not narrow the normative requirements.
    evidence, capability or resources are genuinely insufficient.
 10. Completion covers the current user requirements and integrated result, not only
     a set of locally successful tasks.
+
+Planning and every decomposition MUST check both requirement coverage and task
+necessity. Work must serve an authorized requirement or a justified prerequisite;
+thematic similarity, customary features and speculative future needs do not grant
+scope. Preserve the original request separately from interpretations and assumptions.
+Implementation choices within granted scope do not require renewed permission.
+
+Repeated activity without evidence of progress MUST trigger a bounded change of
+approach or a recoverable stop. Rewording a proposal or changing agents does not
+reset failed-approach history. Consequential decisions require a risk-appropriate
+check against user intent; independent model review is an optional mechanism,
+never a guarantee of correctness or a source of new requirements.
 
 ## 6. Proportional execution
 

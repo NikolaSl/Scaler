@@ -24,6 +24,17 @@ retrieve missing information, or propose an authorized alternative.
 Never silently escalate to a cloud service or a paid/stronger model.
 Escalation within a preauthorized policy does not require repeated permission.
 
+## Optional review profile
+
+When model review is selected, record the reviewer's capability and what
+independence it contributes. A fresh session with the same model separates context
+but can retain systematic model errors. A different model/family MAY add diversity;
+neither model identity nor agreement proves correctness or eliminates bias.
+Use relevant evidence and assess the reviewer under SC-10/SC-24. A weaker or
+unassessed reviewer MUST NOT be represented as a guaranteed correctness gate.
+No second model, cloud service or automatic model routing is required for the
+local-only profile; an unavailable necessary check follows SC-04's blocker policy.
+
 ## Proof
 
 Record the actual model, resource envelope and results for local acceptance.

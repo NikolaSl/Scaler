@@ -8,12 +8,12 @@ not automatically become runtime agent context.
 | Document | Requirement focus |
 |---|---|
 | [supervisor.md](supervisor.md) | SC-01, SC-13, SC-26 |
-| [task-agents.md](task-agents.md) | SC-02 |
+| [task-agents.md](task-agents.md) | SC-02, SC-04, SC-09 |
 | [replanning.md](replanning.md) | SC-03, SC-12 |
 | [adaptive-orchestration.md](adaptive-orchestration.md) | SC-04 |
 | [context-selection.md](context-selection.md) | SC-05, SC-07 |
 | [memory.md](memory.md) | SC-06 |
-| [tool-mcp-safety.md](tool-mcp-safety.md) | SC-08 |
+| [tool-mcp-safety.md](tool-mcp-safety.md) | SC-08, SC-14 |
 | [model-capabilities.md](model-capabilities.md) | SC-09 |
 | [validation.md](validation.md) | SC-10 |
 | [attempt-tracking.md](attempt-tracking.md) | SC-11 |

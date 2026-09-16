@@ -12,7 +12,10 @@ Do not equate atomicity with a line count or a rationale string of minimum lengt
 
 Before execution, define or inherit:
 - Stable task ID, contract version, goal, constraints and out-of-scope work.
-- Requirement references; input artifact/source versions and dependencies.
+- Requirement references and direct-purpose or necessary-prerequisite rationale;
+  input artifact/source versions and dependencies.
+- Applicable original user constraints, distinct interpretations, and material
+  unverified assumptions with the check needed before relying on them.
 - Expected outputs/artifact types and locations or logical destinations.
 - Definition of Done, validation criteria and integration obligations.
 - Allowed actions, tools, paths, data destinations and effects.
@@ -22,6 +25,9 @@ Before execution, define or inherit:
 
 Defaults MUST be inspectable. Trivial read-only responses may use a compact
 in-memory contract plus a durable run outcome; no full document is required.
+Inherited requirement/constraint references may carry the necessity rationale;
+do not require a separate essay for each routine step. A child MUST NOT turn a
+parent's implementation preference into a new user requirement.
 
 ## Attempt contract
 

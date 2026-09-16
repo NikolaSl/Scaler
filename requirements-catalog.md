@@ -9,20 +9,20 @@ blocks the affected task. None of these rows asserts current implementation.
 | ID | Requirement | Obligation | Acceptance | Behavioral detail |
 |---|---|---|---|---|
 | SC-01 | Authoritative control: All accepted progress uses common guards; agents cannot self-approve. | Core | [AC-01](specs/acceptance-scenarios.md#ac-01) | [supervisor](specs/supervisor.md) |
-| SC-02 | Task and attempt contracts: Each execution has explicit inputs, scope, outputs, permissions, budget and acceptance. | Core | [AC-02](specs/acceptance-scenarios.md#ac-02) | [task-agents](specs/task-agents.md) |
-| SC-03 | Planning and dependencies: Plan before effects; validate dependencies and refine only the work that needs detail. | Core | [AC-03](specs/acceptance-scenarios.md#ac-03) | [replanning](specs/replanning.md) |
-| SC-04 | Proportional orchestration: Choose deterministic, current-session or isolated execution with justified overhead. | Core | [AC-04](specs/acceptance-scenarios.md#ac-04) | [adaptive-orchestration](specs/adaptive-orchestration.md) |
+| SC-02 | Task and attempt contracts: Define inputs, authorized purpose, scope, assumptions, outputs, permissions, budget and acceptance. | Core | [AC-02](specs/acceptance-scenarios.md#ac-02) | [task-agents](specs/task-agents.md) |
+| SC-03 | Planning and dependencies: Plan before effects; check coverage and task necessity at every decomposition, reject invented scope and validate dependencies. | Core | [AC-03](specs/acceptance-scenarios.md#ac-03) | [replanning](specs/replanning.md) |
+| SC-04 | Proportional orchestration: Choose a feasible lightweight route and risk-triggered direction checks without mandatory extra agents. | Core | [AC-04](specs/acceptance-scenarios.md#ac-04) | [adaptive-orchestration](specs/adaptive-orchestration.md) |
 | SC-05 | Context admission: Bound the full request and output reserve before every model call. | Core | [AC-05](specs/acceptance-scenarios.md#ac-05) | [context-selection](specs/context-selection.md) |
-| SC-06 | Versioned memory and provenance: Preserve exact evidence and invalidate dependent conclusions when sources change. | Core | [AC-06](specs/acceptance-scenarios.md#ac-06) | [memory](specs/memory.md) |
+| SC-06 | Versioned memory and provenance: Preserve exact constraints and evidence, distinguish assumptions from facts, retain failed approaches and invalidate stale conclusions. | Core | [AC-06](specs/acceptance-scenarios.md#ac-06) | [memory](specs/memory.md) |
 | SC-07 | Focused retrieval: Retrieve requested relevant sections; expose missing data and truncation. | Core | [AC-07](specs/acceptance-scenarios.md#ac-07) | [context-selection](specs/context-selection.md) |
 | SC-08 | Three-mode tool routing: Profile effective tool context and choose a feasible execution mode per request. | Core | [AC-08](specs/acceptance-scenarios.md#ac-08) | [tool-mcp-safety](specs/tool-mcp-safety.md) |
 | SC-09 | Local models and capability selection: Select only configured eligible models; support bounded local-only operation. | Core | [AC-09](specs/acceptance-scenarios.md#ac-09) | [model-capabilities](specs/model-capabilities.md) |
-| SC-10 | Evidence-based acceptance: Verify exact outputs and integration criteria; separate claim from evidence. | Core | [AC-10](specs/acceptance-scenarios.md#ac-10) | [validation](specs/validation.md) |
-| SC-11 | Bounded debugging: Track hypotheses, detect repetition and revalidate after changes. | Core | [AC-11](specs/acceptance-scenarios.md#ac-11) | [attempt-tracking](specs/attempt-tracking.md) |
+| SC-10 | Evidence-based acceptance: Verify actual intent, exact outputs and integration; protect validation criteria and bound independent assessment when selected. | Core | [AC-10](specs/acceptance-scenarios.md#ac-10) | [validation](specs/validation.md) |
+| SC-11 | Bounded debugging: Test hypotheses, detect ineffective repetition and require an evidence-justified tactic change or stop at no-progress limits. | Core | [AC-11](specs/acceptance-scenarios.md#ac-11) | [attempt-tracking](specs/attempt-tracking.md) |
 | SC-12 | Evidence-based replanning: Preserve still-valid work; explicitly obsolete or revalidate affected work. | Core | [AC-12](specs/acceptance-scenarios.md#ac-12) | [replanning](specs/replanning.md) |
 | SC-13 | Durable state and recovery: Prevent lost updates, reject stale reports and reconcile interrupted attempts. | Core | [AC-13](specs/acceptance-scenarios.md#ac-13) | [supervisor](specs/supervisor.md) |
 | SC-14 | External effect reconciliation: Record intents and uncertain outcomes; do not blindly repeat non-idempotent effects. | Conditional: effects | [AC-14](specs/acceptance-scenarios.md#ac-14) | [effects-recovery](specs/effects-recovery.md) |
-| SC-15 | Budgets and progress watchdogs: Account for all work, reserve resources and stop unproductive or over-budget execution. | Core | [AC-15](specs/acceptance-scenarios.md#ac-15) | [budgets-watchdogs](specs/budgets-watchdogs.md) |
+| SC-15 | Budgets and progress watchdogs: Account for all work, require evidence of progress and preserve aggregate limits across retries, tactic changes and reviews. | Core | [AC-15](specs/acceptance-scenarios.md#ac-15) | [budgets-watchdogs](specs/budgets-watchdogs.md) |
 | SC-16 | Scoped authority and data protection: Enforce permissions outside prompts; reuse grants and protect data boundaries. | Core | [AC-16](specs/acceptance-scenarios.md#ac-16) | [safety-permissions](specs/safety-permissions.md) |
 | SC-17 | Audit and decision history: Preserve redacted observable decisions, actions and evidence with traceable identities. | Core | [AC-17](specs/acceptance-scenarios.md#ac-17) | [logging](specs/logging.md) |
 | SC-18 | Git project history: Record accepted outputs and compact audit references without unrelated changes. | Conditional: Git profile, default | [AC-18](specs/acceptance-scenarios.md#ac-18) | [git-workflow](specs/git-workflow.md) |
@@ -34,7 +34,7 @@ blocks the affected task. None of these rows asserts current implementation.
 | SC-24 | Evaluation and honest coverage: Demonstrate invariants and report quality, resources and autonomy without requiring competitor data. | Core | [AC-24](specs/acceptance-scenarios.md#ac-24) | [evaluation](specs/evaluation.md) |
 | SC-25 | Host integration contract: Verify actual host capabilities and preserve core guarantees through integrations. | Conditional: host adapter | [AC-25](specs/acceptance-scenarios.md#ac-25) | [pi-extension-architecture](specs/pi-extension-architecture.md) |
 | SC-26 | Autonomous lifecycle and completion: Continue authorized work; pause/cancel safely; accept only the current complete deliverable. | Core | [AC-26](specs/acceptance-scenarios.md#ac-26) | [supervisor](specs/supervisor.md) |
-| SC-27 | Requirement ledger: Version user requirements and link their acceptance evidence, not just task status. | Core | [AC-27](specs/acceptance-scenarios.md#ac-27) | [runtime-prd-ledger](specs/runtime-prd-ledger.md) |
+| SC-27 | Requirement ledger: Preserve original intent and authority separately from assumptions; trace coverage, task necessity and current acceptance evidence. | Core | [AC-27](specs/acceptance-scenarios.md#ac-27) | [runtime-prd-ledger](specs/runtime-prd-ledger.md) |
 
 ## Legacy mapping
 

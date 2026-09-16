@@ -18,6 +18,8 @@ Report separately:
 - Wall-clock time, local resource use when measurable and orchestration overhead.
 - Retries, stalls, recoveries and necessary human interventions.
 - Task/context size and retained evidence.
+- Detected/missed departures from intent, unjustified scope additions, false review
+  alarms, inappropriate blocks and the resources spent resolving them.
 
 Total resources per accepted deliverable matter more than per-call savings.
 A single successful example cannot establish broad reliability or economy.
@@ -29,6 +31,16 @@ A single successful example cannot establish broad reliability or economy.
 3. Local-model end-to-end tasks: code change, evidence-backed non-code output,
    missing-data recovery, bounded tool use and interruption/resume.
 4. Scale fixtures within a declared resource envelope.
+
+Include controlled cases with misleading task interpretations, unrequested
+enhancements, assumptions repeated as facts, ineffective tactic changes, weakened
+tests and reviewer-originated scope expansion. Include correct minimal solutions
+and genuinely necessary prerequisites as controls against over-rejection.
+For an enabled model reviewer, test independent input preparation and bounded
+disagreement with both planted errors and correct candidates; report detection,
+false alarms, missed errors and cost across declared repetitions. Model agreement
+is not ground truth; use known fixtures and independently checkable outcomes.
+Thresholds and model/resource envelopes must be declared before acceptance.
 
 If later useful, compare routing policies or a simpler direct workflow using the
 same model/task/quality criteria, with cache conditions reported. No comparison
