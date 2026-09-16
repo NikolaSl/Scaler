@@ -1,74 +1,81 @@
-# SCALER Requirements Catalog
+# SCALER Requirements Catalog — Revision 2
 
-Stable requirement IDs derived from [`assignement.md`](assignement.md). Keep this file compact and update it when the PRD changes.
+Proposed normative baseline. See [assignment](assignement.md) for scope and authority.
+SC-* IDs are stable; retired PRD-* IDs retain their historical meaning.
+Core requirements apply to all runs with proportional record size. Conditional
+requirements apply when their capability is used; a missing required capability
+blocks the affected task. None of these rows asserts current implementation.
 
-Status/coverage is tracked in [`dev-progress-tracker/traceability-matrix.md`](dev-progress-tracker/traceability-matrix.md); this file only defines requirements.
+| ID | Requirement | Obligation | Acceptance | Behavioral detail |
+|---|---|---|---|---|
+| SC-01 | Authoritative control: All accepted progress uses common guards; agents cannot self-approve. | Core | [AC-01](specs/acceptance-scenarios.md#ac-01) | [supervisor](specs/supervisor.md) |
+| SC-02 | Task and attempt contracts: Each execution has explicit inputs, scope, outputs, permissions, budget and acceptance. | Core | [AC-02](specs/acceptance-scenarios.md#ac-02) | [task-agents](specs/task-agents.md) |
+| SC-03 | Planning and dependencies: Plan before effects; validate dependencies and refine only the work that needs detail. | Core | [AC-03](specs/acceptance-scenarios.md#ac-03) | [replanning](specs/replanning.md) |
+| SC-04 | Proportional orchestration: Choose deterministic, current-session or isolated execution with justified overhead. | Core | [AC-04](specs/acceptance-scenarios.md#ac-04) | [adaptive-orchestration](specs/adaptive-orchestration.md) |
+| SC-05 | Context admission: Bound the full request and output reserve before every model call. | Core | [AC-05](specs/acceptance-scenarios.md#ac-05) | [context-selection](specs/context-selection.md) |
+| SC-06 | Versioned memory and provenance: Preserve exact evidence and invalidate dependent conclusions when sources change. | Core | [AC-06](specs/acceptance-scenarios.md#ac-06) | [memory](specs/memory.md) |
+| SC-07 | Focused retrieval: Retrieve requested relevant sections; expose missing data and truncation. | Core | [AC-07](specs/acceptance-scenarios.md#ac-07) | [context-selection](specs/context-selection.md) |
+| SC-08 | Three-mode tool routing: Profile effective tool context and choose a feasible execution mode per request. | Core | [AC-08](specs/acceptance-scenarios.md#ac-08) | [tool-mcp-safety](specs/tool-mcp-safety.md) |
+| SC-09 | Local models and capability selection: Select only configured eligible models; support bounded local-only operation. | Core | [AC-09](specs/acceptance-scenarios.md#ac-09) | [model-capabilities](specs/model-capabilities.md) |
+| SC-10 | Evidence-based acceptance: Verify exact outputs and integration criteria; separate claim from evidence. | Core | [AC-10](specs/acceptance-scenarios.md#ac-10) | [validation](specs/validation.md) |
+| SC-11 | Bounded debugging: Track hypotheses, detect repetition and revalidate after changes. | Core | [AC-11](specs/acceptance-scenarios.md#ac-11) | [attempt-tracking](specs/attempt-tracking.md) |
+| SC-12 | Evidence-based replanning: Preserve still-valid work; explicitly obsolete or revalidate affected work. | Core | [AC-12](specs/acceptance-scenarios.md#ac-12) | [replanning](specs/replanning.md) |
+| SC-13 | Durable state and recovery: Prevent lost updates, reject stale reports and reconcile interrupted attempts. | Core | [AC-13](specs/acceptance-scenarios.md#ac-13) | [supervisor](specs/supervisor.md) |
+| SC-14 | External effect reconciliation: Record intents and uncertain outcomes; do not blindly repeat non-idempotent effects. | Conditional: effects | [AC-14](specs/acceptance-scenarios.md#ac-14) | [effects-recovery](specs/effects-recovery.md) |
+| SC-15 | Budgets and progress watchdogs: Account for all work, reserve resources and stop unproductive or over-budget execution. | Core | [AC-15](specs/acceptance-scenarios.md#ac-15) | [budgets-watchdogs](specs/budgets-watchdogs.md) |
+| SC-16 | Scoped authority and data protection: Enforce permissions outside prompts; reuse grants and protect data boundaries. | Core | [AC-16](specs/acceptance-scenarios.md#ac-16) | [safety-permissions](specs/safety-permissions.md) |
+| SC-17 | Audit and decision history: Preserve redacted observable decisions, actions and evidence with traceable identities. | Core | [AC-17](specs/acceptance-scenarios.md#ac-17) | [logging](specs/logging.md) |
+| SC-18 | Git project history: Record accepted outputs and compact audit references without unrelated changes. | Conditional: Git profile, default | [AC-18](specs/acceptance-scenarios.md#ac-18) | [git-workflow](specs/git-workflow.md) |
+| SC-19 | Bounded storage: Bound writes and reads while preserving required evidence and recovery data. | Core | [AC-19](specs/acceptance-scenarios.md#ac-19) | [storage](specs/storage.md) |
+| SC-20 | Execution environment capability: Select an available suitable environment without requiring a specific product. | Conditional: environment needed | [AC-20](specs/acceptance-scenarios.md#ac-20) | [cicd-environment](specs/cicd-environment.md) |
+| SC-21 | Research quality: Resolve task questions using version-relevant evidence; bound investigation. | Conditional: research needed | [AC-21](specs/acceptance-scenarios.md#ac-21) | [research](specs/research.md) |
+| SC-22 | Workspace sequencing: Keep current sequential policy and explicit ownership of workspace operations. | Core | [AC-22](specs/acceptance-scenarios.md#ac-22) | [execution-policy](specs/execution-policy.md) |
+| SC-23 | Large-run scalability: Bound active work/history loading and support incremental planning and recovery. | Core | [AC-23](specs/acceptance-scenarios.md#ac-23) | [scalability](specs/scalability.md) |
+| SC-24 | Evaluation and honest coverage: Demonstrate invariants and report quality, resources and autonomy without requiring competitor data. | Core | [AC-24](specs/acceptance-scenarios.md#ac-24) | [evaluation](specs/evaluation.md) |
+| SC-25 | Host integration contract: Verify actual host capabilities and preserve core guarantees through integrations. | Conditional: host adapter | [AC-25](specs/acceptance-scenarios.md#ac-25) | [pi-extension-architecture](specs/pi-extension-architecture.md) |
+| SC-26 | Autonomous lifecycle and completion: Continue authorized work; pause/cancel safely; accept only the current complete deliverable. | Core | [AC-26](specs/acceptance-scenarios.md#ac-26) | [supervisor](specs/supervisor.md) |
+| SC-27 | Requirement ledger: Version user requirements and link their acceptance evidence, not just task status. | Core | [AC-27](specs/acceptance-scenarios.md#ac-27) | [runtime-prd-ledger](specs/runtime-prd-ledger.md) |
 
-## Problem statements
+## Legacy mapping
 
-| ID | PRD statement | Spec/reference |
+This maps intent, not implementation status. Historical IDs are not reused or
+deleted. All old claims must be reassessed against the new criteria.
+
+| Legacy IDs | Revision 2 requirements | Treatment |
 |---|---|---|
-| PRD-P01 | Avoid distraction from excessive or unrelated active context. | `assignement.md` I |
-| PRD-P02 | Avoid amnesia and detail loss caused by repeated compression. | `assignement.md` I |
-| PRD-P03 | Reduce token/cost growth from single-agent context accumulation. | `assignement.md` I |
-| PRD-P04 | Reduce MCP/tool context cost and tool-use hallucination risk. | `assignement.md` I |
-| PRD-P05 | Keep tasks narrow so failures are easier to isolate and debug. | `assignement.md` I |
-| PRD-P06 | Prevent repeated non-working fixes and cyclic debugging. | `assignement.md` I |
+| PRD-P01, PRD-P02 | SC-05, SC-06, SC-07 | Replace context aspirations with admission and provenance guarantees |
+| PRD-P03, PRD-G01 | SC-04, SC-09, SC-15, SC-23, SC-24 | Economy and local-model usefulness require observable evidence |
+| PRD-P04 | SC-08 | Isolation becomes one of three routes |
+| PRD-P05, PRD-G02, PRD-G03 | SC-02, SC-03, SC-04, SC-10 | Preserve useful task boundaries without mandatory agent creation |
+| PRD-P06, PRD-G04 | SC-11, SC-15 | Bounded attempts and early checks |
+| PRD-S01, PRD-S02 | SC-01, SC-13, SC-26 | Shared authority and recovery rules |
+| PRD-S03 | SC-04 | Replace keyword levels with evidence-based proportionality |
+| PRD-S04, PRD-S05 | SC-05, SC-07 | Complete context and missing-input handling |
+| PRD-S06, PRD-S07 | SC-06, SC-21 | Research remains conditional |
+| PRD-S08, PRD-S09 | SC-08, SC-14 | Tool route and effect safety are separate decisions |
+| PRD-S10, PRD-S11 | SC-05, SC-06, SC-07 | Enforce actual shrink or split before admission |
+| PRD-S12, PRD-S13 | SC-06, SC-07 | Exact, scoped retrieval and freshness |
+| PRD-S14, PRD-S15 | SC-02, SC-04, SC-09 | Shared contracts and capability-based agents |
+| PRD-S16 | SC-17 | Observable history, privacy and retention |
+| PRD-S17 | SC-19 | Core storage bounds; advanced management optional |
+| PRD-S18 | SC-15, SC-26 | Resource bounds and autonomous lifecycle |
+| PRD-S19, PRD-S20 | SC-11 | Evidence-based retry control |
+| PRD-S21, PRD-S22, PRD-S24 | SC-10 | Domain validators, proportional checks and integration acceptance |
+| PRD-S23, PRD-S27 | SC-16, SC-20 | Environments/scanners are capabilities, not required brands |
+| PRD-S25 | SC-03, SC-12 | Incremental plans and validity-aware preservation |
+| PRD-S26 | SC-14, SC-16 | Scope-bound grants and external-effect handling |
+| PRD-S28 | SC-18 | Compact audit history plus artifact retention |
+| PRD-S29 | SC-25 | Pi remains first host; architecture deferred |
+| PRD-S30 | SC-22 | Sequential workspace policy retained |
+| PRD-S31 | SC-27 | Requirement versions and acceptance evidence |
+| PRD-W01, PRD-W02, PRD-W03, PRD-W04 | SC-03, SC-04, SC-21, SC-27 | Stages are optional activities/templates |
+| PRD-W05 | SC-02, SC-04, SC-22 | Sequential operations; not necessarily a new agent per task |
+| PRD-W06, PRD-W07 | SC-10, SC-20 | Software and non-software validation contracts |
+| PRD-W08 | SC-12, SC-27 | Evidence-driven requirement/plan changes |
 
-## Goals
+## Scope exclusions
 
-| ID | PRD statement | Spec/reference |
-|---|---|---|
-| PRD-G01 | Build a Pi-Agent architecture for larger problems with fewer context, focus, and cost issues. | `assignement.md` II |
-| PRD-G02 | Each agent call should be focused and use only information needed for the immediate task. | `assignement.md` II |
-| PRD-G03 | Tasks should be atomic, iterative, and validated. | `assignement.md` II |
-| PRD-G04 | Problems should be detected and debugged as early as possible. | `assignement.md` II |
-
-## Solution requirements
-
-| ID | PRD statement | Spec/reference |
-|---|---|---|
-| PRD-S01 | Provide a deterministic non-LLM supervisor/state machine around all agents. | `specs/supervisor.md` |
-| PRD-S02 | Supervisor reads structured reports, validates fields, persists state, and controls transitions. | `specs/supervisor.md` |
-| PRD-S03 | Use the lightest reliable orchestration and escalate complexity only when needed. | `specs/adaptive-orchestration.md` |
-| PRD-S04 | Resolve active context per task from manifests, latest validated state, memory refs, file state, and validation needs. | `specs/context-selection.md` |
-| PRD-S05 | Task agents must request missing data instead of guessing. | `specs/context-selection.md`, `specs/task-agents.md` |
-| PRD-S06 | Support local/internet research with source quality, contradiction handling, confidence, and completeness criteria. | `specs/research.md` |
-| PRD-S07 | Keep raw research outside active context and preserve concise conclusions/evidence references. | `specs/research.md`, `specs/memory.md` |
-| PRD-S08 | Optimize tool/MCP usage with short catalogs and isolated tool agents receiving only requested tool context. | `specs/tool-mcp-safety.md` |
-| PRD-S09 | Tool agents execute focused tool transactions and return concise reports. | `specs/tool-mcp-safety.md` |
-| PRD-S10 | Compression should discard no-longer-needed data while preserving exact information where exactness matters. | `assignement.md` III.6 |
-| PRD-S11 | If compressed context remains over budget, split work, externalize data, and spawn fresh minimal-context agents. | `assignement.md` III.6 |
-| PRD-S12 | Store useful-but-inactive detail in `.scaler/memory/` and keep only short active references. | `specs/memory.md` |
-| PRD-S13 | Retrieve only requested useful memory content when needed. | `specs/memory.md` |
-| PRD-S14 | Spawn dedicated task agents for atomic tasks with narrow scope, minimal context, allowed tools, validation, and structured reports. | `specs/task-agents.md` |
-| PRD-S15 | Atomic tasks are the smallest useful independently checkable units, not wastefully tiny. | `specs/task-agents.md` |
-| PRD-S16 | Preserve a structured audit trail of logs, tool calls, validation, state transitions, prompts, and reports. | `specs/logging.md` |
-| PRD-S17 | Manage `.scaler/` storage with limits, compression/rotation/indexing, and pause rules. | `specs/storage.md` |
-| PRD-S18 | Enforce budgets/watchdogs for tokens, cost, tools, agents, time, storage, debug attempts, research, and validation loops. | `specs/budgets-watchdogs.md` |
-| PRD-S19 | Track failures and debug attempts with hypotheses, actions, validation results, evidence, and log references. | `specs/attempt-tracking.md` |
-| PRD-S20 | Detect repeated attempts/cycles and prevent continuing the same failed approach without new evidence. | `specs/attempt-tracking.md` |
-| PRD-S21 | Require validation gates before a task is complete and supervisor-accepted. | `specs/validation.md` |
-| PRD-S22 | Use strongest practical software gates: dependencies, test-first checks, build, unit/integration/static/acceptance tests. | `specs/validation.md` |
-| PRD-S23 | Support local CI/CD validation environments such as Docker, dev containers, Compose, Minikube, or sandboxes when needed. | `specs/cicd-environment.md` |
-| PRD-S24 | Validate non-software tasks for completeness, consistency, compliance, sources, adversarial questions, and uncertainty. | `specs/validation.md` |
-| PRD-S25 | Replan based on execution evidence while preserving validated progress. | `specs/replanning.md` |
-| PRD-S26 | Enforce deterministic safety gates for risky actions, protected paths, secrets, internet, deployment, publishing, and destructive operations. | `specs/safety-permissions.md` |
-| PRD-S27 | Prefer controlled sandboxes for unattended risky work and scan dependencies/images where tools are available. | `specs/safety-permissions.md`, `specs/cicd-environment.md` |
-| PRD-S28 | Commit each validated task with task id and avoid unrelated user changes, secrets, and runtime artifacts. | `specs/git-workflow.md` |
-| PRD-S29 | Implement SCALER as a Pi extension using commands, structured tools, hooks, subprocess agents, `.scaler/` state, and deterministic supervisor logic. | `specs/pi-extension-architecture.md` |
-| PRD-S30 | Enforce mandatory sequential work per repo to avoid collisions and stale analysis. | User decision; `manual/sequential-execution.md` |
-| PRD-S31 | Maintain a runtime PRD ledger with polished PRD versions, stable requirement ids, coverage state, task links, change records, and replanning inputs. | `specs/runtime-prd-ledger.md` |
-
-## Stage workflow requirements
-
-| ID | PRD statement | Spec/reference |
-|---|---|---|
-| PRD-W01 | For complex requests, solve work through staged conductor loop rather than direct execution. | `assignement.md` III.18 |
-| PRD-W02 | Stage I: PRD agent reviews, clarifies, polishes, and writes `agent-prd.md`. | `assignement.md` III.18 |
-| PRD-W03 | Stage II: knowledge agent collects reliable local/internet knowledge, resolves contradictions, and writes a knowledge report. | `assignement.md` III.18 |
-| PRD-W04 | Stage III: planner creates a detailed sequential atomic execution plan linked to PRD/knowledge and Definition of Done. | `assignement.md` III.18 |
-| PRD-W05 | Stage IV: execute tasks sequentially with one atomic task agent per task. | `assignement.md` III.18 |
-| PRD-W06 | Software execution should update/write tests, implement, validate dependencies, build/compile, and run tests/acceptance checks. | `assignement.md` III.18 |
-| PRD-W07 | Non-software execution should validate logical completeness, consistency, compliance, adversarial questions, and evidence. | `assignement.md` III.18 |
-| PRD-W08 | Execution discoveries can pause execution, update Stage II/III outputs, create a new plan version, and continue while preserving validated progress. | `assignement.md` III.18 |
+Core acceptance does not require concurrent agents, cloud models, embeddings,
+a service cluster, Kubernetes, an agent marketplace, automatic self-modification,
+or a benchmark against another agent product. Optional mechanisms must meet
+the same authority, budget, evidence and recovery guarantees when enabled.

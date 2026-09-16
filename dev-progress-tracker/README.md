@@ -1,5 +1,9 @@
 # Development progress tracker
 
+> Current requirements assessment: [revision 2 coverage](requirements-v2-coverage.md).
+> The PRD-* matrix, gap backlog and implementation inventory below are historical
+> revision 1 evidence; their closure statements do not certify revision 2.
+
 This folder contains the project progress-tracking mechanism:
 
 - [`traceability-matrix.md`](traceability-matrix.md) — maps source requirements to implementation, tests, docs, and remaining action.

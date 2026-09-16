@@ -1,85 +1,29 @@
-# SCALER Logging Spec
+# Audit and Decision History
+Requirements: SC-17. Acceptance: AC-17.
 
-## Purpose
+## Scope
 
-Scaler must keep active context small, but preserve a full audit trail of what happened.
+Record observable actions, requests, reports, decisions and evidence. Do not
+require hidden model reasoning or unavailable internal chain-of-thought.
+A concise rationale with sources is sufficient.
 
-Agents may summarize or remove middle steps from active context after a decision, but raw execution history must remain available in structured logs.
+Events MUST identify run, task/version, attempt/operation, logical revision/order,
+timestamp, outcome and referenced inputs/outputs where applicable.
+Record routing, grants, admitted context manifests, prompts as privacy permits,
+tool actions/results, validation, retries, requirement changes, budgets, recovery
+and Git outcomes. Redact secrets and respect source-retention permissions.
 
-## Principle
+## Durability and bounded access
 
-Active context is for current reasoning. Logs are for audit, replay, debugging, and later Scaler improvement.
+Durable event ordering MUST permit reconstruction/reconciliation of accepted
+progress. Append-only history may be stored in a suitable format; the requirement
+does not mandate event sourcing or a database.
+Corrections append a superseding record rather than rewriting accepted history.
 
-## Log location
+Large payloads are artifacts with identity/hash, retention class and retrieval
+instructions. Active prompts receive bounded summaries/references. Audit queries
+MUST NOT require loading every historical payload.
 
-Store logs under `.scaler/logs/`.
-
-See also `specs/storage.md` for compression, rotation, retention, and disk safety rules.
-
-Suggested files:
-
-- `.scaler/logs/events.jsonl` — append-only structured event log.
-- `.scaler/logs/agents/` — agent prompts, reports, and outputs.
-- `.scaler/logs/tools/` — large tool requests/results when too big for event log.
-- `.scaler/logs/validation/` — validation commands and results.
-
-## Event fields
-
-Each log event should include:
-
-- timestamp
-- run id
-- stage
-- state
-- task id, if any
-- agent id, if any
-- agent type
-- event type
-- short summary
-- input/reference ids, if any
-- output/reference ids, if any
-- details or details file path
-- token/cost usage when available
-
-## Events to log
-
-- Supervisor state transitions.
-- Rejected transitions and reasons.
-- Plan versions, replanning triggers, replanning input packages, and replanning reports.
-- Agent spawn requests.
-- Agent prompts and allowed tools.
-- Memory writes and retrievals.
-- Tool/MCP requests, exact commands/calls, results, failures, and safety decisions.
-- Local/internet investigations, search queries, source quality decisions, contradictions, and research reports.
-- Validation manifests, commands, results, skipped gates, and acceptance decisions.
-- Debug failure records, attempt records, fingerprints, cycles, and outcomes.
-- Decisions and evidence references.
-- Git repository initialization, status checks, commits, skipped commits, and dirty-tree blockers.
-- Safety decisions, approvals, blocked actions, policy overrides, and security scan results.
-- Budget, timeout, watchdog, checkpoint, pause, resume, and approval events.
-
-## Investigation logging
-
-Task agents may investigate local data and internet sources when needed.
-
-Investigation order:
-
-1. Local files, docs, logs, tests, and history.
-2. External sources only when local data is insufficient and internet access is allowed.
-
-The active context should keep only the final useful conclusion, evidence references, and next action. Raw investigation steps should stay in logs and memory files when useful.
-
-## Later analysis
-
-Logs should be structured enough for another agent or human to answer:
-
-- What happened?
-- Why was a decision made?
-- Which evidence was used?
-- Which attempts failed?
-- Which validation accepted the result?
-- Where did tokens/time get spent?
-
-This allows Scaler to improve from real executions without bloating active task context.
-
-Large logs should be compressed and rotated according to `specs/storage.md`.
+Separate a compact durable decision/evidence ledger from raw diagnostics.
+See SC-18 for Git publication and SC-19 for retention. An unavailable raw source
+must be labeled; a retained reference alone does not prove its contents.

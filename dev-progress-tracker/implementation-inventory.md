@@ -1,5 +1,10 @@
 # SCALER Implementation Inventory
 
+> **Historical revision 1 record.** Statements such as Implemented or no open
+> gaps below refer to the earlier PRD-* baseline and are not current assurance.
+> Use [revision 2 coverage and open assessment queue](requirements-v2-coverage.md)
+> for current requirements. Historical detail is retained for traceability.
+
 Maintenance artifact for [`traceability-matrix.md`](traceability-matrix.md). Update when implementation plans add or change requirement coverage.
 
 Source requirements remain outside this folder: [`../assignement.md`](../assignement.md), [`../requirements-catalog.md`](../requirements-catalog.md), and [`../specs/`](../specs/). Code-formatted paths in inventory tables are repository-root relative unless explicitly linked.

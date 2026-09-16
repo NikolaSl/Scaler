@@ -1,5 +1,10 @@
 # SCALER tutorial: autonomous high-scale project work
 
+> This describes the existing implementation, not revision 2 guarantees.
+> See the [requirements review](../requirements-review.md) and
+> [known coverage limitations](../dev-progress-tracker/requirements-v2-coverage.md).
+> Runtime commands are unchanged by the requirements revision.
+
 This tutorial is scenario-first. It assumes you want SCALER to do as much work autonomously as possible, but you still want to know what to do when the run pauses, needs approval, fails validation, lacks context, or must be resumed after interruption.
 
 For the exhaustive command reference, see `manual/commands.md`. This tutorial explains the most useful path through those commands.

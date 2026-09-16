@@ -1,5 +1,10 @@
 # SCALER
 
+> **Requirements revision 2 is proposed, not implemented.** Start with the
+> [review summary](requirements-review.md), [product requirements](assignement.md)
+> and [current coverage assessment](dev-progress-tracker/requirements-v2-coverage.md).
+> Existing commands and manuals describe the current implementation.
+
 SCALER is a Pi extension for supervised autonomous project orchestration. It adds project-level state, staged planning, task agents, validation gates, debugging/retry flows, research, replanning, budgets, watchdogs, safety policies, tool-request workflows, and audit ledgers on top of the Pi coding agent.
 
 ## Quick start

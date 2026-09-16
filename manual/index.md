@@ -1,5 +1,10 @@
 # SCALER Manual
 
+> This describes the existing implementation, not revision 2 guarantees.
+> See the [requirements review](../requirements-review.md) and
+> [known coverage limitations](../dev-progress-tracker/requirements-v2-coverage.md).
+> Runtime commands are unchanged by the requirements revision.
+
 This manual documents implemented Scaler behavior. For a scenario-first walkthrough aimed at first-time autonomous use, see [`../tutorial/index.md`](../tutorial/index.md); for GitHub-renderable Mermaid orchestration diagrams, see [`../tutorial/diagrams.md`](../tutorial/diagrams.md).
 
 Design requirements live in [`../assignement.md`](../assignement.md) and [`../specs/`](../specs/). Compliance reviews must read those source requirements alongside [`../requirements-catalog.md`](../requirements-catalog.md), [`../dev-progress-tracker/traceability-matrix.md`](../dev-progress-tracker/traceability-matrix.md), and this manual; the matrix is a tracking view, not the only source of truth. This manual stays aligned with code that actually exists.

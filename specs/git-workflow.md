@@ -1,99 +1,40 @@
-# SCALER Git Workflow Spec
+# Git Project History
+Requirements: SC-18. Acceptance: AC-18.
+Applies to the default Git project profile; explicit non-Git runs record why.
 
-## Purpose
+## History contract
 
-Scaler should make project progress visible and recoverable through git history.
+Preserve project outputs plus compact task/plan/requirement decisions and validation
+references in Git at accepted work boundaries. History MUST map each accepted task
+version to its output commit/artifact identity and evidence manifest.
+Raw transcripts, caches, credentials and large artifacts are excluded by default.
 
-Every project should be a git repository unless this is explicitly disabled or impossible.
+Evidence manifests MUST declare referenced artifact hashes, storage/retention
+locations and whether a Git clone alone is sufficient to reproduce or audit them.
+Git provides version history, not automatic backup of external artifacts.
+Required evidence must remain available under the run's retention policy.
 
-## Repository setup
+## Commit acceptance
 
-At the beginning of a Scaler run:
+Validate the exact intended output snapshot. Stage only owned task changes,
+account for pre-existing staged/untracked/user changes, and reject unintended
+index contents. If outputs change after validation, revalidate affected outputs
+before commit acceptance. Use full commit identities in durable records.
 
-1. Check whether the active project is inside a git repository.
-2. If not, initialize git when allowed.
-3. Create or update ignore rules for Scaler runtime data when needed.
-4. Record the initial git status in logs.
+Record intent before committing and outcome after. If a crash follows commit
+creation, reconcile the existing commit rather than duplicating work.
+History recording and accepted-state recording must be recoverably linked; a
+second metadata-only event/commit may record the resulting output commit hash.
 
-Scaler must not silently mix unrelated existing user changes with its own task commits.
+A task with no changes records a justified no-change outcome. A non-Git profile
+records an explicit skip/alternative history mechanism. Skipping Git does not
+waive output validation.
 
-If the repository has unrelated dirty changes before a task starts, Scaler should either:
+## User scope
 
-- ask for approval,
-- create an explicit checkpoint when allowed,
-- or pause with a clear report.
-
-## Runtime data
-
-Large Scaler runtime data should not be committed by default.
-
-Usually ignore:
-
-- `.scaler/logs/`
-- `.scaler/cache/`
-- large `.scaler/artifacts/`
-- compressed raw outputs
-
-Commit only project changes and intentional lightweight Scaler files when useful, such as plans, reports, or configuration.
-
-## Task commits
-
-Each validated task should create a git commit when it changes project files.
-
-Commit only after:
-
-1. task output exists,
-2. required validation gates pass,
-3. task report is written,
-4. unrelated changes are excluded.
-
-Commit message format:
-
-```text
-<TASK_ID>: <short meaningful message>
-```
-
-Example:
-
-```text
-T-004: add config parser validation tests
-```
-
-The commit body may include:
-
-- task summary
-- validation results
-- important report paths
-- known risks
-
-## Commit rules
-
-- One task should usually produce one commit.
-- Do not commit failed attempts unless explicitly useful and approved.
-- Do not commit secrets or unsafe generated files.
-- Do not include unrelated files.
-- If a task has no file changes, record this in the task report instead of creating an empty commit unless configured.
-
-## State and reports
-
-After committing, record in supervisor state and task report:
-
-- task id
-- commit hash
-- commit message
-- changed files
-- validation report reference
-
-## Replanning and meta commits
-
-If Stage II/III outputs are updated during replanning, commit them separately when they are project artifacts.
-
-Use clear messages such as:
-
-```text
-PLAN-002: update execution plan after T-004 blocker
-```
-
-## Logging
-
-Log repository initialization, git status checks, commits, skipped commits, commit failures, and dirty working tree blockers according to `specs/logging.md`.
+Do not reset, stash, overwrite or include unrelated changes silently. Prefer safe
+isolation or pause if ownership cannot be established.
+Local commit, remote push, PR creation, publication and history rewriting are
+distinct actions governed by existing authorization.
+One logical task per output commit is the default, with documented exceptions for
+a coherent validated delivery boundary.

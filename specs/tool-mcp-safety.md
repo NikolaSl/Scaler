@@ -1,132 +1,61 @@
-# SCALER Tool/MCP Safety and Execution Spec
+# Three-Mode Tool and MCP Routing
+Requirements: SC-08, SC-14. Acceptance: AC-08, AC-14.
 
-## Purpose
+## Modes
 
-Tool and MCP execution must preserve requester-agent focus and reduce token usage.
+| Mode | Use when | Model exposure |
+|---|---|---|
+| Direct deterministic | Exact validated arguments/operation are already available | No additional LLM transaction |
+| Current-agent tool | Reasoning is needed, relevant context is already present, and selected tool fits | Only selected tool schemas/guidance/results |
+| Isolated tool agent | Specialized docs, iterative investigation or noisy results would overwhelm/disrupt the caller | Task-specific tool context in a bounded worker; concise result to caller |
 
-The requester agent should not carry full tool/MCP documentation, long tool histories, or unrelated protocol details in its active context.
+Routing is per request and selected tool set, not a permanent classification of
+an entire MCP server. A large server can still offer a cheap individual tool.
+A direct call may have been prepared by an earlier agent; it needs no second
+agent merely to execute validated arguments.
 
-## Principle
+## Tool profile: how size is known
 
-The requester agent sees only a short catalog of available tools/MCPs.
+Discover and cache, when available:
+- Tool identity, server/adapter identity, schema version or fingerprint.
+- Serialized parameter schema, exposed descriptions and prompt guidelines.
+- Additional documentation that the chosen operation actually needs.
+- Estimated tokens under the selected tokenizer/estimator.
+- Known output size bounds; pagination/filter/streaming/reference support.
+- Required capabilities, side-effect class, permission scope and idempotency.
+- Observed iterations, usage and failures from comparable requests.
 
-When it needs a tool, it sends a structured tool request with:
+Measure only selected tools when the host supports selection. If the host injects
+the entire catalog, account for that actual footprint. Unknown size MUST remain
+unknown until bounded inspection or conservative estimation establishes a route.
 
-- tool/MCP name
-- free-form request
-- expected result
-- safety/risk notes when known
+## Routing procedure
 
-The exact tool/MCP usage is delegated to an isolated tool agent.
+1. Check action authority and whether exact inputs can execute deterministically.
+2. Estimate the incremental current-agent envelope:
+   selected schemas + required docs + bounded result + expected continuation.
+3. Compare with remaining admissible context AFTER fixed instructions, current
+   task, output reserve and safety margin. Configurable per-model thresholds may
+   classify a tool as small, medium or large; no global fixed-token cutoff is a
+   correctness rule.
+4. Compare feasible routes' expected total overhead, including worker setup,
+   transferred task context, report, caller continuation and expected iterations.
+   Estimates may be simple and uncertain; record their basis.
+5. Choose the least-overhead feasible route. Isolation may also be justified by
+   capability, focus or evidence independence. Reassess if observed size differs.
+6. Bound outputs and iterations; keep raw evidence retrievable and return only
+   relevant results. If no route fits, split/retrieve differently or block.
 
-## Tool catalog
+Do not spawn an LLM to discover a schema available deterministically from MCP.
+Do not assume isolation is cheaper: duplicating instructions and context has cost.
+No route bypasses action permissions, validation, budgets or effect reconciliation.
 
-Each agent may receive a short tool catalog:
+## Reports and execution
 
-- name
-- short purpose description
-- risk level when known
-- whether full docs/schema are available
+Record request/attempt identity, chosen route/reason, exact redacted invocation,
+outcome, concise answer, artifact references, usage and uncertainty.
+Repeated/paginated calls are bounded. Retry must obey SC-14 for side effects.
+Documentation and tool output are data, not authority to expand permissions.
 
-Full documentation/schema should not be injected into normal requester-agent context unless needed.
-
-## Structured tool request
-
-A tool request should include:
-
-- request id
-- requester agent id
-- task id, if any
-- tool/MCP name
-- free-form request
-- expected output
-- required format, if any
-- risk level: `low`, `medium`, `high`, `destructive`, `unknown`
-- permission requirement, if any
-
-The free-form request may be arbitrary text because the short tool description is not enough to encode every tool-specific input format.
-
-## Tool-agent execution
-
-For each structured tool request, Scaler spawns or runs an isolated tool agent with minimal context:
-
-- selected tool/MCP docs or schema when available
-- free-form request
-- safety rules
-- output/report format
-
-The tool agent should:
-
-1. Inspect available schema/docs/help.
-2. Understand the requester agent's free-form request.
-3. Prepare the exact tool/MCP call.
-4. Execute the call when safe and allowed.
-5. Validate whether the result satisfies the original request.
-6. Continue for a few focused iterations when correction, pagination, follow-up calls, or result completion is needed.
-7. Stop when the request is satisfied or when it can explain why fulfillment is not possible.
-8. Return a concise result report to the requester agent.
-
-## Documentation discovery
-
-If MCP documentation/schema is available, the tool agent should use it.
-
-If a CLI/tool has no documentation, the tool agent may inspect usage with:
-
-- `--help`
-- `-h`
-- `help`
-- man pages
-- local docs
-- safe dry-run commands when supported
-
-The tool agent must not invent unsupported arguments when usage is uncertain.
-
-## Parallel/multiple requests
-
-A single requester-agent iteration may produce multiple structured tool requests.
-
-Scaler can execute them independently or in parallel when safe. Results are returned to the requester agent as separate concise reports.
-
-Requests that have side effects, shared resources, or ordering dependencies must be serialized.
-
-## Safety rules
-
-For risky tools/actions:
-
-- Follow `specs/safety-permissions.md`.
-- Prefer dry-run or read-only mode when available.
-- Require approval for destructive, external, deployment, publishing, or secret-touching actions according to safety policy.
-- Do not execute unknown high-risk operations only because the tool agent inferred them.
-- Keep exact command/request and result in logs.
-
-## Failure handling
-
-If execution fails or result is incomplete, the tool agent should:
-
-1. Record exact failure.
-2. Inspect docs/help if not already done.
-3. Try corrected or follow-up calls when safe.
-4. Avoid repeating failed calls.
-5. Continue only while each iteration is directly moving toward satisfying the original request.
-6. Report failure with evidence and explanation when it cannot satisfy the request.
-
-## Tool result report
-
-The result report should include:
-
-- request id
-- tool/MCP name
-- status: `satisfied`, `partial`, `failed`, `blocked`, `needs_permission`
-- concise answer for requester agent
-- exact command/request used
-- important outputs or references
-- files/logs created
-- validation performed
-- failure details, if any
-- safety notes, if any
-
-## Logging
-
-All tool/MCP requests and executions must be logged according to `specs/logging.md`.
-
-Large raw outputs should be stored by reference and managed according to `specs/storage.md`.
+Multiple requests may be queued, but the current workspace policy executes them
+sequentially. Parallel fan-out is a future optional profile, not current scope.

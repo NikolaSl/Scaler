@@ -1,40 +1,38 @@
-# SCALER Specs Index
+# SCALER Revision 2 Behavioral Specifications
 
-Use this index when implementing Scaler.
+Proposed requirements, not a statement of implemented behavior.
+Read [assignment](../assignement.md) and [catalog](../requirements-catalog.md) first.
+Load only details relevant to the current development task; these documents must
+not automatically become runtime agent context.
 
-It tells coding agents which spec files to read for each implementation task. These specs are not runtime LLM context by default. Algorithmic components, like the supervisor FSM, read state and reports at runtime, not spec files.
+| Document | Requirement focus |
+|---|---|
+| [supervisor.md](supervisor.md) | SC-01, SC-13, SC-26 |
+| [task-agents.md](task-agents.md) | SC-02 |
+| [replanning.md](replanning.md) | SC-03, SC-12 |
+| [adaptive-orchestration.md](adaptive-orchestration.md) | SC-04 |
+| [context-selection.md](context-selection.md) | SC-05, SC-07 |
+| [memory.md](memory.md) | SC-06 |
+| [tool-mcp-safety.md](tool-mcp-safety.md) | SC-08 |
+| [model-capabilities.md](model-capabilities.md) | SC-09 |
+| [validation.md](validation.md) | SC-10 |
+| [attempt-tracking.md](attempt-tracking.md) | SC-11 |
+| [effects-recovery.md](effects-recovery.md) | SC-14 |
+| [budgets-watchdogs.md](budgets-watchdogs.md) | SC-15 |
+| [safety-permissions.md](safety-permissions.md) | SC-16 |
+| [logging.md](logging.md) | SC-17 |
+| [git-workflow.md](git-workflow.md) | SC-18 |
+| [storage.md](storage.md) | SC-19 |
+| [cicd-environment.md](cicd-environment.md) | SC-20 |
+| [research.md](research.md) | SC-21 |
+| [execution-policy.md](execution-policy.md) | SC-22 |
+| [scalability.md](scalability.md) | SC-23 |
+| [evaluation.md](evaluation.md) | SC-24 |
+| [pi-extension-architecture.md](pi-extension-architecture.md) | SC-25 |
+| [runtime-prd-ledger.md](runtime-prd-ledger.md) | SC-27 |
 
-| Spec | Load when working on |
-| --- | --- |
-| `supervisor.md` | FSM, state, transitions, report acceptance |
-| `adaptive-orchestration.md` | complexity levels, when to escalate/de-escalate |
-| `pi-extension-architecture.md` | mapping requirements to Pi APIs, implementation phases |
-| `context-selection.md` | context manifests, pre-spawn context resolver, missing data |
-| `task-agents.md` | task-agent prompt/input/report contract, task sizing |
-| `memory.md` | `.scaler/memory`, memory index, retrieval rules |
-| `logging.md` | `.scaler/logs`, audit events, log format |
-| `storage.md` | compression, rotation, storage limits |
-| `budgets-watchdogs.md` | token/cost/time/tool/storage budgets, checkpoints, resume |
-| `tool-mcp-safety.md` | structured tool requests, isolated tool/MCP agents |
-| `safety-permissions.md` | protected paths, approvals, secrets, sandbox exceptions |
-| `research.md` | local/internet research, source quality, completeness |
-| `validation.md` | validation gates, validation reports, acceptance rules |
-| `cicd-environment.md` | Docker, Compose, dev containers, Minikube validation |
-| `attempt-tracking.md` | failure records, attempt signatures, debug loops |
-| `replanning.md` | plan versions, POC tasks, preserving progress |
-| `runtime-prd-ledger.md` | runtime polished PRD ledger, requirement coverage, task links, PRD versions |
-| `git-workflow.md` | repo setup, per-task commits, dirty tree handling |
+| [acceptance-scenarios.md](acceptance-scenarios.md) | Observable acceptance for every catalog requirement |
 
-## Minimal implementation loading rule
-
-For implementation agents, load:
-
-1. `assignement.md` relevant section.
-2. This index.
-3. Only specs directly listed for the current implementation task.
-
-Do not load all specs unless doing full PRD review.
-
-## Runtime rule
-
-At runtime, Scaler should pass agents only the minimal task context selected by the context resolver. Specs are implementation references, not automatic runtime context.
+Exact storage formats, component architecture and public API migration remain
+next-phase decisions. Paths and state names in specs describe logical behavior
+unless explicitly designated as compatibility requirements.

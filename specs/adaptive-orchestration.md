@@ -1,120 +1,39 @@
-# SCALER Adaptive Orchestration Spec
+# Proportional Orchestration
+Requirements: SC-04. Acceptance: AC-04.
 
-## Purpose
+## Decision
 
-Scaler must not use heavy orchestration for simple tasks.
+Before work, choose the lightest feasible execution route:
+1. Deterministic operation when inputs and behavior are already known.
+2. Current reasoning session when relevant context is present and bounded.
+3. Isolated agent when separation or a different capability justifies setup cost.
 
-The system should scale its process, agents, validation, research, and safety mechanisms according to task complexity and risk.
+Do not spawn an agent for every task, role label, file read or validation command.
+A task boundary and an agent boundary are different decisions.
 
-## Principle
+## Evidence used
 
-Use the lightest reliable process that can satisfy the request.
+Assess scope, uncertainty, consequence of failure, dependency structure, available
+evidence, relevant context size, capability fit and expected execution/retry cost.
+Request length, language or words such as Docker MUST NOT alone determine risk.
+If evidence is missing, use a bounded inspection/clarification; do not automatically
+start the heaviest workflow.
 
-Scaler should behave like an intelligent scientist, manager, architect, and engineer: simple work stays simple; complex work gets the structure needed to solve it safely.
+Use deterministic defaults/heuristics for routine cases. An LLM may propose a
+decomposition when reasoning is needed, but its proposal remains subject to guards.
+Record the selected route, reason and estimate uncertainty without requiring a
+new model call just to explain every routing decision.
 
-## Complexity levels
+## Escalation and de-escalation
 
-### Level 0: Direct response
+Escalate only the deficient dimension: retrieval for missing facts, a new agent
+for context isolation, review for consequential uncertainty, or an authorized
+capability for a capability gap. A test failure does not automatically require
+PRD polishing, deep research and a new global plan.
 
-Use when the request is simple, informational, low-risk, and does not require project changes.
+Reassess at task boundaries or material new evidence. Do not oscillate on every
+minor signal. Reuse accepted findings and authorization. Simplify remaining work
+when the original reason for extra process no longer applies.
 
-No Stage I-IV workflow is needed.
-
-### Level 1: Simple task
-
-Use when the task is clear, small, and low-risk.
-
-May use:
-
-- minimal context selection
-- one task agent or direct execution
-- basic validation
-- short report
-
-### Level 2: Standard task
-
-Use when project changes, tests, or moderate investigation are needed.
-
-Use:
-
-- compact PRD clarification if needed
-- context manifest
-- task agent
-- validation gates
-- git commit when files change
-
-### Level 3: Complex task
-
-Use when the task requires planning, multiple tasks, research, dependencies, or CI/CD setup.
-
-Use:
-
-- Stage I PRD polishing
-- Stage II research/knowledge collection
-- Stage III planning
-- Stage IV sequential execution
-- supervisor state
-- memory/logging
-- validation gates
-- replanning when needed
-
-### Level 4: High-risk or large-scale task
-
-Use when the task is long-running, security-sensitive, production-like, unclear, or has high failure cost.
-
-Use full Scaler controls:
-
-- separate research agents when useful
-- deeper validation
-- sandbox/CI/CD environment
-- budgets/watchdogs
-- safety approvals
-- stronger audit trail
-- plan versioning and POC tasks
-
-## Escalation
-
-Scaler may escalate to a higher level when:
-
-- requirements are unclear
-- missing knowledge blocks progress
-- validation fails
-- risk is higher than expected
-- task scope grows
-- plan assumptions fail
-- a POC or sandbox is needed
-
-## De-escalation
-
-Scaler should avoid unnecessary work and de-escalate when:
-
-- the task is already clear
-- local evidence is sufficient
-- no project changes are needed
-- risk is low
-- validation can be simple
-- extra agents would not improve reliability
-
-## Agent spawning rule
-
-Spawn agents only when isolation improves focus, reliability, speed, or safety.
-
-Do not spawn separate agents for trivial subtasks, obvious file reads, or tiny related changes.
-
-## Research rule
-
-Use separate research agents only when the research question is non-trivial, independent, or large enough that isolation improves quality.
-
-Simple lookups can be handled by the current task agent or coordinator.
-
-## Validation rule
-
-Use the strongest practical validation, but do not run expensive validation that does not improve confidence for the current task.
-
-## Supervisor behavior
-
-The supervisor should record selected complexity level and escalation/de-escalation reasons.
-
-The level can change during execution based on evidence.
-
-Budget sizes and watchdog strictness should follow `specs/budgets-watchdogs.md` and scale with the selected complexity level.
+Stage I–IV MAY remain a convenience template. No fixed complexity level, stage
+count, reviewer count or separate document is necessary for core compliance.

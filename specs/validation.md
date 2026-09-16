@@ -1,135 +1,53 @@
-# SCALER Validation Gates Spec
+# Evidence-Based Acceptance
+Requirements: SC-10. Acceptance: AC-10.
 
-## Purpose
+## Required policy
 
-Validation gates decide whether task output is acceptable.
+Define acceptance before implementation. Every task has a proportional validation
+policy tied to expected outputs and Definition of Done.
+Validation MUST bind to the task/requirement version, attempt, exact output
+version/hash and relevant environment/configuration.
 
-A task is not complete because an agent says it is complete. It is complete only when required validation gates pass and the supervisor accepts the validation report.
+Changing relevant inputs or outputs after validation MUST invalidate acceptance
+for the changed version. All paths to accepted state MUST enforce this rule.
+A worker's passed report, valid JSON, a reference string or a populated checklist
+is an observation/proposal, not independently sufficient proof.
 
-## Principle
+## Validator types
 
-Validation should be objective when possible and evidence-based when objective checks are not available.
+- Deterministic checks: command results, schemas, calculations, artifact checks.
+- Evidence-backed assessment: explicit rubric, cited evidence and limitations.
+- Independent review: optional when impact or uncertainty justifies its cost.
+- Human decision: only where authority, ambiguity or non-automatable acceptance
+  requires it; use existing delegated authority where applicable.
 
-Use the strongest practical validation for the task, but avoid wasteful validation cycles that do not increase confidence.
+A second LLM agreeing is not objective proof. Review policy must identify what
+additional evidence/independence it contributes. Inconclusive work remains
+unverified or blocked unless the user explicitly revises acceptance criteria.
 
-## Validation manifest
+## Software and non-software profiles
 
-Each planned task should include a validation manifest:
+Software checks may include build/type checks, focused tests, integration,
+regression, security and environment acceptance when relevant. Prefer test-first
+where practical; record a justified alternative for documentation, trivial edits,
+exploration or cases where it provides no useful evidence. Do not require fake
+test_first command labels to satisfy a process.
 
-- task id
-- Definition of Done
-- required validation gates
-- validation commands/checks
-- expected outputs/artifacts
-- required evidence
-- acceptance criteria
-- optional validation gates
-- known environment requirements
+Non-software outputs use task-specific completeness, consistency, calculations,
+source support, constraint compliance, adversarial checks and uncertainty criteria.
+Check evidence contents and relevance, not merely the existence of references.
 
-## Software validation gates
+## Execution and completion
 
-For software tasks, use these gates where applicable:
+Run the smallest useful check first. After a repair, rerun the failing check and
+the required affected validation set. Reuse results only when input/output and
+environment identity make reuse valid.
+Required skipped checks need a policy-authorized, explicit alternative or waiver
+with its limitation; agents cannot waive their own acceptance requirements.
 
-1. Dependency check — dependencies install/resolve and lockfiles are consistent.
-2. Test-first check — unit tests are written/updated before implementation when practical.
-3. Build/compile check — project or affected package builds/compiles.
-4. Unit tests — relevant unit tests pass.
-5. Integration tests — relevant integration tests pass or are updated when needed.
-6. Static checks — lint/typecheck/format checks when available.
-7. Security checks — dependency audit, container/image scan, or security scanner when relevant and available.
-8. Local CI/CD environment checks — Docker, dev container, Compose, or Minikube validation when planned or useful.
-9. Acceptance/smoke tests — run in local CI/CD environment or sandbox when available and useful.
-10. Regression check — previously validated behavior remains passing where practical.
+Task acceptance requires outputs, current evidence, no consequential unresolved
+blocker and the applicable history policy. Run acceptance additionally checks
+integration and requirement-level criteria: passing components may compose badly.
 
-If a gate is not applicable or cannot run, the validation report must explain why.
-
-## Test-first rule
-
-For software implementation:
-
-- Prefer writing or updating unit tests before implementation.
-- When modifying existing behavior, update related tests first.
-- If test-first is impractical, record the reason and define another validation path before implementation.
-
-## Non-software intellectual validation gates
-
-For non-software tasks, use evidence-based validation:
-
-1. Completeness — output covers the requested scope and Definition of Done.
-2. Consistency — no internal contradictions.
-3. Compliance — follows PRD, constraints, standards, or policy.
-4. Source validation — important claims are checked against reliable local or internet sources when possible.
-5. Adversarial review — ask critical questions that try to invalidate the result.
-6. Uncertainty report — unresolved assumptions, risks, and confidence level are stated.
-
-## Validation execution order
-
-Recommended order:
-
-1. Run the smallest relevant validation first.
-2. If it fails, enter debugging and rerun the exact failing validation after each attempt.
-3. After the exact failure is fixed, run the full required validation set.
-4. Store validation results and logs.
-5. Commit validated task changes according to `specs/git-workflow.md` when applicable.
-6. Submit validation report to supervisor.
-
-## Validation report
-
-A validation report should include:
-
-- task id
-- validation status: `passed`, `failed`, `partial`, `blocked`, `not_applicable`
-- gates run
-- commands/checks executed
-- expected results
-- actual results
-- logs/artifact references
-- skipped gates and reasons
-- failures and fingerprints
-- remaining risks
-- recommendation: accept, debug, block, or replan
-
-## Acceptance rules
-
-The supervisor may accept task completion only when:
-
-- all required gates passed, or skipped gates have accepted reasons
-- Definition of Done is satisfied
-- outputs/artifacts exist where required
-- validation evidence is stored
-- task commit is created or explicitly skipped according to git workflow rules
-- no unresolved blocker affects the task result
-
-## Failure behavior
-
-If validation fails:
-
-- task moves to debugging
-- failure and attempt tracking rules apply
-- exact failing validation becomes the primary debug target
-- full validation is rerun only after the exact failure is resolved
-
-## Security validation
-
-Security-sensitive tasks and tasks that add/update dependencies, Docker images, third-party modules, auth, permissions, crypto, or deployment config should include security validation according to `specs/safety-permissions.md`.
-
-Local CI/CD and deployment-like validation should follow `specs/cicd-environment.md`.
-
-If CVE/security scanners are unavailable, the validation report must state the limitation and whether execution should pause, continue with risk, or add scanner setup to the plan.
-
-## Environment limitations
-
-If validation infrastructure is missing, the task should not silently pass.
-
-The agent should either:
-
-- create/update required validation environment if within task scope
-- request missing dependencies/permissions
-- mark the gate blocked with evidence
-- escalate to replanning if the plan lacks necessary validation setup
-
-## Logging
-
-All validation commands, checks, results, skipped gates, and acceptance decisions must be logged according to `specs/logging.md`.
-
-Large validation outputs should be stored by reference according to `specs/storage.md`.
+Validation environments are capabilities per SC-20. Missing infrastructure cannot
+silently convert a required check into success.
