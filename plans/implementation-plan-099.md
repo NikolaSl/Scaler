@@ -9,8 +9,33 @@ migration, with separate traceable commits. Requirements PR #1 was merged as
 
 Implement through reviewed increments on topic branches. Do not claim v2
 compliance or deploy unattended operation while acceptance/authority bypasses
-remain. Do not merge a PR automatically. This plan is a durable continuation
-record, not a promise of background execution or a scheduled task.
+remain. Merge authority follows the current user instruction below. This plan
+is a durable continuation record; scheduled execution is recorded separately.
+
+### Overnight authorization and review policy
+
+Nikola explicitly authorized autonomous implementation, Copilot review requests,
+and merging PRs after review when there are no valid unresolved findings and
+applicable tests pass. The unattended work window ends at
+`2026-09-17T06:49:57Z` (09:49:57 Europe/Sofia). Stop unattended mutations then
+and preserve a handoff unless the user extends or changes the instruction.
+This supersedes the earlier no-automatic-merge instruction for this window.
+
+- Request `copilot-pull-request-reviewer[bot]` through the GitHub review-request
+  API; the login without `[bot]` is not the supported reviewer identity.
+- Wait for a completed review covering the changes. Silence is not approval.
+  Evaluate findings against code and requirements; fix valid issues and record
+  evidence for findings that do not apply. Re-review changed code when needed.
+- Merge only the reviewed, tested head using an expected-head-SHA guard and a
+  merge commit to preserve implementation history. Respect branch protection.
+- Keep paid model spending and deployment out of scope. Existing free-provider
+  synthetic tests are permitted; do not disclose credentials.
+- Seven hourly continuation runs were scheduled in this chat, starting at
+  02:49:57 Europe/Sofia on September 17. They must inspect current remote state
+  before acting and avoid overlapping work. Scheduling is not a guarantee that
+  every run will have execution tools or finish a phase; report concrete blockers.
+- Next work after PR #3: make the parallel tool-ledger race reproducible, address
+  it in a bounded change, then continue P2.2 attempt/evidence binding.
 
 ## Architecture direction
 
