@@ -30,10 +30,9 @@ This supersedes the earlier no-automatic-merge instruction for this window.
   merge commit to preserve implementation history. Respect branch protection.
 - Keep paid model spending and deployment out of scope. Existing free-provider
   synthetic tests are permitted; do not disclose credentials.
-- Seven hourly continuation runs were scheduled in this chat, starting at
-  02:49:57 Europe/Sofia on September 17. They must inspect current remote state
-  before acting and avoid overlapping work. Scheduling is not a guarantee that
-  every run will have execution tools or finish a phase; report concrete blockers.
+- Continuations must inspect current remote state before acting and avoid
+  overlapping work. Scheduling details are recorded separately; scheduling does
+  not guarantee execution tools or phase completion. Report concrete blockers.
 - Next work after PR #3: make the parallel tool-ledger race reproducible, address
   it in a bounded change, then continue P2.2 attempt/evidence binding.
 
