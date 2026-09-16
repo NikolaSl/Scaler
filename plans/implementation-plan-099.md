@@ -82,6 +82,9 @@ Real-model and full-host end-to-end claims require actual execution in P7.
   integration tests passed. The sole failure is the known retention fixture using
   December 2025 timestamps against the current clock. Add P1.0: correct only that
   fixture's time reference in a separate commit, retaining old/new deletion checks.
+- P1.0: the command-level retention fixture now uses 300-day-old and one-day-old
+  artifacts around the unchanged 200-day boundary. All four storage-maintenance
+  integration tests pass; deletion and preservation assertions remain intact.
 - P1.1: regression tests first reproduced a read-side timestamp rewrite and a torn
   JSON read. Atomic same-directory publication and exclusive initialization now
   pass state/checkpoint checks (15/15) and the TypeScript build. Failed publication

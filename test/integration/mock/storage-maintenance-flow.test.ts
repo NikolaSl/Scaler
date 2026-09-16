@@ -171,10 +171,16 @@ test("mock integration: storage maintenance deletes approved raw log and memory 
     await writeFile(oldMemory, "m".repeat(5), "utf8");
     await writeFile(newMemory, "M".repeat(5), "utf8");
     await writeFile(join(dir, ".scaler", "memory", "index.json"), JSON.stringify({ version: 1, entries: [{ id: "old", path: ".scaler/memory/old.md" }, { id: "new", path: ".scaler/memory/new.md" }] }), "utf8");
-    await utimes(oldLog, new Date("2025-12-01T00:00:00.000Z"), new Date("2025-12-01T00:00:00.000Z"));
-    await utimes(newLog, new Date("2025-12-31T00:00:00.000Z"), new Date("2025-12-31T00:00:00.000Z"));
-    await utimes(oldMemory, new Date("2025-12-01T00:00:00.000Z"), new Date("2025-12-01T00:00:00.000Z"));
-    await utimes(newMemory, new Date("2025-12-31T00:00:00.000Z"), new Date("2025-12-31T00:00:00.000Z"));
+    // This command uses the wall clock. Keep fixtures on either side of its
+    // 200-day retention boundary rather than letting fixed dates both expire.
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+    const expired = new Date(now - 300 * dayMs);
+    const recent = new Date(now - dayMs);
+    await utimes(oldLog, expired, expired);
+    await utimes(newLog, recent, recent);
+    await utimes(oldMemory, expired, expired);
+    await utimes(newMemory, recent, recent);
 
     const commands = registeredCommands();
     await commands.get("scaler-storage-maintain")?.handler("execute no-compress delete-raw-logs max-raw-log-age-days=200 delete-memory max-memory-age-days=200", { cwd: dir, hasUI: false });
