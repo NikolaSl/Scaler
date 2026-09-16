@@ -99,7 +99,6 @@ test("commitValidatedTask commits allowed validated task changes and excludes sc
     await mkdir(join(dir, "src"), { recursive: true });
     await mkdir(join(dir, ".scaler"), { recursive: true });
     await writeFile(join(dir, "src", "feature.ts"), "export const value = 1;\n", "utf8");
-    await writeFile(join(dir, ".scaler", "state.json"), "{}\n", "utf8");
     const state = createDefaultState();
     state.tasks = [{ id: "T-001", title: "Add feature", status: "validating", allowedPathPrefixes: ["src"], updatedAt: state.createdAt }];
     await saveState(dir, state);

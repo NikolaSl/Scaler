@@ -63,8 +63,9 @@ test("mock integration: task-agent report is required before validation handoff"
     assert.equal((await loadTaskAgentRunRecords(dir))[0]?.reportStatus, "accepted");
     assert.equal((await loadTaskAgentReports(dir))[0]?.status, "completed");
 
-    const missingState = stateWithReadyTask();
-    missingState.tasks[0] = { ...missingState.tasks[0]!, id: "T-MISSING" };
+    const missingState = await loadState(dir);
+    missingState.currentTaskId = null;
+    missingState.tasks = [{ ...stateWithReadyTask().tasks[0]!, id: "T-MISSING" }];
     const missing = await runConductorStep(dir, missingState, { execute: true }, async (request) => ({
       taskId: request.taskId,
       exitCode: 0,
