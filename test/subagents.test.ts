@@ -144,6 +144,14 @@ test("runTaskAgent attaches provider usage from JSON stdout events", async () =>
   });
 });
 
+test("runTaskAgent marks children so host hooks preserve their selected tools", async () => {
+  await withScript('#!/bin/sh\nprintf \'{"child":"%s"}\\n\' "$SCALER_CHILD_AGENT"\n', async (script, dir) => {
+    const result = await runTaskAgent({ taskId: "T-child", prompt: "ignored", cwd: dir }, { command: script });
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(result.stdoutEvents, [{ child: "1" }]);
+  });
+});
+
 test("runTaskAgent reports timeout diagnostics", async () => {
   await withScript("#!/bin/sh\nsleep 0.2\n", async (script, dir) => {
     const result = await runTaskAgent({ taskId: "T-005", prompt: "ignored", cwd: dir }, { command: script, timeoutMs: 10 });

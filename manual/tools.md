@@ -61,6 +61,11 @@ Debug-agent subprocesses emit structured `scaler_debug_report` JSON events rathe
 
 Tool request prompts intentionally include only selected catalog entries for the requested/allowed tools. Unknown tools are represented as `unknown` risk unless a prior `scaler_tool_schema` record supplied local docs/schema metadata. Tool-agent prompts require a structured `scaler_tool_result` completion; free-form prose is not the durable completion signal.
 
-For parent requester sessions, SCALER uses Pi `getAllTools`/`getActiveTools`/`setActiveTools` during SCALER-guided turns when those runtime APIs are available. The context hook injects only a compact runtime catalog (name, short purpose, risk, active flag, docs/schema availability) and omits parameter schemas and prompt guidelines. It snapshots the previous active-tool set, narrows the requester turn to SCALER requester/report tools, and restores the original tools at turn/agent end or via `/scaler-active-tools restore` when the command context exposes active-tool APIs.
+For parent requester sessions, SCALER uses Pi `ExtensionAPI.getAllTools`/`getActiveTools`/`setActiveTools` during SCALER-guided turns when those runtime APIs are available. These methods belong to the extension API, not the event/command context. The context hook injects only a compact runtime catalog (name, short purpose, risk, active flag, docs/schema availability) and omits parameter schemas and prompt guidelines. It snapshots the previous active-tool set, narrows the requester turn to SCALER requester/report tools, and restores the original tools at turn/agent end or via `/scaler-active-tools restore`.
+
+Processes launched by the SCALER agent runner are marked as children and preserve
+their explicitly selected tools; parent focus/catalog injection is not applied to
+them. This routing marker is not an authorization mechanism. The legacy focus
+policy still needs migration to the request-specific three-mode policy in SC-08.
 
 The current tool/MCP implementation covers catalog isolation, parent requester catalog injection/active-tool focus, schema discovery, local MCP enumeration, isolated transactions/replay, closed replay approvals, bounded correction loops, and conservative parallel scheduling. Future work may still improve cross-process ledger locking.

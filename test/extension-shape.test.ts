@@ -265,9 +265,8 @@ test("extension context hook focuses parent tools and injects compact runtime ca
     await saveState(dir, state);
 
     let activeTools = ["bash", "read", "scaler_tool_request", "scaler_task_report"];
-    const runtimeCtx = {
-      cwd: dir,
-      hasUI: false,
+    // Pi owns these methods on ExtensionAPI, not on the per-event context.
+    Object.assign(fakePi, {
       getAllTools: () => [
         { name: "bash", description: "Run shell commands", parameters: { hidden: "SECRET_SCHEMA" }, promptGuidelines: "SECRET_GUIDELINES" },
         { name: "read", description: "Read files" },
@@ -276,7 +275,8 @@ test("extension context hook focuses parent tools and injects compact runtime ca
       ],
       getActiveTools: () => activeTools,
       setActiveTools: (names: string[]) => { activeTools = names; },
-    };
+    });
+    const runtimeCtx = { cwd: dir, hasUI: false };
 
     scalerExtension(fakePi as never);
     const result = await handlers.get("context")?.({ type: "context", messages: [{ role: "user", content: "hello" }] }, runtimeCtx) as { messages?: unknown[] } | undefined;
@@ -290,6 +290,36 @@ test("extension context hook focuses parent tools and injects compact runtime ca
 
     await handlers.get("turn_end")?.({ type: "turn_end", message: {}, toolResults: [] }, runtimeCtx);
     assert.deepEqual(activeTools, ["bash", "read", "scaler_tool_request", "scaler_task_report"]);
+  });
+});
+
+test("extension child context preserves explicitly selected tools instead of parent focus", async () => {
+  await withTempDir(async (dir) => {
+    const handlers = new Map<string, (event: unknown, ctx: Record<string, unknown>) => Promise<unknown>>();
+    let activeTools = ["read", "bash", "scaler_task_report"];
+    const fakePi = {
+      on(name: string, handler: (event: unknown, ctx: Record<string, unknown>) => Promise<unknown>) { handlers.set(name, handler); },
+      registerTool() {}, registerCommand() {},
+      getAllTools: () => [...activeTools, "scaler_tool_request"].map((name) => ({ name, description: name })),
+      getActiveTools: () => activeTools,
+      setActiveTools: (names: string[]) => { activeTools = names; },
+    };
+    const state = createDefaultState();
+    state.stage = "execution";
+    state.currentTaskId = "T-child";
+    state.tasks = [{ id: "T-child", status: "running", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+    const previous = process.env.SCALER_CHILD_AGENT;
+    try {
+      process.env.SCALER_CHILD_AGENT = "1";
+      scalerExtension(fakePi as never);
+      const result = await handlers.get("context")?.({ type: "context", messages: [] }, { cwd: dir, hasUI: false });
+      assert.deepEqual(activeTools, ["read", "bash", "scaler_task_report"]);
+      assert.doesNotMatch(JSON.stringify(result) ?? "", /Parent tool catalog/);
+    } finally {
+      if (previous === undefined) delete process.env.SCALER_CHILD_AGENT;
+      else process.env.SCALER_CHILD_AGENT = previous;
+    }
   });
 });
 

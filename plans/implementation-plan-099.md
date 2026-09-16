@@ -51,7 +51,7 @@ affected acceptance. No whole-product rewrite or speculative provider work.
 | P1.1 | Read existing state without rewriting; publish complete JSON atomically; initialization must not replace an existing run. | `test/state.test.ts`: stable bytes/mtime, concurrent initializers, invalid JSON, failed publication/reader visibility. | Implemented; focused checks pass |
 | P1.2 | Preparation cannot mark a task running; account/admit before dispatch; reload worker-persisted state before usage/handoff instead of overwriting it. | `test/conductor.test.ts`: prepare then execute, refused admission, persisted child updates and changed-run rejection. | Implemented; focused checks pass |
 | P1.3 | Escalate timeout/abort based on actual exit; signal termination is a failed run; remove timers/listeners and report cleanup accurately. | `test/subagents.test.ts`: real TERM-ignoring child, timeout, abort, natural completion and spawn failure. | Implemented; focused checks pass |
-| P1.4 | Use Pi ExtensionAPI for tool discovery/focus/restore; mocks must place methods on their actual owner. | `test/extension-shape.test.ts`, installed host types, TypeScript build. | Pending |
+| P1.4 | Use Pi ExtensionAPI for tool discovery/focus/restore; mocks must place methods on their actual owner; preserve child tool selection. | `test/extension-shape.test.ts`, installed host types, real Pi catalog command, TypeScript build. | Implemented; focused checks pass |
 
 These are prerequisites, not the full recovery or authority implementation. Atomic
 replacement alone does not prevent lost updates. P2 must add revision checks and
@@ -103,5 +103,12 @@ Real-model and full-host end-to-end claims require actual execution in P7.
   Normal completion and spawn failure release cancellation listeners. Build passes.
   The evidence covers the directly owned POSIX process, not descendant containment
   or equivalent Windows signal semantics.
+- P1.4: the host-shaped regression failed before the API-owner correction. Context
+  focus/restore now uses typed ExtensionAPI methods. Correcting this exposed a
+  necessary child/parent distinction: spawned children preserve their selected
+  tools instead of receiving parent focus. Combined extension/subagent tests pass
+  29/29; build passes. The strengthened real Pi catalog-command test passes 1/1
+  with the installed host, no model request. Full model-driven host acceptance
+  and the three-mode routing migration remain P3/P7 work.
 - Background execution: no cloud job or automation was created. Resume from this
   plan and repository history, checking current branch/PR state before writing.

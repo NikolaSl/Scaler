@@ -117,6 +117,9 @@ export async function runTaskAgent(
   return await new Promise<TaskAgentRunResult>((resolve, reject) => {
     const child = spawn(invocation.command, invocation.args, {
       cwd: invocation.cwd,
+      // Routing metadata only: children keep their explicitly selected tools.
+      // This flag does not grant authority or disable permission enforcement.
+      env: { ...process.env, SCALER_CHILD_AGENT: "1" },
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
     });

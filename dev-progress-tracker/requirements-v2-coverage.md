@@ -67,6 +67,12 @@ Subagent/watchdog tests pass 20/20, including a real TERM-resistant POSIX child.
 This addresses the observed direct-process defect in SC-15; aggregate budgets,
 descendant containment and semantic progress detection remain open.
 
+P1.4 corrects tool discovery/focus/restore to use Pi ExtensionAPI and keeps child
+tool selection separate from parent focus. The combined extension/subagent checks
+pass 29/29, and the actual installed Pi catalog-command check passes 1/1 without
+a model request. This resolves the API-owner counterexample in SC-25; full host
+context accounting, isolation and model execution remain unverified.
+
 ## Second-iteration assessment boundary
 
 The second requirements iteration changes no implementation. Existing Failed and
