@@ -70,11 +70,11 @@ for (const replacement of ["symlink", "file"] as const) {
   }));
 }
 
-test("validation snapshot advertises requirement-bound schema version 3", async () => fixture(false, async (dir) => {
-  assert.equal((await captureValidationSnapshot(dir, await loadState(dir), "T-OUT")).version, 3);
+test("validation snapshot advertises integration-bound schema version 4", async () => fixture(false, async (dir) => {
+  assert.equal((await captureValidationSnapshot(dir, await loadState(dir), "T-OUT")).version, 4);
 }));
 
-for (const version of [1, 2]) {
+for (const version of [1, 2, 3]) {
   test(`version ${version} receipt cannot be reused under requirement-bound snapshot semantics`, async () => fixture(false, async (dir) => {
     const run = await runTaskValidation(dir, await loadState(dir), "T-OUT");
     assert.ok(run.receipt);

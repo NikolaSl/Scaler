@@ -19,11 +19,20 @@ export const runtimePrdRequirementStatuses = ["pending", "in_progress", "impleme
 
 export type RuntimePrdRequirementStatus = (typeof runtimePrdRequirementStatuses)[number];
 
+export interface RuntimePrdAcceptanceCriterion {
+  id: string;
+  statement: string;
+  validationTaskId: string;
+  commandId: string;
+  participantTaskIds: string[];
+}
+
 export interface RuntimePrdRequirement {
   id: string;
   statement: string;
   title?: string;
   source?: string;
+  acceptanceCriteria?: RuntimePrdAcceptanceCriterion[];
   createdAt: string;
   updatedAt: string;
 }
@@ -76,6 +85,7 @@ export interface UpsertPrdRequirementInput {
   statement: string;
   title?: string;
   source?: string;
+  acceptanceCriteria?: RuntimePrdAcceptanceCriterion[];
   status?: RuntimePrdRequirementStatus;
   taskIds?: string[];
   evidenceRefs?: string[];
@@ -148,7 +158,8 @@ export async function saveCurrentPrd(cwd: string, content: string): Promise<void
 export async function loadPrdRequirements(cwd: string): Promise<RuntimePrdRequirementsFile> {
   try {
     const raw = await readFile(getPrdRequirementsPath(cwd), "utf8");
-    return JSON.parse(raw) as RuntimePrdRequirementsFile;
+    const requirements = JSON.parse(raw) as RuntimePrdRequirementsFile;
+    return normalizePrdRequirementsFile(requirements);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return { version: 1, requirements: [] };
@@ -159,7 +170,7 @@ export async function loadPrdRequirements(cwd: string): Promise<RuntimePrdRequir
 
 export async function savePrdRequirements(cwd: string, requirements: RuntimePrdRequirementsFile): Promise<void> {
   await mkdir(getPrdDir(cwd), { recursive: true });
-  await writeFile(getPrdRequirementsPath(cwd), `${JSON.stringify(requirements, null, 2)}\n`, "utf8");
+  await writeFile(getPrdRequirementsPath(cwd), `${JSON.stringify(normalizePrdRequirementsFile(requirements), null, 2)}\n`, "utf8");
 }
 
 export async function loadPrdCoverage(cwd: string): Promise<RuntimePrdCoverageFile> {
@@ -195,6 +206,9 @@ export async function upsertPrdRequirement(cwd: string, input: UpsertPrdRequirem
     statement: input.statement,
     title: input.title ?? existing?.title,
     source: input.source ?? existing?.source,
+    acceptanceCriteria: input.acceptanceCriteria === undefined
+      ? existing?.acceptanceCriteria
+      : normalizePrdAcceptanceCriteria(input.acceptanceCriteria),
     createdAt: existing?.createdAt ?? timestamp,
     updatedAt: timestamp,
   };
@@ -229,6 +243,54 @@ export async function upsertPrdRequirement(cwd: string, input: UpsertPrdRequirem
     affectedRequirementIds: [input.id],
   });
   return requirement;
+}
+
+export function normalizePrdAcceptanceCriteria(
+  criteria: RuntimePrdAcceptanceCriterion[],
+): RuntimePrdAcceptanceCriterion[] {
+  const normalized = criteria.map((criterion, index) => {
+    if (!criterion || typeof criterion !== "object") {
+      throw new Error(`Invalid runtime PRD acceptance criterion at index ${index}.`);
+    }
+    const id = requiredCriterionString(criterion.id, "id", index);
+    const statement = requiredCriterionString(criterion.statement, "statement", index);
+    const validationTaskId = requiredCriterionString(criterion.validationTaskId, "validationTaskId", index);
+    const commandId = requiredCriterionString(criterion.commandId, "commandId", index);
+    if (!Array.isArray(criterion.participantTaskIds)) {
+      throw new Error(`Invalid runtime PRD acceptance criterion ${id}: participantTaskIds must be an array.`);
+    }
+    const participantTaskIds = [...new Set(criterion.participantTaskIds.map((taskId, taskIndex) =>
+      requiredCriterionString(taskId, `participantTaskIds[${taskIndex}]`, index)))].sort();
+    if (participantTaskIds.length === 0) {
+      throw new Error(`Invalid runtime PRD acceptance criterion ${id}: at least one participant task is required.`);
+    }
+    return { id, statement, validationTaskId, commandId, participantTaskIds };
+  }).sort((a, b) => a.id.localeCompare(b.id));
+  const duplicate = normalized.find((criterion, index) => index > 0 && normalized[index - 1]!.id === criterion.id);
+  if (duplicate) throw new Error(`Invalid runtime PRD acceptance criteria: duplicate id ${duplicate.id}.`);
+  return normalized;
+}
+
+function normalizePrdRequirementsFile(requirements: RuntimePrdRequirementsFile): RuntimePrdRequirementsFile {
+  if (requirements?.version !== 1 || !Array.isArray(requirements.requirements)) {
+    throw new Error("Invalid runtime PRD requirements file.");
+  }
+  return {
+    version: 1,
+    requirements: requirements.requirements.map((requirement) => ({
+      ...requirement,
+      acceptanceCriteria: requirement.acceptanceCriteria === undefined
+        ? undefined
+        : normalizePrdAcceptanceCriteria(requirement.acceptanceCriteria),
+    })),
+  };
+}
+
+function requiredCriterionString(value: unknown, field: string, index: number): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`Invalid runtime PRD acceptance criterion at index ${index}: ${field} is required.`);
+  }
+  return value.trim();
 }
 
 export async function appendPrdChange(cwd: string, change: RuntimePrdChangeRecord): Promise<void> {

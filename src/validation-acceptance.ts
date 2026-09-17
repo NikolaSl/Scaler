@@ -14,6 +14,7 @@ import { fingerprintTaskContract, fingerprintValidationPolicy } from "./attempt-
 import { fingerprintJson } from "./fingerprints.js";
 import { fingerprintDeclaredOutputs } from "./output-artifacts.js";
 import { loadPrdCoverage, loadPrdRequirements } from "./prd.js";
+import { loadCommitReports, loadCommitSkips, type CommitValidationSummary } from "./git.js";
 import { loadState } from "./state.js";
 import { loadTaskAttempts } from "./task-attempts.js";
 import type { ScalerState } from "./types.js";
@@ -22,7 +23,7 @@ import { getValidationManifestForTask, loadValidationRuns, type TaskValidationMa
 const exec = promisify(execFile);
 
 export interface ValidationSnapshot {
-  version: 3;
+  version: 4;
   runId: string;
   taskId: string;
   taskFingerprint: string;
@@ -31,6 +32,7 @@ export interface ValidationSnapshot {
   policyFingerprint: string;
   contextFingerprint: string;
   requirementFingerprint: string;
+  integrationFingerprint: string;
   gitCandidateFingerprint: string | null;
   declaredOutputFingerprint: string | null;
 }
@@ -46,12 +48,13 @@ export async function captureValidationSnapshot(cwd: string, state: ScalerState,
   const attempt = task.attemptId ? (await loadTaskAttempts(cwd)).find((attempt) => attempt.id === task.attemptId) : undefined;
   const manifest = await getValidationManifestForTask(cwd, taskId);
   return {
-    version: 3, runId: state.runId, taskId,
+    version: 4, runId: state.runId, taskId,
     taskFingerprint: fingerprintTaskContract(task),
     attemptId: task.attemptId ?? null, outputFingerprint: attempt?.outputFingerprint ?? null,
     policyFingerprint: fingerprintValidationPolicy(manifest),
     contextFingerprint: await captureValidationContext(cwd, state, taskId),
     requirementFingerprint: await fingerprintTaskRequirements(cwd, taskId, task.prdRefs ?? []),
+    integrationFingerprint: await fingerprintTaskIntegrationInputs(cwd, state, taskId, task.prdRefs ?? []),
     gitCandidateFingerprint: await fingerprintGitCandidate(cwd),
     declaredOutputFingerprint: await fingerprintDeclaredOutputs(cwd, manifest.outputPaths),
   };
@@ -74,9 +77,70 @@ async function fingerprintTaskRequirements(cwd: string, taskId: string, taskRequ
       statement: requirement.statement,
       title: requirement.title ?? null,
       source: requirement.source ?? null,
+      acceptanceCriteria: requirement.acceptanceCriteria ?? [],
     } : { id, missing: true };
   });
   return fingerprintJson(material);
+}
+
+async function fingerprintTaskIntegrationInputs(
+  cwd: string,
+  state: ScalerState,
+  ownerTaskId: string,
+  taskRequirementIds: string[],
+): Promise<string> {
+  const coverage = await loadPrdCoverage(cwd);
+  const linkedRequirementIds = new Set([...taskRequirementIds, ...coverage.entries
+    .filter((entry) => entry.taskIds?.includes(ownerTaskId))
+    .map((entry) => entry.requirementId)]);
+  if (linkedRequirementIds.size === 0) return fingerprintJson([]);
+  const requirements = await loadPrdRequirements(cwd);
+  const criteria = requirements.requirements.filter((requirement) => linkedRequirementIds.has(requirement.id)).flatMap((requirement) =>
+    (requirement.acceptanceCriteria ?? [])
+      .filter((criterion) => criterion.validationTaskId === ownerTaskId)
+      .map((criterion) => ({ requirementId: requirement.id, ...criterion })))
+    .sort((a, b) => `${a.requirementId}:${a.id}`.localeCompare(`${b.requirementId}:${b.id}`));
+  if (criteria.length === 0) return fingerprintJson([]);
+
+  const [attempts, runs, commits, skips] = await Promise.all([
+    loadTaskAttempts(cwd), loadValidationRuns(cwd), loadCommitReports(cwd), loadCommitSkips(cwd),
+  ]);
+  const participantIds = [...new Set(criteria.flatMap((criterion) => criterion.participantTaskIds)
+    .filter((taskId) => taskId !== ownerTaskId))].sort();
+  const participants = [];
+  for (const participantTaskId of participantIds) {
+    const task = state.tasks.find((candidate) => candidate.id === participantTaskId);
+    if (!task) {
+      participants.push({ taskId: participantTaskId, missing: true });
+      continue;
+    }
+    const attempt = task.attemptId ? attempts.find((candidate) => candidate.id === task.attemptId) : undefined;
+    const manifest = await getValidationManifestForTask(cwd, participantTaskId);
+    const run = runs.find((candidate) => candidate.taskId === participantTaskId);
+    const commit = run && commits.find((candidate) => candidate.taskId === participantTaskId
+      && candidate.commitHash.trim() && matchesValidation(candidate.validation, run));
+    const skipped = run && skips.find((candidate) => candidate.taskId === participantTaskId
+      && candidate.status === "skipped" && candidate.reason.trim() && matchesValidation(candidate.validation, run));
+    participants.push({
+      taskId: participantTaskId,
+      taskFingerprint: fingerprintTaskContract(task),
+      attemptId: task.attemptId ?? null,
+      outputFingerprint: attempt?.outputFingerprint ?? null,
+      policyFingerprint: fingerprintValidationPolicy(manifest),
+      contextFingerprint: await captureValidationContext(cwd, state, participantTaskId),
+      declaredOutputFingerprint: await fingerprintDeclaredOutputs(cwd, manifest.outputPaths),
+      acceptance: commit
+        ? { kind: "commit", commitHash: commit.commitHash, includedPaths: [...commit.includedPaths].sort() }
+        : skipped ? { kind: "skip" } : { kind: "missing" },
+    });
+  }
+  return fingerprintJson({ criteria, participants });
+}
+
+function matchesValidation(summary: CommitValidationSummary, run: ValidationRunRecord): boolean {
+  return summary.runId === run.id && summary.status === "passed"
+    && summary.commandCount === run.commandRuns.length
+    && summary.createdAt === run.createdAt;
 }
 
 export function fingerprintValidationResult(run: ValidationRunRecord): string {

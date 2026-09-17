@@ -115,3 +115,54 @@ test("a current required named integration command satisfies the criterion", asy
   assert.equal(result.accepted, true, result.message);
   assert.equal((await loadState(dir)).stage, "completed");
 }));
+
+test("reaccepted component output invalidates older integration evidence until rerun", async () => fixture([{
+  id: "integration",
+  command: 'node -e "const fs=require(\'fs\');if(fs.readFileSync(\'a.txt\',\'utf8\')+fs.readFileSync(\'b.txt\',\'utf8\')!==\'ab\')process.exit(1)"',
+  required: true,
+  gate: "integration_tests",
+}], async (dir) => {
+  await writeFile(join(dir, "a.txt"), "a2");
+  await saveValidationManifest(dir, {
+    taskId: "T-A",
+    outputPaths: ["a.txt"],
+    commands: [{
+      id: "component-a",
+      command: 'node -e "if(require(\'fs\').readFileSync(\'a.txt\',\'utf8\')!==\'a2\')process.exit(1)"',
+      required: true,
+    }],
+    createdAt: "",
+    updatedAt: "",
+  });
+  let state = await loadState(dir);
+  state.tasks.find((task) => task.id === "T-A")!.status = "validating";
+  state.validatedTaskIds = state.validatedTaskIds.filter((taskId) => taskId !== "T-A");
+  state.completedTaskIds = state.completedTaskIds.filter((taskId) => taskId !== "T-A");
+  await saveState(dir, state);
+  assert.equal((await runTaskValidation(dir, await loadState(dir), "T-A")).acceptance?.accepted, true);
+
+  const stale = await completeRunWithEvidence(dir, await loadState(dir));
+  assert.equal(stale.accepted, false, "The prior integration run must bind the old component evidence");
+  assert.match(stale.message, /receipt|integration|changed/i);
+
+  await saveValidationManifest(dir, {
+    taskId: "T-B",
+    outputPaths: ["b.txt"],
+    commands: [{
+      id: "integration",
+      command: 'node -e "const fs=require(\'fs\');if(fs.readFileSync(\'a.txt\',\'utf8\')+fs.readFileSync(\'b.txt\',\'utf8\')!==\'a2b\')process.exit(1)"',
+      required: true,
+      gate: "integration_tests",
+    }],
+    createdAt: "",
+    updatedAt: "",
+  });
+  state = await loadState(dir);
+  state.tasks.find((task) => task.id === "T-B")!.status = "validating";
+  state.validatedTaskIds = state.validatedTaskIds.filter((taskId) => taskId !== "T-B");
+  state.completedTaskIds = state.completedTaskIds.filter((taskId) => taskId !== "T-B");
+  await saveState(dir, state);
+  assert.equal((await runTaskValidation(dir, await loadState(dir), "T-B")).acceptance?.accepted, true);
+  const refreshed = await completeRunWithEvidence(dir, await loadState(dir));
+  assert.equal(refreshed.accepted, true, refreshed.message);
+}));

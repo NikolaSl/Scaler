@@ -9,6 +9,7 @@ import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements } from 
 import { loadState, saveState } from "./state.js";
 import { transitionStage } from "./supervisor.js";
 import type { ScalerState } from "./types.js";
+import { getValidationManifestForTask } from "./validation.js";
 
 // Provenance is necessary, not sufficient for final integrated correctness.
 // Historical candidates precede task commits; comparing all of them to current
@@ -48,6 +49,49 @@ async function verifyCompletionProvenance(cwd: string, state: ScalerState): Prom
   for (const task of state.tasks) {
     const errors = await verifyAcceptedTaskEvidence(cwd, state, task.id, context, "Completion evidence");
     diagnostics.push(...errors.map((error) => `${task.id}: ${error}`));
+  }
+  diagnostics.push(...await verifyRequirementIntegrationCriteria(cwd, state, requirements, context));
+  return diagnostics;
+}
+
+async function verifyRequirementIntegrationCriteria(
+  cwd: string,
+  state: ScalerState,
+  requirements: Awaited<ReturnType<typeof loadPrdRequirements>>,
+  context: Awaited<ReturnType<typeof loadAcceptedEvidenceContext>>,
+): Promise<string[]> {
+  const diagnostics: string[] = [];
+  const currentTaskIds = new Set(state.tasks.map((task) => task.id));
+  const coverage = computePrdCoverageSummary(requirements, await loadPrdCoverage(cwd), state);
+  for (const requirement of requirements.requirements) {
+    const linkedTaskIds = new Set(coverage.entries.find((entry) => entry.requirementId === requirement.id)?.linkedTaskIds ?? []);
+    for (const criterion of requirement.acceptanceCriteria ?? []) {
+      const subject = `${requirement.id}/${criterion.id}`;
+      const referencedTaskIds = [...new Set([criterion.validationTaskId, ...criterion.participantTaskIds])];
+      const missingTaskIds = referencedTaskIds.filter((taskId) => !currentTaskIds.has(taskId));
+      if (missingTaskIds.length > 0) {
+        diagnostics.push(`${subject}: Integration evidence rejected: task is not current: ${missingTaskIds.join(", ")}.`);
+        continue;
+      }
+      const unlinkedTaskIds = referencedTaskIds.filter((taskId) => !linkedTaskIds.has(taskId));
+      if (unlinkedTaskIds.length > 0) {
+        diagnostics.push(`${subject}: Integration evidence rejected: task is not linked to the requirement: ${unlinkedTaskIds.join(", ")}.`);
+        continue;
+      }
+      const manifest = await getValidationManifestForTask(cwd, criterion.validationTaskId);
+      const commands = manifest.commands.filter((command) => command.id === criterion.commandId);
+      if (commands.length !== 1 || !commands[0]!.required || commands[0]!.disposition === "skipped"
+        || commands[0]!.disposition === "blocked") {
+        diagnostics.push(`${subject}: Integration evidence rejected: ${criterion.validationTaskId}/${criterion.commandId} must name one required runnable command.`);
+        continue;
+      }
+      const run = context.runs.find((candidate) => candidate.taskId === criterion.validationTaskId);
+      const evidence = run?.commandRuns.filter((command) => command.commandId === criterion.commandId
+        && command.command === commands[0]!.command && command.required && command.status === "passed") ?? [];
+      if (run?.status !== "passed" || evidence.length !== 1) {
+        diagnostics.push(`${subject}: Integration evidence rejected: named command has no current passing evidence.`);
+      }
+    }
   }
   return diagnostics;
 }
