@@ -66,3 +66,15 @@ Build, 597/597 unit and 67/67 mock integration tests pass. Final-head Copilot
 review is required; pending review is not approval. Remaining work includes
 evidence-backed non-software validators, postcommit identity/run completion,
 raw Git-decision helper authority and authenticated child isolation.
+
+## Copilot follow-up
+
+Review 5231970263 correctly identified lost task-existence diagnostics on the
+positive-proposal early return. Two tests reproduced this for passed and
+not-applicable; an invalid-status control already passed (the early branch only
+matched the two valid positive statuses). The correction keeps input, task,
+freshness and transition checks in one private outcome function before refusing
+manual positive acceptance. Its source is set only by internal literal call
+sites; the public API exposes no source/trusted parameter and report details
+cannot change it. Positive supervisor application remains behind receipt/Git
+verification. Re-review of the corrected head is required.

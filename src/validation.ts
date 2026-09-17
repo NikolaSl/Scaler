@@ -869,12 +869,12 @@ export async function runTaskValidation(cwd: string, state: ScalerState, taskId:
       createdAt: record.createdAt,
     });
     if (gitAcceptance.accepted) {
-      result = await applySupervisorValidationOutcome(cwd, state, {
+      result = await applyValidationOutcome(cwd, state, {
         taskId,
         status: record.status,
         summary: `Validation ${record.status}: ${taskId}`,
         details: { runId: record.id, commandRuns, gitAcceptance },
-      });
+      }, "supervisor");
     } else {
       await appendLogEvent(cwd, createLogEvent(state, {
         eventType: "validation",
@@ -1074,19 +1074,16 @@ export async function applyValidationReport(
   state: ScalerState,
   report: ValidationReportInput,
 ): Promise<ValidationApplyResult> {
-  if (report.status === "passed" || report.status === "not_applicable") {
-    return logAndReturn(cwd, state, report, false,
-      "Validation proposal recorded without task acceptance: positive manual claims require independent supervisor verification; report fields and evidence-reference strings are not authority.");
-  }
-  return applySupervisorValidationOutcome(cwd, state, report);
+  return applyValidationOutcome(cwd, state, report, "manual");
 }
 
 // Positive outcomes enter only from runTaskValidation after receipt and Git
 // acceptance checks. Never expose a caller-supplied trusted flag for this path.
-async function applySupervisorValidationOutcome(
+async function applyValidationOutcome(
   cwd: string,
   state: ScalerState,
   report: ValidationReportInput,
+  source: "manual" | "supervisor",
 ): Promise<ValidationApplyResult> {
   if (!isValidationStatus(report.status)) {
     return logAndReturn(cwd, state, report, false, `Validation rejected: invalid status ${String(report.status)}`);
@@ -1109,6 +1106,11 @@ async function applySupervisorValidationOutcome(
       false,
       `Validation ${report.status} cannot be applied from task status ${task.status}`,
     );
+  }
+
+  if (source === "manual" && targetStatus === "validated") {
+    return logAndReturn(cwd, state, report, false,
+      "Validation proposal recorded without task acceptance: positive manual claims require independent supervisor verification; report fields and evidence-reference strings are not authority.");
   }
 
   const beforeRejected = state.rejectedTransitions.length;

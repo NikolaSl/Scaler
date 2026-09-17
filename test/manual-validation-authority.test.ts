@@ -94,3 +94,17 @@ for (const gate of ["custom", "source_validation"] as const) {
     });
   });
 }
+
+for (const status of ["passed", "not_applicable", "invalid"] as const) {
+  test(`manual ${status} report preserves invalid-input diagnostics`, async () => {
+    await fixture("validating", async (dir, state) => {
+      const before = await readFile(getStatePath(dir), "utf8");
+      const result = await applyValidationReport(dir, state, { taskId: "T-MISSING", status, summary: "Mistyped task" });
+      assert.equal(result.accepted, false);
+      assert.match(result.message, status === "invalid" ? /invalid status invalid/ : /task T-MISSING does not exist/);
+      assert.doesNotMatch(result.message, /proposal recorded/);
+      assert.equal(await readFile(getStatePath(dir), "utf8"), before);
+      assert.ok((await readLogEvents(dir)).some((event) => event.summary === result.message));
+    });
+  });
+}
