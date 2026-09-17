@@ -267,3 +267,12 @@ Git checks. Non-software acceptance needs an independent verifier that is not ye
 implemented; do not fabricate evidence, add dummy commands or treat a second
 model's agreement as a substitute. This is an explicit capability limitation,
 not a claim of complete P2.3 or SC-10 support.
+# Completion provenance regression
+
+`node --test --import tsx test/completion-provenance.test.ts` exercises legacy
+execution/completed labels, stage-artifact and wrapper completion, changed
+run/task/policy/result evidence, missing Git acceptance, newer failed validation,
+execution-lock contention, non-Git acceptance/restart and two real sequential
+task commits. Positive chain fixtures use command-checked evidence. PLAN-106
+establishes provenance only; accepted artifact freshness and final integration
+remain separate acceptance work. Passing this suite is not full SC-26 compliance.

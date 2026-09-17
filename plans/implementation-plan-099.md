@@ -21,6 +21,10 @@ applicable tests pass. The unattended work window ends at
 and preserve a handoff unless the user extends or changes the instruction.
 This supersedes the earlier no-automatic-merge instruction for this window.
 
+After that handoff, Nikola explicitly requested continuation again. PLAN-106
+records this direct continuation and its bounded scope; the same completed
+Copilot review, test, separate-commit and expected-head merge gates apply.
+
 - Request `copilot-pull-request-reviewer[bot]` through the GitHub review-request
   API; the login without `[bot]` is not the supported reviewer identity.
 - Wait for a completed review covering the changes. Silence is not approval.
@@ -139,6 +143,12 @@ final gate: `npm run build` and `npm test`.
   action replay, stale merge, or multi-file transaction is introduced in P2.1.
 
 ## Working and verification process
+
+PLAN-106 continues P2.3 with completion provenance shared by autopilot, stage
+conductor/workflow and execution artifact advancement. Build, 615 unit and 67
+mock integration tests pass. Historical labels alone cannot complete a run;
+postcommit artifact freshness and integrated current-output acceptance remain
+open. See PLAN-106 for the exact proof boundary and next unit.
 
 1. Add a regression for the concrete defect and observe failure on the prior code.
 2. Implement the smallest sufficient fix; preserve unrelated user changes.

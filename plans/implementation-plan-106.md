@@ -44,3 +44,31 @@ protection against arbitrary ledger writers remain open.
    request Copilot review, resolve findings, merge only reviewed/tested exact head.
 5. Continue accepted artifact freshness/integration work with its own bounded
    plan and mutation regressions; do not stop at claiming label guards solve it.
+
+## Reproduction and implementation record
+
+The initial 12-case suite had 10 baseline failures and two positive controls.
+Two more baseline failures were reproduced on the loaded-completed paths in
+stage-conductor and stage-workflow. These wrappers now also verify provenance
+before exposing completed=true. A further regression protects against forged
+accepted-id arrays hiding a still-validating task on artifact advancement.
+
+`run-completion.ts` reads existing validation/Git ledgers under the execution
+lock, rejects missing/newer-failed/mismatched records, and revision-checks state.
+Command integrity is shared with the existing current-candidate receipt verifier;
+commit/skip current-candidate checks remain intact. No new receipt or ledger.
+Malformed/unavailable evidence fails closed. Completion never dispatches a model.
+
+Two unit stage-chain fixtures and one integration fixture previously completed
+zero-task runs. They now seed independently command-checked task evidence and
+retain their original chain, ingestion, advancement and completion assertions.
+The real two-commit positive control checks both output files at the second step.
+Non-Git skip and resumed-completion controls remain supported.
+
+This is intentionally provenance, not final artifact freshness: later file
+changes can still escape historical proof checks. PLAN-107 must address that
+with real postcommit mutation/rollback regressions and preserve successive
+commits, rather than equating historical and current global HEAD.
+
+Gate: TypeScript build, 615/615 unit, 67/67 mock integration and 5/5 conformance
+passed. Review pending; no merge is authorized on silence or an older head.
