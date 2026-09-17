@@ -90,7 +90,7 @@ export async function verifyValidationRunReceipt(cwd: string, state: ScalerState
 // Integrity of historical command evidence only. Callers must additionally
 // verify identity/freshness and acceptance; this does not authorize any effect.
 export function verifyValidationRecordEvidence(run: ValidationRunRecord | undefined, manifest: TaskValidationManifest): string[] {
-  const hasEvidence = run?.commandRuns.some((command) => command.status === "passed"
+  const hasEvidence = Array.isArray(run?.commandRuns) && run.commandRuns.some((command) => command.status === "passed"
     || (command.status === "skipped" && command.disposition === "skipped" && command.dispositionReason?.trim()));
   if (!run?.receipt || run.taskId !== manifest.taskId || run.status !== "passed" || !hasEvidence) {
     return ["Validation receipt rejected: no current version-bound passing command evidence; revalidate."];

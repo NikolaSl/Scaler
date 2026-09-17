@@ -10,7 +10,7 @@ import { promisify } from "node:util";
 import { logGitCommitAudit } from "./logging.js";
 import { getCommitReportsPath, getCommitSkipsPath, getGitBootstrapReportsPath } from "./paths.js";
 import { loadValidationRuns, type ValidationRunRecord } from "./validation.js";
-import { verifyCurrentValidationReceipt } from "./validation-acceptance.js";
+import { verifyCurrentValidationReceipt, verifyValidationRunReceipt } from "./validation-acceptance.js";
 import type { ScalerState } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -261,13 +261,23 @@ export async function evaluateValidationGitAcceptance(
   cwd: string,
   state: ScalerState,
   taskId: string,
-  validation: CommitValidationSummary,
+  run: ValidationRunRecord,
 ): Promise<GitValidationAcceptanceDecision> {
   const task = state.tasks.find((candidate) => candidate.id === taskId);
   const safety = await assessGitStatusSafety(cwd, task?.allowedPathPrefixes ?? []);
   if (!task) {
     return { accepted: false, status: "blocked", message: `Task ${taskId} does not exist.`, safety };
   }
+
+  // This exported effect boundary also serves direct callers. A caller-written
+  // passing summary cannot authorize publication of an accepted skip.
+  const diagnostics = await verifyValidationRunReceipt(cwd, state, taskId, run);
+  if (diagnostics.length) return { accepted: false, status: "blocked", message: diagnostics.join(" "), safety };
+  const validation: CommitValidationSummary = {
+    runId: run.id, status: run.status, commandCount: run.commandRuns.length,
+    failedCommandIds: run.commandRuns.filter((command) => ["failed", "timed_out", "blocked"].includes(command.status)).map((command) => command.commandId),
+    createdAt: run.createdAt,
+  };
 
   if (safety.status === "not_git_repo") {
     const skip = await recordCommitSkip(cwd, {

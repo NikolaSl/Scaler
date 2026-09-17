@@ -861,13 +861,7 @@ export async function runTaskValidation(cwd: string, state: ScalerState, taskId:
   let result: ValidationApplyResult;
   let gitAcceptance: GitValidationAcceptanceDecision | undefined;
   if (record.status === "passed") {
-    gitAcceptance = await evaluateValidationGitAcceptance(cwd, state, taskId, {
-      runId: record.id,
-      status: record.status,
-      commandCount: commandRuns.length,
-      failedCommandIds: commandRuns.filter(isNonPassingValidationProblem).map((run) => run.commandId),
-      createdAt: record.createdAt,
-    });
+    gitAcceptance = await evaluateValidationGitAcceptance(cwd, state, taskId, record);
     if (gitAcceptance.accepted) {
       result = await applyValidationOutcome(cwd, state, {
         taskId,
