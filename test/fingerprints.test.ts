@@ -28,3 +28,12 @@ test("canonicalJson permits repeated non-cyclic references", () => {
   const shared = { value: 1 };
   assert.equal(canonicalJson({ left: shared, right: shared }), '{"left":{"value":1},"right":{"value":1}}');
 });
+
+test("canonical keys remain ordered when locale collation considers distinct keys equal", () => {
+  const composed = "\u00e1";
+  const decomposed = "a\u0301";
+  assert.equal(
+    fingerprintJson({ [composed]: 1, [decomposed]: 2 }),
+    fingerprintJson({ [decomposed]: 2, [composed]: 1 }),
+  );
+});

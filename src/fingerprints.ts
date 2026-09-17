@@ -44,7 +44,7 @@ function normalizeJsonValue(value: unknown, path: string, ancestors: Set<object>
     }
     return Object.fromEntries(
       Object.keys(value)
-        .sort((left, right) => left.localeCompare(right))
+        .sort()
         .map((key) => [key, normalizeJsonValue((value as Record<string, unknown>)[key], `${path}.${key}`, ancestors)]),
     );
   } finally {
