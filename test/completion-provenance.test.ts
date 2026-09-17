@@ -14,6 +14,8 @@ import { runScalerAutomation } from "../src/autopilot.js";
 import { commitWithExecutionLock } from "../src/operations.js";
 import { acquireExecutionLock, releaseExecutionLock } from "../src/locks.js";
 import { getCommitSkipsPath, getValidationRunsPath } from "../src/paths.js";
+import { upsertPrdRequirement } from "../src/prd.js";
+import { completeRunWithEvidence } from "../src/run-completion.js";
 import { advanceStageAfterReadyArtifact } from "../src/stage-advancement.js";
 import { runStageConductorLoop } from "../src/stage-conductor.js";
 import { runAutonomousStageWorkflow } from "../src/stage-workflow.js";
@@ -147,6 +149,39 @@ test("current independently checked non-Git skip supports completion and restart
   const resumed = await automate(dir);
   assert.equal(resumed.completed, true, resumed.message);
   assert.equal(resumed.accepted, true);
+}));
+
+test("completion rejects a current runtime requirement without a linked task", async () => fixture(async (dir, state) => {
+  assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
+  await upsertPrdRequirement(dir, { id: "REQ-NEW", statement: "Implement the newly added requirement" });
+  const result = await completeRunWithEvidence(dir, await loadState(dir));
+  assert.equal(result.accepted, false);
+  assert.match(result.message, /REQ-NEW.*linked task|linked task.*REQ-NEW/i);
+  assert.equal((await loadState(dir)).stage, "execution");
+}));
+
+test("completion rejects runtime coverage linked only to a nonexistent task", async () => fixture(async (dir, state) => {
+  assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
+  await upsertPrdRequirement(dir, {
+    id: "REQ-STALE",
+    statement: "Retain current requirement coverage",
+    status: "validated",
+    taskIds: ["T-MISSING"],
+  });
+  const result = await completeRunWithEvidence(dir, await loadState(dir));
+  assert.equal(result.accepted, false);
+  assert.match(result.message, /REQ-STALE.*T-MISSING|T-MISSING.*REQ-STALE/i);
+  assert.equal((await loadState(dir)).stage, "execution");
+}));
+
+test("completion accepts a current runtime requirement linked to validated task evidence", async () => fixture(async (dir, state) => {
+  state.tasks[0]!.prdRefs = ["REQ-ONE"];
+  await saveState(dir, state);
+  await upsertPrdRequirement(dir, { id: "REQ-ONE", statement: "Produce the declared output" });
+  assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
+  const result = await completeRunWithEvidence(dir, await loadState(dir));
+  assert.equal(result.accepted, true, result.message);
+  assert.equal((await loadState(dir)).stage, "completed");
 }));
 
 test("two real task commits retain valid completion provenance across changed HEAD", async () => fixture(async (dir, state) => {
