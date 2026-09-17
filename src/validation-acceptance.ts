@@ -13,7 +13,7 @@ import { captureValidationContext, checkAttemptEvidence } from "./attempt-eviden
 import { fingerprintTaskContract, fingerprintValidationPolicy } from "./attempt-identity.js";
 import { fingerprintJson } from "./fingerprints.js";
 import { fingerprintDeclaredOutputs } from "./output-artifacts.js";
-import { loadPrdRequirements } from "./prd.js";
+import { loadPrdCoverage, loadPrdRequirements } from "./prd.js";
 import { loadState } from "./state.js";
 import { loadTaskAttempts } from "./task-attempts.js";
 import type { ScalerState } from "./types.js";
@@ -51,13 +51,19 @@ export async function captureValidationSnapshot(cwd: string, state: ScalerState,
     attemptId: task.attemptId ?? null, outputFingerprint: attempt?.outputFingerprint ?? null,
     policyFingerprint: fingerprintValidationPolicy(manifest),
     contextFingerprint: await captureValidationContext(cwd, state, taskId),
-    requirementFingerprint: await fingerprintTaskRequirements(cwd, task.prdRefs ?? []),
+    requirementFingerprint: await fingerprintTaskRequirements(cwd, taskId, task.prdRefs ?? []),
     gitCandidateFingerprint: await fingerprintGitCandidate(cwd),
     declaredOutputFingerprint: await fingerprintDeclaredOutputs(cwd, manifest.outputPaths),
   };
 }
 
-async function fingerprintTaskRequirements(cwd: string, requirementIds: string[]): Promise<string> {
+async function fingerprintTaskRequirements(cwd: string, taskId: string, taskRequirementIds: string[]): Promise<string> {
+  // Coverage accepts links in either direction. Bind the same requirement slice
+  // so a coverage-only link cannot reuse evidence for different requirement text.
+  const coverage = await loadPrdCoverage(cwd);
+  const requirementIds = [...taskRequirementIds, ...coverage.entries
+    .filter((entry) => entry.taskIds?.includes(taskId))
+    .map((entry) => entry.requirementId)];
   if (requirementIds.length === 0) return fingerprintJson([]);
   const requirements = await loadPrdRequirements(cwd);
   const byId = new Map(requirements.requirements.map((requirement) => [requirement.id, requirement]));
