@@ -15,7 +15,7 @@ import { fingerprintJson } from "./fingerprints.js";
 import { loadState } from "./state.js";
 import { loadTaskAttempts } from "./task-attempts.js";
 import type { ScalerState } from "./types.js";
-import { getValidationManifestForTask, loadValidationRuns, type ValidationRunRecord } from "./validation.js";
+import { getValidationManifestForTask, loadValidationRuns, type TaskValidationManifest, type ValidationRunRecord } from "./validation.js";
 
 const exec = promisify(execFile);
 
@@ -73,15 +73,9 @@ export async function verifyValidationRunReceipt(cwd: string, state: ScalerState
   if (durable.runId !== state.runId || durable.revision !== state.revision) {
     return ["Validation receipt rejected: state changed or was not persisted; reload and revalidate."];
   }
-  const hasEvidence = run?.commandRuns.some((command) => command.status === "passed"
-    || (command.status === "skipped" && command.disposition === "skipped" && command.dispositionReason?.trim()));
-  if (!run?.receipt || run.taskId !== taskId || run.status !== "passed" || !hasEvidence) {
-    return ["Validation receipt rejected: no current version-bound passing command evidence; revalidate."];
-  }
-  const diagnostics = await checkAttemptEvidence(cwd, state, taskId);
-  if (run.receipt.resultFingerprint !== fingerprintValidationResult(run)) {
-    diagnostics.push("Validation receipt rejected: validation result changed.");
-  }
+  const diagnostics = verifyValidationRecordEvidence(run, await getValidationManifestForTask(cwd, taskId));
+  if (!run?.receipt || diagnostics.length > 0) return diagnostics;
+  diagnostics.push(...await checkAttemptEvidence(cwd, state, taskId));
   try {
     const current = await captureValidationSnapshot(cwd, state, taskId);
     if (fingerprintJson(run.receipt.snapshot) !== fingerprintJson(current)) {
@@ -90,7 +84,21 @@ export async function verifyValidationRunReceipt(cwd: string, state: ScalerState
   } catch (error) {
     diagnostics.push(`Validation receipt rejected: snapshot unavailable: ${String(error)}`);
   }
-  const manifest = await getValidationManifestForTask(cwd, taskId);
+  return diagnostics;
+}
+
+// Integrity of historical command evidence only. Callers must additionally
+// verify identity/freshness and acceptance; this does not authorize any effect.
+export function verifyValidationRecordEvidence(run: ValidationRunRecord | undefined, manifest: TaskValidationManifest): string[] {
+  const hasEvidence = run?.commandRuns.some((command) => command.status === "passed"
+    || (command.status === "skipped" && command.disposition === "skipped" && command.dispositionReason?.trim()));
+  if (!run?.receipt || run.taskId !== manifest.taskId || run.status !== "passed" || !hasEvidence) {
+    return ["Validation receipt rejected: no current version-bound passing command evidence; revalidate."];
+  }
+  const diagnostics: string[] = [];
+  if (run.receipt.resultFingerprint !== fingerprintValidationResult(run)) {
+    diagnostics.push("Validation receipt rejected: validation result changed.");
+  }
   for (const command of manifest.commands.filter((command) => command.required)) {
     const evidence = run.commandRuns.find((run) => run.commandId === command.id && run.command === command.command && run.required);
     const declaredSkip = evidence?.status === "skipped" && evidence.disposition === "skipped"

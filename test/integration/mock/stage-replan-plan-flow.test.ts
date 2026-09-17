@@ -119,7 +119,13 @@ test("integration: stage conductor ingests artifacts and advances through implem
       now: new Date("2026-01-01T00:00:00.000Z"),
     });
     const state = createState("prd");
+    state.tasks = [{ id: "T-STAGE", status: "validating", updatedAt: state.updatedAt }];
     await saveState(dir, state);
+    await upsertValidationManifestCommand(dir, { taskId: "T-STAGE", id: "export", required: true,
+      command: 'node --input-type=module -e "import {value} from \'./index.js\'; if(value!==1)process.exit(1)"',
+    });
+    assert.equal((await runTaskValidation(dir, state, "T-STAGE")).acceptance?.accepted, true);
+    Object.assign(state, await loadState(dir));
 
     const result = await runStageConductorLoop(dir, state, { execute: true, maxSteps: 5 }, stageArtifactRunner);
 

@@ -10,11 +10,24 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { savePrdRequirements } from "../src/prd.js";
 import { runStageConductorLoop, runStageConductorStep } from "../src/stage-conductor.js";
-import { createDefaultState, loadState } from "../src/state.js";
+import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { upsertStageArtifact } from "../src/stages.js";
+import { runTaskValidation, saveValidationManifest } from "../src/validation.js";
+import type { ScalerState } from "../src/types.js";
 
 async function tempDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "scaler-stage-conductor-test-"));
+}
+
+async function seedValidatedTask(cwd: string, state: ScalerState): Promise<void> {
+  state.tasks = [{ id: "T-001", status: "validating", updatedAt: state.updatedAt }];
+  await saveState(cwd, state);
+  await writeFile(join(cwd, "result.txt"), "verified");
+  await saveValidationManifest(cwd, { taskId: "T-001", commands: [{ id: "result", required: true,
+    command: 'node -e "if(require(\'fs\').readFileSync(\'result.txt\',\'utf8\')!==\'verified\')process.exit(1)"',
+  }], createdAt: "", updatedAt: "" });
+  assert.equal((await runTaskValidation(cwd, state, "T-001")).acceptance?.accepted, true);
+  Object.assign(state, await loadState(cwd));
 }
 
 test("runStageConductorStep advances an already ready active-stage artifact", async () => {
@@ -136,6 +149,7 @@ test("runStageConductorLoop chains pre-existing ready artifacts until completion
   await writeFile(join(cwd, "plan.md"), "# Plan\n", "utf8");
   const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
   state.stage = "prd";
+  await seedValidatedTask(cwd, state);
   await upsertStageArtifact(cwd, { id: "ART-PRD", stage: "prd", status: "ready", title: "PRD", path: "agent-prd.md", requirementRefs: ["PRD-S01"] });
   await upsertStageArtifact(cwd, { id: "ART-K", stage: "knowledge", status: "ready", title: "Knowledge", path: "knowledge.md", summary: "Knowledge summary." });
   await upsertStageArtifact(cwd, { id: "ART-P", stage: "planning", status: "ready", title: "Plan", path: "plan.md", taskRefs: ["T-001"] });
@@ -156,6 +170,7 @@ test("runStageConductorLoop executes child reports and carries advanced state fo
   const cwd = await tempDir();
   const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
   state.stage = "prd";
+  await seedValidatedTask(cwd, state);
 
   const result = await runStageConductorLoop(cwd, state, { execute: true, maxSteps: 5 }, async (request) => {
     const stage = request.taskId.replace(/^stage-/, "");

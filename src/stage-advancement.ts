@@ -16,7 +16,8 @@ import {
   type StageArtifactSemanticValidation,
   type StageArtifactStage,
 } from "./stages.js";
-import { transitionStage } from "./supervisor.js";
+import { canTransitionStage, transitionStage } from "./supervisor.js";
+import { completeRunWithEvidence } from "./run-completion.js";
 import type { ScalerStage, ScalerState } from "./types.js";
 
 export interface StageAdvancementResult {
@@ -107,6 +108,15 @@ export async function advanceStageAfterReadyArtifact(
       validation,
       semanticValidation,
       consistencyValidation,
+    };
+  }
+
+  if (targetStage === "completed" && canTransitionStage(state, targetStage).ok) {
+    const completion = await completeRunWithEvidence(cwd, state, now);
+    return {
+      accepted: completion.accepted, advanced: completion.accepted,
+      message: completion.message, stage, targetStage, state: completion.state,
+      validation, semanticValidation, consistencyValidation,
     };
   }
 
