@@ -13,6 +13,7 @@ import { captureValidationContext, checkAttemptEvidence } from "./attempt-eviden
 import { fingerprintTaskContract, fingerprintValidationPolicy } from "./attempt-identity.js";
 import { fingerprintJson } from "./fingerprints.js";
 import { fingerprintDeclaredOutputs } from "./output-artifacts.js";
+import { loadPrdRequirements } from "./prd.js";
 import { loadState } from "./state.js";
 import { loadTaskAttempts } from "./task-attempts.js";
 import type { ScalerState } from "./types.js";
@@ -21,7 +22,7 @@ import { getValidationManifestForTask, loadValidationRuns, type TaskValidationMa
 const exec = promisify(execFile);
 
 export interface ValidationSnapshot {
-  version: 2;
+  version: 3;
   runId: string;
   taskId: string;
   taskFingerprint: string;
@@ -29,6 +30,7 @@ export interface ValidationSnapshot {
   outputFingerprint: string | null;
   policyFingerprint: string;
   contextFingerprint: string;
+  requirementFingerprint: string;
   gitCandidateFingerprint: string | null;
   declaredOutputFingerprint: string | null;
 }
@@ -44,14 +46,30 @@ export async function captureValidationSnapshot(cwd: string, state: ScalerState,
   const attempt = task.attemptId ? (await loadTaskAttempts(cwd)).find((attempt) => attempt.id === task.attemptId) : undefined;
   const manifest = await getValidationManifestForTask(cwd, taskId);
   return {
-    version: 2, runId: state.runId, taskId,
+    version: 3, runId: state.runId, taskId,
     taskFingerprint: fingerprintTaskContract(task),
     attemptId: task.attemptId ?? null, outputFingerprint: attempt?.outputFingerprint ?? null,
     policyFingerprint: fingerprintValidationPolicy(manifest),
     contextFingerprint: await captureValidationContext(cwd, state, taskId),
+    requirementFingerprint: await fingerprintTaskRequirements(cwd, task.prdRefs ?? []),
     gitCandidateFingerprint: await fingerprintGitCandidate(cwd),
     declaredOutputFingerprint: await fingerprintDeclaredOutputs(cwd, manifest.outputPaths),
   };
+}
+
+async function fingerprintTaskRequirements(cwd: string, requirementIds: string[]): Promise<string> {
+  const requirements = await loadPrdRequirements(cwd);
+  const byId = new Map(requirements.requirements.map((requirement) => [requirement.id, requirement]));
+  const material = [...new Set(requirementIds)].sort().map((id) => {
+    const requirement = byId.get(id);
+    return requirement ? {
+      id: requirement.id,
+      statement: requirement.statement,
+      title: requirement.title ?? null,
+      source: requirement.source ?? null,
+    } : { id, missing: true };
+  });
+  return fingerprintJson(material);
 }
 
 export function fingerprintValidationResult(run: ValidationRunRecord): string {
