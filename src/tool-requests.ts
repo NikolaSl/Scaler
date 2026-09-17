@@ -1863,12 +1863,32 @@ async function withToolLedgerWriteQueue<T>(cwd: string, fn: () => Promise<T>): P
     try {
       return await fn();
     } finally {
-      await rmdir(lock);
+      await releaseToolLedgerPublicationLock(lock);
     }
   } finally {
     releaseCurrent();
     if (toolLedgerWriteQueues.get(cwd) === current) toolLedgerWriteQueues.delete(cwd);
   }
+}
+
+async function releaseToolLedgerPublicationLock(lock: string): Promise<void> {
+  let releaseError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await rmdir(lock);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      releaseError = error;
+      if (attempt < 2) await delay(10);
+    }
+  }
+  // Publication may already have committed. Do not report the tool operation as
+  // failed and invite an unsafe retry solely because lock cleanup failed.
+  process.emitWarning(
+    `Tool ledger publication lock could not be released: ${lock}. A preceding publication may already have committed; stop writers and reconcile the orphaned lock without automatically replaying tool effects. ${String(releaseError)}`,
+    { code: "SCALER_TOOL_LEDGER_LOCK_RELEASE_FAILED" },
+  );
 }
 
 function normalizeToolResultStatus(value: unknown): ToolResultStatus {

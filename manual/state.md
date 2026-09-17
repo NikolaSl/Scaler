@@ -68,7 +68,11 @@ do not acquire the lock and cannot observe an in-progress JSON write.
 
 Cross-process lock contention waits at most two seconds before failing. A lock
 is never stolen based on age. The in-process queue is released even when lock
-acquisition or publication fails. The lock is not held across tool/model work.
+acquisition or publication fails. Lock removal is retried briefly. If removal
+still fails after a successful publication, the operation remains successful to
+avoid unsafe tool replay and the process emits
+`SCALER_TOOL_LEDGER_LOCK_RELEASE_FAILED`; later writers fail closed until manual
+reconciliation. The lock is not held across tool/model work.
 After a crashed writer, stop all workspace writers, reconcile unfinished work,
 then remove only its orphaned publication lock. An orphan `*.json.<uuid>.tmp`
 is unpublished data; do not promote it or replay tool effects automatically.

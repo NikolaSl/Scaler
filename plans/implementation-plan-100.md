@@ -41,9 +41,14 @@ Those remain separate work. No new database, dependency or service is needed.
   a filesystem publication lock encloses each complete read/modify/write; atomic
   replacement keeps unlocked readers on complete snapshots. Contention across
   processes is bounded to two seconds. Lock age never transfers ownership.
-- Focused regression/tool checks: 34/34 passed. Full build and gate: 513/513 unit
+- Focused regression/tool checks: 35/35 passed. Full build and gate: 514/514 unit
   and 67/67 mock integration tests passed. No test assertions were weakened. No
   real-model test was rerun for this filesystem-only change.
+- Copilot identified that a cleanup error could retroactively reject an already
+  committed result and encourage duplicate tool execution. Lock removal now has
+  bounded retries; persistent failure emits a warning but preserves the committed
+  call's success. The orphan remains fail-closed for manual reconciliation. A
+  regression injects a non-empty lock after publication and verifies this path.
 - Copilot's PR #3 scheduling comment was valid and corrected on its own branch;
   its publication protocol is unchanged. This unit still requires its own
   completed review and fresh head/check verification before merge.

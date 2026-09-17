@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -109,6 +110,38 @@ test("failed result serialization preserves the prior index and releases the wri
     await recordToolResult(dir, state, { requestId: request.id, status: "completed", summary: "Recovery", outputs: 2 });
     assert.equal((await loadToolResults(dir)).length, 2);
     assert.ok((await readdir(getToolRequestsDir(dir))).every(p => !p.endsWith(".tmp") && !p.endsWith(".lock")));
+  });
+});
+
+test("lock cleanup failure does not turn a committed result into a failed tool call", async () => {
+  await withDirectory(async (dir) => {
+    const state = createDefaultState();
+    const request = (await prepareToolRequest(dir, state, { toolName: "read", request: "Synthetic" })).record!;
+    const lock = join(getToolRequestsDir(dir), "execution-ledger.lock");
+    let injected = false;
+    const warning = once(process, "warning");
+    const record = await recordToolResult(dir, state, {
+      requestId: request.id,
+      status: "completed",
+      summary: "Committed before cleanup",
+      outputs: {
+        toJSON() {
+          if (!injected) {
+            writeFileSync(join(lock, "foreign-entry"), "force rmdir failure", "utf8");
+            injected = true;
+          }
+          return { ok: true };
+        },
+      },
+    });
+    const [emitted] = await warning;
+    assert.equal((emitted as NodeJS.ErrnoException).code, "SCALER_TOOL_LEDGER_LOCK_RELEASE_FAILED");
+    assert.equal((await loadToolResults(dir))[0]?.id, record.id);
+    assert.deepEqual(await readdir(lock), ["foreign-entry"]);
+
+    await rm(lock, { recursive: true });
+    const next = await prepareToolRequest(dir, state, { toolName: "read", request: "After reconciliation" });
+    assert.equal(next.accepted, true);
   });
 });
 
