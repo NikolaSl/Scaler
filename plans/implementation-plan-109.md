@@ -23,3 +23,16 @@ whose working file is restored to its accepted bytes.
 This fixes concrete Git candidate identity omissions, not universal filesystem
 containment, non-Git output identities, semantic checks, or final integration.
 No provider/model spending, additional agents, or speculative architecture.
+
+## Implementation and validation
+
+Five negative cases failed before correction; three controls passed. All eight
+now pass. Candidate identity includes flagged physical files and separately
+hashed index metadata, excluding .scaler runtime paths. Only flagged/changed/
+untracked files are streamed; normal tracked contents still use Git identity.
+The existing 4 MiB binary streaming test retains its byte-hash assertion and adds
+the fixture's known staged blob entry to the expected candidate identity.
+
+Gate: build, 649/649 unit, 67/67 mock integration, 5/5 conformance and clean diff.
+Final-head Copilot review remains required before merge. Skip/non-Git completion
+freshness and final requirement/integration proof remain open.

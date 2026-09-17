@@ -157,6 +157,11 @@ identity and ancestry, current bytes/modes/deletions and index checks. Build,
 629 unit and 67 mock integration tests pass. Skip/non-Git artifact freshness,
 unrelated outputs and final semantic/integration acceptance are still open.
 
+PLAN-108 guards the direct Git decision API with full current receipts. PLAN-109
+then closes Git index-flag and index-only omissions in candidate identity; its
+gate passes build, 649 unit and 67 mock integration tests. None of these units
+establishes universal output/semantic acceptance or full P2.3 completion.
+
 1. Add a regression for the concrete defect and observe failure on the prior code.
 2. Implement the smallest sufficient fix; preserve unrelated user changes.
 3. Run focused checks, then build/integration when the boundary warrants it.

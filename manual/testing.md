@@ -269,6 +269,12 @@ model's agreement as a substitute. This is an explicit capability limitation,
 not a claim of complete P2.3 or SC-10 support.
 # Completion provenance regression
 
+PLAN-109's `test/hidden-git-candidates.test.ts` verifies that commit/skip cannot
+reuse a receipt after edits hidden by assume-unchanged/skip-worktree or after an
+index-only change. Unchanged flagged files and staged runtime-only bookkeeping
+remain positive controls. Pre-change receipts require revalidation under the
+extended candidate identity; no acceptance proof is fabricated during migration.
+
 PLAN-108's `test/git-decision-evidence.test.ts` covers the direct Git-decision API:
 bare/empty/tampered/stale evidence cannot publish accepted skips; full verified
 records produce correctly derived summaries. Git and non-Git controls remain.
