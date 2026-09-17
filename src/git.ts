@@ -104,6 +104,7 @@ const scalerGitIgnoreRules = [
   ".scaler/state.json.*.tmp",
   ".scaler/tool-requests/execution-ledger.lock/",
   ".scaler/tool-requests/*.tmp",
+  ".scaler/reports/*.tmp",
   ".scaler/logs/",
   ".scaler/cache/",
   ".scaler/artifacts/",

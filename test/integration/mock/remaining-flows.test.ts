@@ -94,8 +94,8 @@ function validPlanTask(id: string, title: string, overrides: Record<string, unkn
   };
 }
 
-function taskReport(taskId: string): Record<string, unknown> {
-  return { type: "scaler_task_report", taskId, status: "completed", summary: "Task completed.", changedFiles: [], memoryRefs: [], validations: [], validationRefs: [], evidenceRefs: [], blockers: [], missingData: [], recommendedNextAction: "validate" };
+function taskReport(taskId: string, attempt?: TaskAgentRequest["attempt"]): Record<string, unknown> {
+  return { type: "scaler_task_report", taskId, ...attempt, status: "completed", summary: "Task completed.", changedFiles: [], memoryRefs: [], validations: [], validationRefs: [], evidenceRefs: [], blockers: [], missingData: [], recommendedNextAction: "validate" };
 }
 
 function passedRunner(taskId = "T-001"): Promise<TaskAgentRunResult> {
@@ -473,7 +473,9 @@ test("mock integration: dependency-blocked task waits until dependency validates
       { id: "T-CHILD", status: "ready", title: "Child", dependsOn: ["T-DEP"], updatedAt: state.createdAt },
     ];
     await saveState(dir, state);
-    const first = await runConductorStep(dir, state, { execute: true }, () => passedRunner("T-DEP"));
+    const first = await runConductorStep(dir, state, { execute: true }, (request) => Promise.resolve({
+      taskId: request.taskId, exitCode: 0, stdoutEvents: [taskReport(request.taskId, request.attempt)], stderr: "", timedOut: false, aborted: false,
+    }));
     assert.equal(first.task?.id, "T-DEP");
     const validation = await applyValidationReport(dir, await loadState(dir), { taskId: "T-DEP", status: "passed", summary: "Dependency passed" });
     const second = await runConductorStep(dir, validation.state, { execute: false });

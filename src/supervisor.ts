@@ -46,11 +46,11 @@ const stageTransitions: Record<ScalerStage, ReadonlySet<ScalerStage>> = {
 };
 
 const taskTransitions: Record<ScalerTaskStatus, ReadonlySet<ScalerTaskStatus>> = {
-  pending: new Set(["ready", "failed"]),
-  ready: new Set(["running", "failed"]),
+  pending: new Set(["ready", "blocked", "failed"]),
+  ready: new Set(["running", "blocked", "failed"]),
   running: new Set(["validating", "blocked", "failed"]),
   validating: new Set(["validated", "debugging", "blocked", "failed"]),
-  debugging: new Set(["running", "validated", "needs_replan", "failed"]),
+  debugging: new Set(["running", "validated", "blocked", "needs_replan", "failed"]),
   blocked: new Set(["ready", "failed"]),
   needs_replan: new Set(["ready", "failed"]),
   validated: new Set([]),

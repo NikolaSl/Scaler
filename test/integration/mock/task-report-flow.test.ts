@@ -37,6 +37,7 @@ async function completedRun(request: TaskAgentRequest): Promise<TaskAgentRunResu
     stdoutEvents: [{
       type: "scaler_task_report",
       taskId: request.taskId,
+      ...request.attempt,
       status: "completed",
       summary: "Task report complete.",
       changedFiles: ["src/app.ts"],

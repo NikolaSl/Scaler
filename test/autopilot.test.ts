@@ -86,6 +86,7 @@ async function taskRunner(request: TaskAgentRequest): Promise<TaskAgentRunResult
     stdoutEvents: [{
       type: "scaler_task_report",
       taskId: "T-AUTO",
+      ...request.attempt,
       status: "completed",
       summary: "Task completed by full automation test.",
       changedFiles: [],
@@ -145,7 +146,7 @@ test("runScalerAutomation debug-retries validation failures before completing", 
         return {
           taskId: request.taskId,
           exitCode: 0,
-          stdoutEvents: [{ type: "scaler_task_report", taskId: request.taskId, status: "completed", summary: "Debug retry wrote fixed.txt.", changedFiles: ["fixed.txt"] }],
+          stdoutEvents: [{ type: "scaler_task_report", taskId: request.taskId, ...request.attempt, status: "completed", summary: "Debug retry wrote fixed.txt.", changedFiles: ["fixed.txt"] }],
           stderr: "",
           timedOut: false,
           aborted: false,

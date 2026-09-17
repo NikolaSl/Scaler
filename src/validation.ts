@@ -4,6 +4,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { checkAttemptEvidence } from "./attempt-evidence.js";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { prepareCicdValidationExecution } from "./cicd-environments.js";
@@ -811,6 +812,8 @@ function isNonPassingValidationProblem(run: ValidationCommandRunRecord): boolean
 }
 
 export async function runTaskValidation(cwd: string, state: ScalerState, taskId: string): Promise<ValidationRunRecord> {
+  const freshness = await checkAttemptEvidence(cwd, state, taskId);
+  if (freshness.length > 0) return rejectStaleValidation(cwd, state, taskId, freshness, []);
   const manifest = await getValidationManifestForTask(cwd, taskId);
   const policy = evaluateValidationManifestPolicy(manifest);
   const commandRuns: ValidationCommandRunRecord[] = [];
@@ -822,6 +825,8 @@ export async function runTaskValidation(cwd: string, state: ScalerState, taskId:
     }
   }
 
+  const finalFreshness = await checkAttemptEvidence(cwd, state, taskId);
+  if (finalFreshness.length > 0) return rejectStaleValidation(cwd, state, taskId, finalFreshness, commandRuns);
   const record: ValidationRunRecord = {
     id: `${taskId}-${Date.now()}`,
     taskId,
@@ -875,6 +880,17 @@ export async function runTaskValidation(cwd: string, state: ScalerState, taskId:
     gates: commandRuns.map((run) => ({ commandId: run.commandId, gate: run.gate, required: run.required, status: run.status, disposition: run.disposition })),
     details: record,
   });
+  return record;
+}
+
+async function rejectStaleValidation(cwd: string, state: ScalerState, taskId: string, diagnostics: string[], commandRuns: ValidationCommandRunRecord[]): Promise<ValidationRunRecord> {
+  const record: ValidationRunRecord = {
+    id: `${taskId}-stale-${Date.now()}`, taskId, status: "blocked", commandRuns,
+    acceptance: { accepted: false, message: diagnostics.join(" ") },
+    createdAt: new Date().toISOString(),
+  };
+  await writeValidationRuns(cwd, [record, ...(await loadValidationRuns(cwd))]);
+  await appendLogEvent(cwd, createLogEvent(state, { eventType: "validation", taskId, summary: record.acceptance!.message, details: record }));
   return record;
 }
 
@@ -1043,6 +1059,9 @@ export async function applyValidationReport(
   if (!task) {
     return logAndReturn(cwd, state, report, false, `Validation rejected: task ${report.taskId} does not exist`);
   }
+
+  const freshness = await checkAttemptEvidence(cwd, state, report.taskId);
+  if (freshness.length > 0) return logAndReturn(cwd, state, report, false, freshness.join(" "));
 
   const targetStatus = getTargetTaskStatus(task.status, report.status);
   if (!targetStatus) {

@@ -184,3 +184,22 @@ Real-mode prompts include a cardinal test instruction before the normal agent pr
 - slash-command git bootstrap, commit-skip acceptance after passed validation, safety-policy and safety-approval persistence, cardinal built-in `bash` invocation blocked by the SCALER safety hook for protected-path and external publish commands, and large `bash` tool-result externalization into `.scaler/logs/tools/`, recorded in `.scaler/logs/events.jsonl` with redacted audit details.
 
 Real Pi/model tests are intentionally opt-in because they can cost tokens, require local model/provider setup, and may be less deterministic than mock integration tests.
+
+### Attempt identity and stale evidence (PLAN-101)
+
+Conductor and debug-retry synthetic runners must echo the request's `attempt`
+fields in their final `scaler_task_report`. Actual Pi subprocesses receive these
+values in the prompt's report template; an unbound report is not valid for an
+admitted attempt. Preview mode creates no attempt.
+
+Run `node --test --import tsx test/attempt-execution.test.ts test/attempt-evidence.test.ts test/task-attempts.test.ts test/task-reports.test.ts test/conductor.test.ts test/debug-retry.test.ts test/fingerprints.test.ts`.
+The suite covers budget refusal before launch, distinct retry IDs, exact binding,
+replacement/changed task-policy rejection, recovery publication failure,
+unknown post-dispatch outcomes, and changed context/report evidence both before
+validation and during a passing validation command.
+
+Interrupted execution locks require explicit operator reconciliation; there is
+no age-based takeover or automatic replay. Do not manually delete attempt records.
+Legacy records are readable history, not upgraded identity evidence. These tests
+do not certify all command/tool/hook acceptance routes (P2.3), artifact correctness,
+exactly-once effects or complete requirements conformance.
