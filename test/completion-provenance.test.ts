@@ -14,7 +14,7 @@ import { runScalerAutomation } from "../src/autopilot.js";
 import { commitWithExecutionLock } from "../src/operations.js";
 import { acquireExecutionLock, releaseExecutionLock } from "../src/locks.js";
 import { getCommitSkipsPath, getValidationRunsPath } from "../src/paths.js";
-import { upsertPrdRequirement } from "../src/prd.js";
+import { loadPrdCoverage, savePrdCoverage, upsertPrdRequirement } from "../src/prd.js";
 import { completeRunWithEvidence } from "../src/run-completion.js";
 import { advanceStageAfterReadyArtifact } from "../src/stage-advancement.js";
 import { runStageConductorLoop } from "../src/stage-conductor.js";
@@ -23,6 +23,7 @@ import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { upsertStageArtifact } from "../src/stages.js";
 import type { ScalerState } from "../src/types.js";
 import { loadValidationRuns, runTaskValidation, saveValidationManifest } from "../src/validation.js";
+import { verifyCurrentValidationReceipt } from "../src/validation-acceptance.js";
 
 const exec = promisify(execFile);
 async function fixture(fn: (dir: string, state: ScalerState) => Promise<void>) {
@@ -216,6 +217,60 @@ test("completion rejects evidence captured while a referenced requirement was mi
   assert.equal(result.accepted, false);
   assert.match(result.message, /requirement|receipt|evidence|changed/i);
   assert.equal((await loadState(dir)).stage, "execution");
+}));
+
+for (const change of ["statement", "late-link"] as const) {
+  test(`explicit-only requirement ${change} invalidates completion evidence`, async () => fixture(async (dir, state) => {
+    if (change === "statement") {
+      await upsertPrdRequirement(dir, {
+        id: "REQ-EXPLICIT", statement: "Original requirement", status: "pending", taskIds: ["T-ONE"],
+      });
+    }
+    assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
+    await upsertPrdRequirement(dir, {
+      id: "REQ-EXPLICIT", statement: "New requirement content", status: "pending", taskIds: ["T-ONE"],
+    });
+    const current = await loadState(dir);
+    const receiptErrors = await verifyCurrentValidationReceipt(dir, current, "T-ONE");
+    const completion = await completeRunWithEvidence(dir, current);
+    assert.equal(completion.accepted, false, "Explicit ledger links must bind requirement content too");
+    assert.match(receiptErrors.join("\n"), /receipt.*changed/i);
+    assert.equal((await loadState(dir)).stage, "execution");
+  }));
+}
+
+test("explicit-only unchanged requirement preserves accepted completion", async () => fixture(async (dir, state) => {
+  const requirement = {
+    id: "REQ-EXPLICIT", statement: "Produce one", status: "pending" as const, taskIds: ["T-ONE"],
+  };
+  await upsertPrdRequirement(dir, requirement);
+  assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
+  await upsertPrdRequirement(dir, { ...requirement, now: new Date("2030-01-01") });
+  const result = await completeRunWithEvidence(dir, await loadState(dir));
+  assert.equal(result.accepted, true, result.message);
+}));
+
+for (const taskIds of [[], ["T-OTHER"]]) {
+  test(`changing an explicit task link to ${JSON.stringify(taskIds)} invalidates its receipt`, async () => fixture(async (dir, state) => {
+    await upsertPrdRequirement(dir, {
+      id: "REQ-EXPLICIT", statement: "Produce one", status: "pending", taskIds: ["T-ONE"],
+    });
+    assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
+    const coverage = await loadPrdCoverage(dir);
+    coverage.entries[0]!.taskIds = taskIds;
+    await savePrdCoverage(dir, coverage);
+    const errors = await verifyCurrentValidationReceipt(dir, await loadState(dir), "T-ONE");
+    assert.match(errors.join("\n"), /receipt.*changed/i);
+  }));
+}
+
+test("unrelated explicit coverage does not invalidate a task receipt", async () => fixture(async (dir, state) => {
+  assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
+  await upsertPrdRequirement(dir, {
+    id: "REQ-OTHER", statement: "Unrelated requirement", status: "pending", taskIds: ["T-OTHER"],
+  });
+  const errors = await verifyCurrentValidationReceipt(dir, await loadState(dir), "T-ONE");
+  assert.deepEqual(errors, []);
 }));
 
 test("two real task commits retain valid completion provenance across changed HEAD", async () => fixture(async (dir, state) => {
