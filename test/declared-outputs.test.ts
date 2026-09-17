@@ -167,6 +167,33 @@ test("public manifest tool retains declared output identity through acceptance",
   assert.equal((await completeRunWithEvidence(dir, await loadState(dir))).accepted, false);
 }));
 
+for (const git of [false, true]) {
+  for (const stage of ["execution", "completed"] as const) {
+    test(`${git ? "Git skip" : "non-Git"} ${stage} cannot complete with unknown output coverage`, async () => fixture(git, async (dir) => {
+      const policy = await getValidationManifestForTask(dir, "T-OUT");
+      delete policy.outputPaths;
+      await saveValidationManifest(dir, policy);
+      assert.equal((await runTaskValidation(dir, await loadState(dir), "T-OUT")).status, "passed");
+      const current = await loadState(dir);
+      current.stage = stage;
+      await saveState(dir, current);
+      const before = await readFile(join(dir, ".scaler/state.json"), "utf8");
+      const result = await completeRunWithEvidence(dir, current);
+      assert.equal(result.accepted, false, result.message);
+      assert.match(result.message, /declare.*outputPaths.*revalidat/i);
+      assert.equal(await readFile(join(dir, ".scaler/state.json"), "utf8"), before);
+    }));
+  }
+}
+
+test("explicit no-filesystem-output policy can complete independently checked work", async () => fixture(false, async (dir) => {
+  await unlink(join(dir, "result.txt"));
+  await manifest(dir, [], 'node -e "if(2+2!==4)process.exit(1)"');
+  assert.equal((await runTaskValidation(dir, await loadState(dir), "T-OUT")).status, "passed");
+  const result = await completeRunWithEvidence(dir, await loadState(dir));
+  assert.equal(result.accepted, true, result.message);
+}));
+
 test("large declared files bind all bytes with bounded streaming reads", async () => fixture(false, async (dir) => {
   const bytes = Buffer.alloc(4 * 1024 * 1024, 0x61);
   await writeFile(join(dir, "result.txt"), bytes);

@@ -9,7 +9,7 @@ import { saveState } from "./state.js";
 import { reviewTaskDefinition, normalizeTaskKind, normalizeTaskQualityWaivers, type TaskDefinitionReviewRecord, type TaskQualityEnforcementMode, type TaskQualityWaiverInput } from "./task-quality.js";
 import { addTask, transitionTask } from "./supervisor.js";
 import type { ScalerState, ScalerTaskKind, ScalerTaskStatus } from "./types.js";
-import { saveValidationManifest, type EmbeddedValidationManifestCommandInput } from "./validation.js";
+import { loadValidationManifests, saveValidationManifest, type EmbeddedValidationManifestCommandInput } from "./validation.js";
 
 export interface CreateTaskInput {
   id: string;
@@ -309,9 +309,11 @@ async function persistTaskValidationCommands(
   definitionOfDone: string[] | undefined,
 ): Promise<void> {
   if (!commands || commands.length === 0) return;
+  const existing = (await loadValidationManifests(cwd)).find((manifest) => manifest.taskId === taskId);
   const timestamp = new Date().toISOString();
   await saveValidationManifest(cwd, {
     taskId,
+    outputPaths: existing?.outputPaths,
     definitionOfDone,
     commands: commands.map((command) => ({ ...command, required: command.required ?? true })),
     createdAt: timestamp,
