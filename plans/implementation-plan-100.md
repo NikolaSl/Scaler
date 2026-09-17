@@ -26,11 +26,33 @@ Those remain separate work. No new database, dependency or service is needed.
 - Barrier-released child processes publish independent requests/results; assert
   all expected identities survive, not only that the JSON parses.
 - Held publication lock must time out without modifying the committed files.
-- Failed serialization/publication must preserve the previous index and release
+- Failed serialization must preserve the previous result index and release
   the live writer's lock. An orphaned lock requires manual reconciliation.
 
 ## Progress
 
-- Planned after PR #3's current-head gate passed 508 unit and 67 mock tests in a
-  fresh checkout. A fresh Copilot review of its final documentation commit is
-  pending; no merge is inferred from the earlier no-comments review.
+- Planned after PR #3's gate passed 508 unit and 67 mock tests in a fresh checkout.
+- Before the repair, the five new regression tests produced four failures:
+  parallel requests lost identities, the result reader raised `Unexpected end of
+  JSON input`, independent workers lost requests, and a held lock was ignored.
+  The serialization-failure control already passed. The fixture is synthetic
+  and makes no model/provider calls.
+- The repair preserves the three schemas and API signatures. A local queue plus
+  a filesystem publication lock encloses each complete read/modify/write; atomic
+  replacement keeps unlocked readers on complete snapshots. Contention across
+  processes is bounded to two seconds. Lock age never transfers ownership.
+- Focused regression/tool checks: 34/34 passed. Full build and gate: 513/513 unit
+  and 67/67 mock integration tests passed. No test assertions were weakened. No
+  real-model test was rerun for this filesystem-only change.
+- Copilot's PR #3 scheduling comment was valid and corrected on its own branch;
+  its publication protocol is unchanged. This unit still requires its own
+  completed review and fresh head/check verification before merge.
+
+## Handoff
+
+After the ledger PR is reviewed and merged, continue PLAN-099 P2.2: inventory
+task report, validation, conductor and acceptance entry points; define the small
+attempt/input/output/policy identity contract before changing acceptance paths.
+Do not treat this repair as completion of P2.2, P2.3 or SC-13. In particular, a
+request status can publish before its result; interruptions and external effects
+still require explicit reconciliation, never automatic tool replay.

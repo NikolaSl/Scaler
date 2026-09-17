@@ -56,3 +56,26 @@ This boundary protects cooperating state writers on the same filesystem. It is
 not a transaction over report/validation/tool ledgers, a worker-authority barrier,
 or power-loss durability. Attempt reconciliation and version-bound evidence
 acceptance remain separate migration work in PLAN-099.
+
+## Tool execution indexes
+
+`requests.json`, `results.json` and `transactions.json` under
+`.scaler/tool-requests/` use complete same-directory snapshot replacement.
+Cooperating writers serialize each read/modify/write operation using
+`execution-ledger.lock/` in that directory. This protects parallel requests,
+results and transactions from lost updates within and across processes. Readers
+do not acquire the lock and cannot observe an in-progress JSON write.
+
+Cross-process lock contention waits at most two seconds before failing. A lock
+is never stolen based on age. The in-process queue is released even when lock
+acquisition or publication fails. The lock is not held across tool/model work.
+After a crashed writer, stop all workspace writers, reconcile unfinished work,
+then remove only its orphaned publication lock. An orphan `*.json.<uuid>.tmp`
+is unpublished data; do not promote it or replay tool effects automatically.
+
+This is **not** a transaction across the three indexes: an interrupted result
+write can leave the request status ahead of its result record. A failed call is
+not proof that no index changed or no tool effect occurred. These indexes are
+not acceptance authority, and this repair adds no exactly-once or power-loss
+guarantee. Schema, scheduling, iteration and replay-approval catalogs are outside
+this publication boundary. See PLAN-100 for regression evidence and limits.
