@@ -102,11 +102,13 @@ test("validation refuses a downstream task before dependency evidence exists", a
     });
     assert.equal(validating.accepted, true);
 
+    const beforeBudget = getBudgetState(await loadState(dir)).usage.validationLoops;
     const result = await runValidationWithExecutionLock(dir, await loadState(dir), "T-DOWNSTREAM");
     assert.equal(result.accepted, false);
     assert.match(result.message, /dependenc|T-UPSTREAM/i);
     await assert.rejects(access(join(dir, "ran.txt")));
     assert.notEqual((await loadState(dir)).tasks.find((task) => task.id === "T-DOWNSTREAM")?.status, "validated");
+    assert.equal(getBudgetState(await loadState(dir)).usage.validationLoops, beforeBudget);
   });
 });
 

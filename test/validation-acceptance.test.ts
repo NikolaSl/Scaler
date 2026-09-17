@@ -104,39 +104,58 @@ test("current validation receipt permits an unchanged candidate commit", async (
   });
 });
 
-test("commit refuses a pre-commit hook that replaces the validated staged tree", async () => {
-  await fixture(async (dir) => {
-    const state = createDefaultState();
-    state.stage = "execution";
-    state.tasks = [{
-      id: "T-HOOK", title: "Hook-bound output", status: "validating",
-      allowedPathPrefixes: ["output.txt"], updatedAt: state.updatedAt,
-    }];
-    await saveState(dir, state);
-    await writeFile(join(dir, "output.txt"), "good");
-    await saveValidationManifest(dir, {
-      taskId: "T-HOOK",
-      commands: [{
-        id: "check",
-        command: "node -e \"if(require('fs').readFileSync('output.txt','utf8')!=='good')process.exit(1)\"",
-        required: true,
-      }],
-      createdAt: "",
-      updatedAt: "",
-    });
-    const validation = await runTaskValidation(dir, await loadState(dir), "T-HOOK");
-    assert.equal(validation.status, "passed");
+async function prepareHookCandidate(dir: string): Promise<void> {
+  const state = createDefaultState();
+  state.stage = "execution";
+  state.tasks = [{
+    id: "T-HOOK", title: "Hook-bound output", status: "validating",
+    allowedPathPrefixes: ["output.txt"], updatedAt: state.updatedAt,
+  }];
+  await saveState(dir, state);
+  await writeFile(join(dir, "output.txt"), "good");
+  await saveValidationManifest(dir, {
+    taskId: "T-HOOK",
+    commands: [{
+      id: "check",
+      command: "node -e \"if(require('fs').readFileSync('output.txt','utf8')!=='good')process.exit(1)\"",
+      required: true,
+    }],
+    createdAt: "",
+    updatedAt: "",
+  });
+  assert.equal((await runTaskValidation(dir, await loadState(dir), "T-HOOK")).status, "passed");
+}
 
-    const hook = join(dir, ".git", "hooks", "pre-commit");
-    await writeFile(hook, "#!/bin/sh\nprintf bad > output.txt\ngit add output.txt\n");
+for (const hookCase of [
+  { name: "pre-commit staged mutation", hook: "pre-commit", script: "printf bad > output.txt\ngit add output.txt" },
+  { name: "pre-commit worktree mutation", hook: "pre-commit", script: "printf bad > output.txt" },
+  { name: "post-commit staged mutation", hook: "post-commit", script: "printf bad > output.txt\ngit add output.txt" },
+] as const) {
+  test(`commit refuses ${hookCase.name} after validation`, async () => fixture(async (dir) => {
+    await prepareHookCandidate(dir);
+    const hook = join(dir, ".git", "hooks", hookCase.hook);
+    await writeFile(hook, `#!/bin/sh\n${hookCase.script}\n`);
     await chmod(hook, 0o755);
 
     const result = await commitWithExecutionLock(dir, await loadState(dir), "T-HOOK", ["output.txt"]);
     assert.equal(result.accepted, false);
-    assert.match(result.message, /committed tree|validated tree|revalidat/i);
+    assert.match(result.message, /committed tree|committed output|revalidat/i);
     assert.deepEqual(await loadCommitReports(dir), []);
     assert.equal((await loadState(dir)).tasks[0]?.status, "validating");
     assert.equal(await readFile(join(dir, "output.txt"), "utf8"), "bad");
+  }));
+}
+
+test("a no-op pre-commit hook preserves normal validated commit acceptance", async () => {
+  await fixture(async (dir) => {
+    await prepareHookCandidate(dir);
+    const hook = join(dir, ".git", "hooks", "pre-commit");
+    await writeFile(hook, "#!/bin/sh\nexit 0\n");
+    await chmod(hook, 0o755);
+    const result = await commitWithExecutionLock(dir, await loadState(dir), "T-HOOK", ["output.txt"]);
+    assert.equal(result.accepted, true, result.message);
+    assert.equal((await loadCommitReports(dir)).length, 1);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
   });
 });
 
