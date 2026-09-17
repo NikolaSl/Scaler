@@ -119,25 +119,34 @@ test("lock cleanup failure does not turn a committed result into a failed tool c
     const request = (await prepareToolRequest(dir, state, { toolName: "read", request: "Synthetic" })).record!;
     const lock = join(getToolRequestsDir(dir), "execution-ledger.lock");
     let injected = false;
-    const warning = once(process, "warning");
-    const record = await recordToolResult(dir, state, {
-      requestId: request.id,
-      status: "completed",
-      summary: "Committed before cleanup",
-      outputs: {
-        toJSON() {
-          if (!injected) {
-            writeFileSync(join(lock, "foreign-entry"), "force rmdir failure", "utf8");
-            injected = true;
-          }
-          return { ok: true };
+    let receiveWarning = (_warning: Error & { code?: string }): void => undefined;
+    const warning = new Promise<Error & { code?: string }>((resolve) => { receiveWarning = resolve; });
+    const onWarning = (emitted: Error & { code?: string }): void => {
+      if (emitted.code === "SCALER_TOOL_LEDGER_LOCK_RELEASE_FAILED") receiveWarning(emitted);
+    };
+    process.on("warning", onWarning);
+    try {
+      const record = await recordToolResult(dir, state, {
+        requestId: request.id,
+        status: "completed",
+        summary: "Committed before cleanup",
+        outputs: {
+          toJSON() {
+            if (!injected) {
+              writeFileSync(join(lock, "foreign-entry"), "force rmdir failure", "utf8");
+              injected = true;
+            }
+            return { ok: true };
+          },
         },
-      },
-    });
-    const [emitted] = await warning;
-    assert.equal((emitted as NodeJS.ErrnoException).code, "SCALER_TOOL_LEDGER_LOCK_RELEASE_FAILED");
-    assert.equal((await loadToolResults(dir))[0]?.id, record.id);
-    assert.deepEqual(await readdir(lock), ["foreign-entry"]);
+      });
+      const emitted = await warning;
+      assert.equal(emitted.code, "SCALER_TOOL_LEDGER_LOCK_RELEASE_FAILED");
+      assert.equal((await loadToolResults(dir))[0]?.id, record.id);
+      assert.deepEqual(await readdir(lock), ["foreign-entry"]);
+    } finally {
+      process.off("warning", onWarning);
+    }
 
     await rm(lock, { recursive: true });
     const next = await prepareToolRequest(dir, state, { toolName: "read", request: "After reconciliation" });
