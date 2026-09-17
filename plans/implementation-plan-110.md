@@ -50,3 +50,14 @@ Gate: build, 671/671 unit, 67/67 mock integration and 7/7 conformance/autopilot
 checks. No paid provider or deployment. P2.3 remains incomplete: declarations
 can still be omitted, and declaration adequacy/authority, semantic correctness
 and final integrated acceptance are not supplied by a digest.
+
+## Copilot schema-version follow-up
+
+The suppressed comment in review 5233204851 is valid: adding a mandatory
+declaredOutputFingerprint should advertise a new snapshot schema, even though
+existing full comparisons already refused old receipts missing the field.
+ValidationSnapshot now emits version 2. Two baseline controls failed before the
+bump: emitted version and refusal of a version-1 receipt with otherwise matching
+fields. Revalidation remains required; no compatibility proof is fabricated.
+Final corrected gate: build, 673 unit, 67 mock integration and 7
+conformance/autopilot checks pass. Existing nineteen output checks remain intact.

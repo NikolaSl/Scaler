@@ -21,7 +21,7 @@ import { getValidationManifestForTask, loadValidationRuns, type TaskValidationMa
 const exec = promisify(execFile);
 
 export interface ValidationSnapshot {
-  version: 1;
+  version: 2;
   runId: string;
   taskId: string;
   taskFingerprint: string;
@@ -44,7 +44,7 @@ export async function captureValidationSnapshot(cwd: string, state: ScalerState,
   const attempt = task.attemptId ? (await loadTaskAttempts(cwd)).find((attempt) => attempt.id === task.attemptId) : undefined;
   const manifest = await getValidationManifestForTask(cwd, taskId);
   return {
-    version: 1, runId: state.runId, taskId,
+    version: 2, runId: state.runId, taskId,
     taskFingerprint: fingerprintTaskContract(task),
     attemptId: task.attemptId ?? null, outputFingerprint: attempt?.outputFingerprint ?? null,
     policyFingerprint: fingerprintValidationPolicy(manifest),

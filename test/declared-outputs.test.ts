@@ -13,12 +13,27 @@ import { test } from "node:test";
 import { evaluateValidationGitAcceptance, loadCommitSkips } from "../src/git.js";
 import { completeRunWithEvidence } from "../src/run-completion.js";
 import { fingerprintDeclaredOutputs, normalizeOutputPaths } from "../src/output-artifacts.js";
+import { captureValidationSnapshot } from "../src/validation-acceptance.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { registerScalerTools } from "../src/tools.js";
 import { getValidationManifestForTask, runTaskValidation, saveValidationManifest, type TaskValidationManifest } from "../src/validation.js";
 
 const exec = promisify(execFile);
 const check = 'node -e "if(require(\'fs\').readFileSync(\'result.txt\',\'utf8\')!==\'ok\')process.exit(1)"';
+
+test("declared-output snapshot advertises schema version 2", async () => fixture(false, async (dir) => {
+  assert.equal((await captureValidationSnapshot(dir, await loadState(dir), "T-OUT")).version, 2);
+}));
+
+test("version 1 receipt cannot be reused under declared-output snapshot semantics", async () => fixture(false, async (dir) => {
+  const run = await runTaskValidation(dir, await loadState(dir), "T-OUT");
+  assert.ok(run.receipt);
+  (run.receipt.snapshot as { version: number }).version = 1;
+  const skips = await loadCommitSkips(dir);
+  const result = await evaluateValidationGitAcceptance(dir, await loadState(dir), "T-OUT", run);
+  assert.equal(result.accepted, false, result.message);
+  assert.deepEqual(await loadCommitSkips(dir), skips);
+}));
 async function fixture(git: boolean, fn: (dir: string) => Promise<void>) {
   const dir = await mkdtemp(join(tmpdir(), "scaler-declared-output-"));
   try {
