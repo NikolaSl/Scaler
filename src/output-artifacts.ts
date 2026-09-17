@@ -49,6 +49,27 @@ export async function fingerprintDeclaredOutputs(cwd: string, declared: string[]
   return fingerprintJson(outputs);
 }
 
+// Validation inputs are executable acceptance-policy material, not task outputs.
+// They must be present regular files and cannot be symlinks: hashing a symlink
+// target string would not bind the validator bytes that the command executes.
+export async function fingerprintValidationInputs(cwd: string, declared: string[] | undefined): Promise<string | null> {
+  const paths = normalizeOutputPaths(declared);
+  if (paths === undefined) return null;
+  const inputs = [];
+  for (const path of paths) {
+    const parts = path.split("/");
+    for (let depth = 1; depth < parts.length; depth++) {
+      const parent = await lstat(join(cwd, ...parts.slice(0, depth)));
+      if (!parent.isDirectory()) throw new Error(`Validation input ${path} has a non-directory or symlink ancestor.`);
+    }
+    const absolute = join(cwd, path);
+    const stat = await lstat(absolute);
+    if (!stat.isFile()) throw new Error(`Validation input ${path} must be a regular file.`);
+    inputs.push({ path, kind: "file", ...await fingerprintStableFile(absolute, stat) });
+  }
+  return fingerprintJson(inputs);
+}
+
 async function fingerprintStableFile(path: string, expected: Stats): Promise<{ executable: boolean; digest: string }> {
   if (!constants.O_NOFOLLOW) throw new Error("Declared output capture requires a no-follow file-open capability.");
   // Refuse a leaf symlink swap; nonblocking open also prevents a raced FIFO

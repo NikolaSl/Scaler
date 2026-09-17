@@ -10,7 +10,7 @@ import { checkAttemptEvidence } from "./attempt-evidence.js";
 import { fingerprintValidationPolicy } from "./attempt-identity.js";
 import { captureValidationSnapshot, fingerprintValidationResult, verifyValidationRunReceipt, type ValidationReceipt, type ValidationSnapshot } from "./validation-acceptance.js";
 import { fingerprintJson } from "./fingerprints.js";
-import { normalizeOutputPaths } from "./output-artifacts.js";
+import { fingerprintValidationInputs, normalizeOutputPaths } from "./output-artifacts.js";
 import { mkdir, open, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { prepareCicdValidationExecution } from "./cicd-environments.js";
@@ -88,6 +88,8 @@ export interface TaskValidationManifest {
   revision?: number;
   versionHistory?: ValidationPolicyVersion[];
   outputPaths?: string[];
+  validationInputPaths?: string[];
+  validationInputFingerprint?: string;
   definitionOfDone?: string[];
   acceptanceCriteria?: string[];
   qualityWaivers?: Array<{ code: string; reason: string; evidenceRefs?: string[]; approvedBy?: string }>;
@@ -103,6 +105,8 @@ export interface ValidationPolicyVersion {
   changedAt: string;
   policy: {
     outputPaths?: string[];
+    validationInputPaths?: string[];
+    validationInputFingerprint?: string;
     definitionOfDone?: string[];
     acceptanceCriteria?: string[];
     qualityWaivers?: TaskValidationManifest["qualityWaivers"];
@@ -473,7 +477,7 @@ export async function saveValidationManifest(
   return withValidationPolicyLock(cwd, async () => {
     const manifests = await loadValidationManifests(cwd);
     const timestamp = new Date().toISOString();
-    let normalized = normalizeValidationManifest(manifest, timestamp);
+    let normalized = await normalizeValidationManifest(cwd, manifest, timestamp);
     const current = manifests.find((candidate) => candidate.taskId === manifest.taskId)
       ?? await createDefaultValidationManifest(cwd, manifest.taskId);
     const changed = fingerprintValidationPolicy(current) !== fingerprintValidationPolicy(normalized);
@@ -505,10 +509,18 @@ export async function saveValidationManifest(
   });
 }
 
-function normalizeValidationManifest(manifest: TaskValidationManifest, timestamp = new Date().toISOString()): TaskValidationManifest {
+async function normalizeValidationManifest(
+  cwd: string,
+  manifest: TaskValidationManifest,
+  timestamp = new Date().toISOString(),
+): Promise<TaskValidationManifest> {
+  const validationInputPaths = normalizeOutputPaths(manifest.validationInputPaths);
+  const validationInputFingerprint = await fingerprintValidationInputs(cwd, validationInputPaths);
   return {
     ...manifest,
     outputPaths: normalizeOutputPaths(manifest.outputPaths),
+    validationInputPaths,
+    validationInputFingerprint: validationInputFingerprint ?? undefined,
     definitionOfDone: normalizeStringList(manifest.definitionOfDone),
     acceptanceCriteria: normalizeStringList(manifest.acceptanceCriteria),
     qualityWaivers: normalizeValidationQualityWaivers(manifest.qualityWaivers),
@@ -531,6 +543,8 @@ function normalizeValidationManifest(manifest: TaskValidationManifest, timestamp
 function captureValidationPolicy(manifest: TaskValidationManifest): ValidationPolicyVersion["policy"] {
   return JSON.parse(JSON.stringify({
     outputPaths: manifest.outputPaths,
+    validationInputPaths: manifest.validationInputPaths,
+    validationInputFingerprint: manifest.validationInputFingerprint,
     definitionOfDone: manifest.definitionOfDone,
     acceptanceCriteria: manifest.acceptanceCriteria,
     qualityWaivers: manifest.qualityWaivers,
@@ -552,7 +566,7 @@ export async function assertValidationPolicyMutationAuthorized(
   const manifests = loadedManifests ?? await loadValidationManifests(cwd);
   const current = manifests.find((manifest) => manifest.taskId === proposed.taskId)
     ?? await createDefaultValidationManifest(cwd, proposed.taskId);
-  const normalized = normalizeValidationManifest(proposed);
+  const normalized = await normalizeValidationManifest(cwd, proposed);
   if (fingerprintValidationPolicy(current) === fingerprintValidationPolicy(normalized)) return;
   throw new Error(`Acceptance policy update rejected for ${proposed.taskId}: model routes cannot replace an exercised policy; use an explicit local user command with a recorded reason.`);
 }

@@ -12,7 +12,7 @@ import { promisify } from "node:util";
 import { captureValidationContext, checkAttemptEvidence } from "./attempt-evidence.js";
 import { fingerprintTaskContract, fingerprintValidationPolicy } from "./attempt-identity.js";
 import { fingerprintJson } from "./fingerprints.js";
-import { fingerprintDeclaredOutputs } from "./output-artifacts.js";
+import { fingerprintDeclaredOutputs, fingerprintValidationInputs } from "./output-artifacts.js";
 import { loadPrdCoverage, loadPrdRequirements } from "./prd.js";
 import { loadCommitReports, loadCommitSkips, type CommitValidationSummary } from "./git.js";
 import { loadState } from "./state.js";
@@ -23,7 +23,7 @@ import { getValidationManifestForTask, loadValidationRuns, type TaskValidationMa
 const exec = promisify(execFile);
 
 export interface ValidationSnapshot {
-  version: 4;
+  version: 5;
   runId: string;
   taskId: string;
   taskFingerprint: string;
@@ -35,6 +35,7 @@ export interface ValidationSnapshot {
   integrationFingerprint: string;
   gitCandidateFingerprint: string | null;
   declaredOutputFingerprint: string | null;
+  validationInputFingerprint: string | null;
 }
 
 export interface ValidationReceipt {
@@ -47,8 +48,9 @@ export async function captureValidationSnapshot(cwd: string, state: ScalerState,
   if (!task) throw new Error(`Cannot snapshot missing validation task ${taskId}.`);
   const attempt = task.attemptId ? (await loadTaskAttempts(cwd)).find((attempt) => attempt.id === task.attemptId) : undefined;
   const manifest = await getValidationManifestForTask(cwd, taskId);
+  const validationInputFingerprint = await verifyValidationInputBaseline(cwd, manifest);
   return {
-    version: 4, runId: state.runId, taskId,
+    version: 5, runId: state.runId, taskId,
     taskFingerprint: fingerprintTaskContract(task),
     attemptId: task.attemptId ?? null, outputFingerprint: attempt?.outputFingerprint ?? null,
     policyFingerprint: fingerprintValidationPolicy(manifest),
@@ -57,7 +59,16 @@ export async function captureValidationSnapshot(cwd: string, state: ScalerState,
     integrationFingerprint: await fingerprintTaskIntegrationInputs(cwd, state, taskId, task.prdRefs ?? []),
     gitCandidateFingerprint: await fingerprintGitCandidate(cwd),
     declaredOutputFingerprint: await fingerprintDeclaredOutputs(cwd, manifest.outputPaths),
+    validationInputFingerprint,
   };
+}
+
+async function verifyValidationInputBaseline(cwd: string, manifest: TaskValidationManifest): Promise<string | null> {
+  const current = await fingerprintValidationInputs(cwd, manifest.validationInputPaths);
+  if (manifest.validationInputPaths !== undefined && current !== manifest.validationInputFingerprint) {
+    throw new Error(`Validation basis changed for ${manifest.taskId}; use an explicit user-authorized policy amendment with a reason before revalidation.`);
+  }
+  return current;
 }
 
 async function fingerprintTaskRequirements(cwd: string, taskId: string, taskRequirementIds: string[]): Promise<string> {
