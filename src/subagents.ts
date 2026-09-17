@@ -8,6 +8,7 @@ import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractProviderUsage, type ProviderUsage } from "./provider-usage.js";
 import { recordWatchdogCleanup } from "./watchdogs.js";
+import type { TaskAttemptBinding } from "./task-attempts.js";
 
 export interface TaskAgentRequest {
   taskId: string;
@@ -18,6 +19,7 @@ export interface TaskAgentRequest {
   model?: string;
   appendSystemPromptPath?: string;
   extensionPaths?: string[];
+  attempt?: TaskAttemptBinding;
 }
 
 export interface TaskAgentInvocation {

@@ -29,6 +29,15 @@ export interface TaskAttemptRecord {
   updatedAt: string;
 }
 
+export interface TaskAttemptBinding {
+  runId: string;
+  attemptId: string;
+  taskFingerprint: string;
+  inputFingerprint: string;
+  routeFingerprint: string;
+  validationPolicyFingerprint: string;
+}
+
 export interface TaskAttemptAdmissionInput {
   runId: string;
   taskId: string;
@@ -68,6 +77,17 @@ export async function loadTaskAttempts(cwd: string): Promise<TaskAttemptRecord[]
 
 export function findOpenTaskAttempt(attempts: TaskAttemptRecord[], runId: string, taskId: string): TaskAttemptRecord | undefined {
   return attempts.find((attempt) => attempt.runId === runId && attempt.taskId === taskId && openAttemptStatuses.has(attempt.status));
+}
+
+export function taskAttemptBinding(attempt: TaskAttemptRecord): TaskAttemptBinding {
+  return {
+    runId: attempt.runId,
+    attemptId: attempt.id,
+    taskFingerprint: attempt.taskFingerprint,
+    inputFingerprint: attempt.inputFingerprint,
+    routeFingerprint: attempt.routeFingerprint,
+    validationPolicyFingerprint: attempt.validationPolicyFingerprint,
+  };
 }
 
 export async function admitTaskAttempt(

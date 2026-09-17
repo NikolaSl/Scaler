@@ -5,10 +5,12 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { fingerprintTaskReportOutput } from "./attempt-identity.js";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { getTaskAgentReportsPath } from "./paths.js";
 import { extractStructuredReportPayloads, type TaskAgentRunResult } from "./subagents.js";
 import type { ScalerState } from "./types.js";
+import type { TaskAttemptBinding } from "./task-attempts.js";
 
 export type TaskAgentReportStatus = "completed" | "needs_data" | "blocked" | "failed" | "needs_replan";
 export type TaskAgentReportIngestionStatus = "accepted" | "missing" | "invalid";
@@ -38,6 +40,12 @@ export interface TaskAgentReportRecord {
   missingData: string[];
   recommendedNextAction?: string;
   runId?: string;
+  attemptId?: string;
+  taskFingerprint?: string;
+  inputFingerprint?: string;
+  routeFingerprint?: string;
+  validationPolicyFingerprint?: string;
+  outputFingerprint?: string;
   source: "child-agent" | "tool";
   createdAt: string;
 }
@@ -62,6 +70,11 @@ export interface TaskAgentReportInput {
   missingData?: string[];
   recommendedNextAction?: string;
   runId?: string;
+  attemptId?: string;
+  taskFingerprint?: string;
+  inputFingerprint?: string;
+  routeFingerprint?: string;
+  validationPolicyFingerprint?: string;
   source?: "child-agent" | "tool";
 }
 
@@ -109,6 +122,12 @@ export async function recordTaskAgentReport(
     missingData: normalized.input.missingData ?? [],
     recommendedNextAction: normalized.input.recommendedNextAction,
     runId: normalized.input.runId,
+    attemptId: normalized.input.attemptId,
+    taskFingerprint: normalized.input.taskFingerprint,
+    inputFingerprint: normalized.input.inputFingerprint,
+    routeFingerprint: normalized.input.routeFingerprint,
+    validationPolicyFingerprint: normalized.input.validationPolicyFingerprint,
+    outputFingerprint: fingerprintTaskReportOutput(normalized.input),
     source: normalized.input.source ?? "child-agent",
     createdAt: now.toISOString(),
   };
@@ -121,7 +140,7 @@ export async function ingestTaskAgentReportFromRun(
   state: ScalerState,
   taskId: string,
   runResult: TaskAgentRunResult,
-  runId?: string,
+  expectedBinding?: TaskAttemptBinding | string,
   now = new Date(),
 ): Promise<TaskAgentReportIngestionResult> {
   const payloads = extractStructuredReportPayloads(runResult.stdoutEvents, "scaler_task_report");
@@ -137,8 +156,8 @@ export async function ingestTaskAgentReportFromRun(
 
   const diagnostics: string[] = [];
   for (const payload of payloads) {
-    const input = taskAgentReportInputFromPayload(payload, runId);
-    const normalized = normalizeTaskAgentReportInput(input, taskId);
+    const input = taskAgentReportInputFromPayload(payload, typeof expectedBinding === "string" ? expectedBinding : undefined);
+    const normalized = normalizeTaskAgentReportInput(input, taskId, typeof expectedBinding === "string" ? undefined : expectedBinding);
     if (!normalized.ok) {
       diagnostics.push(...normalized.diagnostics);
       continue;
@@ -185,7 +204,12 @@ function taskAgentReportInputFromPayload(payload: Record<string, unknown>, runId
     blockers: stringArrayField(payload.blockers),
     missingData: stringArrayField(payload.missingData),
     recommendedNextAction: stringField(payload.recommendedNextAction),
-    runId,
+    runId: runId ?? stringField(payload.runId),
+    attemptId: stringField(payload.attemptId),
+    taskFingerprint: stringField(payload.taskFingerprint),
+    inputFingerprint: stringField(payload.inputFingerprint),
+    routeFingerprint: stringField(payload.routeFingerprint),
+    validationPolicyFingerprint: stringField(payload.validationPolicyFingerprint),
     source: "child-agent",
   };
 }
@@ -193,6 +217,7 @@ function taskAgentReportInputFromPayload(payload: Record<string, unknown>, runId
 function normalizeTaskAgentReportInput(
   input: TaskAgentReportInput,
   expectedTaskId?: string,
+  expectedBinding?: TaskAttemptBinding,
 ): { ok: true; input: TaskAgentReportInput & { taskId: string; status: TaskAgentReportStatus; summary: string } } | { ok: false; diagnostics: string[] } {
   const diagnostics: string[] = [];
   const taskId = input.taskId?.trim();
@@ -203,6 +228,12 @@ function normalizeTaskAgentReportInput(
   if (expectedTaskId && taskId && taskId !== expectedTaskId) diagnostics.push(`Task report taskId ${taskId} does not match expected task ${expectedTaskId}.`);
   if (!taskReportStatuses.has(status)) diagnostics.push(`Task report status must be one of ${Array.from(taskReportStatuses).join(", ")}.`);
   if (!summary) diagnostics.push("Task report requires summary.");
+  if (expectedBinding) {
+    for (const [field, expected] of Object.entries(expectedBinding)) {
+      const actual = input[field as keyof TaskAgentReportInput];
+      if (actual !== expected) diagnostics.push(`Task report ${field} ${String(actual ?? "<missing>")} does not match admitted ${field} ${expected}.`);
+    }
+  }
 
   if (diagnostics.length > 0) return { ok: false, diagnostics };
   return {

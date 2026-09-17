@@ -6,6 +6,12 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
+import {
+  fingerprintAdmittedInput,
+  fingerprintTaskContract,
+  fingerprintTaskRoute,
+  fingerprintValidationPolicy,
+} from "./attempt-identity.js";
 import { writeCheckpoint } from "./checkpoints.js";
 import { assessCompression, formatCompressionGuidance, type CompressionAssessment } from "./compression.js";
 import { assessDebugRetryGate } from "./debug.js";
@@ -25,9 +31,19 @@ import { getTaskAgentRunsPath, getValidationHandoffsPath } from "./paths.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { loadState, saveState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
+import {
+  admitTaskAttempt,
+  completeTaskAttempt,
+  loadTaskAttempts,
+  markTaskAttemptDispatching,
+  taskAttemptBinding,
+  type TaskAttemptBinding,
+  type TaskAttemptRecord,
+} from "./task-attempts.js";
 import { ingestTaskAgentReportFromRun, type TaskAgentReportIngestionResult } from "./task-reports.js";
 import { transitionStage, transitionTask } from "./supervisor.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
+import { getValidationManifestForTask } from "./validation.js";
 
 export interface NextTaskSelection {
   task?: ScalerTaskState;
@@ -61,6 +77,8 @@ export interface ValidationHandoffRecord {
   reportId?: string;
   reportStatus?: string;
   diagnostics?: string[];
+  attempt?: TaskAttemptBinding;
+  outputFingerprint?: string;
   createdAt: string;
 }
 
@@ -85,6 +103,8 @@ export interface TaskAgentRunRecord {
   reportStatus?: TaskAgentRunReportStatus;
   reportId?: string;
   reportDiagnostics?: string[];
+  attempt?: TaskAttemptBinding;
+  outputFingerprint?: string;
 }
 
 export interface TaskAgentRunIndex {
@@ -112,6 +132,7 @@ export interface TaskPromptInput {
   task: ScalerTaskState;
   contextItems?: ContextItem[];
   tokenBudget?: number;
+  attempt?: TaskAttemptBinding;
 }
 
 export interface TaskPromptResult {
@@ -165,12 +186,69 @@ export function missingDependencies(state: ScalerState, task: ScalerTaskState): 
   return (task.dependsOn ?? []).filter((dependencyId) => !state.validatedTaskIds.includes(dependencyId));
 }
 
+async function reconcileInterruptedTaskAttempt(cwd: string, state: ScalerState): Promise<ConductorStepResult | undefined> {
+  const openAttempt = (await loadTaskAttempts(cwd)).find((attempt) => attempt.status === "admitted" || attempt.status === "dispatching");
+  if (!openAttempt) return undefined;
+
+  const lock = await acquireExecutionLock(cwd, {
+    operation: "task_attempt_recovery",
+    taskId: openAttempt.taskId,
+    reason: `Reconcile interrupted attempt ${openAttempt.id}.`,
+  });
+  if (!lock.acquired) {
+    return { accepted: false, message: lock.message, state, task: state.tasks.find((task) => task.id === openAttempt.taskId) };
+  }
+
+  try {
+    const dispatched = openAttempt.status === "dispatching";
+    const message = dispatched
+      ? `Recovered interrupted task attempt ${openAttempt.id}; dispatch outcome is unknown and automatic replay is blocked.`
+      : `Recovered unlaunched task attempt ${openAttempt.id}; automatic replay is blocked pending operator review.`;
+    await completeTaskAttempt(cwd, lock.lock.id, openAttempt.id, {
+      status: dispatched ? "interrupted" : "failed",
+      outcome: dispatched ? "unknown" : "not_started",
+      diagnostics: [message],
+    });
+
+    let durableState = await loadState(cwd);
+    const durableTask = durableState.tasks.find((task) => task.id === openAttempt.taskId);
+    if (durableState.runId === openAttempt.runId && durableTask
+      && ["pending", "ready", "running", "validating"].includes(durableTask.status)) {
+      durableState = transitionTask(durableState, durableTask.id, "blocked", { reason: message });
+      await saveState(cwd, durableState);
+    }
+    await appendLogEvent(cwd, createLogEvent(durableState, {
+      eventType: "rejected_transition",
+      summary: message,
+      taskId: openAttempt.taskId,
+      details: { attempt: taskAttemptBinding(openAttempt), previousStatus: openAttempt.status },
+    }));
+    return {
+      accepted: false,
+      message,
+      state: durableState,
+      task: durableState.tasks.find((task) => task.id === openAttempt.taskId),
+    };
+  } finally {
+    await releaseExecutionLock(cwd, lock.lock.id);
+  }
+}
+
+function bindTaskAttempt(state: ScalerState, taskId: string, attemptId: string): ScalerState {
+  return {
+    ...state,
+    tasks: state.tasks.map((task) => task.id === taskId ? { ...task, attemptId } : task),
+  };
+}
+
 export async function runConductorStep(
   cwd: string,
   state: ScalerState,
   options: ConductorStepOptions = {},
   runner: TaskAgentRunner = runTaskAgent,
 ): Promise<ConductorStepResult> {
+  const recovery = await reconcileInterruptedTaskAttempt(cwd, state);
+  if (recovery) return recovery;
   state = (await refreshAndUnblockMissingContext(cwd, state)).state;
   const selection = selectNextTask(state);
   if (!selection.task) {
@@ -209,6 +287,8 @@ export async function runConductorStep(
     return { accepted: false, message: lock.message, state };
   }
 
+  let activeAttempt: TaskAttemptRecord | undefined;
+  let attemptTerminal = false;
   try {
     let nextState = state;
     if (options.execute && selection.promotePending) {
@@ -218,7 +298,7 @@ export async function runConductorStep(
     const runningTask = nextState.tasks.find((task) => task.id === selection.task!.id)!;
     const contextManifest = options.contextItems ? undefined : await ensureTaskContextManifest(cwd, nextState, runningTask.id);
     const contextItems = options.contextItems ?? (await resolveTaskContextManifest(cwd, nextState, contextManifest!));
-    const { prompt, resolvedContext, compressionAssessment } = buildTaskAgentPrompt({
+    let { prompt, resolvedContext, compressionAssessment } = buildTaskAgentPrompt({
       state: nextState,
       task: runningTask,
       contextItems,
@@ -246,25 +326,50 @@ export async function runConductorStep(
         contextSplit,
       };
     }
+    const tools = options.tools ?? defaultTaskAgentTools();
+    let attemptBinding: TaskAttemptBinding | undefined;
+    if (options.execute) {
+      const validationManifest = await getValidationManifestForTask(cwd, runningTask.id);
+      const taskFingerprint = fingerprintTaskContract(runningTask);
+      activeAttempt = await admitTaskAttempt(cwd, lock.lock.id, {
+        runId: nextState.runId,
+        taskId: runningTask.id,
+        taskFingerprint,
+        inputFingerprint: fingerprintAdmittedInput(taskFingerprint, resolvedContext),
+        routeFingerprint: fingerprintTaskRoute(options.model, tools),
+        validationPolicyFingerprint: fingerprintValidationPolicy(validationManifest),
+      });
+      attemptBinding = taskAttemptBinding(activeAttempt);
+      ({ prompt, resolvedContext, compressionAssessment } = buildTaskAgentPrompt({
+        state: nextState,
+        task: runningTask,
+        contextItems,
+        tokenBudget: options.tokenBudget ?? contextManifest?.tokenBudget,
+        attempt: attemptBinding,
+      }));
+    }
     await logAgentPromptAudit(cwd, nextState, {
       agentType: "task",
       agentId: runningTask.id,
       taskId: runningTask.id,
       prompt,
       inputRefs: contextItems.map((item) => item.id),
-      details: { tokenBudget: options.tokenBudget ?? contextManifest?.tokenBudget },
+      details: { tokenBudget: options.tokenBudget ?? contextManifest?.tokenBudget, attempt: attemptBinding },
     });
     const request = {
       taskId: runningTask.id,
       prompt,
-      tools: options.tools ?? defaultTaskAgentTools(),
+      tools,
       model: options.model,
       cwd,
+      attempt: attemptBinding,
     };
     const invocation = buildTaskAgentInvocation(request);
     if (options.execute) {
+      nextState = bindTaskAttempt(nextState, runningTask.id, activeAttempt!.id);
       nextState = transitionTask(nextState, runningTask.id, "running", { reason: "Conductor dispatching task." });
       await saveState(cwd, nextState);
+      activeAttempt = await markTaskAttemptDispatching(cwd, lock.lock.id, activeAttempt!.id);
     }
     const runResult = options.execute ? await runner(request, { timeoutMs: options.timeoutMs }) : undefined;
     if (runResult) {
@@ -275,7 +380,9 @@ export async function runConductorStep(
       if (durableState.runId !== nextState.runId || !durableTask
         || (durableTask.status !== "running" && durableTask.status !== "validating")) {
         const message = `Rejected stale task result: run or task changed during execution of ${runningTask.id}.`;
-        await recordTaskAgentRun(cwd, runResult, new Date(), { reportStatus: "invalid", reportDiagnostics: [message] });
+        await completeTaskAttempt(cwd, lock.lock.id, activeAttempt!.id, { status: "interrupted", outcome: "unknown", diagnostics: [message] });
+        attemptTerminal = true;
+        await recordTaskAgentRun(cwd, runResult, new Date(), { reportStatus: "invalid", reportDiagnostics: [message] }, { attempt: attemptBinding });
         await appendLogEvent(cwd, createLogEvent(durableState, { eventType: "rejected_transition", summary: message, taskId: runningTask.id }));
         return { accepted: false, message, state: durableState, task: durableTask, runResult, prompt, invocation, contextSplit };
       }
@@ -290,10 +397,23 @@ export async function runConductorStep(
       })).state;
     }
     const reportIngestion = runResult?.exitCode === 0
-      ? await ingestTaskAgentReportFromRun(cwd, nextState, runningTask.id, runResult)
+      ? await ingestTaskAgentReportFromRun(cwd, nextState, runningTask.id, runResult, attemptBinding)
       : undefined;
-    const runRecord = runResult ? await recordTaskAgentRun(cwd, runResult, new Date(), summarizeTaskAgentReportIngestion(reportIngestion, runResult)) : undefined;
-    const handoff = runResult ? await applyTaskRunHandoff(cwd, nextState, runningTask.id, runResult, reportIngestion) : undefined;
+    const outputFingerprint = reportIngestion?.report?.outputFingerprint;
+    const runRecord = runResult ? await recordTaskAgentRun(cwd, runResult, new Date(), summarizeTaskAgentReportIngestion(reportIngestion, runResult), { attempt: attemptBinding, outputFingerprint }) : undefined;
+    const handoff = runResult ? await applyTaskRunHandoff(cwd, nextState, runningTask.id, runResult, reportIngestion, new Date(), { attempt: attemptBinding, outputFingerprint }) : undefined;
+    if (runResult && activeAttempt) {
+      const acceptedReport = reportIngestion?.report;
+      const succeeded = runResult.exitCode === 0 && acceptedReport?.status === "completed";
+      await completeTaskAttempt(cwd, lock.lock.id, activeAttempt.id, {
+        status: succeeded ? "completed" : "failed",
+        outcome: succeeded ? "succeeded" : "failed",
+        outputFingerprint: acceptedReport?.outputFingerprint,
+        reportId: acceptedReport?.id,
+        diagnostics: reportIngestion?.diagnostics,
+      });
+      attemptTerminal = true;
+    }
     const finalState = handoff?.state ?? nextState;
 
     await appendLogEvent(
@@ -319,6 +439,24 @@ export async function runConductorStep(
       validationHandoff: handoff?.record,
       contextSplit,
     };
+  } catch (error) {
+    if (activeAttempt && !attemptTerminal) {
+      const diagnostics = [`Task attempt stopped by supervisor error: ${error instanceof Error ? error.message : String(error)}`];
+      const dispatched = activeAttempt.status === "dispatching";
+      await completeTaskAttempt(cwd, lock.lock.id, activeAttempt.id, {
+        status: dispatched ? "interrupted" : "failed",
+        outcome: dispatched ? "unknown" : "not_started",
+        diagnostics,
+      });
+      const durableState = await loadState(cwd);
+      const durableTask = durableState.tasks.find((task) => task.id === activeAttempt!.taskId);
+      if (durableState.runId === activeAttempt.runId && durableTask
+        && (durableTask.status === "running" || durableTask.status === "validating")) {
+        const blocked = transitionTask(durableState, durableTask.id, "blocked", { reason: diagnostics[0]! });
+        await saveState(cwd, blocked);
+      }
+    }
+    throw error;
   } finally {
     await releaseExecutionLock(cwd, lock.lock.id);
   }
@@ -353,6 +491,7 @@ export async function recordTaskAgentRun(
   runResult: TaskAgentRunResult,
   now = new Date(),
   report?: Pick<TaskAgentRunRecord, "reportStatus" | "reportId" | "reportDiagnostics">,
+  identity?: Pick<TaskAgentRunRecord, "attempt" | "outputFingerprint">,
 ): Promise<TaskAgentRunRecord> {
   const record: TaskAgentRunRecord = {
     id: `${runResult.taskId}-${now.getTime()}`,
@@ -368,6 +507,8 @@ export async function recordTaskAgentRun(
     reportStatus: report?.reportStatus,
     reportId: report?.reportId,
     reportDiagnostics: report?.reportDiagnostics,
+    attempt: identity?.attempt,
+    outputFingerprint: identity?.outputFingerprint,
   };
   await writeTaskAgentRuns(cwd, [record, ...(await loadTaskAgentRunRecords(cwd))]);
   return record;
@@ -390,6 +531,7 @@ export async function applyTaskRunHandoff(
   runResult: TaskAgentRunResult,
   reportIngestion?: TaskAgentReportIngestionResult,
   now = new Date(),
+  identity?: Pick<ValidationHandoffRecord, "attempt" | "outputFingerprint">,
 ): Promise<{ state: ScalerState; record: ValidationHandoffRecord }> {
   const handoffDecision = selectTaskRunHandoff(runResult, reportIngestion);
   const nextState = transitionTask(state, taskId, handoffDecision.targetTaskStatus, {
@@ -409,6 +551,8 @@ export async function applyTaskRunHandoff(
     reportId: reportIngestion?.report?.id,
     reportStatus: reportIngestion?.report?.status,
     diagnostics: reportIngestion?.diagnostics,
+    attempt: identity?.attempt,
+    outputFingerprint: identity?.outputFingerprint,
     createdAt: now.toISOString(),
   };
   const handoffs = await loadValidationHandoffs(cwd);
@@ -518,6 +662,14 @@ export function buildTaskAgentPrompt(input: TaskPromptInput): TaskPromptResult {
     contextWindowTokens: input.tokenBudget,
   });
   const compressionGuidance = formatCompressionGuidance(compressionAssessment);
+  const reportIdentity = input.attempt ? {
+    runId: input.attempt.runId,
+    attemptId: input.attempt.attemptId,
+    taskFingerprint: input.attempt.taskFingerprint,
+    inputFingerprint: input.attempt.inputFingerprint,
+    routeFingerprint: input.attempt.routeFingerprint,
+    validationPolicyFingerprint: input.attempt.validationPolicyFingerprint,
+  } : undefined;
 
   const prompt = [
     "# SCALER Task Agent Request",
@@ -527,6 +679,14 @@ export function buildTaskAgentPrompt(input: TaskPromptInput): TaskPromptResult {
     `Supervisor stage: ${input.state.stage}`,
     `Allowed paths: ${input.task.allowedPathPrefixes?.join(", ") || "not specified"}`,
     `Dependencies: ${input.task.dependsOn?.join(", ") || "none"}`,
+    ...(input.attempt ? [
+      `Run ID: ${input.attempt.runId}`,
+      `Attempt ID: ${input.attempt.attemptId}`,
+      `Task fingerprint: ${input.attempt.taskFingerprint}`,
+      `Input fingerprint: ${input.attempt.inputFingerprint}`,
+      `Route fingerprint: ${input.attempt.routeFingerprint}`,
+      `Validation-policy fingerprint: ${input.attempt.validationPolicyFingerprint}`,
+    ] : ["Attempt identity: preview only; no execution attempt admitted."]),
     "",
     "## Operating rules",
     "- Work only on this task's scope.",
@@ -543,7 +703,21 @@ export function buildTaskAgentPrompt(input: TaskPromptInput): TaskPromptResult {
     "## Required final report",
     "Finish with exactly one structured task-agent report. A successful subprocess run is not eligible for validation until SCALER ingests this report.",
     "Emit either a direct JSON event or an exact assistant JSON object with this shape:",
-    '{"type":"scaler_task_report","taskId":"' + input.task.id + '","status":"completed|needs_data|blocked|failed|needs_replan","summary":"...","changedFiles":["path"],"memoryRefs":[],"validations":[{"command":"npm test","status":"passed|failed|skipped","summary":"..."}],"validationRefs":[],"evidenceRefs":[],"blockers":[],"missingData":[],"recommendedNextAction":"validate"}',
+    JSON.stringify({
+      type: "scaler_task_report",
+      taskId: input.task.id,
+      ...(reportIdentity ?? {}),
+      status: "completed|needs_data|blocked|failed|needs_replan",
+      summary: "...",
+      changedFiles: ["path"],
+      memoryRefs: [],
+      validations: [{ command: "npm test", status: "passed|failed|skipped", summary: "..." }],
+      validationRefs: [],
+      evidenceRefs: [],
+      blockers: [],
+      missingData: [],
+      recommendedNextAction: "validate",
+    }),
     "Use status=completed only when implementation is ready for supervisor validation. Use blockers/missingData for blocked or needs_data outcomes.",
     "",
     compressionGuidance,

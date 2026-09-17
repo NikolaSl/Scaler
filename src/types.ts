@@ -47,6 +47,7 @@ export interface ScalerTaskState {
   definitionOfDone?: string[];
   validationRefs?: string[];
   qualityWaivers?: ScalerTaskQualityWaiver[];
+  attemptId?: string;
   updatedAt: string;
 }
 
