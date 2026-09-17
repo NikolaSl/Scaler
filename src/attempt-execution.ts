@@ -12,7 +12,7 @@ import { loadState, saveState } from "./state.js";
 import { transitionTask } from "./supervisor.js";
 import { admitTaskAttempt, assertAttemptWriter, completeTaskAttempt, loadTaskAttempts, markTaskAttemptDispatching, taskAttemptBinding, type TaskAttemptRecord } from "./task-attempts.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
-import { getValidationManifestForTask } from "./validation.js";
+import { getValidationManifestForTask, type TaskValidationManifest } from "./validation.js";
 
 export class TaskDependencyAdmissionError extends Error {
   constructor(
@@ -40,7 +40,7 @@ export async function verifyTaskExecutionContract(cwd: string, task: ScalerTaskS
     diagnostics.push("missing declared project write scope (allowedPathPrefixes).");
   }
 
-  let manifest;
+  let manifest: TaskValidationManifest;
   try {
     manifest = await getValidationManifestForTask(cwd, task.id);
   } catch (error) {
