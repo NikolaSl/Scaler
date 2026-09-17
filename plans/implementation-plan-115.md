@@ -1,0 +1,52 @@
+# PLAN-115 — Refuse incomplete task contracts before worker dispatch
+
+## Reproduced gap
+
+AC-02 requires execution to stop when required output identity, write scope or
+acceptance criteria are missing. The current strict task-create routes review
+some of these fields, but conductor/debug retry and shared attempt admission can
+still dispatch a task loaded from state without an execution-complete contract.
+The worker may therefore consume budget and perform effects before the missing
+contract is discovered by validation or commit.
+
+## Bounded change
+
+Add one read-only task-contract verifier and use it:
+
+1. under the execution lock before conductor/debug-retry worker preparation;
+2. again at shared attempt admission, immediately before the attempt is written.
+
+The verifier checks only the three AC-02 execution prerequisites:
+
+- non-empty allowed path prefixes as the declared project write scope;
+- an explicit declared-output basis in the validation manifest (`outputPaths`,
+  where `[]` deliberately means no filesystem outputs);
+- at least one concrete acceptance statement from task/manifest Definition of
+  Done or manifest acceptance criteria.
+
+Refusals are typed and converted into the existing structured conductor/debug
+retry rejected results. They must happen before runner invocation, attempt
+publication, task transition or spawned-agent accounting. A late contract
+change between preflight and shared admission must retain the same guarantees.
+
+## Deliberate limits
+
+- Do not enforce atomicity-rationale length, PRD references, task kind, model,
+  tool profile or other similar-but-not-requested quality metadata here.
+- Do not infer exact outputs from broad permission prefixes, and do not turn
+  worker-proposed files into authority.
+- A compact routine contract remains concise: short scope/Done entries and
+  explicit `outputPaths: []` are sufficient when no filesystem output exists.
+  Automatic compact-default synthesis is not added in this unit.
+- This does not establish semantic correctness, integration acceptance,
+  declaration authority or full SC-02/P2.3 compliance.
+
+## Verification and commits
+
+1. Reproduce normal conductor, debug-retry and direct shared-admission bypasses.
+2. Add complete-contract controls and a deterministic late-race regression.
+3. Keep implementation/tests and result documentation in separate commits.
+4. Run focused tests, TypeScript build, full unit/mock integration and
+   conformance/autopilot gates.
+5. Request Copilot review and merge only the reviewed exact head with no valid
+   unresolved finding.
