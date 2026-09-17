@@ -345,3 +345,30 @@ This mechanism protects declared local checker files; it does not prove that the
 declared set is semantically complete, interpret arbitrary shell behavior, or
 replace later representative outcome evaluation. Those limitations must remain
 visible in P2 closure evidence and P7 validation.
+
+### Unit E result and review evidence
+
+The baseline regression first showed a normal failed validation becoming accepted
+after only the declared command's checker implementation was weakened. The fixed
+path binds normalized exact regular-file bytes into policy history and validation
+snapshot schema v5. Current receipt, direct commit/skip, dependency admission and
+completion checks all reject basis drift; repairing only the task output remains
+a passing control.
+
+Task, manifest, planning, stage and replan inputs carry the optional declaration.
+Malformed or duplicate paths fail closed. Model authority cannot rebaseline an
+exercised policy, while the existing reasoned user-command amendment advances the
+revision and retains the prior policy. Policy save authorizes the exact snapshot
+it persists, preventing a double-hash race. Planning preflights both explicit and
+preserved declarations before any requirement, plan or task publication.
+
+Two GPT-6 Astra/high exact-diff reviews found and drove fixes for duplicate-path
+collapse, policy-save TOCTOU, explicit and inherited planning partial publication,
+and then reported no remaining actionable correctness issue. Final validation:
+TypeScript build, full unit suite, 67 mock integration tests and 7
+conformance/autopilot checks pass.
+
+This is bounded AC-10 evidence for explicitly declared local validation files.
+Undeclared dependencies, semantic declaration sufficiency, arbitrary trusted
+filesystem writers, non-software evidence and representative real/local-model
+outcome quality remain open. Do not mark P2 or SC-10 complete from this unit.

@@ -450,3 +450,21 @@ holder requires operator reconciliation; a waiting operation can fail after
 approximately two seconds. These are supported-route concurrency guards, not a
 transaction across every ledger, process authentication, semantic test adequacy,
 or evidence of real/local-model outcome quality.
+
+PLAN-118 unit E adds `validationInputPaths` to the existing validation policy.
+Declare every existing local checker, fixture, or validation-only configuration
+file that a command depends on. Paths are exact project-relative regular files;
+missing files, symlinks, duplicates, absolute/traversal paths and `.scaler`
+runtime metadata are rejected. `[]` is an explicit assertion that the commands
+are self-contained. Omission preserves an existing task declaration but provides
+no protection for an undeclared dependency.
+
+The policy records a canonical SHA-256 basis fingerprint and checks it before and
+after command execution and at receipt/commit/skip/completion freshness gates. A
+model cannot rebaseline an exercised policy. A genuine correction uses the
+existing explicit user-authorized manifest amendment with a reason, revision and
+policy history. Planning preflights explicit and inherited declarations before
+publishing requirements, plans or task changes. If the task creates its own
+validator, create it first and write the manifest before the first validation.
+
+Run `node --test --import tsx test/acceptance-policy-authority.test.ts test/validation-acceptance.test.ts test/plans.test.ts test/tools.test.ts test/stage-workflow.test.ts test/replan-agent.test.ts` for the focused basis, authority, transport and publication coverage. These checks protect only declared local files; they do not infer shell dependencies, prove declaration completeness or establish semantic/real-model outcome quality.

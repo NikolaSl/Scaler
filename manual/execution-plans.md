@@ -24,6 +24,7 @@ Current plan task fields:
 - optional `definitionOfDone`
 - optional `validationRefs`
 - optional `validationCommands`
+- optional `validationInputPaths`
 - optional `qualityWaivers`
 
 Plan statuses:
@@ -57,7 +58,9 @@ Plan statuses:
 - plan tasks without PRD refs
 - runtime PRD requirements not linked by plan tasks
 
-`/scaler-plan-apply` creates missing supervisor task records from the current plan. Existing task records are preserved. Created tasks inherit title, kind, atomicity rationale, allowed paths, dependencies, PRD refs, DoD, validation refs/commands, and quality waivers from plan tasks. Unwaived missing quality requirements reject the affected task instead of silently creating a loose task.
+`/scaler-plan-apply` creates missing supervisor task records from the current plan. Existing task records are preserved. Created tasks inherit title, kind, atomicity rationale, allowed paths, dependencies, PRD refs, DoD, validation refs/commands, validation input paths, and quality waivers from plan tasks. Unwaived missing quality requirements reject the affected task instead of silently creating a loose task.
+
+`validationInputPaths` lists exact project-relative regular files that implement or configure local validation commands, such as checker scripts, fixtures, and validation-specific configuration. SCALER fingerprints those bytes when the policy is established and rejects validation when they drift. `[]` means the commands are deliberately self-contained; omission preserves a prior declaration when an existing task is updated. Missing files, symlinks, duplicates, traversal, absolute paths, and runtime-metadata paths are refused before plan publication. If a task itself creates a validator, create the file first and configure it through the validation manifest tool before the first validation run.
 
 Structured `scaler_planning_report` output synchronizes planner-provided runtime requirements, saves the current execution plan, creates missing tasks, updates existing task metadata/`prdRefs` when requested by the planner report, links requirement coverage to plan tasks, and records diagnostics for unlinked requirements, unknown plan refs, rejected loose tasks, and plan tasks without PRD refs. Planner tasks must include the same quality metadata as direct task creation or explicit `qualityWaivers`; software plans should also decide whether `validationCommands.environment` needs `local_ci`, Docker, Compose, devcontainer, or Minikube execution so validation can generate deterministic CI/CD wrappers. `/scaler-planning-reports` lists those report records.
 

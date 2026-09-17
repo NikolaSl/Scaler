@@ -152,6 +152,7 @@ export function buildReplanAgentPrompt(input: ReplanAgentPromptInput): string {
     "- Link every proposed task to runtime PRD refs when possible.",
     "- Keep tasks atomic, sequential, independently validateable, and include taskKind, atomicityRationale, allowedPathPrefixes, definitionOfDone, and validationRefs or validationCommands.",
     "- Software/mixed tasks must include a test_first validation command/check before implementation gates, or a qualityWaivers entry with an explicit reason and alternative validation path.",
+    "- Declare existing local validator, fixture, and validation-config files in validationInputPaths. Use [] only for genuinely self-contained commands; if a task creates its validator, configure the manifest after creation and before first validation.",
     "- For software/mixed tasks, decide whether local_ci, Docker, Compose, devcontainer, or Minikube validation is needed; set validationCommands.environment and include generated CI/CD setup work when the current plan lacks it.",
     "- Keep existing task ids stable unless a task is unvalidated and replacement is justified by evidence.",
     "",

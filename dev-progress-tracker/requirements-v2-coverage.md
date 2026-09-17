@@ -213,6 +213,17 @@ compatibility only. Updating that gate belongs to the later implementation phase
 revision 2 document integrity is checked separately during this change.
 # PLAN-106 continuation
 
+PLAN-118 unit E binds explicitly declared local checker, fixture and validation
+configuration files to the acceptance policy and schema-v5 receipt snapshots.
+Validation, direct Git decisions, dependency admission and completion reject
+basis drift; model routes cannot rebaseline an exercised policy. Exact-path
+normalization, authority serialization and planning preflight regressions cover
+duplicate declarations, policy-save TOCTOU, and explicit/inherited partial
+publication. TypeScript build, full unit suite, 67 mock integration tests and
+7 conformance/autopilot checks pass. This is partial SC-10/26 evidence only:
+undeclared dependencies, semantic sufficiency, trusted filesystem writers,
+non-software evidence and representative outcomes remain open.
+
 PLAN-118 unit C adds an explicit revision-checked local-user amendment boundary
 and exact requirement version history. Model PRD/planning/stage routes cannot
 materially change existing content or criteria, forged source labels grant no
