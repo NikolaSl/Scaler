@@ -273,7 +273,8 @@ export async function evaluateValidationGitAcceptance(
   // passing summary cannot authorize publication of an accepted skip.
   const diagnostics = await verifyValidationRunReceipt(cwd, state, taskId, run);
   if (diagnostics.length) return { accepted: false, status: "blocked", message: diagnostics.join(" "), safety };
-  if (["not_git_repo", "clean", "runtime_only"].includes(safety.status) && !(await hasDeclaredOutputBasis(cwd, taskId))) {
+  if (["not_git_repo", "clean", "runtime_only"].includes(safety.status)
+    && run.receipt!.snapshot.declaredOutputFingerprint === null) {
     return { accepted: false, status: "blocked", message: automaticSkipMissingOutputBasisMessage, safety };
   }
   const validation: CommitValidationSummary = {
