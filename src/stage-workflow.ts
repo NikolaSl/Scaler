@@ -26,9 +26,8 @@ import {
   isRuntimePrdRequirementStatus,
   loadPrdCoverage,
   loadPrdRequirements,
-  preflightPrdRequirementUpserts,
+  applyPrdRequirementUpserts,
   saveCurrentPrd,
-  upsertPrdRequirement,
   computePrdCoverageSummary,
   normalizePrdAcceptanceCriteria,
   type RuntimePrdAcceptanceCriterion,
@@ -352,7 +351,7 @@ export async function ingestPrdWriteReport(cwd: string, state: ScalerState, stdo
     acceptanceCriteria: requirement.acceptanceCriteria,
   })) ?? [];
   try {
-    await preflightPrdRequirementUpserts(cwd, proposedRequirements);
+    await applyPrdRequirementUpserts(cwd, proposedRequirements);
   } catch (error) {
     return { attempted: true, ingested: false, reason: error instanceof Error ? error.message : String(error) };
   }
@@ -360,9 +359,6 @@ export async function ingestPrdWriteReport(cwd: string, state: ScalerState, stdo
     ? await createPrdVersionSnapshot(cwd, { reason: stringField(report, "snapshotReason") ?? "PRD replaced by stage workflow" })
     : undefined;
   if (content) await saveCurrentPrd(cwd, content);
-  if (requirements) {
-    for (const requirement of proposedRequirements) await upsertPrdRequirement(cwd, requirement);
-  }
   const requirementIds = proposedRequirements.map((requirement) => requirement.id);
   const artifact = await upsertStageArtifact(cwd, {
     stage: "prd",
@@ -961,12 +957,13 @@ function parsePrdRequirements(
     if (!id || !statement) return undefined;
     const criteria = parsePrdAcceptanceCriteria(value);
     if (criteria === null) return undefined;
+    const previous = existing.find((requirement) => requirement.id === id);
     requirements.push({
       id,
       statement,
       title: stringField(value, "title"),
-      source: stringField(value, "source") ?? existing.find((requirement) => requirement.id === id)?.source ?? "stage_workflow_prd",
-      acceptanceCriteria: criteria ?? existing.find((requirement) => requirement.id === id)?.acceptanceCriteria,
+      source: stringField(value, "source") ?? (previous ? previous.source : "stage_workflow_prd"),
+      acceptanceCriteria: criteria ?? previous?.acceptanceCriteria,
       createdAt: timestamp,
       updatedAt: timestamp,
     });

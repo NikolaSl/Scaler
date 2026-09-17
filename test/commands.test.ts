@@ -126,6 +126,13 @@ test("parsePrdAmendArgs requires an exact revision, reason, and JSON changes", (
   assert.equal(parsePrdAmendArgs('REQ-001 | no | reason | {"statement":"x"}'), undefined);
   assert.equal(parsePrdAmendArgs('REQ-001 | 1oops | reason | {"statement":"x"}'), undefined);
   assert.equal(parsePrdAmendArgs('REQ-001 | 1 | reason | not-json'), undefined);
+  assert.deepEqual(parsePrdAmendArgs('REQ-001 | 1 | clarify alternatives | {"statement":"Accept A|B"}'), {
+    requirementId: "REQ-001",
+    expectedRevision: 1,
+    reason: "clarify alternatives",
+    changes: { statement: "Accept A|B" },
+  });
+  assert.equal(parsePrdAmendArgs('REQ-001 | 1 | reason | {"statement":"x"} trailing'), undefined);
 });
 
 test("parseValidationAddArgs parses manifest command fields", () => {

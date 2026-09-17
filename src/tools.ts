@@ -15,7 +15,7 @@ import { recordProviderUsageBudget } from "./provider-usage.js";
 import {
   createPrdVersionSnapshot,
   loadPrdRequirements,
-  preflightPrdRequirementUpserts,
+  applyPrdRequirementUpserts,
   saveCurrentPrd,
   upsertPrdRequirement,
   type RuntimePrdRequirement,
@@ -689,16 +689,11 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         source: requirement.source,
         acceptanceCriteria: requirement.acceptanceCriteria,
       }));
-      await preflightPrdRequirementUpserts(ctx.cwd, proposedRequirements);
+      const requirements = params.requirements
+        ? await applyPrdRequirementUpserts(ctx.cwd, proposedRequirements)
+        : undefined;
       const snapshotPath = params.snapshotCurrent ? await createPrdVersionSnapshot(ctx.cwd, { reason: params.snapshotReason ?? "PRD replaced" }) : undefined;
       await saveCurrentPrd(ctx.cwd, params.content);
-      let requirements: RuntimePrdRequirement[] | undefined;
-      if (params.requirements) {
-        requirements = [];
-        for (const requirement of proposedRequirements) {
-          requirements.push(await upsertPrdRequirement(ctx.cwd, requirement));
-        }
-      }
       await logTool(ctx.cwd, "scaler_prd_write", "Runtime PRD written", { snapshotPath, requirements });
       return textResult(`Runtime PRD written${snapshotPath ? ` snapshot=${snapshotPath}` : ""}`, {
         status: "written",

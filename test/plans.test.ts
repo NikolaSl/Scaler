@@ -32,7 +32,7 @@ import {
   validateExecutionPlan,
   validateReplanRequest,
 } from "../src/plans.js";
-import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
+import { computePrdCoverageSummary, loadPrdChanges, loadPrdCoverage, loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
 import { createDefaultState } from "../src/state.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -251,6 +251,28 @@ test("planning report rejects requirement amendments before plan or task writes"
     assert.deepEqual(await loadPrdRequirements(dir), before);
     assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
     assert.equal(state.tasks.length, 0);
+  });
+});
+
+test("planning report rejects an invalid plan before requirement ledger writes", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+
+    await assert.rejects(() => applyPlanningReport(dir, state, {
+      id: "PLAN-DUPLICATE",
+      requirements: [{ id: "REQ-NOT-WRITTEN", statement: "Must remain absent", status: "pending" }],
+      plan: {
+        planVersion: 1,
+        status: "active",
+        tasks: [validPlanTask("T-DUP", "First"), validPlanTask("T-DUP", "Duplicate")],
+      },
+    }), /duplicate execution plan task id/i);
+
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    assert.deepEqual((await loadPrdCoverage(dir)).entries, []);
+    assert.deepEqual(await loadPrdChanges(dir), []);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual(state.tasks, []);
   });
 });
 

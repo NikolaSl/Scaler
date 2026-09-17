@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
   amendPrdRequirement,
+  applyPrdRequirementUpserts,
   appendPrdChange,
   computePrdCoverageSummary,
   createPrdVersionSnapshot,
@@ -157,6 +158,46 @@ test("explicit user amendment records immutable versions and rejects stale bases
       id: "REQ-AMEND", expectedRevision: 1, reason: "Stale overwrite", changes: { acceptanceCriteria: [] },
     }), /stale.*expected revision 1.*current revision 2/i);
     assert.deepEqual(await loadPrdRequirements(dir), beforeStale);
+  });
+});
+
+test("serialized unrelated upserts cannot roll back an authorized amendment", async () => {
+  await withTempDir(async (dir) => {
+    await upsertPrdRequirement(dir, { id: "REQ-AMEND", statement: "Version one" });
+    await Promise.all([
+      amendPrdRequirement(dir, {
+        id: "REQ-AMEND", expectedRevision: 1, reason: "User authorizes version two.",
+        changes: { statement: "Version two" },
+      }),
+      ...Array.from({ length: 12 }, (_, index) => upsertPrdRequirement(dir, {
+        id: `REQ-OTHER-${index}`, statement: `Unrelated ${index}`,
+      })),
+    ]);
+
+    const requirements = await loadPrdRequirements(dir);
+    const amended = requirements.requirements.find((requirement) => requirement.id === "REQ-AMEND");
+    assert.equal(amended?.statement, "Version two");
+    assert.equal(amended?.revision, 2);
+    assert.deepEqual(amended?.versionHistory?.map((version) => version.revision), [1, 2]);
+    assert.equal(requirements.requirements.length, 13);
+  });
+});
+
+test("batch authorization failure publishes no partial requirement or coverage writes", async () => {
+  await withTempDir(async (dir) => {
+    await upsertPrdRequirement(dir, { id: "REQ-LOCKED", statement: "Original" });
+    const beforeRequirements = await loadPrdRequirements(dir);
+    const beforeCoverage = await loadPrdCoverage(dir);
+    const beforeChanges = await loadPrdChanges(dir);
+
+    await assert.rejects(() => applyPrdRequirementUpserts(dir, [
+      { id: "REQ-NEW", statement: "Would otherwise be added", status: "pending" },
+      { id: "REQ-LOCKED", statement: "Unauthorized rewrite" },
+    ]), /amendment authority|required user command/i);
+
+    assert.deepEqual(await loadPrdRequirements(dir), beforeRequirements);
+    assert.deepEqual(await loadPrdCoverage(dir), beforeCoverage);
+    assert.deepEqual(await loadPrdChanges(dir), beforeChanges);
   });
 });
 

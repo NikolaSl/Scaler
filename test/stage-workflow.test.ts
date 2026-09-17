@@ -146,6 +146,25 @@ test("PRD stage catalog omission preserves requirements not named by the report"
   });
 });
 
+test("PRD stage preserves an omitted source on an existing source-less requirement", async () => {
+  await withTempDir(async (dir) => {
+    const state = createState("prd");
+    await saveState(dir, state);
+    await upsertPrdRequirement(dir, { id: "REQ-SOURCELESS", statement: "Keep source absent." });
+
+    const result = await ingestPrdWriteReport(dir, state, [{
+      type: "scaler_prd_write",
+      requirements: [{ id: "REQ-SOURCELESS", statement: "Keep source absent." }],
+    }]);
+
+    assert.equal(result.ingested, true, result.reason);
+    const requirement = (await loadPrdRequirements(dir)).requirements[0];
+    assert.equal(requirement?.source, undefined);
+    assert.equal(requirement?.revision, 1);
+    assert.equal(requirement?.versionHistory?.length, 1);
+  });
+});
+
 async function stageRunner(request: TaskAgentRequest): Promise<TaskAgentRunResult> {
   if (request.taskId === "stage-prd") {
     assert.ok(request.tools?.includes("read"));

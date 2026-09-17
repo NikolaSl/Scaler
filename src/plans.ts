@@ -15,7 +15,7 @@ import {
   getReplanDecisionsPath,
   getReplanRequestsPath,
 } from "./paths.js";
-import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, preflightPrdRequirementUpserts, upsertPrdRequirement, type RuntimePrdAcceptanceCriterion, type RuntimePrdRequirementStatus, type RuntimePrdRequirementsFile } from "./prd.js";
+import { applyPrdRequirementUpserts, computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdAcceptanceCriterion, type RuntimePrdRequirementStatus, type RuntimePrdRequirementsFile } from "./prd.js";
 import { createTask, updateTask } from "./tasks.js";
 import type { ScalerState, ScalerTaskKind, ScalerTaskQualityWaiver } from "./types.js";
 import type { EmbeddedValidationManifestCommandInput } from "./validation.js";
@@ -434,32 +434,16 @@ export async function applyPlanningReport(
 ): Promise<PlanningReportResult> {
   const timestamp = now.toISOString();
   const plan: ExecutionPlanArtifact = normalizePlanningReportPlan(input.plan, timestamp);
-  const proposedRequirements = input.requirements.map((requirement) => ({
-    id: requirement.id,
-    statement: requirement.statement,
-    title: requirement.title,
-    source: requirement.source,
-    acceptanceCriteria: requirement.acceptanceCriteria,
-  }));
-  await preflightPrdRequirementUpserts(cwd, proposedRequirements);
+  validateExecutionPlan(plan);
+  const taskIdsByRequirement = buildPlanTaskIdsByRequirement(plan);
+  await applyPrdRequirementUpserts(cwd, input.requirements.map((requirement) => ({
+    ...requirement,
+    status: requirement.status ?? (taskIdsByRequirement.get(requirement.id)?.length ? "in_progress" : "pending"),
+    taskIds: taskIdsByRequirement.get(requirement.id),
+    now,
+  })));
   const savedPlan = await saveExecutionPlan(cwd, plan);
   const applyResult = await applyExecutionPlanTasks(cwd, state, savedPlan, { updateExisting: true });
-  const taskIdsByRequirement = buildPlanTaskIdsByRequirement(savedPlan);
-
-  for (const requirement of input.requirements) {
-    await upsertPrdRequirement(cwd, {
-      id: requirement.id,
-      statement: requirement.statement,
-      title: requirement.title,
-      source: requirement.source,
-      acceptanceCriteria: requirement.acceptanceCriteria,
-      status: requirement.status ?? (taskIdsByRequirement.get(requirement.id)?.length ? "in_progress" : "pending"),
-      taskIds: taskIdsByRequirement.get(requirement.id),
-      evidenceRefs: requirement.evidenceRefs,
-      notes: requirement.notes,
-      now,
-    });
-  }
 
   const requirements = await loadPrdRequirements(cwd);
   const coverage = await loadPrdCoverage(cwd);

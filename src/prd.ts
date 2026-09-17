@@ -3,8 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { appendFile, mkdir, open, readFile, readdir, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import type { ScalerState, ScalerTaskState } from "./types.js";
 import {
   getCurrentPrdPath,
@@ -12,6 +14,7 @@ import {
   getPrdCoveragePath,
   getPrdDir,
   getPrdRequirementsPath,
+  getPrdRequirementsLockPath,
   getPrdVersionsDir,
 } from "./paths.js";
 
@@ -184,6 +187,10 @@ export async function saveCurrentPrd(cwd: string, content: string): Promise<void
 }
 
 export async function loadPrdRequirements(cwd: string): Promise<RuntimePrdRequirementsFile> {
+  return loadPrdRequirementsUnlocked(cwd);
+}
+
+async function loadPrdRequirementsUnlocked(cwd: string): Promise<RuntimePrdRequirementsFile> {
   try {
     const raw = await readFile(getPrdRequirementsPath(cwd), "utf8");
     const requirements = JSON.parse(raw) as RuntimePrdRequirementsFile;
@@ -197,8 +204,11 @@ export async function loadPrdRequirements(cwd: string): Promise<RuntimePrdRequir
 }
 
 export async function savePrdRequirements(cwd: string, requirements: RuntimePrdRequirementsFile): Promise<void> {
-  await mkdir(getPrdDir(cwd), { recursive: true });
-  await writeFile(getPrdRequirementsPath(cwd), `${JSON.stringify(normalizePrdRequirementsFile(requirements), null, 2)}\n`, "utf8");
+  await withPrdRequirementsLock(cwd, async () => {
+    const normalized = normalizePrdRequirementsFile(requirements);
+    assertCatalogDoesNotRollBack(await loadPrdRequirementsUnlocked(cwd), normalized);
+    await savePrdRequirementsUnlocked(cwd, normalized);
+  });
 }
 
 export async function loadPrdCoverage(cwd: string): Promise<RuntimePrdCoverageFile> {
@@ -216,94 +226,92 @@ export async function loadPrdCoverage(cwd: string): Promise<RuntimePrdCoverageFi
 }
 
 export async function savePrdCoverage(cwd: string, coverage: RuntimePrdCoverageFile): Promise<void> {
-  validatePrdCoverage(coverage);
-  await mkdir(getPrdDir(cwd), { recursive: true });
-  await writeFile(getPrdCoveragePath(cwd), `${JSON.stringify(coverage, null, 2)}\n`, "utf8");
+  await withPrdRequirementsLock(cwd, async () => savePrdCoverageUnlocked(cwd, coverage));
 }
 
 export async function upsertPrdRequirement(cwd: string, input: UpsertPrdRequirementInput): Promise<RuntimePrdRequirement> {
-  if (input.status && !isRuntimePrdRequirementStatus(input.status)) {
-    throw new Error(`Invalid runtime PRD requirement status: ${input.status}`);
-  }
-
-  const timestamp = (input.now ?? new Date()).toISOString();
-  const requirements = await loadPrdRequirements(cwd);
-  const existing = requirements.requirements.find((requirement) => requirement.id === input.id);
-  const acceptanceCriteria = input.acceptanceCriteria === undefined
-    ? existing?.acceptanceCriteria
-    : normalizePrdAcceptanceCriteria(input.acceptanceCriteria);
-  const proposedContent = {
-    statement: requiredRequirementString(input.statement, "statement"),
-    title: input.title ?? existing?.title,
-    source: input.source ?? existing?.source,
-    acceptanceCriteria,
-  };
-  assertModelRouteRequirementChangeAllowed(existing, proposedContent);
-  const revision = existing?.revision ?? 1;
-  const history = existing?.versionHistory ?? [];
-  const requirement: RuntimePrdRequirement = {
-    id: input.id,
-    ...proposedContent,
-    revision,
-    versionHistory: history.length > 0 ? history : [requirementVersion({
-      ...proposedContent,
-      revision,
-      recordedAt: existing?.createdAt ?? timestamp,
-      authority: { kind: existing ? "legacy_unknown" : "normalized_input" },
-    })],
-    createdAt: existing?.createdAt ?? timestamp,
-    updatedAt: existing && sameRequirementContent(existing, proposedContent) ? existing.updatedAt : timestamp,
-  };
-  await savePrdRequirements(cwd, {
-    version: 1,
-    requirements: [...requirements.requirements.filter((candidate) => candidate.id !== input.id), requirement],
-  });
-
-  if (input.status) {
-    const coverage = await loadPrdCoverage(cwd);
-    const existingCoverage = coverage.entries.find((entry) => entry.requirementId === input.id);
-    await savePrdCoverage(cwd, {
-      version: 1,
-      entries: [
-        ...coverage.entries.filter((entry) => entry.requirementId !== input.id),
-        {
-          requirementId: input.id,
-          status: input.status,
-          taskIds: input.taskIds ?? existingCoverage?.taskIds,
-          evidenceRefs: input.evidenceRefs ?? existingCoverage?.evidenceRefs,
-          notes: input.notes ?? existingCoverage?.notes,
-          updatedAt: timestamp,
-        },
-      ],
-    });
-  }
-
-  await appendPrdChange(cwd, {
-    timestamp,
-    reason: `Requirement upserted: ${input.id}`,
-    source: input.source,
-    affectedRequirementIds: [input.id],
-  });
-  return requirement;
+  const [requirement] = await applyPrdRequirementUpserts(cwd, [input]);
+  return requirement!;
 }
 
-export async function preflightPrdRequirementUpserts(cwd: string, inputs: UpsertPrdRequirementInput[]): Promise<void> {
-  const requirements = await loadPrdRequirements(cwd);
-  const byId = new Map(requirements.requirements.map((requirement) => [requirement.id, requirement]));
+export async function applyPrdRequirementUpserts(
+  cwd: string,
+  inputs: UpsertPrdRequirementInput[],
+): Promise<RuntimePrdRequirement[]> {
+  if (inputs.length === 0) return [];
+  return withPrdRequirementsLock(cwd, async () => applyPrdRequirementUpsertsLocked(cwd, inputs));
+}
+
+async function applyPrdRequirementUpsertsLocked(
+  cwd: string,
+  inputs: UpsertPrdRequirementInput[],
+): Promise<RuntimePrdRequirement[]> {
   const duplicate = inputs.find((input, index) => inputs.findIndex((candidate) => candidate.id === input.id) !== index);
   if (duplicate) throw new Error(`Invalid runtime PRD requirements: duplicate id ${duplicate.id}.`);
+  const current = await loadPrdRequirementsUnlocked(cwd);
+  const byId = new Map(current.requirements.map((requirement) => [requirement.id, requirement]));
+  const coverage = inputs.some((input) => input.status) ? await loadPrdCoverage(cwd) : undefined;
+  const coverageById = new Map(coverage?.entries.map((entry) => [entry.requirementId, entry]) ?? []);
+  const updated: RuntimePrdRequirement[] = [];
+  const changes: RuntimePrdChangeRecord[] = [];
   for (const input of inputs) {
+    if (input.status && !isRuntimePrdRequirementStatus(input.status)) {
+      throw new Error(`Invalid runtime PRD requirement status: ${input.status}`);
+    }
+
+    const timestamp = (input.now ?? new Date()).toISOString();
     const existing = byId.get(input.id);
+    const acceptanceCriteria = input.acceptanceCriteria === undefined
+      ? existing?.acceptanceCriteria
+      : normalizePrdAcceptanceCriteria(input.acceptanceCriteria);
     const proposedContent = {
       statement: requiredRequirementString(input.statement, "statement"),
       title: input.title ?? existing?.title,
       source: input.source ?? existing?.source,
-      acceptanceCriteria: input.acceptanceCriteria === undefined
-        ? existing?.acceptanceCriteria
-        : normalizePrdAcceptanceCriteria(input.acceptanceCriteria),
+      acceptanceCriteria,
     };
     assertModelRouteRequirementChangeAllowed(existing, proposedContent);
+    const revision = existing?.revision ?? 1;
+    const history = existing?.versionHistory ?? [];
+    const requirement: RuntimePrdRequirement = {
+      id: input.id,
+      ...proposedContent,
+      revision,
+      versionHistory: history.length > 0 ? history : [requirementVersion({
+        ...proposedContent,
+        revision,
+        recordedAt: existing?.createdAt ?? timestamp,
+        authority: { kind: existing ? "legacy_unknown" : "normalized_input" },
+      })],
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: existing && sameRequirementContent(existing, proposedContent) ? existing.updatedAt : timestamp,
+    };
+    byId.set(input.id, requirement);
+    updated.push(requirement);
+
+    if (input.status) {
+      const existingCoverage = coverageById.get(input.id);
+      coverageById.set(input.id, {
+        requirementId: input.id,
+        status: input.status,
+        taskIds: input.taskIds ?? existingCoverage?.taskIds,
+        evidenceRefs: input.evidenceRefs ?? existingCoverage?.evidenceRefs,
+        notes: input.notes ?? existingCoverage?.notes,
+        updatedAt: timestamp,
+      });
+    }
+
+    changes.push({
+      timestamp,
+      reason: `Requirement upserted: ${input.id}`,
+      source: input.source,
+      affectedRequirementIds: [input.id],
+    });
   }
+  await savePrdRequirementsUnlocked(cwd, { version: 1, requirements: [...byId.values()] });
+  if (coverage) await savePrdCoverageUnlocked(cwd, { version: 1, entries: [...coverageById.values()] });
+  for (const change of changes) await appendPrdChange(cwd, change);
+  return updated;
 }
 
 export async function amendPrdRequirement(cwd: string, input: AmendPrdRequirementInput): Promise<RuntimePrdRequirement> {
@@ -326,7 +334,15 @@ export async function amendPrdRequirement(cwd: string, input: AmendPrdRequiremen
     throw new Error("Runtime PRD amendment acceptanceCriteria must be an array.");
   }
 
-  const requirements = await loadPrdRequirements(cwd);
+  return withPrdRequirementsLock(cwd, async () => amendPrdRequirementLocked(cwd, input, reason));
+}
+
+async function amendPrdRequirementLocked(
+  cwd: string,
+  input: AmendPrdRequirementInput,
+  reason: string,
+): Promise<RuntimePrdRequirement> {
+  const requirements = await loadPrdRequirementsUnlocked(cwd);
   const existing = requirements.requirements.find((requirement) => requirement.id === input.id);
   if (!existing) throw new Error(`Runtime PRD requirement not found: ${input.id}.`);
   const revision = existing.revision ?? 1;
@@ -369,7 +385,7 @@ export async function amendPrdRequirement(cwd: string, input: AmendPrdRequiremen
     createdAt: existing.createdAt,
     updatedAt: timestamp,
   };
-  await savePrdRequirements(cwd, {
+  await savePrdRequirementsUnlocked(cwd, {
     version: 1,
     requirements: [...requirements.requirements.filter((candidate) => candidate.id !== input.id), requirement],
   });
@@ -380,6 +396,104 @@ export async function amendPrdRequirement(cwd: string, input: AmendPrdRequiremen
     affectedRequirementIds: [input.id],
   });
   return requirement;
+}
+
+async function savePrdRequirementsUnlocked(cwd: string, requirements: RuntimePrdRequirementsFile): Promise<void> {
+  const path = getPrdRequirementsPath(cwd);
+  await mkdir(getPrdDir(cwd), { recursive: true });
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  let published = false;
+  try {
+    const file = await open(temporary, "wx", 0o600);
+    try {
+      await file.writeFile(`${JSON.stringify(normalizePrdRequirementsFile(requirements), null, 2)}\n`, "utf8");
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    await rename(temporary, path);
+    published = true;
+  } finally {
+    if (!published) await rm(temporary, { force: true });
+  }
+}
+
+async function savePrdCoverageUnlocked(cwd: string, coverage: RuntimePrdCoverageFile): Promise<void> {
+  validatePrdCoverage(coverage);
+  const path = getPrdCoveragePath(cwd);
+  await mkdir(getPrdDir(cwd), { recursive: true });
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  let published = false;
+  try {
+    const file = await open(temporary, "wx", 0o600);
+    try {
+      await file.writeFile(`${JSON.stringify(coverage, null, 2)}\n`, "utf8");
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    await rename(temporary, path);
+    published = true;
+  } finally {
+    if (!published) await rm(temporary, { force: true });
+  }
+}
+
+async function withPrdRequirementsLock<T>(cwd: string, fn: () => Promise<T>): Promise<T> {
+  await mkdir(getPrdDir(cwd), { recursive: true });
+  const path = getPrdRequirementsLockPath(cwd);
+  let acquired = false;
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    try {
+      await mkdir(path);
+      acquired = true;
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      await delay(25);
+    }
+  }
+  if (!acquired) {
+    throw new Error("Runtime PRD requirements are locked by another active writer; retry after it finishes.");
+  }
+  try {
+    return await fn();
+  } finally {
+    await releasePrdRequirementsLock(path);
+  }
+}
+
+async function releasePrdRequirementsLock(path: string): Promise<void> {
+  let releaseError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await rmdir(path);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      releaseError = error;
+      if (attempt < 2) await delay(10);
+    }
+  }
+  process.emitWarning(
+    `Runtime PRD requirements lock could not be released: ${path}. A write may already have committed; reconcile the active owner before removing the lock. ${String(releaseError)}`,
+    { code: "SCALER_PRD_LOCK_RELEASE_FAILED" },
+  );
+}
+
+function assertCatalogDoesNotRollBack(current: RuntimePrdRequirementsFile, next: RuntimePrdRequirementsFile): void {
+  for (const existing of current.requirements) {
+    const proposed = next.requirements.find((requirement) => requirement.id === existing.id);
+    if (!proposed) throw new Error(`Runtime PRD catalog replacement cannot remove requirement ${existing.id}.`);
+    const currentRevision = existing.revision ?? 1;
+    const proposedRevision = proposed.revision ?? 1;
+    if (proposedRevision !== currentRevision || JSON.stringify(proposed.versionHistory) !== JSON.stringify(existing.versionHistory)) {
+      throw new Error(`Runtime PRD catalog replacement cannot roll back requirement ${existing.id}.`);
+    }
+    if (!sameRequirementContent(existing, proposed)) {
+      throw new Error(`Runtime PRD catalog replacement cannot change ${existing.id} without amendment authority.`);
+    }
+  }
 }
 
 export function normalizePrdAcceptanceCriteria(

@@ -200,6 +200,27 @@ test("completion rejects evidence for an earlier linked requirement statement", 
   assert.equal((await loadState(dir)).stage, "execution");
 }));
 
+test("completion rejects evidence after a requirement changes away and back", async () => fixture(async (dir, state) => {
+  state.tasks[0]!.prdRefs = ["REQ-ABA"];
+  await saveState(dir, state);
+  await upsertPrdRequirement(dir, { id: "REQ-ABA", statement: "Original requirement" });
+  assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
+  await amendPrdRequirement(dir, {
+    id: "REQ-ABA", expectedRevision: 1, reason: "User changes the requirement.",
+    changes: { statement: "Intermediate requirement" },
+  });
+  await amendPrdRequirement(dir, {
+    id: "REQ-ABA", expectedRevision: 2, reason: "User restores the wording with new history.",
+    changes: { statement: "Original requirement" },
+  });
+
+  const errors = await verifyCurrentValidationReceipt(dir, await loadState(dir), "T-ONE");
+  assert.match(errors.join("\n"), /requirement|receipt|changed/i);
+  const result = await completeRunWithEvidence(dir, await loadState(dir));
+  assert.equal(result.accepted, false);
+  assert.equal((await loadState(dir)).stage, "execution");
+}));
+
 test("completion preserves evidence after an identical requirement-content upsert", async () => fixture(async (dir, state) => {
   state.tasks[0]!.prdRefs = ["REQ-SAME"];
   await saveState(dir, state);
