@@ -23,3 +23,18 @@ This protects the API against bare/stale evidence, not against a process that ca
 forge all ledger files and fingerprints. Authenticated child containment,
 skip/non-Git output freshness and integrated semantic acceptance remain open.
 No paid model or deployment.
+
+Nikola explicitly extended the current work deadline to 2026-09-17T18:00:00Z
+(21:00 Europe/Sofia). This supersedes the prior overnight cutoff. Same completed
+review, tests, expected-head merge and separate-commit policy applies.
+
+The 11 new baseline cases failed: nine unsafe acceptance scenarios and two
+positive controls with incorrectly derived summary fields. The direct API now
+requires a full receipt-bearing record, verifies it with the existing freshness
+guard, and derives its summary. Bare runtime summaries fail closed. The original
+positive Git-helper fixture now executes validation and retains skip assertions.
+The implementation was restored onto PR #11's corrected dependency without
+discarding the earlier local commits. Combined validation is recorded below.
+
+Combined gate on corrected PLAN-107 dependency: build, 641/641 unit, 67/67 mock
+integration and 5/5 conformance pass. Review is required on the published head.
