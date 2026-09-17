@@ -50,3 +50,20 @@ change between preflight and shared admission must retain the same guarantees.
    conformance/autopilot gates.
 5. Request Copilot review and merge only the reviewed exact head with no valid
    unresolved finding.
+
+## Result
+
+The four baseline regressions reproduced dispatch through conductor, debug retry
+and shared admission, including a late contract mutation after preflight. The
+shared verifier now refuses missing write scope, explicit output basis or
+acceptance statement. Both callers return their existing structured rejection,
+and the late check occurs before attempt publication and spawned-agent budget.
+
+Five focused checks cover the three boundaries, late mutation and an explicit
+compact contract with `outputPaths: []`. Existing execution fixtures now state
+the contract they already assumed; their behavioral assertions are unchanged.
+Final gate: build, 708 unit, 67 mock integration and 7 conformance/autopilot.
+
+This is a structural admission guard only. It does not prove that declared paths
+or criteria are sufficient, authorized or semantically correct, and it does not
+synthesize defaults for routine jobs. P2.3 and SC-02/10/26 remain incomplete.
