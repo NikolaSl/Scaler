@@ -119,7 +119,7 @@ test("integration: stage conductor ingests artifacts and advances through implem
       now: new Date("2026-01-01T00:00:00.000Z"),
     });
     const state = createState("prd");
-    state.tasks = [{ id: "T-STAGE", status: "validating", updatedAt: state.updatedAt }];
+    state.tasks = [{ id: "T-STAGE", status: "validating", prdRefs: ["REQ-STAGE"], updatedAt: state.updatedAt }];
     await saveState(dir, state);
     await upsertValidationManifestCommand(dir, { taskId: "T-STAGE", id: "export", required: true,
       command: 'node --input-type=module -e "import {value} from \'./index.js\'; if(value!==1)process.exit(1)"',
