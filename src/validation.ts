@@ -482,7 +482,7 @@ export async function saveValidationManifest(
       ?? await createDefaultValidationManifest(cwd, manifest.taskId);
     const changed = fingerprintValidationPolicy(current) !== fingerprintValidationPolicy(normalized);
     const exercised = changed && await hasValidationRunForTask(cwd, manifest.taskId);
-    await assertValidationPolicyMutationAuthorized(cwd, normalized, options, manifests);
+    await assertValidationPolicyMutationAuthorized(cwd, normalized, options, manifests, normalized);
     if (exercised && options.authority === "user_command") {
       const reason = options.reason?.trim();
       if (!reason) throw new Error(`Acceptance policy update rejected for ${manifest.taskId}: an explicit user-command reason is required.`);
@@ -561,12 +561,16 @@ export async function assertValidationPolicyMutationAuthorized(
   proposed: TaskValidationManifest,
   options: ValidationPolicyWriteOptions = {},
   loadedManifests?: TaskValidationManifest[],
+  normalizedProposed?: TaskValidationManifest,
 ): Promise<void> {
   if ((options.authority ?? "system") !== "model" || !(await hasValidationRunForTask(cwd, proposed.taskId))) return;
   const manifests = loadedManifests ?? await loadValidationManifests(cwd);
   const current = manifests.find((manifest) => manifest.taskId === proposed.taskId)
     ?? await createDefaultValidationManifest(cwd, proposed.taskId);
-  const normalized = await normalizeValidationManifest(cwd, proposed);
+  // saveValidationManifest passes the exact normalized snapshot it will write.
+  // Re-reading executable inputs here would authorize one filesystem version
+  // while persisting another if the validator changes between both hashes.
+  const normalized = normalizedProposed ?? await normalizeValidationManifest(cwd, proposed);
   if (fingerprintValidationPolicy(current) === fingerprintValidationPolicy(normalized)) return;
   throw new Error(`Acceptance policy update rejected for ${proposed.taskId}: model routes cannot replace an exercised policy; use an explicit local user command with a recorded reason.`);
 }

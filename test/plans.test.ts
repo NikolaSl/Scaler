@@ -276,6 +276,32 @@ test("planning report rejects an invalid plan before requirement ledger writes",
   });
 });
 
+test("planning report rejects unreadable validation inputs before any publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+
+    await assert.rejects(() => applyPlanningReport(dir, state, {
+      id: "PLAN-MISSING-VALIDATOR",
+      requirements: [{ id: "REQ-MISSING-VALIDATOR", statement: "Validation basis must be readable." }],
+      plan: {
+        planVersion: 1,
+        status: "active",
+        tasks: [validPlanTask("T-MISSING-VALIDATOR", "Missing validator", {
+          prdRefs: ["REQ-MISSING-VALIDATOR"],
+          validationInputPaths: ["missing.cjs"],
+        })],
+      },
+    }), /rejected before publication.*validation input.*missing\.cjs/i);
+
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    assert.deepEqual((await loadPrdCoverage(dir)).entries, []);
+    assert.deepEqual(await loadPrdChanges(dir), []);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual((await loadPlanningReports(dir)), []);
+    assert.deepEqual(state.tasks, []);
+  });
+});
+
 test("summarizeExecutionPlan reports task and requirement coverage", () => {
   const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
   state.tasks = [

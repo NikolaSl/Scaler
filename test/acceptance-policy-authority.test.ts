@@ -5,6 +5,8 @@
 
 import assert from "node:assert/strict";
 import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
+import fsPromises from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -121,6 +123,34 @@ test("model authority cannot rebaseline a changed executable validation input", 
     const current = await getValidationManifestForTask(dir, "T-BASIS");
     assert.equal(current.revision ?? 1, 1);
     assert.equal(current.validationInputFingerprint, original.validationInputFingerprint);
+  });
+});
+
+test("policy save authorizes the exact validator snapshot it persists", async (t) => {
+  await withExternalFailedPolicy(async (dir) => {
+    const originalManifest = await getValidationManifestForTask(dir, "T-BASIS");
+    const originalChecker = "const fs=require('fs');if(fs.readFileSync('result.txt','utf8')!=='fixed')process.exit(1);\n";
+    await writeFile(join(dir, "check.cjs"), "process.exit(0);\n");
+    const originalReadFile = fsPromises.readFile;
+    let restored = false;
+    t.mock.method(fsPromises, "readFile", (async (path: Parameters<typeof fsPromises.readFile>[0], ...args: unknown[]) => {
+      if (!restored && String(path).endsWith("validation-runs.json")) {
+        restored = true;
+        await writeFile(join(dir, "check.cjs"), originalChecker);
+      }
+      return originalReadFile.call(fsPromises, path, ...args as never[]);
+    }) as typeof fsPromises.readFile);
+    syncBuiltinESMExports();
+    try {
+      await assert.rejects(saveValidationManifest(dir, originalManifest, { authority: "model" }), /acceptance policy|authority|user command/i);
+      assert.equal(restored, true);
+    } finally {
+      t.mock.restoreAll();
+      syncBuiltinESMExports();
+    }
+    const current = await getValidationManifestForTask(dir, "T-BASIS");
+    assert.equal(current.validationInputFingerprint, originalManifest.validationInputFingerprint);
+    assert.equal(current.revision ?? 1, 1);
   });
 });
 

@@ -5,7 +5,7 @@
 
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { normalizeOutputPaths, normalizeValidationInputPaths } from "./output-artifacts.js";
+import { fingerprintValidationInputs, normalizeOutputPaths, normalizeValidationInputPaths } from "./output-artifacts.js";
 import {
   getCurrentExecutionPlanPath,
   getExecutionPlansDir,
@@ -342,6 +342,8 @@ async function acceptReplanProposalLocked(
     return { accepted: false, message: decision.summary, state, decision, currentPlan, proposedPlan };
   }
 
+  await preflightExecutionPlanValidationInputs(cwd, proposedPlan);
+
   const snapshotPath = await createExecutionPlanSnapshot(cwd, { plan: currentPlan, now });
   const savedPlan = await saveExecutionPlan(cwd, {
     ...proposedPlan,
@@ -391,6 +393,7 @@ export async function applyExecutionPlanTasks(
   options: ExecutionPlanApplyOptions = {},
 ): Promise<ExecutionPlanApplyResult> {
   validateExecutionPlan(plan);
+  await preflightExecutionPlanValidationInputs(cwd, plan);
   let nextState = state;
   const createdTaskIds: string[] = [];
   const existingTaskIds: string[] = [];
@@ -489,6 +492,16 @@ async function preflightExecutionPlanPolicyChanges(
   return rejections;
 }
 
+async function preflightExecutionPlanValidationInputs(cwd: string, plan: ExecutionPlanArtifact): Promise<void> {
+  for (const task of plan.tasks) {
+    try {
+      await fingerprintValidationInputs(cwd, task.validationInputPaths);
+    } catch (error) {
+      throw new Error(`Execution plan rejected before publication: task ${task.id} validation input preflight failed: ${String(error)}`);
+    }
+  }
+}
+
 export async function applyPlanningReport(
   cwd: string,
   state: ScalerState,
@@ -508,6 +521,7 @@ async function applyPlanningReportLocked(
   const timestamp = now.toISOString();
   const plan: ExecutionPlanArtifact = normalizePlanningReportPlan(input.plan, timestamp);
   validateExecutionPlan(plan);
+  await preflightExecutionPlanValidationInputs(cwd, plan);
   const policyRejections = await preflightExecutionPlanPolicyChanges(cwd, state, plan, "model");
   if (policyRejections.length > 0) throw new Error(`Planning report rejected before publication: ${policyRejections.join(" ")}`);
   const taskIdsByRequirement = buildPlanTaskIdsByRequirement(plan);
