@@ -14,6 +14,7 @@ import { getBudgetState } from "../src/budgets.js";
 import { buildTaskAgentPrompt, runConductorStep, type ConductorStepOptions } from "../src/conductor.js";
 import { admitTaskExecution } from "../src/attempt-execution.js";
 import { acquireExecutionLock, releaseExecutionLock } from "../src/locks.js";
+import { getValidationManifestsPath } from "../src/paths.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { loadTaskAttempts, type TaskAttemptBinding } from "../src/task-attempts.js";
 import { saveValidationManifest } from "../src/validation.js";
@@ -92,6 +93,30 @@ test("conductor rejects an incomplete contract before dirty-tree checkpointing",
   assert.equal(result.checkpointPath, undefined);
   assert.equal(result.state.stage, "execution");
   assert.equal((await loadState(dir)).stage, "execution");
+}));
+
+test("conductor returns a structured rejection for malformed legacy contract fields", async () => withFixture(async (dir) => {
+  const state = await loadState(dir);
+  (state.tasks[0] as unknown as { allowedPathPrefixes: unknown }).allowedPathPrefixes = "result.txt";
+  (state.tasks[0] as unknown as { definitionOfDone: unknown }).definitionOfDone = { text: "looks present" };
+  await writeFile(getValidationManifestsPath(dir), `${JSON.stringify({
+    version: 1,
+    manifests: [{
+      taskId: "T-WORK", outputPaths: "result.txt", acceptanceCriteria: { text: "looks present" },
+      commands: [], createdAt: "", updatedAt: "",
+    }],
+  })}\n`, "utf8");
+
+  const result = await runConductorStep(dir, state, { execute: true }, async () => {
+    throw new Error("must not dispatch");
+  });
+
+  assert.equal(result.accepted, false);
+  assert.match(result.message, /contract admission rejected/i);
+  assert.match(result.message, /write scope/i);
+  assert.match(result.message, /declared output/i);
+  assert.match(result.message, /acceptance/i);
+  assert.deepEqual(await loadTaskAttempts(dir), []);
 }));
 
 test("shared attempt admission refuses an incomplete task contract", async () => withFixture(async (dir) => {

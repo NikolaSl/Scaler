@@ -36,7 +36,7 @@ export class TaskContractAdmissionError extends Error {
 
 export async function verifyTaskExecutionContract(cwd: string, task: ScalerTaskState): Promise<string[]> {
   const diagnostics: string[] = [];
-  if (!task.allowedPathPrefixes?.some((path) => path.trim())) {
+  if (!hasNonEmptyString(task.allowedPathPrefixes)) {
     diagnostics.push("missing declared project write scope (allowedPathPrefixes).");
   }
 
@@ -48,18 +48,19 @@ export async function verifyTaskExecutionContract(cwd: string, task: ScalerTaskS
     diagnostics.push(`validation contract unavailable: ${message}`);
     return diagnostics;
   }
-  if (manifest.outputPaths === undefined) {
+  if (!Array.isArray(manifest.outputPaths)) {
     diagnostics.push("missing declared output basis (outputPaths; use [] explicitly for no filesystem outputs).");
   }
-  const acceptanceStatements = [
-    ...(task.definitionOfDone ?? []),
-    ...(manifest.definitionOfDone ?? []),
-    ...(manifest.acceptanceCriteria ?? []),
-  ];
-  if (!acceptanceStatements.some((statement) => statement.trim())) {
+  if (!hasNonEmptyString(task.definitionOfDone)
+    && !hasNonEmptyString(manifest.definitionOfDone)
+    && !hasNonEmptyString(manifest.acceptanceCriteria)) {
     diagnostics.push("missing acceptance criteria (Definition of Done or validation-manifest acceptance criteria).");
   }
   return diagnostics;
+}
+
+function hasNonEmptyString(value: unknown): value is string[] {
+  return Array.isArray(value) && value.some((item) => typeof item === "string" && item.trim());
 }
 
 export async function admitTaskExecution(
