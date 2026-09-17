@@ -15,7 +15,8 @@ boolean trusted flag that a worker can supply.
 
 1. Reproduce direct passed/not-applicable claims from validating/debugging,
    positive checklists with arbitrary evidence refs, and the registered Pi tool.
-   Assert no promotion, dependency release, state mutation or accepted Git record.
+   Assert no promotion, dependency release, acceptance-state mutation or accepted
+   Git record. The registered tool still accounts for the refused tool call.
 2. Keep the public report API and checklist persistence/audit behavior. Refuse
    positive claims with a clear diagnostic. Preserve failed/partial/blocked
    observations and existing debugging/replanning behavior.
@@ -39,3 +40,29 @@ Implementing an appropriate independent verifier is later work, not silently
 waiving that requirement. Semantic sufficiency, criteria authority, postcommit
 acceptance identity, run completion, raw Git-decision helper authority, general
 child isolation and full SC compliance remain open. No deployment/provider spend.
+
+## Reproduction and implementation
+
+All eight new tests failed before the fix: direct positive claims from both
+validating/debugging states, both positive statuses through the registered Pi
+tool, and custom/source-validation checklists with claimed evidence. All now
+refuse task acceptance and retain the audit record. The tool additionally retains
+its normal one-call budget accounting; the test asserts that accounting and
+unchanged acceptance fields rather than forbidding legitimate bookkeeping.
+
+Positive state application is private within validation.ts and called only after
+the supervisor command path verifies its receipt and Git acceptance. Public
+manual reports remain compatible as observations, not self-approval. No caller
+flag or new receipt format was introduced.
+
+Existing checklist tests retain reported status, evidence and audit assertions,
+but replace insecure promotion expectations with refusal/unchanged-task checks.
+The dependency integration test now executes a check of the fixture's actual
+module export, with its policy declared before dispatch, and still asserts the
+dependent task becomes eligible only after supervisor validation. Negative
+reports and the real positive command/commit/skip paths remain tested.
+
+Build, 597/597 unit and 67/67 mock integration tests pass. Final-head Copilot
+review is required; pending review is not approval. Remaining work includes
+evidence-backed non-software validators, postcommit identity/run completion,
+raw Git-decision helper authority and authenticated child isolation.
