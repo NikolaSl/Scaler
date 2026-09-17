@@ -180,6 +180,13 @@ existing/default commands. Combined gate after review corrections: build, 690
 unit, 67 mock integration and 7 conformance/autopilot. Next is per-task skip
 admission with missing output declarations; P2.3 remains incomplete.
 
+PLAN-113 now refuses per-task automatic/explicit commit skips with omitted
+outputPaths. Six baseline failures are fixed; fixture migration retains original
+assertions and independent historical completion/Git-candidate tests. Build,
+696 unit, 67 mock integration and 7 conformance/autopilot pass. Next: inventory
+remaining acceptance/policy-authority and final integration gaps before the next
+bounded regression. Declarations do not establish semantic or authority proof.
+
 1. Add a regression for the concrete defect and observe failure on the prior code.
 2. Implement the smallest sufficient fix; preserve unrelated user changes.
 3. Run focused checks, then build/integration when the boundary warrants it.

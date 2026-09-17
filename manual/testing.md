@@ -269,6 +269,19 @@ model's agreement as a substitute. This is an explicit capability limitation,
 not a claim of complete P2.3 or SC-10 support.
 # Completion provenance regression
 
+PLAN-113 requires declared `outputPaths` before automatic non-Git/clean/runtime
+commit skips or explicit commit skips can accept a task. A successful command
+may still have `status: passed` while `acceptance.accepted` is false; callers
+must honor the latter. Declare outputs through the existing plan/task/manifest
+inputs and rerun validation. Do not insert [] automatically for old manifests.
+Real commits retain their committed-output proof path.
+
+`test/skip-output-admission.test.ts` covers six earlier false-acceptance cases.
+Existing output and orchestration fixtures now declare their actual basis while
+preserving assertions. Historical completion tests still independently reject
+old accepted skip records with unknown coverage. Declaration adequacy/authority
+and final semantic/integration checks remain separate, incomplete requirements.
+
 PLAN-112 carries optional `outputPaths` through execution-plan tasks, structured
 task create/update tools and stage child planning reports into the existing
 validation manifest. Omit it to preserve a prior declaration; [] is an explicit
