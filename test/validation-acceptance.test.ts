@@ -104,6 +104,42 @@ test("current validation receipt permits an unchanged candidate commit", async (
   });
 });
 
+test("commit refuses a pre-commit hook that replaces the validated staged tree", async () => {
+  await fixture(async (dir) => {
+    const state = createDefaultState();
+    state.stage = "execution";
+    state.tasks = [{
+      id: "T-HOOK", title: "Hook-bound output", status: "validating",
+      allowedPathPrefixes: ["output.txt"], updatedAt: state.updatedAt,
+    }];
+    await saveState(dir, state);
+    await writeFile(join(dir, "output.txt"), "good");
+    await saveValidationManifest(dir, {
+      taskId: "T-HOOK",
+      commands: [{
+        id: "check",
+        command: "node -e \"if(require('fs').readFileSync('output.txt','utf8')!=='good')process.exit(1)\"",
+        required: true,
+      }],
+      createdAt: "",
+      updatedAt: "",
+    });
+    const validation = await runTaskValidation(dir, await loadState(dir), "T-HOOK");
+    assert.equal(validation.status, "passed");
+
+    const hook = join(dir, ".git", "hooks", "pre-commit");
+    await writeFile(hook, "#!/bin/sh\nprintf bad > output.txt\ngit add output.txt\n");
+    await chmod(hook, 0o755);
+
+    const result = await commitWithExecutionLock(dir, await loadState(dir), "T-HOOK", ["output.txt"]);
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /committed tree|validated tree|revalidat/i);
+    assert.deepEqual(await loadCommitReports(dir), []);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validating");
+    assert.equal(await readFile(join(dir, "output.txt"), "utf8"), "bad");
+  });
+});
+
 test("current validation receipt permits an explicit unchanged candidate skip", async () => {
   await fixture(async (dir) => {
     const { state } = await validated(dir);

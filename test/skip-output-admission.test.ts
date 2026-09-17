@@ -10,7 +10,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { test } from "node:test";
-import { evaluateValidationGitAcceptance, loadCommitSkips, skipTaskCommit } from "../src/git.js";
+import { commitValidatedTask, evaluateValidationGitAcceptance, loadCommitSkips, skipTaskCommit } from "../src/git.js";
+import { commitWithExecutionLock } from "../src/operations.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { runTaskValidation, saveValidationManifest } from "../src/validation.js";
 
@@ -68,4 +69,20 @@ for (const kind of ["non_git", "clean", "changed"] as const) {
     assert.match(result.message, /^Commit skip refused:.*outputPaths.*revalidat/i);
     assert.deepEqual(await loadCommitSkips(dir), before);
   }));
+}
+
+for (const kind of ["clean", "runtime"] as const) {
+  for (const route of ["direct", "locked"] as const) {
+    test(`${route} ${kind} commit refuses to promote a task without an output basis`, async () => fixture(kind, async (dir) => {
+      await runTaskValidation(dir, await loadState(dir), "T-SKIP");
+      const state = await loadState(dir);
+      const result = route === "direct"
+        ? await commitValidatedTask(dir, state, "T-SKIP", ["result.txt"])
+        : await commitWithExecutionLock(dir, state, "T-SKIP", ["result.txt"]);
+      assert.equal(result.accepted, false);
+      assert.match(result.message, /outputPaths.*revalidat/i);
+      assert.equal((await loadCommitSkips(dir)).length, 0);
+      assert.equal((await loadState(dir)).tasks[0]?.status, "validating");
+    }));
+  }
 }
