@@ -136,7 +136,7 @@ test("parsePrdAmendArgs requires an exact revision, reason, and JSON changes", (
 });
 
 test("parseValidationAddArgs parses manifest command fields", () => {
-  assert.deepEqual(parseValidationAddArgs("T-001 | test | npm test | Run tests | optional | unit | exits 0 | ev:1, ev:2 | docker | skipped:not needed on docs-only change"), {
+  assert.deepEqual(parseValidationAddArgs("T-001 | test | npm test | Run tests | optional | unit | exits 0 | ev:1, ev:2 | docker | skipped:not needed on docs-only change | Correct flaky assertion"), {
     taskId: "T-001",
     id: "test",
     command: "npm test",
@@ -148,6 +148,7 @@ test("parseValidationAddArgs parses manifest command fields", () => {
     environment: "docker",
     disposition: "skipped",
     dispositionReason: "not needed on docs-only change",
+    reason: "Correct flaky assertion",
   });
 });
 
