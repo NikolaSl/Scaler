@@ -307,3 +307,41 @@ gate despite the earlier direct-user fallback authorization; this continuation
 does not merge under that conflict. Keep independent review evidence available
 without weakening branch protections or treating an accepted API request as a
 submitted review.
+
+## Unit E — Bind executable validation-basis files
+
+The closure audit found one further deterministic AC-10 candidate. Freezing a
+manifest command protects its text and metadata, but not the implementation of a
+local checker that the command invokes. After a failing run, an agent can leave
+the command and broken task output unchanged, remove the failing assertion from
+the checker file, and produce fresh green evidence. Git safety may reject a
+checker outside the task scope, but the supported non-Git path has no equivalent
+identity, and a checker inside a broad allowed scope remains indistinguishable
+from an intended task output. A current receipt therefore does not by itself
+prove that the originally exercised validation basis was preserved.
+
+Keep this unit explicit and bounded:
+
+1. Reproduce the false acceptance through the normal locked validation route,
+   with an unchanged command, unchanged broken output and a modified checker.
+   Preserve a control that repairs the output while leaving the checker intact.
+2. Add exact project-relative validation-basis paths to the existing manifest
+   policy. Bind their file identity when the policy is established and verify it
+   before and after command execution. Do not parse shell commands or crawl the
+   project tree to guess dependencies.
+3. Treat a changed basis as an acceptance-policy change. Model/report routes
+   cannot rebaseline it after exercise; the existing explicit user-command
+   authority, reason, revision and version-history path can correct a genuinely
+   wrong check. An omitted basis remains an explicit unsupported limitation, not
+   a claim that arbitrary command dependencies are protected.
+4. Transport the optional declaration through the same task/planning/tool paths
+   that already carry commands and output paths. Reject malformed, duplicate,
+   absolute, traversal and runtime-metadata paths before publication.
+5. Run focused authority/receipt/transport checks, then the full applicable
+   build, unit, mock-integration and conformance gate. Obtain fresh independent
+   exact-diff review after implementation changes.
+
+This mechanism protects declared local checker files; it does not prove that the
+declared set is semantically complete, interpret arbitrary shell behavior, or
+replace later representative outcome evaluation. Those limitations must remain
+visible in P2 closure evidence and P7 validation.
