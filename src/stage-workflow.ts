@@ -338,12 +338,15 @@ export async function ingestPrdWriteReport(cwd: string, state: ScalerState, stdo
     return { attempted: true, ingested: false, reason: "scaler_prd_write report needs content or requirements." };
   }
 
+  const existingRequirements = await loadPrdRequirements(cwd);
+  const requirements = parsePrdRequirements(requirementInputs, new Date().toISOString(), existingRequirements.requirements);
+  if (requirementInputs.length > 0 && !requirements) {
+    return { attempted: true, ingested: false, reason: "Invalid scaler_prd_write requirements or acceptance criteria." };
+  }
   const snapshotPath = booleanField(report, "snapshotCurrent")
     ? await createPrdVersionSnapshot(cwd, { reason: stringField(report, "snapshotReason") ?? "PRD replaced by stage workflow" })
     : undefined;
   if (content) await saveCurrentPrd(cwd, content);
-  const existingRequirements = await loadPrdRequirements(cwd);
-  const requirements = parsePrdRequirements(requirementInputs, new Date().toISOString(), existingRequirements.requirements);
   if (requirements) await savePrdRequirements(cwd, { version: 1, requirements });
   const requirementIds = requirements?.map((requirement) => requirement.id) ?? [];
   const artifact = await upsertStageArtifact(cwd, {
@@ -1038,8 +1041,11 @@ function parsePrdAcceptanceCriteria(
     const statement = stringField(value, "statement");
     const validationTaskId = stringField(value, "validationTaskId");
     const commandId = stringField(value, "commandId");
-    const participantTaskIds = stringArrayField(value, "participantTaskIds");
-    if (!id || !statement || !validationTaskId || !commandId || !participantTaskIds) return null;
+    const participantValues = value.participantTaskIds;
+    if (!Array.isArray(participantValues) || participantValues.length === 0
+      || participantValues.some((taskId) => typeof taskId !== "string" || !taskId.trim())) return null;
+    const participantTaskIds = participantValues.map((taskId) => (taskId as string).trim());
+    if (!id || !statement || !validationTaskId || !commandId) return null;
     criteria.push({ id, statement, validationTaskId, commandId, participantTaskIds });
   }
   try {

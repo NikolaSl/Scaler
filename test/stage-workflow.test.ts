@@ -9,11 +9,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { loadExecutionPlan, saveExecutionPlan } from "../src/plans.js";
-import { loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
+import { loadCurrentPrd, loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
 import { loadResearchReports, loadResearchRequests } from "../src/research.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import {
   deriveKnowledgeResearchRequests,
+  ingestPrdWriteReport,
   loadStageWorkflowRunRecords,
   runAutonomousStageWorkflow,
 } from "../src/stage-workflow.js";
@@ -76,6 +77,29 @@ test("deriveKnowledgeResearchRequests creates deterministic Stage II requests fo
   }], 5);
 
   assert.deepEqual(requests, []);
+});
+
+test("PRD stage ingestion rejects malformed criteria before writing content or requirements", async () => {
+  await withTempDir(async (dir) => {
+    const state = createState("prd");
+    await saveState(dir, state);
+    const result = await ingestPrdWriteReport(dir, state, [{
+      type: "scaler_prd_write",
+      content: "# Must not be published",
+      requirements: [{
+        id: "REQ-BAD",
+        statement: "Malformed integration policy",
+        acceptanceCriteria: [
+          { id: "AC-DUP", statement: "One", validationTaskId: "T-ONE", commandId: "check", participantTaskIds: ["T-ONE"] },
+          { id: "AC-DUP", statement: "Two", validationTaskId: "T-ONE", commandId: "check", participantTaskIds: ["T-ONE"] },
+        ],
+      }],
+    }]);
+    assert.equal(result.ingested, false);
+    assert.match(result.reason ?? "", /invalid.*acceptance criteria/i);
+    assert.equal(await loadCurrentPrd(dir), "");
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+  });
 });
 
 async function stageRunner(request: TaskAgentRequest): Promise<TaskAgentRunResult> {
