@@ -267,3 +267,43 @@ basis guard, then transitions the task to `validated`.
    only after a deterministic false-acceptance reproduction; keep planning and
    semantic-necessity work in their dependency-ordered phases.
 4. Run focused commit/receipt/operations checks and the full applicable gate.
+
+### Unit D result and review evidence
+
+The initial six failing route regressions led to shared clean/runtime skip
+output-basis checks, pre-hook versus committed tree comparison, committed/index/
+worktree output verification, and dependency evidence admission before validation
+commands or budget spend. No-op hooks retain the positive commit control; a
+rejected hook-produced commit remains available for diagnosis.
+
+A separate deterministic reproduction showed that model tools could replace a
+failing acceptance command and generate fresh green evidence against unchanged
+broken output. The model task/manifest/planning routes now refuse exercised
+policy and task-contract replacement. Parent user command corrections require a
+reason for manifest changes, retain exact previous policy history and advance a
+fingerprinted revision. Initial setup and idempotent proposals remain supported.
+
+Two independent GPT-6 Astra/high reviews drove concrete repairs for user-user
+read/merge races, mutation during the first validation, planning preflight/publication
+races, stale caller state after lock acquisition, and expired inherited lock
+ownership. Both final read-only reviews report no actionable finding for the
+implementation/test diff with SHA-256
+`b75340cda9e1fedf787e75b6e0c4a2099f288b770ea195096bc6f3e003859e14`.
+The primary agent also checked the affected callers and lock order. Build,
+the 16 focused authority tests, full unit suite, 67 mock integration tests and
+7 conformance/autopilot checks pass. This is not a review of the older PR #21
+head, nor proof of universal P2 closure.
+
+Remaining limits: raw trusted system APIs and filesystem writers are not
+authenticated; the policy lock is not a universal multi-file transaction;
+task-only authorized command edits do not yet have the manifest's version-history
+format; semantic necessity and non-software evidence remain separate work. No
+paid or real-model execution or deployment was used.
+
+Next: preserve this bounded result on the same phase branch, then review the
+remaining P2 closure matrix before advancing to P3. PR #21 remains unchanged and
+unmerged. The 2026-09-17T22:07Z scheduled instruction repeats a mandatory Copilot
+gate despite the earlier direct-user fallback authorization; this continuation
+does not merge under that conflict. Keep independent review evidence available
+without weakening branch protections or treating an accepted API request as a
+submitted review.

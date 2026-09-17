@@ -427,3 +427,26 @@ conformance/autopilot checks pass. GPT-6 Astra/high independently reviewed the
 implementation and all review findings were corrected. These checks do not
 authenticate arbitrary filesystem writers, prove semantic requirement necessity,
 or establish representative real-model/local-model outcome quality.
+
+PLAN-118 unit D closes reproduced Git and policy-authority routes. The Git
+regressions refuse clean/runtime-only commit skips without declared outputs,
+reject pre/post-commit hook changes before publishing accepted evidence, and
+preserve the resulting Git commit for diagnosis instead of resetting it.
+Dependency admission runs before validation commands and budget consumption.
+
+`test/acceptance-policy-authority.test.ts` covers exercised command/DoD/link
+replacement, idempotent metadata preservation, explicit user corrections with
+reason/history/revision, concurrent amendments, stale revisions, and rejection
+before planning/replan publication. Barrier-controlled first-validation tests
+exercise both policy replacement and unchanged-policy stale-state paths. The
+lock-owner lifecycle regression checks that a detached descendant cannot reuse
+reentrant ownership after release. `test/commands.test.ts` covers the amendment
+reason parser.
+
+Policy writes, task updates, planning/replan publication and validation share a
+bounded policy lock; task/planning/replan callers must present a current state
+revision after acquiring it. The lock is never stolen by age. An interrupted
+holder requires operator reconciliation; a waiting operation can fail after
+approximately two seconds. These are supported-route concurrency guards, not a
+transaction across every ledger, process authentication, semantic test adequacy,
+or evidence of real/local-model outcome quality.

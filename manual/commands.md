@@ -54,9 +54,18 @@ By default it prepares only. Passing `execute` runs the task-agent subprocess. A
 
 `/scaler-step` runs under the repo-wide execution lock. Executed task agents receive default project-local tools (`read`, `bash`, `edit`, `write`) plus `scaler_task_report` unless a caller supplies an explicit tool set.
 
-## `/scaler-validation-add <taskId> | <id> | <command> | <description> | <required> | <gate> | <expected> | <evidence refs> | <environment> | <disposition>`
+## `/scaler-validation-add <taskId> | <id> | <command> | <description> | <required> | <gate> | <expected> | <evidence refs> | <environment> | <disposition> | <amendment reason>`
 
 Adds or replaces one command in a task validation manifest.
+
+After any recorded validation run, changing its policy requires this parent
+user-command route and a non-empty amendment reason in the eleventh field.
+The previous policy and reason are preserved in version history, and the policy
+revision advances. Idempotent writes and initial setup do not need a reason.
+Child commands cannot authorize such changes. Model-facing manifest/task/planning
+routes refuse changes to exercised policy or task contracts; an identical
+manifest proposal preserves omitted metadata. This is a supported-route boundary,
+not protection from arbitrary filesystem writers.
 
 Examples:
 
@@ -65,6 +74,7 @@ Examples:
 /scaler-validation-add T-001 | lint | npm run lint | Run lint | optional | static_checks | exits 0
 /scaler-validation-add T-001 | local-ci | docker compose run --rm test | Run local CI in Compose | required | local_ci | exits 0 | ci:T-001 | compose
 /scaler-validation-add T-001 | integration | npm run test:integration | Integration tests | required | integration | exits 0 | tests:T-001 | host | skipped:No integration surface changed
+/scaler-validation-add T-001 | unit | npm run test:unit | Corrected unit command | required | unit | exits 0 | tests:T-001 | host | run | User corrected the test entrypoint
 ```
 
 `required` accepts true/yes/required/1 and false/no/optional/0. Unknown or omitted values default to required when saved. Gate aliases are normalized to typed values such as `dependency_check`, `test_first`, `unit_tests`, `build_compile`, `static_checks`, `integration_tests`, `security_checks`, `local_ci`, `acceptance_smoke`, and non-software evidence gates such as `completeness`, `consistency`, `compliance`, `source_validation`, `adversarial_review`, and `uncertainty_report`. Environment aliases normalize to `host`, `docker`, `compose`, `devcontainer`, `minikube`, or `local_ci`. The optional disposition field defaults to `run`; it also accepts `skipped:<reason>` (including skip/not-applicable aliases) or `blocked:<reason>`. Required skipped gates need an accepted reason and are recorded as `skipped` without executing the command; blocked gates need a blocker reason and required blocked gates block validation/task progress. Missing required skip reasons and any missing block reason fail policy before command execution. Required `dependency_check` commands must precede non-policy validation gates, and required `test_first` commands must precede implementation validation gates; required `local_ci` gates must declare a non-host environment. Commands that invoke Docker/Compose/dev-container/Minikube tooling without matching environment metadata fail policy before execution. Declared non-host environments are prepared before command execution and cleaned up afterward with lifecycle evidence under `.scaler/reports/validation-environments.json`; missing required external tooling blocks the command before its shell command runs.
