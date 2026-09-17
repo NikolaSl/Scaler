@@ -225,6 +225,7 @@ const TaskValidationCommandParams = Type.Object({
 
 const TaskCreateParams = Type.Object({
   taskId: Type.String(),
+  outputPaths: Type.Optional(Type.Array(Type.String(), { description: "Exact output paths to bind before validation; [] only for no filesystem outputs." })),
   title: Type.Optional(Type.String()),
   status: Type.Optional(Type.String({ description: "Initial task status. Defaults to pending." })),
   taskKind: Type.Optional(Type.String({ description: "software, non_software, or mixed. Software/mixed tasks require test_first coverage or a waiver." })),
@@ -240,6 +241,7 @@ const TaskCreateParams = Type.Object({
 
 const TaskUpdateParams = Type.Object({
   taskId: Type.String(),
+  outputPaths: Type.Optional(Type.Array(Type.String(), { description: "Replacement declared output paths; omit to preserve the existing basis." })),
   title: Type.Optional(Type.String()),
   status: Type.Optional(Type.String({ description: "Target task status; must be a valid transition." })),
   taskKind: Type.Optional(Type.String({ description: "software, non_software, or mixed." })),
@@ -273,6 +275,7 @@ const PlanningReportParams = Type.Object({
     source: Type.Optional(Type.String()),
     tasks: Type.Array(Type.Object({
       id: Type.String(),
+      outputPaths: Type.Optional(Type.Array(Type.String(), { description: "Exact output paths for the task's validation basis; [] only for no filesystem outputs." })),
       title: Type.String(),
       description: Type.Optional(Type.String()),
       taskKind: Type.Optional(Type.String()),
@@ -595,6 +598,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         definitionOfDone: params.definitionOfDone,
         validationRefs: params.validationRefs,
         validationCommands: params.validationCommands,
+        outputPaths: params.outputPaths,
         qualityWaivers: params.qualityWaivers,
         qualityMode: "enforce",
       });
@@ -622,6 +626,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         definitionOfDone: params.definitionOfDone,
         validationRefs: params.validationRefs,
         validationCommands: params.validationCommands,
+        outputPaths: params.outputPaths,
         qualityWaivers: params.qualityWaivers,
         qualityMode: "enforce",
       });

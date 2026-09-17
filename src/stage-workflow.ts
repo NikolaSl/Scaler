@@ -5,6 +5,7 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { normalizeOutputPaths } from "./output-artifacts.js";
 import { appendLogEvent, createLogEvent, logStructuredReportAudit } from "./logging.js";
 import {
   acceptReplanProposal,
@@ -983,6 +984,7 @@ function parsePlanningReportInput(report: Record<string, unknown>): PlanningRepo
       atomicityRationale: stringField(value, "atomicityRationale"),
       prdRefs: stringArrayField(value, "prdRefs"),
       allowedPathPrefixes: stringArrayField(value, "allowedPathPrefixes"),
+      outputPaths: normalizeOutputPaths(value.outputPaths as string[] | undefined),
       dependsOn: stringArrayField(value, "dependsOn"),
       definitionOfDone: stringArrayField(value, "definitionOfDone"),
       validationRefs: stringArrayField(value, "validationRefs"),

@@ -36,6 +36,7 @@ function planTask() {
     taskKind: "software",
     atomicityRationale: "T-AUTO is independently completable and testable for full automation.",
     allowedPathPrefixes: ["src/autopilot.ts"],
+    outputPaths: [], // Synthetic orchestration-only task produces no files.
     prdRefs: ["REQ-AUTO"],
     definitionOfDone: ["The automation task reports completion and validation passes."],
     validationCommands: [
@@ -168,9 +169,6 @@ test("runScalerAutomation drives planning, task execution, validation, and compl
   await withTempDir(async (dir) => {
     const state = createState("planning");
     await saveState(dir, state);
-    // This synthetic orchestration-only task emits no filesystem artifacts.
-    // Configure its basis before planning/attempt dispatch, not in the worker.
-    await saveValidationManifest(dir, { taskId: "T-AUTO", outputPaths: [], commands: [], createdAt: "", updatedAt: "" });
 
     const result = await runScalerAutomation(dir, state, { maxSteps: 12, maxStageSteps: 5 }, {
       stage: stageRunner,
