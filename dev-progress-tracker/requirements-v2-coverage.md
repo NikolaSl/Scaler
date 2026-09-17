@@ -84,6 +84,17 @@ Review is pending. These are partial SC-02/11/13/17/22 results, not closure:
 manual/unbound acceptance, commit/hooks, artifact correctness and a universal
 acceptance authority remain P2.3. See PLAN-101 for the exact freshness scope.
 
+PR #5 subsequently merged after completed Copilot review on `d1628a2` with no
+specific findings. PLAN-102 / PR #6 begins P2.3 with one shared validation-receipt
+verifier for direct and locked commit/skip routes. Task labels and historical
+passing records no longer authorize these operations. Receipts bind current
+run/task/attempt/policy/context, command results and Git candidate bytes/HEAD;
+validation also rejects candidate changes during checks. Ten regressions failed
+before the implementation. Build, 29/29 focused checks, 560/560 unit tests and
+67/67 mock integrations pass. PR #6 review is pending. Manual report/checklist,
+automatic acceptance, integration semantics, non-Git outputs and tamper-resistant
+worker authority remain open; this is partial SC-01/10/13 evidence only.
+
 Implementation has now started on merged baseline `8f4cf19`, following
 [PLAN-099](../plans/implementation-plan-099.md). The original assessment table
 above is retained as the reviewed baseline. P1.1 adds read-only existing-state

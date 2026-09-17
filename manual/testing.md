@@ -203,3 +203,19 @@ no age-based takeover or automatic replay. Do not manually delete attempt record
 Legacy records are readable history, not upgraded identity evidence. These tests
 do not certify all command/tool/hook acceptance routes (P2.3), artifact correctness,
 exactly-once effects or complete requirements conformance.
+
+### Version-bound commit acceptance (PLAN-102)
+
+Run `node --test --import tsx test/validation-acceptance.test.ts test/git.test.ts test/operations.test.ts`.
+Commit and explicit commit-skip now require a current supervisor command-validation
+receipt. A task's `validated` label or historical `passed` record is insufficient.
+After changing the task, policy, attempt, declared context or Git candidate, rerun
+validation. Do not patch old ledgers to manufacture receipt fields.
+
+Checks must not change the candidate they certify: generate candidate output before
+validation, or rerun validation after generation. Put runtime-only test logs/markers
+under `.scaler` or an appropriately ignored artifact directory. The Git candidate
+snapshot covers HEAD plus changed and non-ignored untracked bytes, deletions,
+executable modes and symlink targets. It is not a semantic correctness check, a
+non-Git output snapshot, a multi-file transaction or authenticated worker isolation.
+Manual report/checklist and other acceptance routes remain P2.3 follow-up work.

@@ -38,3 +38,46 @@ also contain hand-constructed validated labels; these are not proof of validatio
 No provider spending, deployment, database, new orchestration framework or
 universal acceptance claim. New failures are fixed with regressions and separate
 commits; incomplete work stays draft and unmerged.
+
+## Implementation boundary
+
+`src/validation-acceptance.ts` owns the shared snapshot/receipt verifier;
+`runTaskValidation` records receipts and rejects snapshot drift across commands.
+Both `commitValidatedTask` and `skipTaskCommit` use the verifier before Git staging,
+committing or accepted-skip publication. Locked wrappers inherit the same guard.
+The existing unrelated-path safety refusal remains intact and runs first.
+
+The Git snapshot binds HEAD and changed/untracked non-ignored candidate paths,
+including bytes, deletion, executable bit and symlink targets (not target contents).
+The current project's `.scaler` subtree is runtime metadata, not candidate output,
+including when the project is nested in a Git worktree. Ignored artifacts and
+non-Git output versions are not covered. Unsupported changed file types fail
+closed; there is no arbitrary submodule/directory-content acceptance claim.
+
+Validation receipts also bind command results. Required commands need matching
+passing results or declared skips with reasons. The latest record without a
+receipt is historical only: rerun validation instead of upgrading its status.
+State must be persisted and current before commit/skip. Fresh manual command
+validation can produce a receipt without inventing a worker attempt.
+
+Tests reproduced ten failures on the preceding implementation before the fix.
+Added scenarios cover four commit/skip entry points, changed task/policy/run/attempt,
+legacy/tampered evidence, label-only acceptance, positive commit/skip, changes
+during checks, binary/untracked/deleted/mode/symlink changes and nested metadata.
+Existing commit fixtures now execute checks rather than fabricate proof via a
+`validated` label; all original safety/audit assertions are retained. The CI wrapper
+fixture writes its test marker under its documented runtime artifact directory
+and additionally asserts a passing validation result.
+
+The read-only verifier is not a filesystem transaction, a signature, or protection
+against a writer allowed to replace ledgers. External edits after the final check,
+manual report/checklist acceptance, direct hooks, integration semantics and
+non-Git evidence remain follow-up P2.3/P6 work. Do not infer universal acceptance
+from this first bounded slice.
+
+Validation before review: TypeScript build passed; 29/29 focused acceptance/Git/
+operation tests, 560/560 full unit tests and 67/67 mock integrations passed.
+`git diff --check` is clean. Synthetic/local checks only, no live provider calls.
+Copilot review and current-head checks are required before merge. The next bounded
+P2.3 step is shared authority for manual reports/checklists and automatic acceptance,
+not extending receipt hashes into a second orchestrator.
