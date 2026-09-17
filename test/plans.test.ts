@@ -352,6 +352,44 @@ test("planning report preflights inherited validation inputs before any publicat
   });
 });
 
+test("planning report preflights a manifest configured before task creation", async () => {
+  await withTempDir(async (dir) => {
+    await writeFile(join(dir, "check.cjs"), "process.exit(0);\n");
+    await saveValidationManifest(dir, {
+      taskId: "T-PRECONFIGURED-VALIDATOR",
+      validationInputPaths: ["check.cjs"],
+      definitionOfDone: ["Planned task remains unpublished on refusal."],
+      commands: [
+        { id: "test-first", command: "node check.cjs", gate: "test_first", required: true },
+        { id: "unit", command: "node check.cjs", gate: "unit_tests", required: true },
+      ],
+      createdAt: "",
+      updatedAt: "",
+    });
+    await unlink(join(dir, "check.cjs"));
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+
+    await assert.rejects(() => applyPlanningReport(dir, state, {
+      id: "PLAN-PRECONFIGURED-VALIDATOR",
+      requirements: [{ id: "REQ-NOT-WRITTEN", statement: "Must remain absent" }],
+      plan: {
+        planVersion: 1,
+        status: "active",
+        tasks: [validPlanTask("T-PRECONFIGURED-VALIDATOR", "New task", {
+          prdRefs: ["REQ-NOT-WRITTEN"],
+        })],
+      },
+    }), /rejected before publication.*validation input.*check\.cjs/i);
+
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    assert.deepEqual((await loadPrdCoverage(dir)).entries, []);
+    assert.deepEqual(await loadPrdChanges(dir), []);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual(await loadPlanningReports(dir), []);
+    assert.deepEqual((await loadState(dir)).tasks, []);
+  });
+});
+
 test("summarizeExecutionPlan reports task and requirement coverage", () => {
   const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
   state.tasks = [
