@@ -80,6 +80,46 @@ Authority for changing/deleting criteria and preservation of structured statemen
 history need separate treatment before claiming full P2/SC-27 coverage. Do not
 turn this direction into a mandatory extra framework or add inferred user scope.
 
+## Unit B — Explicit current integration criteria
+
+Use an optional requirement criterion, declared only by an already-authorized
+PRD/planning input. Each criterion has a stable id and statement, names one
+existing validation task/command, and lists the component task ids whose current
+accepted outputs it integrates. Absence of criteria means none are inferred.
+Omitting criteria from a partial requirement update preserves the current list;
+an explicit empty list removes it and therefore remains subject to the separate
+authority/history gap below.
+
+Completion must reject a criterion unless its named command actually passed in
+the current accepted validation run. A skipped, blocked, failed, optional-only,
+unknown or unrelated command is not evidence. Criterion data is part of the
+requirement content fingerprint. The integration task snapshot additionally
+binds a compact, non-recursive identity for every participating component:
+current task contract, selected attempt/output identity, validation policy and
+latest accepted validation-result identity. Reaccepting a changed component
+therefore invalidates older integration evidence until the named command reruns.
+
+Transport the optional criterion through direct PRD tools, structured PRD stage
+reports and planning reports. Reuse the existing command runner, validation
+receipts, accepted-task verifier and completion lock; add no requirement agent,
+implicit task, alternate executor or caller-supplied proof flag.
+
+Acceptance sequence:
+
+1. Two component tasks pass and are accepted, but completion without the
+   declared integration command evidence fails.
+2. A failed or skipped named command fails; an unrelated passing command fails.
+3. The current named passing command permits completion.
+4. After a participating component changes and is reaccepted, the old
+   integration receipt fails until the named command runs again.
+5. Criterion changes invalidate prior receipts; omitted partial updates preserve
+   criteria. Focused tests precede the full applicable gate.
+
+This unit proves deterministic software-command integration evidence only. It
+does not authorize agents to add/remove mandatory criteria, prove semantic link
+necessity, or solve non-software evidence authority. Those remain explicit P2
+gaps and must not be claimed complete from this unit.
+
 ## Review-delivery diagnostic
 
 PR #21 remains unchanged at `dda6f7cd4502d0b57a8a79ba7fc88a3f2440674b`.
