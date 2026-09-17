@@ -44,7 +44,7 @@ import { loadStageArtifacts, upsertStageArtifact } from "../../../src/stages.js"
 import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
 import { createTask } from "../../../src/tasks.js";
 import type { ScalerState } from "../../../src/types.js";
-import { applyValidationReport } from "../../../src/validation.js";
+import { applyValidationReport, runTaskValidation, upsertValidationManifestCommand } from "../../../src/validation.js";
 import { runConductorStep } from "../../../src/conductor.js";
 import { resumeScalerRun } from "../../../src/checkpoints.js";
 import { loadResumeVerificationRecords, loadWatchdogEvents, recordWatchdogHeartbeat, runWatchdogAssessment } from "../../../src/watchdogs.js";
@@ -425,6 +425,8 @@ test("mock integration: safety and git allowed-path checks reject unrelated work
     assert.equal((await assessGitStatusSafety(dir, ["src/app.js"])).status, "unrelated");
     assert.equal((await commitWithExecutionLock(dir, state, "T-SAFE", ["src/app.js"])).accepted, false);
     await unlink(join(dir, "README.md"));
+    await upsertValidationManifestCommand(dir, { taskId: "T-SAFE", id: "check", command: "node -e \"process.exit(0)\"", required: true });
+    await runTaskValidation(dir, state, "T-SAFE");
     const commit = await commitWithExecutionLock(dir, state, "T-SAFE", ["src/app.js"]);
     assert.equal(commit.accepted, true, commit.message);
     assert.equal((await loadCommitReports(dir))[0]?.commitHash, commit.result?.commitHash);
@@ -495,6 +497,8 @@ test("mock integration: commit refusals precede allowed validated commit", async
     await writeFile(join(dir, "other.txt"), "unrelated\n");
     assert.equal((await commitWithExecutionLock(dir, validated, "T-COMMIT-CHAIN", ["src/app.js"])).accepted, false);
     await unlink(join(dir, "other.txt"));
+    await upsertValidationManifestCommand(dir, { taskId: "T-COMMIT-CHAIN", id: "check", command: "node -e \"process.exit(0)\"", required: true });
+    await runTaskValidation(dir, validated, "T-COMMIT-CHAIN");
     const commit = await commitWithExecutionLock(dir, validated, "T-COMMIT-CHAIN", ["src/app.js"]);
     assert.equal(commit.accepted, true, commit.message);
     const shown = await execFileAsync("git", ["show", "HEAD:src/app.js"], { cwd: dir });

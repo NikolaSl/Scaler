@@ -5,6 +5,8 @@
 
 import { spawn } from "node:child_process";
 import { checkAttemptEvidence } from "./attempt-evidence.js";
+import { captureValidationSnapshot, fingerprintValidationResult, type ValidationReceipt } from "./validation-acceptance.js";
+import { fingerprintJson } from "./fingerprints.js";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { prepareCicdValidationExecution } from "./cicd-environments.js";
@@ -212,6 +214,7 @@ export interface ValidationRunRecord {
   commandRuns: ValidationCommandRunRecord[];
   policyDiagnostics?: ValidationManifestPolicyDiagnostic[];
   acceptance?: ValidationAcceptanceRecord;
+  receipt?: ValidationReceipt;
   createdAt: string;
 }
 
@@ -814,6 +817,7 @@ function isNonPassingValidationProblem(run: ValidationCommandRunRecord): boolean
 export async function runTaskValidation(cwd: string, state: ScalerState, taskId: string): Promise<ValidationRunRecord> {
   const freshness = await checkAttemptEvidence(cwd, state, taskId);
   if (freshness.length > 0) return rejectStaleValidation(cwd, state, taskId, freshness, []);
+  const snapshot = await captureValidationSnapshot(cwd, state, taskId);
   const manifest = await getValidationManifestForTask(cwd, taskId);
   const policy = evaluateValidationManifestPolicy(manifest);
   const commandRuns: ValidationCommandRunRecord[] = [];
@@ -826,6 +830,9 @@ export async function runTaskValidation(cwd: string, state: ScalerState, taskId:
   }
 
   const finalFreshness = await checkAttemptEvidence(cwd, state, taskId);
+  if (fingerprintJson(snapshot) !== fingerprintJson(await captureValidationSnapshot(cwd, state, taskId))) {
+    finalFreshness.push("Validation evidence rejected: task, policy, context or candidate output changed during checks.");
+  }
   if (finalFreshness.length > 0) return rejectStaleValidation(cwd, state, taskId, finalFreshness, commandRuns);
   const record: ValidationRunRecord = {
     id: `${taskId}-${Date.now()}`,
@@ -836,6 +843,7 @@ export async function runTaskValidation(cwd: string, state: ScalerState, taskId:
     createdAt: new Date().toISOString(),
   };
   let result: ValidationApplyResult;
+  record.receipt = { snapshot, resultFingerprint: fingerprintValidationResult(record) };
   let gitAcceptance: GitValidationAcceptanceDecision | undefined;
   if (record.status === "passed") {
     gitAcceptance = await evaluateValidationGitAcceptance(cwd, state, taskId, {
