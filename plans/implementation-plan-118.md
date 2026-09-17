@@ -244,3 +244,23 @@ shared receipt/authority guard. Reproduce only concrete bypasses. If the invento
 finds none, record the P2 evidence boundary honestly and move the remaining
 semantic-necessity and minimal-planning work to its dependency-ordered phase
 instead of extending P2 speculatively.
+
+## Unit D — Close reproduced acceptance-route bypasses
+
+The route inventory reproduced a concrete mismatch in the Git decision boundary.
+When validation passes in a clean or runtime-only repository but the manifest
+does not declare `outputPaths`, automatic acceptance correctly refuses the task.
+Calling the locked commit route afterward reaches `commitValidatedTask`, whose
+clean-tree fallback currently publishes an accepted skip without the same output
+basis guard, then transitions the task to `validated`.
+
+1. Add a route-level regression proving the validation refusal cannot be turned
+   into accepted task state or a commit-skip record through the locked commit
+   path.
+2. Apply the existing declared-output-basis guard inside the shared direct commit
+   effect boundary, before any accepted skip publication. Do not duplicate a new
+   policy or trust caller summaries.
+3. Continue the bounded route inventory. Add any additional finding to this unit
+   only after a deterministic false-acceptance reproduction; keep planning and
+   semantic-necessity work in their dependency-ordered phases.
+4. Run focused commit/receipt/operations checks and the full applicable gate.
