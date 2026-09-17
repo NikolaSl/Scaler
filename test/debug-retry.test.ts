@@ -14,6 +14,10 @@ import { createDefaultState, loadState, saveState } from "../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult, RunTaskAgentOptions } from "../src/subagents.js";
 import type { ScalerState } from "../src/types.js";
 import { runTaskValidation, upsertValidationManifestCommand } from "../src/validation.js";
+import { getBudgetState, setBudgetLimits } from "../src/budgets.js";
+import { loadTaskAttempts } from "../src/task-attempts.js";
+import { loadTaskAgentReports } from "../src/task-reports.js";
+import { loadExecutionLock } from "../src/locks.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-debug-retry-test-"));
@@ -62,8 +66,54 @@ function taskReport(taskId: string): Record<string, unknown> {
 }
 
 function passingRun(request: TaskAgentRequest): TaskAgentRunResult {
-  return { taskId: request.taskId, exitCode: 0, stdoutEvents: [taskReport(request.taskId)], stderr: "", timedOut: false, aborted: false };
+  return { taskId: request.taskId, exitCode: 0, stdoutEvents: [{ ...taskReport(request.taskId), ...request.attempt }], stderr: "", timedOut: false, aborted: false };
 }
+
+test("debug retry refuses hard budget before running state or attempt admission", async () => {
+  await withTempDir(async (dir) => {
+    const state = setBudgetLimits(await seedDebuggingTask(dir), { spawnedAgents: { hard: 1 } });
+    const result = await runDebugNextApproachRetry(dir, state, { execute: true }, async () => {
+      throw new Error("must not dispatch");
+    });
+    assert.equal(result.status, "rejected");
+    assert.equal(result.state.tasks[0]?.status, "debugging");
+    assert.equal(getBudgetState(result.state).usage.spawnedAgents ?? 0, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+  });
+});
+
+test("debug retry binds reports and rejects stale attempts before exact validation", async () => {
+  await withTempDir(async (dir) => {
+    const state = await seedDebuggingTask(dir);
+    const result = await runDebugNextApproachRetry(dir, state, { execute: true }, async (request) => {
+      assert.ok(request.attempt);
+      assert.equal((await loadTaskAttempts(dir))[0]?.status, "dispatching");
+      assert.equal((await loadState(dir)).tasks[0]?.attemptId, request.attempt.attemptId);
+      return { ...passingRun(request), stdoutEvents: [{ ...taskReport(request.taskId), ...request.attempt, attemptId: "old-attempt" }] };
+    });
+    assert.equal(result.accepted, false);
+    assert.equal(result.exactValidationRun, undefined);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "blocked");
+    assert.deepEqual(await loadTaskAgentReports(dir), []);
+  });
+});
+
+test("debug retry preserves child state and records unknown outcome after runner failure", async () => {
+  await withTempDir(async (dir) => {
+    const state = await seedDebuggingTask(dir);
+    await assert.rejects(runDebugNextApproachRetry(dir, state, { execute: true }, async () => {
+      const childState = await loadState(dir);
+      childState.memoryRefs.push("child-evidence");
+      await saveState(dir, childState);
+      throw new Error("transport lost");
+    }), /transport lost/);
+    const durable = await loadState(dir);
+    assert.deepEqual(durable.memoryRefs, ["child-evidence"]);
+    assert.equal(durable.tasks[0]?.status, "blocked");
+    assert.equal((await loadTaskAttempts(dir))[0]?.outcome, "unknown");
+    assert.equal(await loadExecutionLock(dir), undefined);
+  });
+});
 
 test("selectDebugRetryWork finds latest next approach and failed exact validation command", async () => {
   await withTempDir(async (dir) => {

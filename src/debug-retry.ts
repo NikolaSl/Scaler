@@ -6,6 +6,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
+import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult, interruptTaskExecution, reconcileInterruptedTaskAttempt } from "./attempt-execution.js";
+import { completeTaskAttempt, taskAttemptBinding, type TaskAttemptRecord } from "./task-attempts.js";
 import {
   applyTaskRunHandoff,
   buildTaskAgentPrompt,
@@ -26,10 +28,9 @@ import { appendLogEvent, createLogEvent, logAgentPromptAudit, logValidationSumma
 import { commitWithExecutionLock, runValidationWithExecutionLock, type LockedOperationResult } from "./operations.js";
 import { getDebugRetryApprovalsPath, getDebugRetryPolicyPath } from "./paths.js";
 import { recordProviderUsageBudget } from "./provider-usage.js";
-import { loadState, saveState } from "./state.js";
+import { loadState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import { ingestTaskAgentReportFromRun } from "./task-reports.js";
-import { transitionTask } from "./supervisor.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
 import {
   applyValidationReport,
@@ -243,6 +244,8 @@ export async function runDebugNextApproachRetry(
   options: DebugNextApproachRetryOptions = {},
   runner: TaskAgentRunner = runTaskAgent,
 ): Promise<DebugNextApproachRetryResult> {
+  const recovery = await reconcileInterruptedTaskAttempt(cwd, state);
+  if (recovery) return { ...recovery, status: "rejected" };
   const selection = await selectDebugRetryWork(cwd, state, options.taskId);
   if (!selection) {
     const message = options.taskId ? `Debug retry rejected: no next approach retry work for ${options.taskId}.` : "Debug retry rejected: no next approach retry work.";
@@ -257,29 +260,31 @@ export async function runDebugNextApproachRetry(
     return { accepted: false, message: lock.message, status: "rejected", state, task: selection.task };
   }
 
+  let activeAttempt: TaskAttemptRecord | undefined;
+  let attemptTerminal = false;
   try {
     let workingState = state;
-    if (options.execute) {
-      workingState = transitionTask(workingState, selection.task.id, "running", { reason: `Debug next approach retry: ${selection.report.id}` });
-      await saveState(cwd, workingState);
-    }
 
     const runningTask = workingState.tasks.find((task) => task.id === selection.task.id) ?? selection.task;
     const manifest = await ensureTaskContextManifest(cwd, workingState, runningTask.id);
     const baseContext = await resolveTaskContextManifest(cwd, workingState, manifest);
     const retryContext = buildNextApproachContextItem(selection);
-    const { prompt, resolvedContext } = buildTaskAgentPrompt({
+    let { prompt, resolvedContext } = buildTaskAgentPrompt({
       state: workingState,
       task: runningTask,
       contextItems: [...baseContext, retryContext],
       tokenBudget: options.tokenBudget ?? manifest.tokenBudget,
     });
 
-    const budgetResult = applyBudgetUsageUpdates(workingState, [
+    const budgetUpdates = [
       { key: "contextTokens", amount: resolvedContext.estimatedTokens, mode: "set" },
       ...(options.execute ? [{ key: "spawnedAgents" as const, amount: 1, mode: "increment" as const }] : []),
-    ]);
-    workingState = await persistBudgetDecision(cwd, budgetResult.state, budgetResult.decision);
+    ] as Parameters<typeof applyBudgetUsageUpdates>[1];
+    const budgetResult = applyBudgetUsageUpdates(workingState, budgetUpdates);
+    const admittedBudgetState = budgetResult.decision.status === "hard_limit"
+      ? applyBudgetUsageUpdates(workingState, budgetUpdates.filter((update) => update.key !== "spawnedAgents")).state
+      : budgetResult.state;
+    workingState = await persistBudgetDecision(cwd, admittedBudgetState, budgetResult.decision);
     if (budgetResult.decision.status === "hard_limit") {
       const retry = await upsertRetryRecord(cwd, buildRetryRecord(selection, "rejected", false, `Budget hard limit refused debug retry: ${budgetResult.decision.reason}`));
       return {
@@ -293,6 +298,16 @@ export async function runDebugNextApproachRetry(
       };
     }
 
+    if (options.execute) {
+      activeAttempt = await admitTaskExecution(cwd, lock.lock.id, workingState, runningTask, resolvedContext, options.model, options.tools ?? []);
+      ({ prompt, resolvedContext } = buildTaskAgentPrompt({
+        state: workingState, task: runningTask,
+        contextItems: [...baseContext, retryContext],
+        tokenBudget: options.tokenBudget ?? manifest.tokenBudget,
+        attempt: taskAttemptBinding(activeAttempt),
+      }));
+    }
+    const binding = activeAttempt ? taskAttemptBinding(activeAttempt) : undefined;
     await logAgentPromptAudit(cwd, workingState, {
       agentType: "debug-retry-task",
       agentId: runningTask.id,
@@ -302,7 +317,7 @@ export async function runDebugNextApproachRetry(
       details: { debugReportId: selection.report.id, exactCommandIds: selection.exactCommands.map((command) => command.id) },
     });
 
-    const request = { taskId: runningTask.id, prompt, tools: options.tools, model: options.model, cwd };
+    const request = { taskId: runningTask.id, prompt, tools: options.tools, model: options.model, cwd, attempt: binding };
     const invocation = buildTaskAgentInvocation(request);
 
     if (!options.execute) {
@@ -316,7 +331,20 @@ export async function runDebugNextApproachRetry(
       return { accepted: true, message: retry.message, status: "prepared", state: workingState, task: runningTask, retry, prompt, invocation };
     }
 
+    const started = await startTaskExecution(cwd, lock.lock.id, workingState, activeAttempt!);
+    workingState = started.state;
+    activeAttempt = started.attempt;
     const runResult = await runner(request, { timeoutMs: options.timeoutMs });
+    const checked = await checkTaskExecutionResult(cwd, activeAttempt, runResult.taskId);
+    if (checked.diagnostics.length > 0) {
+      const message = checked.diagnostics.join(" ");
+      workingState = await interruptTaskExecution(cwd, lock.lock.id, activeAttempt.id, checked.diagnostics);
+      attemptTerminal = true;
+      await recordTaskAgentRun(cwd, runResult, new Date(), { reportStatus: "invalid", reportDiagnostics: checked.diagnostics }, { attempt: binding });
+      await appendLogEvent(cwd, createLogEvent(workingState, { eventType: "rejected_transition", taskId: runningTask.id, summary: message }));
+      return { accepted: false, message, status: "rejected", state: workingState, task: checked.task, prompt, invocation, runResult };
+    }
+    workingState = checked.state;
     if (runResult.usage) {
       workingState = (await recordProviderUsageBudget(cwd, workingState, runResult.usage, {
         source: "debug-retry-task-agent-run",
@@ -326,11 +354,19 @@ export async function runDebugNextApproachRetry(
       })).state;
     }
     const reportIngestion = runResult.exitCode === 0
-      ? await ingestTaskAgentReportFromRun(cwd, workingState, runningTask.id, runResult)
+      ? await ingestTaskAgentReportFromRun(cwd, workingState, runningTask.id, runResult, binding)
       : undefined;
-    const runRecord = await recordTaskAgentRun(cwd, runResult, new Date(), summarizeTaskAgentReportIngestion(reportIngestion, runResult));
+    const identity = { attempt: binding, outputFingerprint: reportIngestion?.report?.outputFingerprint };
+    const runRecord = await recordTaskAgentRun(cwd, runResult, new Date(), summarizeTaskAgentReportIngestion(reportIngestion, runResult), identity);
+    const handoff = await applyTaskRunHandoff(cwd, workingState, runningTask.id, runResult, reportIngestion, new Date(), identity);
+    const succeeded = runResult.exitCode === 0 && reportIngestion?.report?.status === "completed";
+    await completeTaskAttempt(cwd, lock.lock.id, activeAttempt.id, {
+      status: succeeded ? "completed" : "failed", outcome: succeeded ? "succeeded" : "failed",
+      outputFingerprint: identity.outputFingerprint, reportId: reportIngestion?.report?.id,
+      diagnostics: reportIngestion?.diagnostics,
+    });
+    attemptTerminal = true;
     if (runResult.exitCode !== 0) {
-      const handoff = await applyTaskRunHandoff(cwd, workingState, runningTask.id, runResult, reportIngestion);
       const attempt = await recordDebugAttempt(cwd, handoff.state, {
         taskId: runningTask.id,
         failureId: selection.report.failureId ?? selection.failedValidationRun.id,
@@ -352,7 +388,6 @@ export async function runDebugNextApproachRetry(
       return { accepted: false, message: retry.message, status: "task_agent_failed", state: handoff.state, task: runningTask, retry, prompt, invocation, runResult };
     }
 
-    const handoff = await applyTaskRunHandoff(cwd, workingState, runningTask.id, runResult, reportIngestion);
     if (handoff.record.status !== "validation_required") {
       const attempt = await recordDebugAttempt(cwd, handoff.state, {
         taskId: runningTask.id,
@@ -440,6 +475,13 @@ export async function runDebugNextApproachRetry(
     }));
     await appendLogEvent(cwd, createLogEvent(failedState, { eventType: "debug", summary: retry.message, taskId: runningTask.id, details: { retry } }));
     return { accepted: false, message: retry.message, status: "exact_validation_failed", state: failedState, task: runningTask, retry, prompt, invocation, runResult, exactValidationRun };
+  } catch (error) {
+    if (activeAttempt && !attemptTerminal) {
+      await interruptTaskExecution(cwd, lock.lock.id, activeAttempt.id, [
+        `Task attempt stopped by supervisor error: ${error instanceof Error ? error.message : String(error)}`,
+      ]);
+    }
+    throw error;
   } finally {
     await releaseExecutionLock(cwd, lock.lock.id);
   }

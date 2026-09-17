@@ -31,7 +31,7 @@ function taskReport(taskId: string): Record<string, unknown> {
 }
 
 function passingRun(request: TaskAgentRequest): TaskAgentRunResult {
-  return { taskId: request.taskId, exitCode: 0, stdoutEvents: [taskReport(request.taskId)], stderr: "", timedOut: false, aborted: false };
+  return { taskId: request.taskId, exitCode: 0, stdoutEvents: [{ ...taskReport(request.taskId), ...request.attempt }], stderr: "", timedOut: false, aborted: false };
 }
 
 test("mock integration: debug retry policy auto-starts next approach and runs full validation", async () => {
