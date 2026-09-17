@@ -289,9 +289,9 @@ evidence. A stale dependency refuses before runner invocation, attempt creation,
 task transition or `spawnedAgents` accounting. Reconcile and revalidate the
 dependency; SCALER does not replay the worker or repair evidence automatically.
 
-Run `node --test --import tsx test/dependency-evidence-admission.test.ts
-test/debug-retry.test.ts` for the stale-output reproduction, current dependency,
-shared admission, unrelated-task control and both late-race budget checks.
+Run `node --test --import tsx test/dependency-evidence-admission.test.ts test/debug-retry.test.ts`
+for the stale-output reproduction, current dependency, shared admission,
+unrelated-task control and both late-race budget checks.
 Selection remains synchronous and label-based; admission supplies the durable
 check. This does not infer dependencies or establish transitive
 semantic/integration correctness.
