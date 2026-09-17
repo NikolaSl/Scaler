@@ -14,9 +14,12 @@ is a durable continuation record; scheduled execution is recorded separately.
 
 ### Current authorization and review policy
 
-Nikola explicitly authorized autonomous implementation, Copilot review requests,
-and merging PRs after review when there are no valid unresolved findings and
-applicable tests pass. On 2026-09-17 Nikola renewed the work for another 24 hours.
+Nikola explicitly authorized autonomous implementation and merging PRs after
+review when there are no valid unresolved findings and applicable tests pass.
+Copilot review remains preferred when it executes, but on 2026-09-17 Nikola
+authorized an independent exact-head fallback after repeated accepted review
+requests produced no pending or completed review. On 2026-09-17 Nikola renewed
+the work for another 24 hours.
 The current unattended mutation deadline is `2026-09-18T18:58:05Z`
 (21:58:05 Europe/Sofia). This supersedes both earlier September 17 cutoffs.
 Stop unattended mutations then and preserve a handoff unless Nikola extends
@@ -27,10 +30,18 @@ records this direct continuation and its bounded scope; the same completed
 Copilot review, test, separate-commit and expected-head merge gates apply.
 
 - Request `copilot-pull-request-reviewer[bot]` through the GitHub review-request
-  API; the login without `[bot]` is not the supported reviewer identity.
-- Wait for a completed review covering the changes. Silence is not approval.
-  Evaluate findings against code and requirements; fix valid issues and record
-  evidence for findings that do not apply. Re-review changed code when needed.
+  API; the login without `[bot]` is not the supported reviewer identity. An API
+  success without a submitted review is not approval and must not stall useful
+  implementation indefinitely.
+- If Copilot does not submit a current-head review, require primary-agent
+  self-review plus two independent GPT-6 Astra reviews at `high` or higher: one
+  correctness/maintainability review and one adversarial requirements/safety
+  review. Every reviewer must inspect the exact candidate head. Fix all valid
+  findings, rerun applicable checks, and repeat both independent reviews after
+  any code change. Record reviewer scope, findings and dispositions durably.
+- Silence from either fallback reviewer is not approval. Merge only when both
+  exact-head reviews complete with no valid unresolved finding and the primary
+  review agrees. Copilot findings received later are evaluated normally.
 - Merge only the reviewed, tested head using an expected-head-SHA guard and a
   merge commit to preserve implementation history. Respect branch protection.
 - Keep paid model spending and deployment out of scope. Existing free-provider
@@ -52,8 +63,9 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   validation and next action. Group related commits when necessary; do not make
   empty reporting commits or repeatedly announce an unchanged pending review.
 - PRs #3-#20 are merged. PR #21 / PLAN-117 remains a prerequisite until its
-  current head has completed Copilot review. Prepare remaining P2 acceptance
-  work on `implementation/v2-p2-acceptance`; retain the existing PR #21 head.
+  current head passes either a completed Copilot review or the independent
+  exact-head fallback above. Prepare remaining P2 acceptance work on
+  `implementation/v2-p2-acceptance`; retain the existing PR #21 head.
 
 ## Architecture direction
 

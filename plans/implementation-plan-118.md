@@ -163,9 +163,12 @@ do not interpret the successful mutation response as review execution.
 
 GitHub documents REST review requests and a separate UI re-review action at
 https://docs.github.com/en/copilot/how-tos/use-copilot-agents/request-a-code-review/use-code-review?tool=webui.
-No repository protection, billing or review settings were changed. Leave PR #21
-unmerged until its current changes have a completed review; continue independent
-preparation on this phase branch rather than repeatedly requesting or sleeping.
+No repository protection, billing or review settings were changed. The user then
+authorized the exact-head independent fallback recorded in PLAN-099: primary
+self-review plus separate GPT-6 Astra/high correctness and adversarial
+requirements reviews, with re-review after every code change. PR #21 may merge
+only after that fallback (or a current Copilot review) and all applicable checks
+pass; review-request API success alone remains insufficient.
 
 Authority of policy changes and independent non-software evidence remain
 explicit gaps; neither a source label nor a model's success claim grants them.
