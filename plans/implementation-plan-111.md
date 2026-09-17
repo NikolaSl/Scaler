@@ -64,3 +64,8 @@ failed before repair. Persistence now spreads the existing manifest and changes
 only the command set, supplied DoD and update timestamp, retaining criteria,
 waivers, creation identity and a preconfigured DoD when task metadata omits it.
 This does not authorize arbitrary acceptance-policy changes.
+
+Combined with PLAN-110's no-follow descriptor correction using a dependency
+merge commit. The sole test insertion conflict retained both the policy-retention
+test and both leaf-swap tests. Final gate: build, 681 unit, 67 mock integration
+and 7 conformance/autopilot checks pass. Existing published history is retained.
