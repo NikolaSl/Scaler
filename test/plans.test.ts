@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -33,7 +33,8 @@ import {
   validateReplanRequest,
 } from "../src/plans.js";
 import { computePrdCoverageSummary, loadPrdChanges, loadPrdCoverage, loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
-import { createDefaultState } from "../src/state.js";
+import { createDefaultState, loadState, saveState } from "../src/state.js";
+import { saveValidationManifest } from "../src/validation.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-plans-test-"));
@@ -299,6 +300,55 @@ test("planning report rejects unreadable validation inputs before any publicatio
     assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
     assert.deepEqual((await loadPlanningReports(dir)), []);
     assert.deepEqual(state.tasks, []);
+  });
+});
+
+test("planning report preflights inherited validation inputs before any publication", async () => {
+  await withTempDir(async (dir) => {
+    await writeFile(join(dir, "check.cjs"), "process.exit(0);\n");
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.tasks = [{
+      id: "T-INHERITED-VALIDATOR",
+      title: "Original task",
+      status: "pending",
+      taskKind: "software",
+      atomicityRationale: "One independently testable result.",
+      allowedPathPrefixes: ["src"],
+      definitionOfDone: ["Original requirement remains intact."],
+      updatedAt: state.updatedAt,
+    }];
+    await saveState(dir, state);
+    await saveValidationManifest(dir, {
+      taskId: "T-INHERITED-VALIDATOR",
+      validationInputPaths: ["check.cjs"],
+      definitionOfDone: state.tasks[0]!.definitionOfDone,
+      commands: [
+        { id: "test-first", command: "node check.cjs", gate: "test_first", required: true },
+        { id: "unit", command: "node check.cjs", gate: "unit_tests", required: true },
+      ],
+      createdAt: "",
+      updatedAt: "",
+    });
+    await unlink(join(dir, "check.cjs"));
+
+    await assert.rejects(async () => applyPlanningReport(dir, await loadState(dir), {
+      id: "PLAN-INHERITED-VALIDATOR",
+      requirements: [{ id: "REQ-NOT-WRITTEN", statement: "Must remain absent" }],
+      plan: {
+        planVersion: 2,
+        status: "active",
+        tasks: [validPlanTask("T-INHERITED-VALIDATOR", "Updated task", {
+          prdRefs: ["REQ-NOT-WRITTEN"],
+        })],
+      },
+    }), /rejected before publication.*validation input.*check\.cjs/i);
+
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    assert.deepEqual((await loadPrdCoverage(dir)).entries, []);
+    assert.deepEqual(await loadPrdChanges(dir), []);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual(await loadPlanningReports(dir), []);
+    assert.equal((await loadState(dir)).tasks[0]?.title, "Original task");
   });
 });
 

@@ -19,7 +19,7 @@ import { applyPrdRequirementUpserts, computePrdCoverageSummary, loadPrdCoverage,
 import { assertStateSnapshotCurrent } from "./state.js";
 import { createTask, reviewTaskAcceptancePolicyMutation, updateTask, type UpdateTaskInput } from "./tasks.js";
 import type { ScalerState, ScalerTaskKind, ScalerTaskQualityWaiver } from "./types.js";
-import { withValidationPolicyLock, type EmbeddedValidationManifestCommandInput, type ValidationPolicyAuthority } from "./validation.js";
+import { getValidationManifestForTask, withValidationPolicyLock, type EmbeddedValidationManifestCommandInput, type ValidationPolicyAuthority } from "./validation.js";
 
 export const executionPlanStatuses = ["draft", "active", "superseded", "completed"] as const;
 export type ExecutionPlanStatus = (typeof executionPlanStatuses)[number];
@@ -393,7 +393,7 @@ export async function applyExecutionPlanTasks(
   options: ExecutionPlanApplyOptions = {},
 ): Promise<ExecutionPlanApplyResult> {
   validateExecutionPlan(plan);
-  await preflightExecutionPlanValidationInputs(cwd, plan);
+  await preflightExecutionPlanValidationInputs(cwd, plan, state, options.updateExisting === true);
   let nextState = state;
   const createdTaskIds: string[] = [];
   const existingTaskIds: string[] = [];
@@ -492,10 +492,19 @@ async function preflightExecutionPlanPolicyChanges(
   return rejections;
 }
 
-async function preflightExecutionPlanValidationInputs(cwd: string, plan: ExecutionPlanArtifact): Promise<void> {
+async function preflightExecutionPlanValidationInputs(
+  cwd: string,
+  plan: ExecutionPlanArtifact,
+  state?: ScalerState,
+  updateExisting = false,
+): Promise<void> {
   for (const task of plan.tasks) {
     try {
-      await fingerprintValidationInputs(cwd, task.validationInputPaths);
+      let validationInputPaths = task.validationInputPaths;
+      if (validationInputPaths === undefined && updateExisting && state?.tasks.some((candidate) => candidate.id === task.id)) {
+        validationInputPaths = (await getValidationManifestForTask(cwd, task.id)).validationInputPaths;
+      }
+      await fingerprintValidationInputs(cwd, validationInputPaths);
     } catch (error) {
       throw new Error(`Execution plan rejected before publication: task ${task.id} validation input preflight failed: ${String(error)}`);
     }
@@ -521,7 +530,7 @@ async function applyPlanningReportLocked(
   const timestamp = now.toISOString();
   const plan: ExecutionPlanArtifact = normalizePlanningReportPlan(input.plan, timestamp);
   validateExecutionPlan(plan);
-  await preflightExecutionPlanValidationInputs(cwd, plan);
+  await preflightExecutionPlanValidationInputs(cwd, plan, state, true);
   const policyRejections = await preflightExecutionPlanPolicyChanges(cwd, state, plan, "model");
   if (policyRejections.length > 0) throw new Error(`Planning report rejected before publication: ${policyRejections.join(" ")}`);
   const taskIdsByRequirement = buildPlanTaskIdsByRequirement(plan);
