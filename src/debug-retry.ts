@@ -8,7 +8,7 @@ import { dirname } from "node:path";
 import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
 import { captureValidationContext, checkAttemptEvidence } from "./attempt-evidence.js";
 import { verifyTaskDependenciesAccepted } from "./accepted-evidence.js";
-import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult, interruptTaskExecution, reconcileInterruptedTaskAttempt } from "./attempt-execution.js";
+import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult, interruptTaskExecution, reconcileInterruptedTaskAttempt, TaskDependencyAdmissionError } from "./attempt-execution.js";
 import { completeTaskAttempt, taskAttemptBinding, type TaskAttemptRecord } from "./task-attempts.js";
 import {
   applyTaskRunHandoff,
@@ -290,11 +290,9 @@ export async function runDebugNextApproachRetry(
       ...(options.execute ? [{ key: "spawnedAgents" as const, amount: 1, mode: "increment" as const }] : []),
     ] as Parameters<typeof applyBudgetUsageUpdates>[1];
     const budgetResult = applyBudgetUsageUpdates(workingState, budgetUpdates);
-    const admittedBudgetState = budgetResult.decision.status === "hard_limit"
-      ? applyBudgetUsageUpdates(workingState, budgetUpdates.filter((update) => update.key !== "spawnedAgents")).state
-      : budgetResult.state;
-    workingState = await persistBudgetDecision(cwd, admittedBudgetState, budgetResult.decision);
     if (budgetResult.decision.status === "hard_limit") {
+      const refusedBudgetState = applyBudgetUsageUpdates(workingState, budgetUpdates.filter((update) => update.key !== "spawnedAgents")).state;
+      workingState = await persistBudgetDecision(cwd, refusedBudgetState, budgetResult.decision);
       const retry = await upsertRetryRecord(cwd, buildRetryRecord(selection, "rejected", false, `Budget hard limit refused debug retry: ${budgetResult.decision.reason}`));
       return {
         accepted: false,
@@ -308,7 +306,21 @@ export async function runDebugNextApproachRetry(
     }
 
     if (options.execute) {
-      activeAttempt = await admitTaskExecution(cwd, lock.lock.id, workingState, runningTask, resolvedContext, options.model, options.tools ?? []);
+      try {
+        activeAttempt = await admitTaskExecution(cwd, lock.lock.id, workingState, runningTask, resolvedContext, options.model, options.tools ?? []);
+      } catch (error) {
+        if (!(error instanceof TaskDependencyAdmissionError)) throw error;
+        const message = error.message;
+        const retry = await upsertRetryRecord(cwd, buildRetryRecord(selection, "rejected", false, message));
+        await appendLogEvent(cwd, createLogEvent(workingState, {
+          eventType: "rejected_transition", summary: message, taskId: runningTask.id,
+          details: { diagnostics: error.diagnostics, admission: "dependency_evidence" },
+        }));
+        return { accepted: false, message, status: "rejected", state: workingState, task: runningTask, retry, prompt };
+      }
+    }
+    workingState = await persistBudgetDecision(cwd, budgetResult.state, budgetResult.decision);
+    if (activeAttempt) {
       ({ prompt, resolvedContext } = buildTaskAgentPrompt({
         state: workingState, task: runningTask,
         contextItems: [...baseContext, retryContext],

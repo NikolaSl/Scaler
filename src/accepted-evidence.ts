@@ -74,7 +74,8 @@ export async function verifyTaskDependenciesAccepted(
   const context = await loadAcceptedEvidenceContext(cwd);
   const diagnostics: string[] = [];
   for (const dependencyId of dependencyIds) {
-    diagnostics.push(...await verifyAcceptedTaskEvidence(cwd, state, dependencyId, context, `Dependency ${dependencyId} evidence`));
+    const errors = await verifyAcceptedTaskEvidence(cwd, state, dependencyId, context, "Evidence");
+    diagnostics.push(...errors.map((error) => `Dependency ${dependencyId}: ${error}`));
   }
   return diagnostics;
 }

@@ -5,12 +5,13 @@
 
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { getBudgetState } from "../src/budgets.js";
-import { buildTaskAgentPrompt, runConductorStep } from "../src/conductor.js";
-import { admitTaskExecution } from "../src/attempt-execution.js";
+import { buildTaskAgentPrompt, runConductorStep, type ConductorStepOptions } from "../src/conductor.js";
+import { admitTaskExecution, TaskDependencyAdmissionError } from "../src/attempt-execution.js";
 import { acquireExecutionLock, releaseExecutionLock } from "../src/locks.js";
 import { loadState, saveState } from "../src/state.js";
 import { loadTaskAttempts, type TaskAttemptBinding } from "../src/task-attempts.js";
@@ -90,11 +91,44 @@ test("shared attempt admission rechecks dependency evidence", async () => withFi
   const context = buildTaskAgentPrompt({ state, task }).resolvedContext;
   const lock = await acquireExecutionLock(dir, { operation: "test", taskId: task.id });
   try {
-    await assert.rejects(admitTaskExecution(dir, lock.lock.id, state, task, context, "test", []), /Dependency T-DEP evidence.*declared output changed/i);
+    await assert.rejects(
+      admitTaskExecution(dir, lock.lock.id, state, task, context, "test", []),
+      (error) => error instanceof TaskDependencyAdmissionError
+        && error.taskId === "T-NEXT"
+        && error.diagnostics.some((diagnostic) => /Dependency T-DEP:.*declared output changed/i.test(diagnostic)),
+    );
     assert.deepEqual(await loadTaskAttempts(dir), []);
   } finally {
     await releaseExecutionLock(dir, lock.lock.id);
   }
+}));
+
+test("late dependency rejection does not publish projected agent budget", async () => withFixture(async (dir) => {
+  const before = await loadState(dir);
+  const beforeBudget = getBudgetState(before);
+  let toolsReads = 0;
+  let runnerCalls = 0;
+  const options = { execute: true } as ConductorStepOptions;
+  Object.defineProperty(options, "tools", {
+    get() {
+      toolsReads++;
+      writeFileSync(join(dir, "dependency.txt"), "changed-after-preflight");
+      return [];
+    },
+  });
+
+  const result = await runConductorStep(dir, before, options, async (request) => {
+    runnerCalls++;
+    return { taskId: request.taskId, exitCode: 0, stdoutEvents: [completedReport(request)], stderr: "", timedOut: false, aborted: false };
+  });
+
+  assert.equal(toolsReads, 1);
+  assert.equal(result.accepted, false);
+  assert.match(result.message, /dependency admission rejected/i);
+  assert.equal(runnerCalls, 0);
+  assert.deepEqual(await loadTaskAttempts(dir), []);
+  assert.equal((await loadState(dir)).tasks.find((task) => task.id === "T-NEXT")?.status, "ready");
+  assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents, beforeBudget.usage.spawnedAgents);
 }));
 
 test("stale unrelated accepted task does not block independent dispatch", async () => withFixture(async (dir) => {
