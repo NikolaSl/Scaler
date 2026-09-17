@@ -269,6 +269,10 @@ model's agreement as a substitute. This is an explicit capability limitation,
 not a claim of complete P2.3 or SC-10 support.
 # Completion provenance regression
 
+PLAN-108's `test/git-decision-evidence.test.ts` covers the direct Git-decision API:
+bare/empty/tampered/stale evidence cannot publish accepted skips; full verified
+records produce correctly derived summaries. Git and non-Git controls remain.
+
 `test/completion-artifacts.test.ts` (PLAN-107) additionally rejects drift of
 accepted committed outputs, missing/orphaned commits, incorrect path lists,
 recreated deletions, index-only edits and changes hidden by Git index flags.

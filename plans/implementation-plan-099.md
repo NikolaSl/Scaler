@@ -17,7 +17,9 @@ is a durable continuation record; scheduled execution is recorded separately.
 Nikola explicitly authorized autonomous implementation, Copilot review requests,
 and merging PRs after review when there are no valid unresolved findings and
 applicable tests pass. The unattended work window ends at
-`2026-09-17T06:49:57Z` (09:49:57 Europe/Sofia). Stop unattended mutations then
+`2026-09-17T18:00:00Z` (21:00 Europe/Sofia), explicitly extended by Nikola on
+2026-09-17 with "Продължи и след крайният срок. Промени срока на 21:00 българско време."
+This replaces the earlier 06:49:57Z cutoff. Stop unattended mutations then
 and preserve a handoff unless the user extends or changes the instruction.
 This supersedes the earlier no-automatic-merge instruction for this window.
 

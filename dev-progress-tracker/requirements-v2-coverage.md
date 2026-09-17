@@ -213,6 +213,11 @@ compatibility only. Updating that gate belongs to the later implementation phase
 revision 2 document integrity is checked separately during this change.
 # PLAN-106 continuation
 
+PLAN-108 requires full current receipt evidence at the exported Git-decision
+effect boundary and derives the summary from it. `test/git-decision-evidence.test.ts`
+covers direct misuse and valid Git/non-Git records. Combined gate: build,
+641 unit, 67 mock integration, 5 conformance. Full SC authority remains open.
+
 PLAN-107 / `src/committed-outputs.ts` and `test/completion-artifacts.test.ts`
 add actual committed-output integrity and ancestry checks. Build, 629 unit and
 67 mock integration tests pass. This extends provenance without claiming

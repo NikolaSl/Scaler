@@ -151,14 +151,17 @@ test("validation git acceptance records auto skip for clean task and explicit sk
   await withGitRepo(async (dir) => {
     const cleanState = createDefaultState();
     cleanState.tasks = [{ id: "T-CLEAN", title: "Clean task", status: "validating", allowedPathPrefixes: ["src"], updatedAt: cleanState.createdAt }];
-    const cleanDecision = await evaluateValidationGitAcceptance(dir, cleanState, "T-CLEAN", { runId: "run-clean", status: "passed", commandCount: 1, failedCommandIds: [] });
+    await saveState(dir, cleanState);
+    await upsertValidationManifestCommand(dir, { taskId: "T-CLEAN", id: "test", command: "node -e \"process.exit(0)\"", required: true });
+    const cleanRun = await runTaskValidation(dir, cleanState, "T-CLEAN");
+    const cleanDecision = await evaluateValidationGitAcceptance(dir, await loadState(dir), "T-CLEAN", cleanRun);
     assert.equal(cleanDecision.accepted, true);
     assert.equal(cleanDecision.status, "commit_skipped");
     assert.equal((await loadCommitSkips(dir))[0]?.taskId, "T-CLEAN");
 
     await mkdir(join(dir, "src"), { recursive: true });
     await writeFile(join(dir, "src", "skip.ts"), "export const skip = true;\n", "utf8");
-    const state = createDefaultState();
+    const state = await loadState(dir);
     state.tasks = [{ id: "T-SKIP", title: "Skip task", status: "validating", allowedPathPrefixes: ["src"], updatedAt: state.createdAt }];
     await saveState(dir, state);
     await upsertValidationManifestCommand(dir, { taskId: "T-SKIP", id: "test", command: "node -e \"process.exit(0)\"", required: true });
