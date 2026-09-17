@@ -64,3 +64,41 @@ No multi-file transaction claim, arbitrary provider effect reconciliation,
 automatic orphan-lock deletion, task decomposition redesign, context-routing
 optimization, database/service introduction or full SC-01/02/10/13/26 compliance.
 Green tests establish only the named attempt and stale-delivery behaviors.
+
+## Implementation and review boundary — 2026-09-17
+
+- Conductor and debug retry share admission, pre-dispatch state binding,
+  current-result identity checks and interruption/recovery helpers in
+  `src/attempt-execution.ts`. Debug budget refusal now precedes running state
+  and attempt admission. Both executors reload child-persisted state.
+- Recovery acquires the existing execution lock; it never steals an orphaned
+  lock. Stop/reconcile the old owner and explicitly clear its lock first.
+  Recovery rereads the ledger after acquisition, blocks the matching task
+  before closing the attempt, and leaves an open attempt if state publication
+  fails. It never blocks a replacement attempt or launches work itself.
+- Result ingestion requires the complete admitted binding (including at the
+  runtime JavaScript boundary); historical unbound records remain readable.
+- The original `inputFingerprint` is immutable. A separate
+  `validationContextFingerprint` captures declared manifest/source content at
+  handoff, after legitimate worker edits. Validation compares that snapshot,
+  current task/policy identity and the supervisor-computed report digest before
+  commands and before acceptance. Changing a declared input or report after
+  handoff invalidates that evidence.
+- Runtime task status, budgets and timestamps are not semantic input versions.
+  Explicit inline context has no mutable source to reread; only persisted
+  manifest source content at its declared scope is checked for later changes.
+- The output digest covers normalized report material, not independent proof of
+  artifact bytes or correctness. P2.3 still owns universal acceptance, independent
+  evidence, criteria integrity, manually imported/unbound reports, direct
+  commit/hook routes and semantic integration checks. Do not claim those gates
+  are implemented by this bounded P2.2 PR.
+- Canonical JSON sorts keys by deterministic UTF-16 order, not locale collation.
+  A regression reproduces distinct Unicode keys comparing equal under collation
+  and changing the hash merely from insertion order.
+
+Validation commands: `npm run build`, `npm test`, and focused
+`test/attempt-execution.test.ts`, `test/attempt-evidence.test.ts`,
+`test/conductor.test.ts`, `test/debug-retry.test.ts`,
+`test/task-reports.test.ts`, `test/fingerprints.test.ts`.
+Synthetic runners only in this iteration. The real Pi report fixture was updated
+to echo the dynamic attempt envelope, but no live model run is claimed.

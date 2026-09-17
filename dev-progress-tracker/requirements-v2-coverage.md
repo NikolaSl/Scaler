@@ -72,6 +72,18 @@ fail-closed for reconciliation.
 This is not a multi-file transaction, effect reconciliation or acceptance gate;
 other catalog ledgers remain outside this bounded change.
 
+PLAN-101 / PR #5 adds execution-lock-owned task attempts to conductor and debug
+retry: immutable run/task/input/route/policy bindings, report output digests,
+fail-closed interrupted-attempt recovery and validation freshness guards. A
+separate post-worker context snapshot prevents later declared-source changes
+from silently reusing completed evidence. Synthetic regressions cover stale
+reports, changed task/policy/context, changes during validation, retry identity,
+budget refusal and interruption publication failure. Build, 543/543 unit tests
+and 67/67 mock integrations pass; live-provider tests were not run for this unit.
+Review is pending. These are partial SC-02/11/13/17/22 results, not closure:
+manual/unbound acceptance, commit/hooks, artifact correctness and a universal
+acceptance authority remain P2.3. See PLAN-101 for the exact freshness scope.
+
 Implementation has now started on merged baseline `8f4cf19`, following
 [PLAN-099](../plans/implementation-plan-099.md). The original assessment table
 above is retained as the reviewed baseline. P1.1 adds read-only existing-state
