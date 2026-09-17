@@ -48,6 +48,14 @@ replan the missing task and revalidate its evidence instead of relying on a stal
 coverage label. This is a structural completeness check; it does not infer or
 certify that a task link is semantically adequate.
 
+Validation receipts also bind the current content of every requirement named in
+the task's `prdRefs`: stable id, statement, title and source. Changing that
+content, or creating a requirement that was missing when validation ran, requires
+the task to be revalidated before commit/skip, dependent execution or final
+completion. Rewriting identical content does not invalidate evidence merely
+because the ledger timestamp changed. Receipts created before requirement-bound
+snapshot schema version 3 require revalidation.
+
 ## Tools
 
 Implemented runtime PRD tools:

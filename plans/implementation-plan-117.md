@@ -41,3 +41,18 @@ and completion boundaries; do not add another ledger.
 This proves byte-canonical binding to the selected runtime requirement fields.
 It does not establish that a link is semantically sufficient, that an integration
 criterion passed, or that task scope is necessary/minimal.
+
+## Result
+
+Two baseline regressions confirmed false completion after a linked requirement
+statement changed and after a previously missing referenced requirement appeared.
+The validation snapshot is now schema version 3 and binds the sorted current
+requirement slice (`id`, `statement`, `title`, `source`, or an explicit missing
+marker). The existing receipt verifier therefore protects validation,
+commit/skip, dependency admission and completion without another ledger.
+
+An identical content upsert remains valid because timestamps are excluded.
+Schema version 1 and 2 receipts fail closed and require revalidation. Final gate:
+TypeScript build, 717 unit tests, 67 mock integration tests and 7
+conformance/autopilot checks pass. Semantic sufficiency, integration criteria,
+necessity and requirement-authority validation remain open.
