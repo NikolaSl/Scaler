@@ -35,3 +35,19 @@ autopilot, postcommit acceptance identity, integration/semantic criteria and
 worker protection against direct ledger writes remain open. In particular, a
 precommit receipt includes HEAD and cannot naïvely certify postcommit completion.
 No runtime-provider spending, deployment, new framework or compatibility bypass.
+
+## Reproduction and implementation record
+
+Nine regressions failed on merged main: create with validated status, updates and
+reports from validating/debugging, generic completion from empty/legacy-label
+runs, and rewriting validated metadata with/without explicit status. The ordinary
+proposal control passed. The fix adds boundary refusals to existing APIs without
+new authority tokens or extra persistence. Existing invalid-transition history is
+preserved; prohibited acceptance reports are rejected before either transition.
+
+All 57 focused proposal/task/report/receipt tests pass, including positive
+receipt-backed commit and skip. No existing test assertions or fixtures changed.
+The new creation fixture compares durable manifest bytes rather than timestamps
+of dynamically synthesized default manifests. Build and full unit/mock gates
+passed: 579/579 unit and 67/67 mock integration. Final-head Copilot review and
+merge checks remain required; no live provider test was needed for this boundary.
