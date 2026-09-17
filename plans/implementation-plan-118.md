@@ -170,3 +170,39 @@ preparation on this phase branch rather than repeatedly requesting or sleeping.
 Authority of policy changes and independent non-software evidence remain
 explicit gaps; neither a source label nor a model's success claim grants them.
 This plan is not a declaration that all P2 requirements are satisfied.
+
+## Unit C — Authorized amendments and immutable requirement history
+
+The current runtime catalog lets every model-facing PRD/planning route replace an
+existing statement or explicitly clear its acceptance criteria. Bulk PRD writes
+can also omit an existing requirement and delete it from the catalog. The change
+ledger records only a generic reason and requirement id, so the earlier wording,
+criterion set and claimed authority cannot be reconstructed. `source` is caller
+data and MUST NOT be treated as authentication.
+
+Use the smallest fail-closed boundary that matches the authority actually
+available in the extension:
+
+1. Existing model/report/tool routes may create an initial normalized requirement
+   without mandatory integration criteria or repeat current content idempotently,
+   but cannot add, change or remove acceptance criteria, or materially change or
+   delete an existing statement, title or source. Omission preserves catalog
+   entries and criteria; neither a forged `source` nor an `authorized` payload is
+   an authority signal.
+2. Add a user-invoked slash-command amendment route, unavailable to child-agent
+   tools, with an exact expected revision and a required reason. It applies only
+   the supplied fields, fails on a stale revision, and cannot create a requirement.
+3. Give normalized requirements a monotonic revision. Append exact before/after
+   requirement snapshots and the command authority basis for every accepted
+   material amendment. Keep prior evidence historical; existing fingerprints
+   make current acceptance stale after the revision content changes.
+4. Preflight multi-requirement stage/planning/tool inputs before any PRD, plan,
+   task, artifact or coverage write. One unauthorized mutation must leave the
+   whole submitted operation unchanged rather than partially applying it.
+5. Reproduce silent criterion removal, whole-requirement omission and weak change
+   history before implementation. Then cover an authorized amendment, stale-base
+   refusal and an agent/report amendment refusal.
+
+This does not authenticate free-form text as original user wording, prove semantic
+necessity, or provide non-software evidence. The command is an explicit local user
+decision boundary; unattended agents must pause/propose when it is required.
