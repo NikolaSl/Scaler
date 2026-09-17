@@ -7,6 +7,7 @@ import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { promisify } from "node:util";
+import { verifyCommittedOutputs } from "./committed-outputs.js";
 import { logGitCommitAudit } from "./logging.js";
 import { getCommitReportsPath, getCommitSkipsPath, getGitBootstrapReportsPath } from "./paths.js";
 import { getValidationManifestForTask, loadValidationRuns, type ValidationRunRecord } from "./validation.js";
@@ -225,6 +226,9 @@ export async function commitValidatedTask(
   const receiptDiagnostics = await verifyCurrentValidationReceipt(cwd, state, taskId);
   if (receiptDiagnostics.length > 0) return logCommitResult(cwd, state, taskId, { accepted: false, message: receiptDiagnostics.join(" "), safety });
   if (safety.status === "clean" || safety.status === "runtime_only") {
+    if (!(await hasDeclaredOutputBasis(cwd, taskId))) {
+      return logCommitResult(cwd, state, taskId, { accepted: false, message: automaticSkipMissingOutputBasisMessage, safety });
+    }
     const skip = await recordCommitSkip(cwd, {
       taskId,
       reason: `Commit skipped: ${safety.reason}`,
@@ -238,9 +242,37 @@ export async function commitValidatedTask(
   for (const path of allowedPathPrefixes) {
     await execFileAsync("git", ["add", path], { cwd });
   }
+  const expectedTree = (await execFileAsync("git", ["write-tree"], { cwd })).stdout.trim();
   await execFileAsync("git", ["commit", "-m", buildTaskCommitMessage(taskId, task.title)], { cwd });
-  const { stdout } = await execFileAsync("git", ["rev-parse", "--short", "HEAD"], { cwd });
-  const commitHash = stdout.trim();
+  const [commitIdentity, committedTree] = await Promise.all([
+    execFileAsync("git", ["rev-parse", "--short", "HEAD"], { cwd }),
+    execFileAsync("git", ["rev-parse", "HEAD^{tree}"], { cwd }),
+  ]);
+  const commitHash = commitIdentity.stdout.trim();
+  if (committedTree.stdout.trim() !== expectedTree) {
+    return logCommitResult(cwd, state, taskId, {
+      accepted: false,
+      message: `Commit ${commitHash} was created, but its committed tree differs from the validated staged tree; reconcile the hook changes and revalidate.`,
+      commitHash,
+      safety,
+    });
+  }
+  const provisionalReport: CommitReportRecord = {
+    id: `${taskId}-commit-provisional`, taskId, commitHash,
+    includedPaths: [...safety.allowedPaths].sort((a, b) => a.localeCompare(b)),
+    safety: { status: safety.status, reason: safety.reason, runtimePaths: safety.runtimePaths, allowedPaths: safety.allowedPaths },
+    validation,
+    createdAt: new Date().toISOString(),
+  };
+  const committedOutputDiagnostics = await verifyCommittedOutputs(cwd, provisionalReport);
+  if (committedOutputDiagnostics.length > 0) {
+    return logCommitResult(cwd, state, taskId, {
+      accepted: false,
+      message: `Commit ${commitHash} was created, but committed output verification failed: ${committedOutputDiagnostics.join(" ")} Reconcile and revalidate.`,
+      commitHash,
+      safety,
+    });
+  }
   const report = await recordCommitReport(cwd, {
     taskId,
     commitHash,
