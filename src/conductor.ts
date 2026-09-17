@@ -7,7 +7,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
 import { captureValidationContext } from "./attempt-evidence.js";
-import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult, interruptTaskExecution, reconcileInterruptedTaskAttempt } from "./attempt-execution.js";
+import { verifyTaskDependenciesAccepted } from "./accepted-evidence.js";
+import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult, interruptTaskExecution, reconcileInterruptedTaskAttempt, TaskDependencyAdmissionError } from "./attempt-execution.js";
 import { writeCheckpoint } from "./checkpoints.js";
 import { assessCompression, formatCompressionGuidance, type CompressionAssessment } from "./compression.js";
 import { assessDebugRetryGate } from "./debug.js";
@@ -227,6 +228,12 @@ export async function runConductorStep(
   let activeAttempt: TaskAttemptRecord | undefined;
   let attemptTerminal = false;
   try {
+    const dependencyDiagnostics = await verifyTaskDependenciesAccepted(cwd, state, selection.task);
+    if (dependencyDiagnostics.length > 0) {
+      const message = dependencyDiagnostics.join(" ");
+      await appendLogEvent(cwd, createLogEvent(state, { eventType: "rejected_transition", summary: message, taskId: selection.task.id }));
+      return { accepted: false, message, state, task: selection.task };
+    }
     let nextState = state;
     if (options.execute && selection.promotePending) {
       nextState = transitionTask(nextState, selection.task.id, "ready", { reason: "Conductor selected pending task." });
@@ -249,11 +256,9 @@ export async function runConductorStep(
     const budgetResult = applyBudgetUsageUpdates(nextState, budgetUpdates);
     // A refused dispatch has not spawned an agent. Keep its decision/checkpoint,
     // but do not consume the projected spawn or claim that the task is running.
-    const admittedBudgetState = budgetResult.decision.status === "hard_limit"
-      ? applyBudgetUsageUpdates(nextState, budgetUpdates.filter((update) => update.key !== "spawnedAgents")).state
-      : budgetResult.state;
-    nextState = await persistBudgetDecision(cwd, admittedBudgetState, budgetResult.decision);
     if (budgetResult.decision.status === "hard_limit") {
+      const refusedBudgetState = applyBudgetUsageUpdates(nextState, budgetUpdates.filter((update) => update.key !== "spawnedAgents")).state;
+      nextState = await persistBudgetDecision(cwd, refusedBudgetState, budgetResult.decision);
       return {
         accepted: false,
         message: `Budget hard limit refused task ${runningTask.id}: ${budgetResult.decision.reason}`,
@@ -266,8 +271,24 @@ export async function runConductorStep(
     const tools = options.tools ?? defaultTaskAgentTools();
     let attemptBinding: TaskAttemptBinding | undefined;
     if (options.execute) {
-      activeAttempt = await admitTaskExecution(cwd, lock.lock.id, nextState, runningTask, resolvedContext, options.model, tools);
+      try {
+        // Admission performs the final dependency-evidence check. Publish the
+        // projected spawn only after that check succeeds so a late rejection
+        // cannot consume agent budget for work that never started.
+        activeAttempt = await admitTaskExecution(cwd, lock.lock.id, state, runningTask, resolvedContext, options.model, tools);
+      } catch (error) {
+        if (!(error instanceof TaskDependencyAdmissionError)) throw error;
+        const message = error.message;
+        await appendLogEvent(cwd, createLogEvent(state, {
+          eventType: "rejected_transition", summary: message, taskId: runningTask.id,
+          details: { diagnostics: error.diagnostics, admission: "dependency_evidence" },
+        }));
+        return { accepted: false, message, state, task: runningTask, prompt, contextSplit };
+      }
       attemptBinding = taskAttemptBinding(activeAttempt);
+    }
+    nextState = await persistBudgetDecision(cwd, budgetResult.state, budgetResult.decision);
+    if (activeAttempt) {
       ({ prompt, resolvedContext, compressionAssessment } = buildTaskAgentPrompt({
         state: nextState,
         task: runningTask,

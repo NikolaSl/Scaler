@@ -4,6 +4,7 @@
  */
 
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,13 +29,28 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
-async function seedDebuggingTask(dir: string): Promise<ScalerState> {
+async function seedDebuggingTask(dir: string, withDependency = false): Promise<ScalerState> {
   const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
   const updatedAt = new Date("2026-01-01T00:00:00.000Z").toISOString();
   state.stage = "execution";
   state.currentTaskId = "T-RETRY";
-  state.tasks = [{ id: "T-RETRY", status: "validating", title: "Retry task", updatedAt }];
+  state.tasks = [
+    ...(withDependency ? [{ id: "T-DEP", status: "validating" as const, allowedPathPrefixes: ["dependency.txt"], updatedAt }] : []),
+    {
+      id: "T-RETRY", status: "validating", title: "Retry task", updatedAt,
+      ...(withDependency ? { dependsOn: ["T-DEP"] } : {}),
+    },
+  ];
   await saveState(dir, state);
+  if (withDependency) {
+    await writeFile(join(dir, "dependency.txt"), "accepted");
+    await saveValidationManifest(dir, {
+      taskId: "T-DEP", outputPaths: ["dependency.txt"],
+      commands: [{ id: "dependency", required: true, command: "node -e \"if(require('fs').readFileSync('dependency.txt','utf8')!=='accepted')process.exit(1)\"" }],
+      createdAt: "", updatedAt: "",
+    });
+    await runTaskValidation(dir, await loadState(dir), "T-DEP");
+  }
   await upsertValidationManifestCommand(dir, {
     taskId: "T-RETRY",
     id: "exact",
@@ -46,7 +62,7 @@ async function seedDebuggingTask(dir: string): Promise<ScalerState> {
     evidenceRefs: ["validation:exact"],
   });
   await saveValidationManifest(dir, { ...await getValidationManifestForTask(dir, "T-RETRY"), outputPaths: ["fixed.txt"] });
-  await runTaskValidation(dir, state, "T-RETRY");
+  await runTaskValidation(dir, await loadState(dir), "T-RETRY");
   const debugging = await loadState(dir);
   await recordDebugReport(dir, debugging, {
     id: "RPT-RETRY",
@@ -80,6 +96,33 @@ test("debug retry refuses hard budget before running state or attempt admission"
     assert.equal(result.state.tasks[0]?.status, "debugging");
     assert.equal(getBudgetState(result.state).usage.spawnedAgents ?? 0, 0);
     assert.deepEqual(await loadTaskAttempts(dir), []);
+  });
+});
+
+test("debug retry reports late dependency rejection without publishing agent budget", async () => {
+  await withTempDir(async (dir) => {
+    const state = await seedDebuggingTask(dir, true);
+    const beforeBudget = getBudgetState(state);
+    let runnerCalls = 0;
+    const options = { execute: true } as Parameters<typeof runDebugNextApproachRetry>[2];
+    Object.defineProperty(options, "tools", {
+      get() {
+        writeFileSync(join(dir, "dependency.txt"), "changed-after-preflight");
+        return [];
+      },
+    });
+
+    const result = await runDebugNextApproachRetry(dir, state, options, async () => {
+      runnerCalls++;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.status, "rejected");
+    assert.match(result.message, /dependency admission rejected/i);
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+    assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents, beforeBudget.usage.spawnedAgents);
+    assert.equal((await loadDebugRetries(dir))[0]?.status, "rejected");
   });
 });
 

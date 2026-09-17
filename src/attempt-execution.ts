@@ -4,6 +4,7 @@
  */
 
 import { fingerprintAdmittedInput, fingerprintTaskContract, fingerprintTaskRoute, fingerprintValidationPolicy } from "./attempt-identity.js";
+import { verifyTaskDependenciesAccepted } from "./accepted-evidence.js";
 import type { ResolvedContext } from "./context.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { appendLogEvent, createLogEvent } from "./logging.js";
@@ -13,10 +14,22 @@ import { admitTaskAttempt, assertAttemptWriter, completeTaskAttempt, loadTaskAtt
 import type { ScalerState, ScalerTaskState } from "./types.js";
 import { getValidationManifestForTask } from "./validation.js";
 
+export class TaskDependencyAdmissionError extends Error {
+  constructor(
+    readonly taskId: string,
+    readonly diagnostics: string[],
+  ) {
+    super(`Task ${taskId} dependency admission rejected: ${diagnostics.join(" ")}`);
+    this.name = "TaskDependencyAdmissionError";
+  }
+}
+
 export async function admitTaskExecution(
   cwd: string, lockId: string, state: ScalerState, task: ScalerTaskState,
   context: ResolvedContext, model: string | undefined, tools: string[],
 ): Promise<TaskAttemptRecord> {
+  const dependencyDiagnostics = await verifyTaskDependenciesAccepted(cwd, state, task);
+  if (dependencyDiagnostics.length > 0) throw new TaskDependencyAdmissionError(task.id, dependencyDiagnostics);
   const taskFingerprint = fingerprintTaskContract(task);
   return admitTaskAttempt(cwd, lockId, {
     runId: state.runId,

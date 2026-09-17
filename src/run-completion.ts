@@ -3,16 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { checkAttemptEvidence } from "./attempt-evidence.js";
-import { verifyCommittedOutputs } from "./committed-outputs.js";
-import { fingerprintJson } from "./fingerprints.js";
-import { loadCommitReports, loadCommitSkips, type CommitValidationSummary } from "./git.js";
+import { loadAcceptedEvidenceContext, verifyAcceptedTaskEvidence } from "./accepted-evidence.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { loadState, saveState } from "./state.js";
 import { transitionStage } from "./supervisor.js";
 import type { ScalerState } from "./types.js";
-import { getValidationManifestForTask, loadValidationRuns, type ValidationRunRecord } from "./validation.js";
-import { captureValidationSnapshot, verifyValidationRecordEvidence } from "./validation-acceptance.js";
 
 // Provenance is necessary, not sufficient for final integrated correctness.
 // Historical candidates precede task commits; comparing all of them to current
@@ -28,45 +23,13 @@ async function verifyCompletionProvenance(cwd: string, state: ScalerState): Prom
     || new Set(state.tasks.map((task) => task.id)).size !== state.tasks.length) {
     return ["Completion evidence rejected: a nonempty set of distinct validated tasks is required."];
   }
-  const runs = await loadValidationRuns(cwd);
-  const commits = await loadCommitReports(cwd);
-  const skips = await loadCommitSkips(cwd);
+  const context = await loadAcceptedEvidenceContext(cwd);
   const diagnostics: string[] = [];
   for (const task of state.tasks) {
-    // Ledgers are newest-first: a newer failed/blocked run must not fall back to
-    // an older green result, even if the task label still says validated.
-    const run = runs.find((candidate) => candidate.taskId === task.id);
-    const manifest = await getValidationManifestForTask(cwd, task.id);
-    const errors = verifyValidationRecordEvidence(run, manifest);
-    if (run?.receipt && errors.length === 0) {
-      errors.push(...await checkAttemptEvidence(cwd, state, task.id));
-      const { gitCandidateFingerprint: _historical, ...historical } = run.receipt.snapshot;
-      const { gitCandidateFingerprint: _current, ...current } = await captureValidationSnapshot(cwd, state, task.id);
-      if (fingerprintJson(historical) !== fingerprintJson(current)) {
-        errors.push("Completion evidence rejected: run, task, attempt, policy, context or declared output changed.");
-      }
-      const committed = commits.find((commit) => commit.taskId === task.id && commit.commitHash.trim()
-        && matchesValidation(commit.validation, run));
-      const skipped = skips.some((skip) => skip.taskId === task.id && skip.status === "skipped"
-        && skip.reason.trim() && matchesValidation(skip.validation, run));
-      if (!committed && !skipped) errors.push("Completion evidence rejected: no matching accepted Git commit or reasoned skip.");
-      if (!committed && skipped && manifest.outputPaths === undefined) {
-        errors.push("Completion evidence rejected: skipped task has unknown filesystem output coverage; declare outputPaths in its validation manifest and revalidate. Use [] only for work with no filesystem outputs.");
-      }
-      if (committed) errors.push(...await verifyCommittedOutputs(cwd, committed));
-    }
+    const errors = await verifyAcceptedTaskEvidence(cwd, state, task.id, context, "Completion evidence");
     diagnostics.push(...errors.map((error) => `${task.id}: ${error}`));
   }
   return diagnostics;
-}
-
-function matchesValidation(summary: CommitValidationSummary, run: ValidationRunRecord): boolean {
-  // The full result and required commands were checked above. Historical summary
-  // producers classify declared skips differently in failedCommandIds; that
-  // redundant list is not acceptance authority.
-  return summary.runId === run.id && summary.status === "passed"
-    && summary.commandCount === run.commandRuns.length
-    && summary.createdAt === run.createdAt;
 }
 
 export interface RunCompletionResult {
