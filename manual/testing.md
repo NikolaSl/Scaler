@@ -387,3 +387,10 @@ reference is also rejected, while an identical content upsert remains current.
 Validation snapshot schema version 3 binds requirement id/statement/title/source;
 version 1 and 2 receipts require revalidation. This is version freshness, not
 proof that the selected requirement links or integration checks are sufficient.
+
+PLAN-118 unit A covers explicit coverage-ledger links as well as task `prdRefs`.
+Run `node --test --import tsx test/completion-provenance.test.ts test/validation-acceptance.test.ts test/dependency-evidence-admission.test.ts test/declared-outputs.test.ts`.
+Four baseline failures demonstrate false completion after changed/new explicit
+links and stale receipts after removed/retargeted links. Unchanged/idempotent and
+unrelated-task controls remain valid. Both directions feed the existing canonical
+requirement-content fingerprint; the schema and acceptance routes are unchanged.

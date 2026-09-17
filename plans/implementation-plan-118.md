@@ -32,13 +32,69 @@ requirement history or end-to-end integration criteria. Schema v3 already has
 the requirement-content fingerprint; the change corrects selection of its
 material, so receipts omitting explicit-only links naturally require revalidation.
 
-## Next acceptance boundary to refine
+## Unit A result
+
+Six added regressions produced four failures and two passing controls before the
+fix. After canonicalizing both link directions, all pass. Changed requirement
+text, late-added links, and removed/retargeted links invalidate prior receipts.
+Unchanged/idempotent content and unrelated-task links retain valid evidence.
+
+Validation: TypeScript build, 90 focused checks, 724 unit, 67 mock integration
+and 7 conformance checks pass. GPT-6 Astra with high reasoning reviewed the fix
+and regressions independently and found no actionable defect. This does not
+replace the required Copilot review. Duplicate malformed coverage entries,
+policy authority and requirement integration evidence are outside this unit.
+
+## Next acceptance boundary — requirement integration evidence
 
 AC-26/27 requires current requirement-level and cross-task integration evidence.
 Passing linked task checks alone cannot discharge a separately declared
 integration criterion. Inspect existing manifests, command execution and receipt
 verification before choosing a minimal representation. Do not introduce a
 mandatory extra agent/task or silently infer extra acceptance requirements.
+
+Read-only assessment identified the following implementation direction to refine
+before code changes:
+
+1. Represent named requirement criteria with explicit mappings to existing
+   task validation command IDs. Transport them through PRD tools, planner reports
+   and stage ingestion; partial updates must preserve omitted criteria.
+2. Bind criteria/mappings to requirement content and bind integration evidence
+   to the participating components' current outputs, attempts and policies.
+   A merely current integration-task receipt is insufficient after a different
+   component has changed and been independently reaccepted. Avoid recursive
+   receipt hashing. Inspect whether a compact requirement receipt using the
+   existing command runner is simpler than extending task snapshots.
+3. Require actual current passing command evidence and accepted participating
+   outputs. A manual status, arbitrary reference, skipped command or unrelated
+   passing command cannot satisfy a declared integration criterion.
+4. Call the shared verifier from completion and verification of already-completed
+   runs. Preserve historical evidence and keep verification read-only.
+5. Reproduce two passing component tasks with absent/failing end-to-end evidence;
+   add a current integration-pass control. Then change/reaccept one component
+   and prove the old integration evidence remains invalid until rerun.
+
+Current `resolveComputedRequirementStatus` promotes a label from any validated
+linked task; this remains progress metadata, not proof of requirement acceptance.
+Authority for changing/deleting criteria and preservation of structured statement
+history need separate treatment before claiming full P2/SC-27 coverage. Do not
+turn this direction into a mandatory extra framework or add inferred user scope.
+
+## Review-delivery diagnostic
+
+PR #21 remains unchanged at `dda6f7cd4502d0b57a8a79ba7fc88a3f2440674b`.
+The REST reviews endpoint confirms the only Copilot review belongs to the older
+`a951522b305c5ccb89405a3677672f65081870b7` commit. A diagnostic re-request with
+the documented bot login succeeded, but a subsequent REST requested-reviewers
+read returned empty users/teams; the current head also has zero check runs.
+There is no evidence of a pending or completed re-review. Root cause is unknown;
+do not interpret the successful mutation response as review execution.
+
+GitHub documents REST review requests and a separate UI re-review action at
+https://docs.github.com/en/copilot/how-tos/use-copilot-agents/request-a-code-review/use-code-review?tool=webui.
+No repository protection, billing or review settings were changed. Leave PR #21
+unmerged until its current changes have a completed review; continue independent
+preparation on this phase branch rather than repeatedly requesting or sleeping.
 
 Authority of policy changes and independent non-software evidence remain
 explicit gaps; neither a source label nor a model's success claim grants them.

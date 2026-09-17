@@ -48,13 +48,18 @@ replan the missing task and revalidate its evidence instead of relying on a stal
 coverage label. This is a structural completeness check; it does not infer or
 certify that a task link is semantically adequate.
 
-Validation receipts also bind the current content of every requirement named in
-the task's `prdRefs`: stable id, statement, title and source. Changing that
+Validation receipts also bind the current content of every requirement linked
+through the task's `prdRefs` or explicit coverage `taskIds`: stable id, statement,
+title and source. Both link directions use one canonical requirement set. Changing that
 content, or creating a requirement that was missing when validation ran, requires
 the task to be revalidated before commit/skip, dependent execution or final
 completion. Rewriting identical content does not invalidate evidence merely
 because the ledger timestamp changed. Receipts created before requirement-bound
 snapshot schema version 3 require revalidation.
+Schema v3 receipts captured before explicit-only links were included also require
+revalidation when they omit that content. Unrelated tasks' coverage entries do
+not change the fingerprint. Tasks with no links in either direction do not read
+the requirement-content file; the coverage ledger is still checked for links.
 
 ## Tools
 

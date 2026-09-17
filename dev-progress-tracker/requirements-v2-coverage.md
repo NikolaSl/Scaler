@@ -213,6 +213,13 @@ compatibility only. Updating that gate belongs to the later implementation phase
 revision 2 document integrity is checked separately during this change.
 # PLAN-106 continuation
 
+PLAN-118 unit A closes the explicit coverage-link omission in PLAN-117:
+task `prdRefs` and coverage `taskIds` now select the same canonical content set
+for receipts. Four baseline failures and two controls pass; build, 724 unit,
+67 mock integration and 7 conformance checks pass, with 90 focused checks.
+This is prepared on the remaining-P2 phase branch, not merged. Requirement-level
+integration acceptance, authority and semantic sufficiency remain open.
+
 PLAN-117 extends validation receipt schema v3 with the current content of every
 runtime requirement referenced by a task. Changing a statement/title/source or
 resolving a previously missing reference invalidates the old receipt at existing
