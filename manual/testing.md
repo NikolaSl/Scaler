@@ -269,6 +269,18 @@ model's agreement as a substitute. This is an explicit capability limitation,
 not a claim of complete P2.3 or SC-10 support.
 # Completion provenance regression
 
+PLAN-112 carries optional `outputPaths` through execution-plan tasks, structured
+task create/update tools and stage child planning reports into the existing
+validation manifest. Omit it to preserve a prior declaration; [] is an explicit
+empty declaration. Paths without replacement commands keep existing/default
+commands. Invalid declarations fail before task/manifest or plan publication;
+validated tasks still reject metadata rewrites. The positional CLI is unchanged;
+the manifest tool remains available for separate configuration.
+
+`test/planned-outputs.test.ts` and the full autopilot fixture exercise these paths,
+including strict path rejection and preservation of commands. This transports a
+basis; it does not certify its adequacy or authorize changes to acceptance policy.
+
 PLAN-110 adds `outputPaths` to the existing validation manifest and
 `scaler_validation_manifest_write` tool. Declare exact project-relative output
 files before validation, for example `"outputPaths": ["report.md", "data.csv"]`.

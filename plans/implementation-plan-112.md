@@ -34,3 +34,18 @@ can use the manifest tool for declarations instead of another positional field.
 Next: per-task commit-skip admission with missing output declarations. Declared
 coverage adequacy/authority and semantic/final integration acceptance remain
 open; no model call, deployment, new verifier framework or P2.3 completion claim.
+
+## Initial result
+
+Nine baseline failures covered dropped declarations, invalid-path acceptance and
+the full planning/worker/validation/completion flow; two controls passed. All
+eleven focused tests now pass. The stage child-event parser also required explicit
+transport: it used to drop outputPaths even when plan/task APIs supported it.
+It uses the same strict path normalizer and preserves [] rather than filtering
+it into an omitted list. The original autopilot flow/assertions remain intact;
+its declaration now comes from the plan instead of fixture preconfiguration.
+
+Initial gate on the prior PLAN-111 head: build, 687 unit, 67 mock integration
+and 7 conformance/autopilot. Before publication, include PLAN-111's Copilot
+manifest-preservation fix and PLAN-110's no-follow descriptor fix, then rerun the
+combined gate. Per-task skip admission and policy authority remain next work.
