@@ -7,6 +7,7 @@ import { spawn } from "node:child_process";
 import { checkAttemptEvidence } from "./attempt-evidence.js";
 import { captureValidationSnapshot, fingerprintValidationResult, verifyValidationRunReceipt, type ValidationReceipt, type ValidationSnapshot } from "./validation-acceptance.js";
 import { fingerprintJson } from "./fingerprints.js";
+import { normalizeOutputPaths } from "./output-artifacts.js";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { prepareCicdValidationExecution } from "./cicd-environments.js";
@@ -74,6 +75,7 @@ export interface ValidationCommandManifest {
 
 export interface TaskValidationManifest {
   taskId: string;
+  outputPaths?: string[];
   definitionOfDone?: string[];
   acceptanceCriteria?: string[];
   qualityWaivers?: Array<{ code: string; reason: string; evidenceRefs?: string[]; approvedBy?: string }>;
@@ -442,6 +444,7 @@ export async function saveValidationManifest(cwd: string, manifest: TaskValidati
   const timestamp = new Date().toISOString();
   const normalized: TaskValidationManifest = {
     ...manifest,
+    outputPaths: normalizeOutputPaths(manifest.outputPaths),
     definitionOfDone: normalizeStringList(manifest.definitionOfDone),
     acceptanceCriteria: normalizeStringList(manifest.acceptanceCriteria),
     qualityWaivers: normalizeValidationQualityWaivers(manifest.qualityWaivers),

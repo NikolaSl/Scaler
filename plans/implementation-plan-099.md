@@ -162,6 +162,12 @@ then closes Git index-flag and index-only omissions in candidate identity; its
 gate passes build, 649 unit and 67 mock integration tests. None of these units
 establishes universal output/semantic acceptance or full P2.3 completion.
 
+PLAN-110 binds explicitly declared filesystem outputs independently of Git at
+validation, commit/skip and completion boundaries. Its gate passes build,
+671 unit, 67 mock integration and 7 conformance/autopilot checks. Declaration
+coverage/authority and mandatory admission, plus semantic/integration acceptance,
+remain pending; P2.3 is not complete.
+
 1. Add a regression for the concrete defect and observe failure on the prior code.
 2. Implement the smallest sufficient fix; preserve unrelated user changes.
 3. Run focused checks, then build/integration when the boundary warrants it.

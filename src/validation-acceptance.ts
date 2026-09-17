@@ -12,6 +12,7 @@ import { promisify } from "node:util";
 import { captureValidationContext, checkAttemptEvidence } from "./attempt-evidence.js";
 import { fingerprintTaskContract, fingerprintValidationPolicy } from "./attempt-identity.js";
 import { fingerprintJson } from "./fingerprints.js";
+import { fingerprintDeclaredOutputs } from "./output-artifacts.js";
 import { loadState } from "./state.js";
 import { loadTaskAttempts } from "./task-attempts.js";
 import type { ScalerState } from "./types.js";
@@ -20,7 +21,7 @@ import { getValidationManifestForTask, loadValidationRuns, type TaskValidationMa
 const exec = promisify(execFile);
 
 export interface ValidationSnapshot {
-  version: 1;
+  version: 2;
   runId: string;
   taskId: string;
   taskFingerprint: string;
@@ -29,6 +30,7 @@ export interface ValidationSnapshot {
   policyFingerprint: string;
   contextFingerprint: string;
   gitCandidateFingerprint: string | null;
+  declaredOutputFingerprint: string | null;
 }
 
 export interface ValidationReceipt {
@@ -40,13 +42,15 @@ export async function captureValidationSnapshot(cwd: string, state: ScalerState,
   const task = state.tasks.find((task) => task.id === taskId);
   if (!task) throw new Error(`Cannot snapshot missing validation task ${taskId}.`);
   const attempt = task.attemptId ? (await loadTaskAttempts(cwd)).find((attempt) => attempt.id === task.attemptId) : undefined;
+  const manifest = await getValidationManifestForTask(cwd, taskId);
   return {
-    version: 1, runId: state.runId, taskId,
+    version: 2, runId: state.runId, taskId,
     taskFingerprint: fingerprintTaskContract(task),
     attemptId: task.attemptId ?? null, outputFingerprint: attempt?.outputFingerprint ?? null,
-    policyFingerprint: fingerprintValidationPolicy(await getValidationManifestForTask(cwd, taskId)),
+    policyFingerprint: fingerprintValidationPolicy(manifest),
     contextFingerprint: await captureValidationContext(cwd, state, taskId),
     gitCandidateFingerprint: await fingerprintGitCandidate(cwd),
+    declaredOutputFingerprint: await fingerprintDeclaredOutputs(cwd, manifest.outputPaths),
   };
 }
 

@@ -213,6 +213,14 @@ compatibility only. Updating that gate belongs to the later implementation phase
 revision 2 document integrity is checked separately during this change.
 # PLAN-106 continuation
 
+PLAN-110 binds explicitly declared filesystem outputs into validation receipts
+and completion checks, including non-Git and Git skips. `src/output-artifacts.ts`
+streams physical content identity; `test/declared-outputs.test.ts` covers nineteen
+negative/positive scenarios with eleven baseline failures. Gate: build, 671 unit,
+67 mock integration, 7 conformance/autopilot checks. Declarations may still be
+omitted; their adequacy and authorization plus semantic/integration acceptance
+remain open. This does not upgrade SC-01/10/26 or P2.3 to complete.
+
 PLAN-109 extends the existing candidate fingerprint with flagged-file contents
 and index identity. `test/hidden-git-candidates.test.ts` reproduces five earlier
 commit/skip false-success cases and preserves three positive controls. Build,

@@ -269,6 +269,27 @@ model's agreement as a substitute. This is an explicit capability limitation,
 not a claim of complete P2.3 or SC-10 support.
 # Completion provenance regression
 
+PLAN-110 adds `outputPaths` to the existing validation manifest and
+`scaler_validation_manifest_write` tool. Declare exact project-relative output
+files before validation, for example `"outputPaths": ["report.md", "data.csv"]`.
+The receipt binds their bytes, executable mode, symlink target or absence before
+and after checks, at direct commit/skip, and on completion/restart, independently
+of Git. Symlink targets are not followed; declare referenced files separately
+when their contents matter. Directories, globs, traversal and runtime metadata
+are refused. File content hashing streams data.
+
+Omitted paths mean unknown filesystem coverage; `[]` binds no filesystem outputs.
+Neither establishes that the task's real expected outputs were fully declared.
+This increment does not yet require that declaration for every skip/non-Git
+acceptance. Policy-authorized declaration completeness and semantic/integration
+acceptance remain open. Legacy receipts need revalidation, not hash migration.
+
+Run `node --test --import tsx test/declared-outputs.test.ts`. Nineteen checks cover
+post-validation mutation, successful commands that mutate outputs, deletion,
+mode/symlink changes, policy drift, unsafe paths, large files, the public tool,
+independent tasks, unchanged completion and restart. Eleven baseline acceptance
+failures were reproduced before the implementation; two positive controls passed.
+
 PLAN-109's `test/hidden-git-candidates.test.ts` verifies that commit/skip cannot
 reuse a receipt after edits hidden by assume-unchanged/skip-worktree or after an
 index-only change. Unchanged flagged files and staged runtime-only bookkeeping
