@@ -49,6 +49,7 @@ export interface ParsedValidationAddArgs {
   environment?: string;
   disposition?: string;
   dispositionReason?: string;
+  reason?: string;
 }
 
 export interface ParsedValidationChecklistItemArgs {
@@ -422,6 +423,7 @@ export function parseValidationAddArgs(args: string | undefined): ParsedValidati
   const command = parts[2]?.trim();
   if (!taskId || !id || !command) return undefined;
   const disposition = parseValidationDispositionArg(parts[9]);
+  const reason = parts[10]?.trim();
   return {
     taskId,
     id,
@@ -434,6 +436,7 @@ export function parseValidationAddArgs(args: string | undefined): ParsedValidati
     environment: parts[8]?.trim() || undefined,
     disposition: disposition.disposition,
     dispositionReason: disposition.reason,
+    ...(reason ? { reason } : {}),
   };
 }
 

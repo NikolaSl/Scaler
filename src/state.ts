@@ -61,6 +61,20 @@ export class StateWriteBusyError extends Error {
   }
 }
 
+export async function assertStateSnapshotCurrent(cwd: string, state: ScalerState): Promise<void> {
+  let current: ScalerState | undefined;
+  try {
+    current = parseStoredState(await readFile(getStatePath(cwd), "utf8"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  if (current
+    ? current.runId !== state.runId || current.revision !== state.revision
+    : state.revision !== 0) {
+    throw new StateConflictError(`Stale state snapshot: expected run=${state.runId} revision=${state.revision}; current run=${current?.runId ?? "missing"} revision=${current?.revision ?? "missing"}.`);
+  }
+}
+
 // Legacy files are logically revision 1; reading never rewrites them or upgrades
 // their validation evidence. Revision 0 is reserved for a never-persisted state.
 function parseStoredState(raw: string): ScalerState {

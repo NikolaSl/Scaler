@@ -16,9 +16,10 @@ import {
   getReplanRequestsPath,
 } from "./paths.js";
 import { applyPrdRequirementUpserts, computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdAcceptanceCriterion, type RuntimePrdRequirementStatus, type RuntimePrdRequirementsFile } from "./prd.js";
-import { createTask, updateTask } from "./tasks.js";
+import { assertStateSnapshotCurrent } from "./state.js";
+import { createTask, reviewTaskAcceptancePolicyMutation, updateTask, type UpdateTaskInput } from "./tasks.js";
 import type { ScalerState, ScalerTaskKind, ScalerTaskQualityWaiver } from "./types.js";
-import type { EmbeddedValidationManifestCommandInput } from "./validation.js";
+import { withValidationPolicyLock, type EmbeddedValidationManifestCommandInput, type ValidationPolicyAuthority } from "./validation.js";
 
 export const executionPlanStatuses = ["draft", "active", "superseded", "completed"] as const;
 export type ExecutionPlanStatus = (typeof executionPlanStatuses)[number];
@@ -58,6 +59,7 @@ export interface ExecutionPlanArtifact {
 
 export interface ExecutionPlanApplyOptions {
   updateExisting?: boolean;
+  acceptanceAuthority?: ValidationPolicyAuthority;
 }
 
 export interface ExecutionPlanApplyResult {
@@ -278,6 +280,16 @@ export async function acceptReplanProposal(
   requirements: RuntimePrdRequirementsFile,
   input?: { currentPlan?: ExecutionPlanArtifact; proposedPlan?: ExecutionPlanArtifact; now?: Date; requestIds?: string[] },
 ): Promise<ReplanProposalAcceptanceResult> {
+  return withValidationPolicyLock(cwd, () => acceptReplanProposalLocked(cwd, state, requirements, input));
+}
+
+async function acceptReplanProposalLocked(
+  cwd: string,
+  state: ScalerState,
+  requirements: RuntimePrdRequirementsFile,
+  input?: { currentPlan?: ExecutionPlanArtifact; proposedPlan?: ExecutionPlanArtifact; now?: Date; requestIds?: string[] },
+): Promise<ReplanProposalAcceptanceResult> {
+  await assertStateSnapshotCurrent(cwd, state);
   const now = input?.now ?? new Date();
   const timestamp = now.toISOString();
   const currentPlan = input?.currentPlan ?? (await loadExecutionPlan(cwd));
@@ -305,6 +317,21 @@ export async function acceptReplanProposal(
       id: `DECISION-${now.getTime()}`,
       status: "rejected",
       summary: "Proposed execution plan failed preservation checks.",
+      requestIds,
+      previousPlanVersion: currentPlan.planVersion,
+      proposedPlanVersion: proposedPlan.planVersion,
+      preservation,
+      createdAt: timestamp,
+    });
+    return { accepted: false, message: decision.summary, state, decision, currentPlan, proposedPlan };
+  }
+
+  const policyRejections = await preflightExecutionPlanPolicyChanges(cwd, state, proposedPlan, "model");
+  if (policyRejections.length > 0) {
+    const decision = await appendReplanDecision(cwd, {
+      id: `DECISION-${now.getTime()}`,
+      status: "rejected",
+      summary: `Proposed execution plan failed acceptance-policy authority: ${policyRejections.join(" ")}`,
       requestIds,
       previousPlanVersion: currentPlan.planVersion,
       proposedPlanVersion: proposedPlan.planVersion,
@@ -388,6 +415,7 @@ export async function applyExecutionPlanTasks(
           outputPaths: task.outputPaths,
           qualityWaivers: task.qualityWaivers,
           qualityMode: "enforce",
+          acceptanceAuthority: options.acceptanceAuthority ?? "system",
         });
         nextState = result.state;
         if (result.accepted) updatedTaskIds.push(task.id);
@@ -426,15 +454,58 @@ export async function applyExecutionPlanTasks(
   };
 }
 
+async function preflightExecutionPlanPolicyChanges(
+  cwd: string,
+  state: ScalerState,
+  plan: ExecutionPlanArtifact,
+  authority: ValidationPolicyAuthority,
+): Promise<string[]> {
+  const rejections: string[] = [];
+  for (const task of plan.tasks) {
+    const existing = state.tasks.find((candidate) => candidate.id === task.id);
+    if (!existing) continue;
+    const input: UpdateTaskInput = {
+      id: task.id,
+      title: task.title,
+      taskKind: task.taskKind,
+      atomicityRationale: task.atomicityRationale,
+      allowedPathPrefixes: task.allowedPathPrefixes,
+      dependsOn: task.dependsOn,
+      prdRefs: task.prdRefs,
+      definitionOfDone: task.definitionOfDone,
+      validationRefs: task.validationRefs,
+      validationCommands: task.validationCommands,
+      outputPaths: task.outputPaths,
+      qualityWaivers: task.qualityWaivers,
+      acceptanceAuthority: authority,
+    };
+    const rejection = await reviewTaskAcceptancePolicyMutation(cwd, existing, input);
+    if (rejection) rejections.push(rejection);
+  }
+  return rejections;
+}
+
 export async function applyPlanningReport(
   cwd: string,
   state: ScalerState,
   input: PlanningReportInput,
   now = new Date(),
 ): Promise<PlanningReportResult> {
+  return withValidationPolicyLock(cwd, () => applyPlanningReportLocked(cwd, state, input, now));
+}
+
+async function applyPlanningReportLocked(
+  cwd: string,
+  state: ScalerState,
+  input: PlanningReportInput,
+  now: Date,
+): Promise<PlanningReportResult> {
+  await assertStateSnapshotCurrent(cwd, state);
   const timestamp = now.toISOString();
   const plan: ExecutionPlanArtifact = normalizePlanningReportPlan(input.plan, timestamp);
   validateExecutionPlan(plan);
+  const policyRejections = await preflightExecutionPlanPolicyChanges(cwd, state, plan, "model");
+  if (policyRejections.length > 0) throw new Error(`Planning report rejected before publication: ${policyRejections.join(" ")}`);
   const taskIdsByRequirement = buildPlanTaskIdsByRequirement(plan);
   await applyPrdRequirementUpserts(cwd, input.requirements.map((requirement) => ({
     ...requirement,
@@ -443,7 +514,7 @@ export async function applyPlanningReport(
     now,
   })));
   const savedPlan = await saveExecutionPlan(cwd, plan);
-  const applyResult = await applyExecutionPlanTasks(cwd, state, savedPlan, { updateExisting: true });
+  const applyResult = await applyExecutionPlanTasks(cwd, state, savedPlan, { updateExisting: true, acceptanceAuthority: "model" });
 
   const requirements = await loadPrdRequirements(cwd);
   const coverage = await loadPrdCoverage(cwd);

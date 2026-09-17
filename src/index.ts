@@ -938,7 +938,6 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         else console.log(message);
         return;
       }
-
       const state = await ensureState(ctx.cwd);
       const result = await createTask(ctx.cwd, state, {
         id: parsed.taskId,
@@ -968,6 +967,12 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         else console.log(message);
         return;
       }
+      if (isChildAgent) {
+        const message = "Task contract update refused: only the parent user-command route can authorize exercised-policy changes.";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
 
       const state = await ensureState(ctx.cwd);
       const result = await updateTask(ctx.cwd, state, {
@@ -983,6 +988,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         validationRefs: parsed.validationRefs,
         qualityWaivers: parseTaskQualityWaivers(parsed.qualityWaivers),
         qualityMode: "enforce",
+        acceptanceAuthority: "user_command",
       });
       if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
       else console.log(result.message);
@@ -1622,9 +1628,15 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         else console.log(message);
         return;
       }
+      if (isChildAgent) {
+        const message = "Runtime PRD link update refused: only the parent user-command route can authorize exercised task-contract changes.";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
 
       const state = await ensureState(ctx.cwd);
-      const result = await updateTask(ctx.cwd, state, { id: parsed.taskId, prdRefs: parsed.prdRefs });
+      const result = await updateTask(ctx.cwd, state, { id: parsed.taskId, prdRefs: parsed.prdRefs, acceptanceAuthority: "user_command" });
       if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
       else console.log(result.message);
     },
@@ -1733,17 +1745,23 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("scaler-validation-add", {
-    description: "Add or replace a validation command: /scaler-validation-add <taskId> | <id> | <command> | <description> | <required> | <gate> | <expected> | <evidence refs> | <environment> | <disposition>",
+    description: "Add or replace a validation command: /scaler-validation-add <taskId> | <id> | <command> | <description> | <required> | <gate> | <expected> | <evidence refs> | <environment> | <disposition> | <amendment reason>",
     handler: async (args, ctx) => {
       const parsed = parseValidationAddArgs(args);
       if (!parsed) {
-        const message = "Usage: /scaler-validation-add <taskId> | <id> | <command> | <description> | <required> | <gate> | <expected> | <evidence refs> | <environment> | <disposition>";
+        const message = "Usage: /scaler-validation-add <taskId> | <id> | <command> | <description> | <required> | <gate> | <expected> | <evidence refs> | <environment> | <disposition> | <amendment reason>";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+      if (isChildAgent) {
+        const message = "Validation policy update refused: only the parent user-command route can authorize exercised-policy changes.";
         if (ctx.hasUI) ctx.ui.notify(message, "warning");
         else console.log(message);
         return;
       }
 
-      const manifest = await upsertValidationManifestCommand(ctx.cwd, parsed);
+      const manifest = await upsertValidationManifestCommand(ctx.cwd, parsed, { authority: "user_command", reason: parsed.reason });
       const saved = manifest.commands.find((command) => command.id === parsed.id);
       const message = `Validation command saved: ${parsed.taskId}/${parsed.id} commands=${manifest.commands.length}${saved?.gate ? ` gate=${saved.gate}` : ""}`;
       if (ctx.hasUI) ctx.ui.notify(message, "info");

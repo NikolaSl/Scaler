@@ -29,7 +29,7 @@ import { recordTaskAgentReport } from "./task-reports.js";
 import { createTask, updateTask } from "./tasks.js";
 import { prepareToolRequest, recordToolResult, recordToolSchema } from "./tool-requests.js";
 import type { ScalerState } from "./types.js";
-import { applyValidationReport, saveValidationManifest } from "./validation.js";
+import { applyValidationReport, getValidationManifestForTask, saveValidationManifest } from "./validation.js";
 
 export const scalerToolNames = [
   "scaler_report",
@@ -641,6 +641,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         outputPaths: params.outputPaths,
         qualityWaivers: params.qualityWaivers,
         qualityMode: "enforce",
+        acceptanceAuthority: "model",
       });
       await logTool(ctx.cwd, "scaler_task_update", result.message, params);
       return textResult(result.message, { status: result.accepted ? "updated" : "rejected", taskId: params.taskId });
@@ -731,24 +732,33 @@ export function registerScalerTools(pi: ExtensionAPI): void {
     description: "Persist validation commands for a task.",
     parameters: ValidationManifestWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const manifest = await saveValidationManifest(ctx.cwd, {
-        taskId: params.taskId,
-        outputPaths: params.outputPaths,
-        commands: params.commands.map((command) => ({
-          id: command.id,
-          command: command.command,
-          description: command.description,
-          timeoutMs: command.timeoutMs,
-          required: command.required ?? true,
-        })),
-        createdAt: "",
-        updatedAt: "",
-      });
-      await logTool(ctx.cwd, "scaler_validation_manifest_write", `Validation manifest written: ${params.taskId}`, { manifest });
-      return textResult(`Validation manifest written for ${params.taskId}: ${manifest.commands.length} commands`, {
-        status: "written",
-        manifest,
-      });
+      try {
+        const existing = await getValidationManifestForTask(ctx.cwd, params.taskId);
+        const manifest = await saveValidationManifest(ctx.cwd, {
+          ...existing,
+          taskId: params.taskId,
+          outputPaths: params.outputPaths ?? existing.outputPaths,
+          commands: params.commands.map((command) => ({
+            ...existing.commands.find((candidate) => candidate.id === command.id),
+            id: command.id,
+            command: command.command,
+            description: command.description ?? existing.commands.find((candidate) => candidate.id === command.id)?.description,
+            timeoutMs: command.timeoutMs ?? existing.commands.find((candidate) => candidate.id === command.id)?.timeoutMs,
+            required: command.required ?? existing.commands.find((candidate) => candidate.id === command.id)?.required ?? true,
+          })),
+          createdAt: existing.createdAt,
+          updatedAt: existing.updatedAt,
+        }, { authority: "model" });
+        await logTool(ctx.cwd, "scaler_validation_manifest_write", `Validation manifest written: ${params.taskId}`, { manifest });
+        return textResult(`Validation manifest written for ${params.taskId}: ${manifest.commands.length} commands`, {
+          status: "written",
+          manifest,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await logTool(ctx.cwd, "scaler_validation_manifest_write", message, params);
+        return textResult(message, { status: "rejected", taskId: params.taskId });
+      }
     },
   });
 
