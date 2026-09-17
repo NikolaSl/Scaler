@@ -224,7 +224,7 @@ test("mock integration: CI/CD provision command generates wrapper records and va
       { cwd: dir, hasUI: false },
     );
     await commands.get("scaler-validation-add")?.handler(
-      "T-CICD | ci | node -e \"require('node:fs').writeFileSync('cicd-wrapper-ran.txt','ok')\" | Local CI validation | required | local_ci | local CI exits 0 | manifest:ci | local_ci",
+      "T-CICD | ci | node -e \"require('node:fs').writeFileSync('.scaler/cicd/artifacts/cicd-wrapper-ran.txt','ok')\" | Local CI validation | required | local_ci | local CI exits 0 | manifest:ci | local_ci",
       { cwd: dir, hasUI: false },
     );
     await commands.get("scaler-validate")?.handler("T-CICD", { cwd: dir, hasUI: false });
@@ -234,7 +234,8 @@ test("mock integration: CI/CD provision command generates wrapper records and va
     const runs = await loadValidationRuns(dir);
     assert.equal(records.some((record) => record.status === "generated" && record.environment === "local_ci"), true);
     assert.ok(runs[0]?.commandRuns[0]?.cicdProvisionRef);
-    assert.equal(await readFile(join(dir, "cicd-wrapper-ran.txt"), "utf8"), "ok");
+    assert.equal(runs[0]?.status, "passed");
+    assert.equal(await readFile(join(dir, ".scaler/cicd/artifacts/cicd-wrapper-ran.txt"), "utf8"), "ok");
   });
 });
 

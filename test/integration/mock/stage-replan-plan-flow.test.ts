@@ -29,6 +29,7 @@ import { runStageConductorLoop } from "../../../src/stage-conductor.js";
 import { loadStageArtifacts } from "../../../src/stages.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
 import type { ScalerState } from "../../../src/types.js";
+import { runTaskValidation, upsertValidationManifestCommand } from "../../../src/validation.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -269,6 +270,8 @@ test("integration: validated task commit preserves runtime artifacts and records
     state.completedTaskIds = ["T-COMMIT"];
     await saveState(dir, state);
     await writeFile(join(dir, "index.js"), "export const value = 2;\n");
+    await upsertValidationManifestCommand(dir, { taskId: "T-COMMIT", id: "output", command: "node -e \"require('node:assert/strict').equal(require('node:fs').readFileSync('index.js', 'utf8'), 'export const value = 2;\\n')\"", required: true });
+    assert.equal((await runTaskValidation(dir, state, "T-COMMIT")).status, "passed");
 
     const result = await commitWithExecutionLock(dir, state, "T-COMMIT", ["index.js"]);
     assert.equal(result.accepted, true, result.message);

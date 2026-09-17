@@ -160,6 +160,7 @@ test("validation git acceptance records auto skip for clean task and explicit sk
     await writeFile(join(dir, "src", "skip.ts"), "export const skip = true;\n", "utf8");
     const state = createDefaultState();
     state.tasks = [{ id: "T-SKIP", title: "Skip task", status: "validating", allowedPathPrefixes: ["src"], updatedAt: state.createdAt }];
+    await saveState(dir, state);
     await upsertValidationManifestCommand(dir, { taskId: "T-SKIP", id: "test", command: "node -e \"process.exit(0)\"", required: true });
     await runTaskValidation(dir, state, "T-SKIP");
 

@@ -10,6 +10,7 @@ import { promisify } from "node:util";
 import { logGitCommitAudit } from "./logging.js";
 import { getCommitReportsPath, getCommitSkipsPath, getGitBootstrapReportsPath } from "./paths.js";
 import { loadValidationRuns, type ValidationRunRecord } from "./validation.js";
+import { verifyCurrentValidationReceipt } from "./validation-acceptance.js";
 import type { ScalerState } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -221,6 +222,8 @@ export async function commitValidatedTask(
   if (safety.status === "not_git_repo" || safety.status === "unrelated") {
     return logCommitResult(cwd, state, taskId, { accepted: false, message: `Commit refused: ${safety.reason}`, safety });
   }
+  const receiptDiagnostics = await verifyCurrentValidationReceipt(cwd, state, taskId);
+  if (receiptDiagnostics.length > 0) return logCommitResult(cwd, state, taskId, { accepted: false, message: receiptDiagnostics.join(" "), safety });
   if (safety.status === "clean" || safety.status === "runtime_only") {
     const skip = await recordCommitSkip(cwd, {
       taskId,
@@ -321,6 +324,8 @@ export async function skipTaskCommit(
   if (safety.status === "unrelated") {
     return logCommitResult(cwd, state, taskId, { accepted: false, message: `Commit skip refused: ${safety.reason}`, safety });
   }
+  const receiptDiagnostics = await verifyCurrentValidationReceipt(cwd, state, taskId);
+  if (receiptDiagnostics.length > 0) return logCommitResult(cwd, state, taskId, { accepted: false, message: receiptDiagnostics.join(" "), safety });
   const trimmedReason = reason.trim();
   if (!trimmedReason) {
     return logCommitResult(cwd, state, taskId, { accepted: false, message: "Commit skip refused: reason is required.", safety });

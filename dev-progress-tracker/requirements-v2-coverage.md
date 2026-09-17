@@ -84,6 +84,32 @@ Review is pending. These are partial SC-02/11/13/17/22 results, not closure:
 manual/unbound acceptance, commit/hooks, artifact correctness and a universal
 acceptance authority remain P2.3. See PLAN-101 for the exact freshness scope.
 
+PR #5 subsequently merged after completed Copilot review on `d1628a2` with no
+specific findings. PLAN-102 / PR #6 begins P2.3 with one shared validation-receipt
+verifier for direct and locked commit/skip routes. Task labels and historical
+passing records no longer authorize these operations. Receipts bind current
+run/task/attempt/policy/context, command results and Git candidate bytes/HEAD;
+validation also rejects candidate changes during checks. Ten regressions failed
+before the implementation. Build, 29/29 focused checks, 560/560 unit tests and
+67/67 mock integrations pass. PR #6 review is pending. Manual report/checklist,
+automatic acceptance, integration semantics, non-Git outputs and tamper-resistant
+worker authority remain open; this is partial SC-01/10/13 evidence only.
+Self-review then reproduced and fixed a rename/copy candidate-digest collision;
+symlink-ancestor reads are refused. Corrected gate: build, 19/19 acceptance
+regressions, 562/562 unit and 67/67 mock integrations. Final-head review is required.
+Two valid Copilot findings were then reproduced by four failing tests: snapshot
+errors now return commit/skip refusal or persist blocked validation with executed
+check evidence retained. Corrected gate: build, 23/23 acceptance, 566/566 unit,
+67/67 mock integration tests. Re-review remains required before merge.
+The subsequent review's buffering concern is addressed with incremental streamed
+file hashing plus a multi-chunk binary fixture; its misleading-comment note is
+corrected. Gate: build, 24/24 acceptance, 567/567 unit and 67/67 mock integration.
+No measured scale-envelope or memory-saving claim is implied.
+Skip-evidence consistency is also checked independently of its digest: stored
+reason/disposition must match the authorized policy. A malformed-producer
+regression and a positive skip fixture pass; simple tampering was already rejected.
+Gate: build, 26/26 acceptance, 569/569 unit and 67/67 mock integrations.
+
 Implementation has now started on merged baseline `8f4cf19`, following
 [PLAN-099](../plans/implementation-plan-099.md). The original assessment table
 above is retained as the reviewed baseline. P1.1 adds read-only existing-state
