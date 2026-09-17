@@ -274,7 +274,7 @@ export async function evaluateValidationGitAcceptance(
   const diagnostics = await verifyValidationRunReceipt(cwd, state, taskId, run);
   if (diagnostics.length) return { accepted: false, status: "blocked", message: diagnostics.join(" "), safety };
   if (["not_git_repo", "clean", "runtime_only"].includes(safety.status) && !(await hasDeclaredOutputBasis(cwd, taskId))) {
-    return { accepted: false, status: "blocked", message: missingOutputBasisMessage, safety };
+    return { accepted: false, status: "blocked", message: automaticSkipMissingOutputBasisMessage, safety };
   }
   const validation: CommitValidationSummary = {
     runId: run.id, status: run.status, commandCount: run.commandRuns.length,
@@ -340,7 +340,7 @@ export async function skipTaskCommit(
   const receiptDiagnostics = await verifyCurrentValidationReceipt(cwd, state, taskId);
   if (receiptDiagnostics.length > 0) return logCommitResult(cwd, state, taskId, { accepted: false, message: receiptDiagnostics.join(" "), safety });
   if (!(await hasDeclaredOutputBasis(cwd, taskId))) {
-    return logCommitResult(cwd, state, taskId, { accepted: false, message: missingOutputBasisMessage, safety });
+    return logCommitResult(cwd, state, taskId, { accepted: false, message: explicitSkipMissingOutputBasisMessage, safety });
   }
   const trimmedReason = reason.trim();
   if (!trimmedReason) {
@@ -350,7 +350,8 @@ export async function skipTaskCommit(
   return logCommitResult(cwd, state, taskId, { accepted: true, message: `Commit skipped for ${taskId}: ${trimmedReason}`, safety, skip });
 }
 
-const missingOutputBasisMessage = "Commit skip refused: declare outputPaths in the validation manifest and revalidate; use [] only for work with no filesystem outputs.";
+const automaticSkipMissingOutputBasisMessage = "Automatic commit skip refused: declare outputPaths in the validation manifest and revalidate; use [] only for work with no filesystem outputs.";
+const explicitSkipMissingOutputBasisMessage = "Commit skip refused: declare outputPaths in the validation manifest and revalidate; use [] only for work with no filesystem outputs.";
 
 async function hasDeclaredOutputBasis(cwd: string, taskId: string): Promise<boolean> {
   return (await getValidationManifestForTask(cwd, taskId)).outputPaths !== undefined;

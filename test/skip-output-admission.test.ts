@@ -49,11 +49,12 @@ for (const kind of ["non_git", "clean", "runtime"] as const) {
     const run = await runTaskValidation(dir, await loadState(dir), "T-SKIP");
     assert.equal(run.status, "passed");
     assert.equal(run.acceptance?.accepted, false);
-    assert.match(run.acceptance?.message ?? "", /outputPaths.*revalidat/i);
+    assert.match(run.acceptance?.message ?? "", /^Automatic commit skip refused:.*outputPaths.*revalidat/i);
     assert.equal((await loadCommitSkips(dir)).length, 0);
     assert.equal(await readFile(join(dir, ".scaler/state.json"), "utf8"), before);
     const direct = await evaluateValidationGitAcceptance(dir, await loadState(dir), "T-SKIP", run);
     assert.equal(direct.accepted, false);
+    assert.match(direct.message, /^Automatic commit skip refused:/);
     assert.equal((await loadCommitSkips(dir)).length, 0);
   }));
 }
@@ -64,7 +65,7 @@ for (const kind of ["non_git", "clean", "changed"] as const) {
     const before = await loadCommitSkips(dir);
     const result = await skipTaskCommit(dir, await loadState(dir), "T-SKIP", "No commit requested");
     assert.equal(result.accepted, false);
-    assert.match(result.message, /outputPaths.*revalidat/i);
+    assert.match(result.message, /^Commit skip refused:.*outputPaths.*revalidat/i);
     assert.deepEqual(await loadCommitSkips(dir), before);
   }));
 }
