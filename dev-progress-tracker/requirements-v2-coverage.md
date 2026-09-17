@@ -218,7 +218,8 @@ prerequisites: declared project write scope, explicit output basis and an
 acceptance statement. Normal conductor, debug retry and shared attempt admission
 all fail before runner, attempt, task-transition or spawned-agent effects, with a
 second check covering late mutation and a pre-git-safety guard preventing pause
-checkpoints for inadmissible work. Gate: build, 709 unit, 67 mock integration
+checkpoints for inadmissible work. Malformed legacy contract field shapes now
+produce a structured refusal rather than a type error. Gate: build, 710 unit, 67 mock integration
 and 7 conformance/autopilot. This is partial SC-02/10/26 evidence only;
 declaration authority/sufficiency, semantic correctness, integration acceptance
 and compact-default synthesis remain open.
