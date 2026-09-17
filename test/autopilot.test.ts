@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { runScalerAutomation } from "../src/autopilot.js";
 import { loadState, saveState, createDefaultState } from "../src/state.js";
-import { upsertValidationManifestCommand } from "../src/validation.js";
+import { getValidationManifestForTask, saveValidationManifest, upsertValidationManifestCommand } from "../src/validation.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../src/subagents.js";
 import type { ScalerState } from "../src/types.js";
 
@@ -119,6 +119,9 @@ test("runScalerAutomation debug-retries validation failures before completing", 
       gate: "unit",
       expectedResult: "fixed.txt exists",
     });
+    await saveValidationManifest(dir, {
+      ...await getValidationManifestForTask(dir, "T-DEBUG-AUTO"), outputPaths: ["fixed.txt"],
+    });
 
     const result = await runScalerAutomation(dir, state, { maxSteps: 12, maxDebugSteps: 4 }, {
       debug: async (request) => ({
@@ -165,6 +168,9 @@ test("runScalerAutomation drives planning, task execution, validation, and compl
   await withTempDir(async (dir) => {
     const state = createState("planning");
     await saveState(dir, state);
+    // This synthetic orchestration-only task emits no filesystem artifacts.
+    // Configure its basis before planning/attempt dispatch, not in the worker.
+    await saveValidationManifest(dir, { taskId: "T-AUTO", outputPaths: [], commands: [], createdAt: "", updatedAt: "" });
 
     const result = await runScalerAutomation(dir, state, { maxSteps: 12, maxStageSteps: 5 }, {
       stage: stageRunner,

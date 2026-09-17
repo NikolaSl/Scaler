@@ -31,7 +31,7 @@ async function fixture(fn: (dir: string, state: ScalerState) => Promise<void>) {
     state.tasks = [{ id: "T-ONE", status: "validating", updatedAt: state.updatedAt }];
     await saveState(dir, state);
     await writeFile(join(dir, "one.txt"), "one");
-    await saveValidationManifest(dir, { taskId: "T-ONE", commands: [{
+    await saveValidationManifest(dir, { taskId: "T-ONE", outputPaths: ["one.txt"], commands: [{
       id: "check", required: true,
       command: 'node -e "if(require(\'fs\').readFileSync(\'one.txt\',\'utf8\')!==\'one\')process.exit(1)"',
     }], createdAt: "", updatedAt: "" });

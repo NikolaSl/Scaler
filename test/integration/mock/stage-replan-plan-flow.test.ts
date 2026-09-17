@@ -29,7 +29,7 @@ import { runStageConductorLoop } from "../../../src/stage-conductor.js";
 import { loadStageArtifacts } from "../../../src/stages.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
 import type { ScalerState } from "../../../src/types.js";
-import { runTaskValidation, upsertValidationManifestCommand } from "../../../src/validation.js";
+import { getValidationManifestForTask, runTaskValidation, saveValidationManifest, upsertValidationManifestCommand } from "../../../src/validation.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -124,6 +124,7 @@ test("integration: stage conductor ingests artifacts and advances through implem
     await upsertValidationManifestCommand(dir, { taskId: "T-STAGE", id: "export", required: true,
       command: 'node --input-type=module -e "import {value} from \'./index.js\'; if(value!==1)process.exit(1)"',
     });
+    await saveValidationManifest(dir, { ...await getValidationManifestForTask(dir, "T-STAGE"), outputPaths: ["index.js"] });
     assert.equal((await runTaskValidation(dir, state, "T-STAGE")).acceptance?.accepted, true);
     Object.assign(state, await loadState(dir));
 

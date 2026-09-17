@@ -36,7 +36,8 @@ async function verifyCompletionProvenance(cwd: string, state: ScalerState): Prom
     // Ledgers are newest-first: a newer failed/blocked run must not fall back to
     // an older green result, even if the task label still says validated.
     const run = runs.find((candidate) => candidate.taskId === task.id);
-    const errors = verifyValidationRecordEvidence(run, await getValidationManifestForTask(cwd, task.id));
+    const manifest = await getValidationManifestForTask(cwd, task.id);
+    const errors = verifyValidationRecordEvidence(run, manifest);
     if (run?.receipt && errors.length === 0) {
       errors.push(...await checkAttemptEvidence(cwd, state, task.id));
       const { gitCandidateFingerprint: _historical, ...historical } = run.receipt.snapshot;
@@ -49,6 +50,9 @@ async function verifyCompletionProvenance(cwd: string, state: ScalerState): Prom
       const skipped = skips.some((skip) => skip.taskId === task.id && skip.status === "skipped"
         && skip.reason.trim() && matchesValidation(skip.validation, run));
       if (!committed && !skipped) errors.push("Completion evidence rejected: no matching accepted Git commit or reasoned skip.");
+      if (!committed && skipped && manifest.outputPaths === undefined) {
+        errors.push("Completion evidence rejected: skipped task has unknown filesystem output coverage; declare outputPaths in its validation manifest and revalidate. Use [] only for work with no filesystem outputs.");
+      }
       if (committed) errors.push(...await verifyCommittedOutputs(cwd, committed));
     }
     diagnostics.push(...errors.map((error) => `${task.id}: ${error}`));

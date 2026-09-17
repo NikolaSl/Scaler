@@ -18,10 +18,29 @@ import { fingerprintDeclaredOutputs, normalizeOutputPaths } from "../src/output-
 import { captureValidationSnapshot } from "../src/validation-acceptance.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { registerScalerTools } from "../src/tools.js";
+import { createTask, updateTask } from "../src/tasks.js";
 import { getValidationManifestForTask, runTaskValidation, saveValidationManifest, type TaskValidationManifest } from "../src/validation.js";
 
 const exec = promisify(execFile);
 const check = 'node -e "if(require(\'fs\').readFileSync(\'result.txt\',\'utf8\')!==\'ok\')process.exit(1)"';
+
+test("task command replacement preserves the rest of the validation policy", async () => fixture(false, async (dir) => {
+  await createTask(dir, await loadState(dir), { id: "T-POLICY" });
+  await saveValidationManifest(dir, { taskId: "T-POLICY", outputPaths: ["result.txt"],
+    definitionOfDone: ["Original task-specific criterion"], acceptanceCriteria: ["Existing acceptance basis"],
+    qualityWaivers: [{ code: "test_first", reason: "Document-only check", approvedBy: "fixture-supervisor" }],
+    commands: [{ id: "old", required: true, command: check }], createdAt: "2026-01-01T00:00:00Z", updatedAt: "" });
+  const before = await getValidationManifestForTask(dir, "T-POLICY");
+  const result = await updateTask(dir, await loadState(dir), { id: "T-POLICY", validationCommands: [{ id: "new", command: check, required: true }] });
+  assert.equal(result.accepted, true, result.message);
+  const after = await getValidationManifestForTask(dir, "T-POLICY");
+  assert.deepEqual(after.outputPaths, before.outputPaths);
+  assert.deepEqual(after.definitionOfDone, before.definitionOfDone);
+  assert.deepEqual(after.acceptanceCriteria, before.acceptanceCriteria);
+  assert.deepEqual(after.qualityWaivers, before.qualityWaivers);
+  assert.equal(after.createdAt, before.createdAt);
+  assert.equal(after.commands[0]!.id, "new");
+}));
 
 for (const replacement of ["symlink", "file"] as const) {
   test(`declared hashing refuses a ${replacement} swap after lstat`, async (t) => fixture(false, async (dir) => {
@@ -195,6 +214,33 @@ test("public manifest tool retains declared output identity through acceptance",
   assert.equal((await runTaskValidation(dir, await loadState(dir), "T-OUT")).status, "passed");
   await writeFile(join(dir, "result.txt"), "changed after validation");
   assert.equal((await completeRunWithEvidence(dir, await loadState(dir))).accepted, false);
+}));
+
+for (const git of [false, true]) {
+  for (const stage of ["execution", "completed"] as const) {
+    test(`${git ? "Git skip" : "non-Git"} ${stage} cannot complete with unknown output coverage`, async () => fixture(git, async (dir) => {
+      const policy = await getValidationManifestForTask(dir, "T-OUT");
+      delete policy.outputPaths;
+      await saveValidationManifest(dir, policy);
+      assert.equal((await runTaskValidation(dir, await loadState(dir), "T-OUT")).status, "passed");
+      const current = await loadState(dir);
+      current.stage = stage;
+      await saveState(dir, current);
+      const before = await readFile(join(dir, ".scaler/state.json"), "utf8");
+      const result = await completeRunWithEvidence(dir, current);
+      assert.equal(result.accepted, false, result.message);
+      assert.match(result.message, /declare.*outputPaths.*revalidat/i);
+      assert.equal(await readFile(join(dir, ".scaler/state.json"), "utf8"), before);
+    }));
+  }
+}
+
+test("explicit no-filesystem-output policy can complete independently checked work", async () => fixture(false, async (dir) => {
+  await unlink(join(dir, "result.txt"));
+  await manifest(dir, [], 'node -e "if(2+2!==4)process.exit(1)"');
+  assert.equal((await runTaskValidation(dir, await loadState(dir), "T-OUT")).status, "passed");
+  const result = await completeRunWithEvidence(dir, await loadState(dir));
+  assert.equal(result.accepted, true, result.message);
 }));
 
 test("large declared files bind all bytes with bounded streaming reads", async () => fixture(false, async (dir) => {

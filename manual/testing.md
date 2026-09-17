@@ -280,8 +280,10 @@ are refused. File content hashing streams data.
 
 Omitted paths mean unknown filesystem coverage; `[]` binds no filesystem outputs.
 Neither establishes that the task's real expected outputs were fully declared.
-This increment does not yet require that declaration for every skip/non-Git
-acceptance. Policy-authorized declaration completeness and semantic/integration
+PLAN-111 requires that declaration for final run completion of every skipped
+task without verified committed outputs. It preserves historical state on refusal
+and requires declaration/revalidation; it does not infer [] for missing data.
+Per-task skip admission is still a follow-up. Policy-authorized declaration completeness and semantic/integration
 acceptance remain open. Legacy receipts need revalidation, not hash migration.
 
 Run `node --test --import tsx test/declared-outputs.test.ts`. Nineteen checks cover
@@ -289,6 +291,10 @@ post-validation mutation, successful commands that mutate outputs, deletion,
 mode/symlink changes, policy drift, unsafe paths, large files, the public tool,
 independent tasks, unchanged completion and restart. Eleven baseline acceptance
 failures were reproduced before the implementation; two positive controls passed.
+PLAN-111 adds four unknown-coverage rejection cases for execution/restart and
+an explicit no-filesystem-output positive control. Planning/command updates
+retain a previously configured output basis. File-producing chain fixtures
+declare their actual checked files and keep their original completion assertions.
 
 PLAN-109's `test/hidden-git-candidates.test.ts` verifies that commit/skip cannot
 reuse a receipt after edits hidden by assume-unchanged/skip-worktree or after an

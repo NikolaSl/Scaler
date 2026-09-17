@@ -213,6 +213,14 @@ compatibility only. Updating that gate belongs to the later implementation phase
 revision 2 document integrity is checked separately during this change.
 # PLAN-106 continuation
 
+PLAN-111 requires explicit outputPaths for final completion of skipped tasks
+without verified committed outputs. Four false-completion regressions and an
+explicit no-filesystem-output control pass. Existing fixtures declare actual
+outputs without changing completion assertions. Command replacement preserves
+preconfigured output paths. Gate: build, 676 unit, 67 mock integration and
+7 conformance/autopilot. Per-task skip admission, declaration adequacy/authority
+and semantic/integration acceptance remain open.
+
 PLAN-110 binds explicitly declared filesystem outputs into validation receipts
 and completion checks, including non-Git and Git skips. `src/output-artifacts.ts`
 streams physical content identity; `test/declared-outputs.test.ts` covers nineteen

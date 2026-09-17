@@ -23,7 +23,7 @@ async function seedValidatedTask(cwd: string, state: ScalerState): Promise<void>
   state.tasks = [{ id: "T-001", status: "validating", updatedAt: state.updatedAt }];
   await saveState(cwd, state);
   await writeFile(join(cwd, "result.txt"), "verified");
-  await saveValidationManifest(cwd, { taskId: "T-001", commands: [{ id: "result", required: true,
+  await saveValidationManifest(cwd, { taskId: "T-001", outputPaths: ["result.txt"], commands: [{ id: "result", required: true,
     command: 'node -e "if(require(\'fs\').readFileSync(\'result.txt\',\'utf8\')!==\'verified\')process.exit(1)"',
   }], createdAt: "", updatedAt: "" });
   assert.equal((await runTaskValidation(cwd, state, "T-001")).acceptance?.accepted, true);
