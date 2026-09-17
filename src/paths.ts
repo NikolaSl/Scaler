@@ -267,6 +267,10 @@ export function getTaskAgentReportsPath(cwd: string): string {
   return join(getReportsDir(cwd), "task-agent-reports.json");
 }
 
+export function getTaskAttemptsPath(cwd: string): string {
+  return join(getReportsDir(cwd), "task-attempts.json");
+}
+
 export function getTaskQualityPath(cwd: string): string {
   return join(getReportsDir(cwd), "task-quality.json");
 }
