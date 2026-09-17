@@ -7,7 +7,7 @@ import { appendLogEvent, createLogEvent } from "./logging.js";
 import { fingerprintTaskContract } from "./attempt-identity.js";
 import { isScalerTaskStatus } from "./reports.js";
 import { assertStateSnapshotCurrent, saveState } from "./state.js";
-import { normalizeOutputPaths } from "./output-artifacts.js";
+import { normalizeOutputPaths, normalizeValidationInputPaths } from "./output-artifacts.js";
 import { reviewTaskDefinition, normalizeTaskKind, normalizeTaskQualityWaivers, type TaskDefinitionReviewRecord, type TaskQualityEnforcementMode, type TaskQualityWaiverInput } from "./task-quality.js";
 import { addTask, transitionTask } from "./supervisor.js";
 import type { ScalerState, ScalerTaskKind, ScalerTaskStatus } from "./types.js";
@@ -117,7 +117,7 @@ export async function updateTask(cwd: string, state: ScalerState, input: UpdateT
 async function updateTaskLocked(cwd: string, state: ScalerState, input: UpdateTaskInput): Promise<UpdateTaskResult> {
   await assertStateSnapshotCurrent(cwd, state);
   const outputPaths = normalizeOutputPaths(input.outputPaths);
-  const validationInputPaths = normalizeOutputPaths(input.validationInputPaths);
+  const validationInputPaths = normalizeValidationInputPaths(input.validationInputPaths);
   const existing = state.tasks.find((task) => task.id === input.id);
   if (!existing) {
     const message = `Task update rejected: ${input.id} does not exist`;
@@ -235,7 +235,7 @@ export async function reviewTaskAcceptancePolicyMutation(
       await assertValidationPolicyMutationAuthorized(cwd, {
         ...manifest,
         outputPaths: normalizeOutputPaths(input.outputPaths) ?? manifest.outputPaths,
-        validationInputPaths: normalizeOutputPaths(input.validationInputPaths) ?? manifest.validationInputPaths,
+        validationInputPaths: normalizeValidationInputPaths(input.validationInputPaths) ?? manifest.validationInputPaths,
         definitionOfDone: proposedTask.definitionOfDone ?? manifest.definitionOfDone,
         commands: input.validationCommands?.length
           ? input.validationCommands.map((command) => ({ ...command, required: command.required ?? true }))
@@ -250,7 +250,7 @@ export async function reviewTaskAcceptancePolicyMutation(
 
 export async function createTask(cwd: string, state: ScalerState, input: CreateTaskInput): Promise<CreateTaskResult> {
   const outputPaths = normalizeOutputPaths(input.outputPaths);
-  const validationInputPaths = normalizeOutputPaths(input.validationInputPaths);
+  const validationInputPaths = normalizeValidationInputPaths(input.validationInputPaths);
   const status = input.status ?? "pending";
   if (status === "validated") {
     const message = `Task create rejected: ${input.id} acceptance requires the dedicated validation path; create an unvalidated task first.`;

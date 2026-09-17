@@ -14,7 +14,7 @@ import { promisify } from "node:util";
 import { test } from "node:test";
 import { evaluateValidationGitAcceptance, loadCommitSkips, recordCommitSkip } from "../src/git.js";
 import { completeRunWithEvidence } from "../src/run-completion.js";
-import { fingerprintDeclaredOutputs, fingerprintValidationInputs, normalizeOutputPaths } from "../src/output-artifacts.js";
+import { fingerprintDeclaredOutputs, fingerprintValidationInputs, normalizeOutputPaths, normalizeValidationInputPaths } from "../src/output-artifacts.js";
 import { captureValidationSnapshot } from "../src/validation-acceptance.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { registerScalerTools } from "../src/tools.js";
@@ -37,6 +37,10 @@ test("validation input hashing requires present regular files without symlink an
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("validation input declarations reject duplicate paths", () => {
+  assert.throws(() => normalizeValidationInputPaths(["check.cjs", "check.cjs"]), /duplicate/i);
 });
 
 test("task command replacement preserves the rest of the validation policy", async () => fixture(false, async (dir) => {

@@ -24,6 +24,14 @@ export function normalizeOutputPaths(value: string[] | undefined): string[] | un
   return [...new Set(value)].sort();
 }
 
+export function normalizeValidationInputPaths(value: string[] | undefined): string[] | undefined {
+  const paths = normalizeOutputPaths(value);
+  if (paths !== undefined && paths.length !== value!.length) {
+    throw new Error("Invalid validation input paths: duplicate paths are not allowed.");
+  }
+  return paths;
+}
+
 export async function fingerprintDeclaredOutputs(cwd: string, declared: string[] | undefined): Promise<string | null> {
   const paths = normalizeOutputPaths(declared);
   if (paths === undefined) return null;
@@ -53,7 +61,7 @@ export async function fingerprintDeclaredOutputs(cwd: string, declared: string[]
 // They must be present regular files and cannot be symlinks: hashing a symlink
 // target string would not bind the validator bytes that the command executes.
 export async function fingerprintValidationInputs(cwd: string, declared: string[] | undefined): Promise<string | null> {
-  const paths = normalizeOutputPaths(declared);
+  const paths = normalizeValidationInputPaths(declared);
   if (paths === undefined) return null;
   const inputs = [];
   for (const path of paths) {

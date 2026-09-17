@@ -10,7 +10,7 @@ import { checkAttemptEvidence } from "./attempt-evidence.js";
 import { fingerprintValidationPolicy } from "./attempt-identity.js";
 import { captureValidationSnapshot, fingerprintValidationResult, verifyValidationRunReceipt, type ValidationReceipt, type ValidationSnapshot } from "./validation-acceptance.js";
 import { fingerprintJson } from "./fingerprints.js";
-import { fingerprintValidationInputs, normalizeOutputPaths } from "./output-artifacts.js";
+import { fingerprintValidationInputs, normalizeOutputPaths, normalizeValidationInputPaths } from "./output-artifacts.js";
 import { mkdir, open, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { prepareCicdValidationExecution } from "./cicd-environments.js";
@@ -514,7 +514,7 @@ async function normalizeValidationManifest(
   manifest: TaskValidationManifest,
   timestamp = new Date().toISOString(),
 ): Promise<TaskValidationManifest> {
-  const validationInputPaths = normalizeOutputPaths(manifest.validationInputPaths);
+  const validationInputPaths = normalizeValidationInputPaths(manifest.validationInputPaths);
   const validationInputFingerprint = await fingerprintValidationInputs(cwd, validationInputPaths);
   return {
     ...manifest,

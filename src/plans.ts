@@ -5,7 +5,7 @@
 
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { normalizeOutputPaths } from "./output-artifacts.js";
+import { normalizeOutputPaths, normalizeValidationInputPaths } from "./output-artifacts.js";
 import {
   getCurrentExecutionPlanPath,
   getExecutionPlansDir,
@@ -842,7 +842,7 @@ function normalizeExecutionPlan(plan: ExecutionPlanArtifact, now: Date): Executi
       definitionOfDone: normalizeList(task.definitionOfDone),
       validationRefs: normalizeList(task.validationRefs),
       outputPaths: normalizeOutputPaths(task.outputPaths),
-      validationInputPaths: normalizeOutputPaths(task.validationInputPaths),
+      validationInputPaths: normalizeValidationInputPaths(task.validationInputPaths),
       validationCommands: task.validationCommands?.map((command) => ({ ...command, id: command.id.trim(), command: command.command.trim() })).filter((command) => command.id && command.command),
       qualityWaivers: task.qualityWaivers?.map((waiver) => ({ ...waiver, code: waiver.code.trim(), reason: waiver.reason.trim() })).filter((waiver) => waiver.code && waiver.reason),
     })),
