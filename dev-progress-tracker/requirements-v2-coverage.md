@@ -213,6 +213,11 @@ compatibility only. Updating that gate belongs to the later implementation phase
 revision 2 document integrity is checked separately during this change.
 # PLAN-106 continuation
 
+PLAN-109 extends the existing candidate fingerprint with flagged-file contents
+and index identity. `test/hidden-git-candidates.test.ts` reproduces five earlier
+commit/skip false-success cases and preserves three positive controls. Build,
+649 unit, 67 mock integration and 5 conformance pass. Overall P2.3 remains open.
+
 PLAN-108 requires full current receipt evidence at the exported Git-decision
 effect boundary and derives the summary from it. `test/git-decision-evidence.test.ts`
 covers direct misuse and valid Git/non-Git records. Combined gate: build,
