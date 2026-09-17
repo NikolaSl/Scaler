@@ -94,6 +94,9 @@ before the implementation. Build, 29/29 focused checks, 560/560 unit tests and
 67/67 mock integrations pass. PR #6 review is pending. Manual report/checklist,
 automatic acceptance, integration semantics, non-Git outputs and tamper-resistant
 worker authority remain open; this is partial SC-01/10/13 evidence only.
+Self-review then reproduced and fixed a rename/copy candidate-digest collision;
+symlink-ancestor reads are refused. Corrected gate: build, 19/19 acceptance
+regressions, 562/562 unit and 67/67 mock integrations. Final-head review is required.
 
 Implementation has now started on merged baseline `8f4cf19`, following
 [PLAN-099](../plans/implementation-plan-099.md). The original assessment table

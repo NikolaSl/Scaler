@@ -186,3 +186,30 @@ test("nested project runtime records do not invalidate candidate output", async 
     assert.equal(after.gitCandidateFingerprint, before.gitCandidateFingerprint);
   });
 });
+
+test("Git rename and copy candidates cannot share a snapshot by hiding the deleted source", async () => {
+  await fixture(async (dir) => {
+    const state = createDefaultState();
+    state.tasks = [{ id: "T-RENAME", status: "validating", updatedAt: state.updatedAt }];
+    await exec("git", ["mv", "output.txt", "moved.txt"], { cwd: dir });
+    const renamed = await captureValidationSnapshot(dir, state, "T-RENAME");
+    await writeFile(join(dir, "output.txt"), "before");
+    await exec("git", ["add", "output.txt"], { cwd: dir });
+    const copied = await captureValidationSnapshot(dir, state, "T-RENAME");
+    assert.notEqual(copied.gitCandidateFingerprint, renamed.gitCandidateFingerprint);
+  });
+});
+
+test("candidate snapshot refuses symlink ancestors instead of reading their targets", async () => {
+  await fixture(async (dir) => {
+    await mkdir(join(dir, "data"));
+    await writeFile(join(dir, "data", "input.txt"), "before");
+    await exec("git", ["add", "data"], { cwd: dir });
+    await exec("git", ["commit", "-m", "data"], { cwd: dir });
+    await rm(join(dir, "data"), { recursive: true });
+    await symlink("untrusted-target", join(dir, "data"));
+    const state = createDefaultState();
+    state.tasks = [{ id: "T-LINK", status: "validating", updatedAt: state.updatedAt }];
+    await assert.rejects(captureValidationSnapshot(dir, state, "T-LINK"), /symlink ancestor/);
+  });
+});

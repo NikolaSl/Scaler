@@ -219,3 +219,6 @@ snapshot covers HEAD plus changed and non-ignored untracked bytes, deletions,
 executable modes and symlink targets. It is not a semantic correctness check, a
 non-Git output snapshot, a multi-file transaction or authenticated worker isolation.
 Manual report/checklist and other acceptance routes remain P2.3 follow-up work.
+Rename detection is disabled for candidate enumeration so source deletion is not
+lost. Changed paths beneath symlink ancestors fail closed rather than reading
+through the link; reconcile the project structure before retrying validation.

@@ -101,7 +101,7 @@ async function fingerprintGitCandidate(cwd: string): Promise<string | null> {
     if ((error as { code?: number }).code !== 128) throw error;
     head = null;
   }
-  const changed = await exec("git", head ? ["diff", "--name-only", "-z", "HEAD", "--"] : ["ls-files", "--cached", "-z"], { cwd: root });
+  const changed = await exec("git", head ? ["diff", "--no-renames", "--name-only", "-z", "HEAD", "--"] : ["ls-files", "--cached", "-z"], { cwd: root });
   const untracked = await exec("git", ["ls-files", "--others", "--exclude-standard", "-z"], { cwd: root });
   const projectPrefix = relative(root, cwd).split(sep).filter(Boolean).join("/");
   const runtimePrefix = projectPrefix ? `${projectPrefix}/.scaler` : ".scaler";
@@ -110,6 +110,11 @@ async function fingerprintGitCandidate(cwd: string): Promise<string | null> {
   for (const path of paths) {
     const absolute = join(root, path);
     try {
+      const segments = path.split("/");
+      for (let depth = 1; depth < segments.length; depth++) {
+        const parent = await lstat(join(root, ...segments.slice(0, depth)));
+        if (parent.isSymbolicLink()) throw new Error(`Cannot capture validation candidate ${path}: symlink ancestor; reconcile before acceptance.`);
+      }
       const stat = await lstat(absolute);
       if (stat.isSymbolicLink()) files.push({ path, kind: "symlink", target: await readlink(absolute) });
       else if (stat.isFile()) files.push({ path, kind: "file", executable: (stat.mode & 0o111) !== 0, digest: createHash("sha256").update(await readFile(absolute)).digest("hex") });

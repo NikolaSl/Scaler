@@ -81,3 +81,13 @@ operation tests, 560/560 full unit tests and 67/67 mock integrations passed.
 Copilot review and current-head checks are required before merge. The next bounded
 P2.3 step is shared authority for manual reports/checklists and automatic acceptance,
 not extending receipt hashes into a second orchestrator.
+
+### Self-review correction
+
+The rename-vs-copy regression exposed a real collision: rename detection in
+`git diff --name-only` omitted the deleted source, so retaining that source could
+leave the candidate digest unchanged. Candidate enumeration now uses
+`--no-renames`, preserving both deletion and addition. Symlink ancestors are
+refused before reading a candidate through them. Neither fix expands tool grants.
+Build, 19/19 acceptance regressions, 562/562 unit tests and 67/67 mock integrations
+pass after this correction. It is a separate commit requiring current-head review.
