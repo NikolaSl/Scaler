@@ -13,10 +13,17 @@ import { readLogEvents } from "../../../src/logging.js";
 import { createDefaultState, loadState } from "../../../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
 import { loadTaskAgentReports } from "../../../src/task-reports.js";
+import { saveValidationManifest } from "../../../src/validation.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-task-report-integration-test-"));
   try {
+    for (const taskId of ["T-REPORT", "T-MISSING"]) {
+      await saveValidationManifest(dir, {
+        taskId, outputPaths: [], acceptanceCriteria: ["The report is handed to validation."],
+        commands: [], createdAt: "", updatedAt: "",
+      });
+    }
     return await fn(dir);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -26,7 +33,10 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
 function stateWithReadyTask() {
   const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
   state.stage = "execution";
-  state.tasks = [{ id: "T-REPORT", status: "ready", title: "Report task", updatedAt: state.createdAt }];
+  state.tasks = [{
+    id: "T-REPORT", status: "ready", title: "Report task", allowedPathPrefixes: ["src"],
+    definitionOfDone: ["The report is handed to validation."], updatedAt: state.createdAt,
+  }];
   return state;
 }
 

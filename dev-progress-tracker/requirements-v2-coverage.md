@@ -213,6 +213,17 @@ compatibility only. Updating that gate belongs to the later implementation phase
 revision 2 document integrity is checked separately during this change.
 # PLAN-106 continuation
 
+PLAN-115 refuses worker execution without the three AC-02 structural contract
+prerequisites: declared project write scope, explicit output basis and an
+acceptance statement. Normal conductor, debug retry and shared attempt admission
+all fail before runner, attempt, task-transition or spawned-agent effects, with a
+second check covering late mutation and a pre-git-safety guard preventing pause
+checkpoints for inadmissible work. Malformed legacy contract field shapes now
+produce a structured refusal rather than a type error. Gate: build, 710 unit, 67 mock integration
+and 7 conformance/autopilot. This is partial SC-02/10/26 evidence only;
+declaration authority/sufficiency, semantic correctness, integration acceptance
+and compact-default synthesis remain open.
+
 PLAN-114 factors final-completion evidence into a read-only per-task verifier and
 uses it before direct-dependency worker admission. A stale predecessor output no
 longer permits downstream conductor work: no runner, attempt, task transition or

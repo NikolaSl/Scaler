@@ -12,7 +12,7 @@ import { admitTaskExecution, checkTaskExecutionResult, interruptTaskExecution, r
 import { acquireExecutionLock, releaseExecutionLock } from "../src/locks.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { loadTaskAttempts } from "../src/task-attempts.js";
-import { upsertValidationManifestCommand } from "../src/validation.js";
+import { saveValidationManifest, upsertValidationManifestCommand } from "../src/validation.js";
 import { buildTaskAgentPrompt } from "../src/conductor.js";
 
 async function fixture(fn: (dir: string) => Promise<void>) {
@@ -23,8 +23,13 @@ async function fixture(fn: (dir: string) => Promise<void>) {
 async function admitted(dir: string) {
   const state = createDefaultState();
   state.stage = "execution";
-  state.tasks = [{ id: "T-1", status: "ready", title: "Contract", updatedAt: state.updatedAt }];
+  state.tasks = [{
+    id: "T-1", status: "ready", title: "Contract",
+    allowedPathPrefixes: ["result.txt"], definitionOfDone: ["The attempt result is recorded."],
+    updatedAt: state.updatedAt,
+  }];
   await saveState(dir, state);
+  await saveValidationManifest(dir, { taskId: "T-1", outputPaths: [], commands: [], createdAt: "", updatedAt: "" });
   const lock = await acquireExecutionLock(dir, { operation: "test", taskId: "T-1" });
   const context = buildTaskAgentPrompt({ state, task: state.tasks[0]! }).resolvedContext;
   const attempt = await admitTaskExecution(dir, lock.lock.id, state, state.tasks[0]!, context, "test", []);

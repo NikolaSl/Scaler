@@ -37,7 +37,10 @@ async function fixture(fn: (dir: string) => Promise<void>) {
 async function validated(dir: string, command = "node -e \"process.exit(0)\"") {
   const state = createDefaultState();
   state.stage = "execution";
-  state.tasks = [{ id: "T-RECEIPT", title: "Output", status: "ready", allowedPathPrefixes: ["output.txt"], updatedAt: state.updatedAt }];
+  state.tasks = [{
+    id: "T-RECEIPT", title: "Output", status: "ready", allowedPathPrefixes: ["output.txt"],
+    definitionOfDone: ["The declared output passes its validation command."], updatedAt: state.updatedAt,
+  }];
   await upsertValidationManifestCommand(dir, { taskId: "T-RECEIPT", id: "check", command });
   await saveValidationManifest(dir, { ...await getValidationManifestForTask(dir, "T-RECEIPT"), outputPaths: ["output.txt"] });
   await runConductorStep(dir, state, { execute: true }, async (request) => {

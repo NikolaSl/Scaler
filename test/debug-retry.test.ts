@@ -38,6 +38,8 @@ async function seedDebuggingTask(dir: string, withDependency = false): Promise<S
     ...(withDependency ? [{ id: "T-DEP", status: "validating" as const, allowedPathPrefixes: ["dependency.txt"], updatedAt }] : []),
     {
       id: "T-RETRY", status: "validating", title: "Retry task", updatedAt,
+      allowedPathPrefixes: ["fixed.txt"],
+      definitionOfDone: ["The exact marker validation passes."],
       ...(withDependency ? { dependsOn: ["T-DEP"] } : {}),
     },
   ];
@@ -95,6 +97,24 @@ test("debug retry refuses hard budget before running state or attempt admission"
     assert.equal(result.status, "rejected");
     assert.equal(result.state.tasks[0]?.status, "debugging");
     assert.equal(getBudgetState(result.state).usage.spawnedAgents ?? 0, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+  });
+});
+
+test("debug retry refuses an incomplete task contract before dispatch", async () => {
+  await withTempDir(async (dir) => {
+    const state = await seedDebuggingTask(dir);
+    state.tasks.find((task) => task.id === "T-RETRY")!.allowedPathPrefixes = undefined;
+    await saveState(dir, state);
+    let runnerCalls = 0;
+    const result = await runDebugNextApproachRetry(dir, await loadState(dir), { execute: true }, async (request) => {
+      runnerCalls++;
+      return passingRun(request);
+    });
+
+    assert.equal(result.status, "rejected");
+    assert.match(result.message, /contract admission rejected.*write scope/i);
+    assert.equal(runnerCalls, 0);
     assert.deepEqual(await loadTaskAttempts(dir), []);
   });
 });

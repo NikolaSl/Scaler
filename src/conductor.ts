@@ -8,7 +8,7 @@ import { dirname } from "node:path";
 import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
 import { captureValidationContext } from "./attempt-evidence.js";
 import { verifyTaskDependenciesAccepted } from "./accepted-evidence.js";
-import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult, interruptTaskExecution, reconcileInterruptedTaskAttempt, TaskDependencyAdmissionError } from "./attempt-execution.js";
+import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult, interruptTaskExecution, reconcileInterruptedTaskAttempt, TaskContractAdmissionError, TaskDependencyAdmissionError, verifyTaskExecutionContract } from "./attempt-execution.js";
 import { writeCheckpoint } from "./checkpoints.js";
 import { assessCompression, formatCompressionGuidance, type CompressionAssessment } from "./compression.js";
 import { assessDebugRetryGate } from "./debug.js";
@@ -200,6 +200,16 @@ export async function runConductorStep(
     return { accepted: false, message: debugGate.reason, state, task: selection.task };
   }
 
+  const contractDiagnostics = options.execute ? await verifyTaskExecutionContract(cwd, selection.task) : [];
+  if (contractDiagnostics.length > 0) {
+    const message = new TaskContractAdmissionError(selection.task.id, contractDiagnostics).message;
+    await appendLogEvent(cwd, createLogEvent(state, {
+      eventType: "rejected_transition", summary: message, taskId: selection.task.id,
+      details: { diagnostics: contractDiagnostics, admission: "task_contract" },
+    }));
+    return { accepted: false, message, state, task: selection.task };
+  }
+
   const gitSafety = await assessGitStatusSafety(cwd, selection.task.allowedPathPrefixes ?? []);
   if (gitSafety.status === "unrelated") {
     const reason = `Pre-task git dirty-tree blocker for ${selection.task.id}: ${gitSafety.reason}`;
@@ -277,11 +287,11 @@ export async function runConductorStep(
         // cannot consume agent budget for work that never started.
         activeAttempt = await admitTaskExecution(cwd, lock.lock.id, state, runningTask, resolvedContext, options.model, tools);
       } catch (error) {
-        if (!(error instanceof TaskDependencyAdmissionError)) throw error;
+        if (!(error instanceof TaskDependencyAdmissionError) && !(error instanceof TaskContractAdmissionError)) throw error;
         const message = error.message;
         await appendLogEvent(cwd, createLogEvent(state, {
           eventType: "rejected_transition", summary: message, taskId: runningTask.id,
-          details: { diagnostics: error.diagnostics, admission: "dependency_evidence" },
+          details: { diagnostics: error.diagnostics, admission: error instanceof TaskContractAdmissionError ? "task_contract" : "dependency_evidence" },
         }));
         return { accepted: false, message, state, task: runningTask, prompt, contextSplit };
       }

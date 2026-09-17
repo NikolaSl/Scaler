@@ -297,6 +297,17 @@ Selection remains synchronous and label-based; admission supplies the durable
 check. This does not infer dependencies or establish transitive
 semantic/integration correctness.
 
+PLAN-115 requires an execution-complete task contract before conductor or debug
+retry can dispatch a worker. Declare at least one project write-scope prefix,
+an explicit validation-manifest `outputPaths` value, and a task/manifest
+Definition of Done or manifest acceptance criterion. Use `outputPaths: []` only
+when the task deliberately has no filesystem outputs. Preparation remains
+available for diagnosis; execute mode fails closed before attempt or agent-budget
+publication and before dirty-tree pause checkpointing. Run
+`node --test --import tsx test/task-contract-admission.test.ts test/debug-retry.test.ts`
+for the direct, shared, late-race, git-safety-ordering, malformed legacy shape and
+compact-contract checks.
+
 PLAN-112 carries optional `outputPaths` through execution-plan tasks, structured
 task create/update tools and stage child planning reports into the existing
 validation manifest. Omit it to preserve a prior declaration; [] is an explicit

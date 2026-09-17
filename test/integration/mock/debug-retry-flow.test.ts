@@ -40,7 +40,10 @@ test("mock integration: debug retry policy auto-starts next approach and runs fu
     const updatedAt = state.createdAt;
     state.stage = "execution";
     state.currentTaskId = "T-RETRY-AUTO";
-    state.tasks = [{ id: "T-RETRY-AUTO", status: "validating", title: "Retry auto flow", updatedAt }];
+    state.tasks = [{
+      id: "T-RETRY-AUTO", status: "validating", title: "Retry auto flow",
+      allowedPathPrefixes: ["fixed.txt"], definitionOfDone: ["The exact marker validation passes."], updatedAt,
+    }];
     await saveState(dir, state);
     await upsertValidationManifestCommand(dir, {
       taskId: "T-RETRY-AUTO",
@@ -101,7 +104,10 @@ test("mock integration: debug next approach retry fixes exact validation before 
     const updatedAt = state.createdAt;
     state.stage = "execution";
     state.currentTaskId = "T-RETRY-FLOW";
-    state.tasks = [{ id: "T-RETRY-FLOW", status: "validating", title: "Retry flow", updatedAt }];
+    state.tasks = [{
+      id: "T-RETRY-FLOW", status: "validating", title: "Retry flow",
+      allowedPathPrefixes: ["fixed.txt"], definitionOfDone: ["The exact marker validation passes."], updatedAt,
+    }];
     await saveState(dir, state);
     await upsertValidationManifestCommand(dir, {
       taskId: "T-RETRY-FLOW",

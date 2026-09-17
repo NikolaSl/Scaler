@@ -200,6 +200,17 @@ mock integration and 7 conformance/autopilot pass. This is
 direct declared-dependency freshness only; graph validity, semantic/integration
 acceptance and policy authority remain open, so P2.3 is not complete.
 
+PLAN-115 adds the missing AC-02 execution-contract admission boundary. Conductor,
+debug retry and shared attempt admission refuse tasks without explicit write
+scope, declared output basis or an acceptance statement before worker, attempt,
+task-transition or spawned-agent side effects. Four bypass regressions failed on
+the prior code; seven focused checks include late mutation, refusal before dirty-tree
+checkpointing, malformed legacy field shapes and a compact explicit
+no-filesystem-output control. Build, 710 unit, 67 mock integration and 7
+conformance/autopilot pass. Declaration sufficiency/authority and semantic or
+integration acceptance remain open; no unrelated task-quality fields or inferred
+defaults were added.
+
 1. Add a regression for the concrete defect and observe failure on the prior code.
 2. Implement the smallest sufficient fix; preserve unrelated user changes.
 3. Run focused checks, then build/integration when the boundary warrants it.

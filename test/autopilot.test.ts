@@ -108,6 +108,7 @@ test("runScalerAutomation debug-retries validation failures before completing", 
       title: "Debug auto task",
       status: "validating",
       allowedPathPrefixes: ["fixed.txt"],
+      definitionOfDone: ["The marker validation passes."],
       updatedAt: state.createdAt,
     }];
     await saveState(dir, state);

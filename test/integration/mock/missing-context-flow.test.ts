@@ -13,6 +13,7 @@ import { dispatchMissingContextRequest, loadMissingContextRequests } from "../..
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
 import type { ScalerState } from "../../../src/types.js";
+import { saveValidationManifest } from "../../../src/validation.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-missing-context-flow-"));
@@ -31,6 +32,7 @@ function createState(): ScalerState {
     title: "Implement with missing file context",
     status: "ready",
     allowedPathPrefixes: ["src"],
+    definitionOfDone: ["The result is produced after required context is retrieved."],
     updatedAt: state.createdAt,
   }];
   state.currentTaskId = "T-MISS-FLOW";
@@ -93,6 +95,9 @@ test("mock integration: missing context request resolves and conductor retries b
     await writeFile(join(dir, "docs", "spec.md"), "# Spec\n\nNeeded details.\n");
     const state = createState();
     await saveState(dir, state);
+    await saveValidationManifest(dir, {
+      taskId: "T-MISS-FLOW", outputPaths: ["src/result.ts"], commands: [], createdAt: "", updatedAt: "",
+    });
 
     const first = await runConductorStep(dir, state, { execute: true }, needsDataRunner);
     assert.equal(first.accepted, true, first.message);

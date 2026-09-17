@@ -8,11 +8,12 @@ import { verifyTaskDependenciesAccepted } from "./accepted-evidence.js";
 import type { ResolvedContext } from "./context.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { appendLogEvent, createLogEvent } from "./logging.js";
+import { normalizeOutputPaths } from "./output-artifacts.js";
 import { loadState, saveState } from "./state.js";
 import { transitionTask } from "./supervisor.js";
 import { admitTaskAttempt, assertAttemptWriter, completeTaskAttempt, loadTaskAttempts, markTaskAttemptDispatching, taskAttemptBinding, type TaskAttemptRecord } from "./task-attempts.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
-import { getValidationManifestForTask } from "./validation.js";
+import { getValidationManifestForTask, type TaskValidationManifest } from "./validation.js";
 
 export class TaskDependencyAdmissionError extends Error {
   constructor(
@@ -24,10 +25,56 @@ export class TaskDependencyAdmissionError extends Error {
   }
 }
 
+export class TaskContractAdmissionError extends Error {
+  constructor(
+    readonly taskId: string,
+    readonly diagnostics: string[],
+  ) {
+    super(`Task ${taskId} contract admission rejected: ${diagnostics.join(" ")}`);
+    this.name = "TaskContractAdmissionError";
+  }
+}
+
+export async function verifyTaskExecutionContract(cwd: string, task: ScalerTaskState): Promise<string[]> {
+  const diagnostics: string[] = [];
+  if (!hasNonEmptyString(task.allowedPathPrefixes)) {
+    diagnostics.push("missing declared project write scope (allowedPathPrefixes).");
+  }
+
+  let manifest: TaskValidationManifest;
+  try {
+    manifest = await getValidationManifestForTask(cwd, task.id);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    diagnostics.push(`validation contract unavailable: ${message}`);
+    return diagnostics;
+  }
+  try {
+    if (normalizeOutputPaths(manifest.outputPaths) === undefined) {
+      diagnostics.push("missing declared output basis (outputPaths; use [] explicitly for no filesystem outputs).");
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    diagnostics.push(`invalid declared output basis: ${message}`);
+  }
+  if (!hasNonEmptyString(task.definitionOfDone)
+    && !hasNonEmptyString(manifest.definitionOfDone)
+    && !hasNonEmptyString(manifest.acceptanceCriteria)) {
+    diagnostics.push("missing acceptance criteria (Definition of Done or validation-manifest acceptance criteria).");
+  }
+  return diagnostics;
+}
+
+function hasNonEmptyString(value: unknown): value is string[] {
+  return Array.isArray(value) && value.some((item) => typeof item === "string" && item.trim());
+}
+
 export async function admitTaskExecution(
   cwd: string, lockId: string, state: ScalerState, task: ScalerTaskState,
   context: ResolvedContext, model: string | undefined, tools: string[],
 ): Promise<TaskAttemptRecord> {
+  const contractDiagnostics = await verifyTaskExecutionContract(cwd, task);
+  if (contractDiagnostics.length > 0) throw new TaskContractAdmissionError(task.id, contractDiagnostics);
   const dependencyDiagnostics = await verifyTaskDependenciesAccepted(cwd, state, task);
   if (dependencyDiagnostics.length > 0) throw new TaskDependencyAdmissionError(task.id, dependencyDiagnostics);
   const taskFingerprint = fingerprintTaskContract(task);
