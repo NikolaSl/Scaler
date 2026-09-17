@@ -92,7 +92,7 @@ Deliver P2 through bounded PRs; none alone establishes SC-13 or full acceptance.
 |---|---|---|---|
 | P2.1 | Serialize state publication across processes and compare run identity/revision before replacement. Preserve read-only legacy loading. | Stale writers and concurrent writers cannot lose committed updates; missing/malformed state and held publication locks fail safely. Build and unit/mock integration gate. | Implemented; gate passed, separate ledger flake recorded below |
 | P2.2 | Persist attempt identity and input/output/policy fingerprints; reconcile interrupted attempts. | Reject replaced attempts and stale output after restart without replaying uncertain effects. | Merged PR #5 after completed Copilot review; boundary and limitations in PLAN-101 |
-| P2.3 | Route reports, commands, hooks and validation through shared version-bound acceptance. | Current independent evidence and integration criteria required; legacy accepted labels are not fresh proof. | In progress: PLAN-102 / PR #6 merged for commit/skip receipts; PLAN-103 closes generic proposal self-acceptance. Manual validation/checklists and universal acceptance remain open |
+| P2.3 | Route reports, commands, hooks and validation through shared version-bound acceptance. | Current independent evidence and integration criteria required; legacy accepted labels are not fresh proof. | In progress: PLAN-102 / PR #6 and PLAN-103 / PR #7 merged; PLAN-104 applies the shared receipt verifier to automatic task validation. Manual validation/checklists and universal acceptance remain open |
 
 Mutation inventory for P2.1: all production `state.json` publications are in
 `src/state.ts`. Callers are `autopilot`, `budgets`, `checkpoints`, `conductor`,
