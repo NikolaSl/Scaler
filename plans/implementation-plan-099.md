@@ -187,6 +187,14 @@ assertions and independent historical completion/Git-candidate tests. Build,
 remaining acceptance/policy-authority and final integration gaps before the next
 bounded regression. Declarations do not establish semantic or authority proof.
 
+PLAN-114 reuses the final-completion proof before dependent worker admission.
+A stale validated-ID label can no longer dispatch downstream work after the
+dependency's current accepted output/evidence changes. Four focused checks cover
+the reproduced false dispatch, shared admission, current and unrelated controls;
+build, 700 unit, 67 mock integration and 7 conformance/autopilot pass. This is
+direct declared-dependency freshness only; graph validity, semantic/integration
+acceptance and policy authority remain open, so P2.3 is not complete.
+
 1. Add a regression for the concrete defect and observe failure on the prior code.
 2. Implement the smallest sufficient fix; preserve unrelated user changes.
 3. Run focused checks, then build/integration when the boundary warrants it.

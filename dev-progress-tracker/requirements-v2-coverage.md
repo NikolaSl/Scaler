@@ -213,6 +213,15 @@ compatibility only. Updating that gate belongs to the later implementation phase
 revision 2 document integrity is checked separately during this change.
 # PLAN-106 continuation
 
+PLAN-114 factors final-completion evidence into a read-only per-task verifier and
+uses it before direct-dependency worker admission. A stale predecessor output no
+longer permits downstream conductor work: no runner, attempt, task transition or
+spawned-agent charge occurs. Shared attempt admission rechecks the evidence; a
+current dependency and an unrelated stale task remain valid controls. Gate:
+build, 700 unit, 67 mock integration, 7 conformance/autopilot. This is partial
+SC-03/06/10/26 evidence only; inferred/transitive graph correctness, affected-plan
+invalidation, semantic integration and policy authority remain unverified.
+
 PLAN-113 requires a declared output basis at automatic and explicit task skip
 admission, preserving passing command facts without claiming task acceptance.
 Six false-success regressions are fixed; existing fixture assertions remain.

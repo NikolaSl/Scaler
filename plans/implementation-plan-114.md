@@ -41,3 +41,22 @@ changes or claim the whole dependency graph is correct. Those remain P2.3/P4 wor
 
 No paid provider, deployment, mandatory second model or new orchestration layer.
 P2.3 and SC-01/03/06/10/26 remain incomplete after this bounded guard.
+
+## Result
+
+The baseline dispatched `T-NEXT` after `T-DEP`'s accepted declared output was
+changed. The new shared verifier factors the same current receipt, attempt,
+policy, context, declared-output and accepted Git decision checks used by final
+completion. Normal conductor and debug-retry preflight use it under the execution
+lock before context/budget work; shared attempt admission checks again before
+writing an attempt. Refusal neither calls the runner nor creates an attempt,
+changes the dependent task, or charges `spawnedAgents`.
+
+Four focused checks cover the reproduced stale dispatch, a current accepted
+dependency, the shared admission boundary and an unrelated stale task that must
+not block independent work. The completion suite retains its existing outcomes.
+Final gate: build, 700 unit, 67 mock integration and 7 conformance/autopilot pass.
+
+Only direct declared dependencies are checked. Dependency discovery, transitive
+semantic sufficiency, affected-plan invalidation, declaration/policy authority
+and final integration acceptance remain open.

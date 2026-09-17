@@ -282,6 +282,19 @@ preserving assertions. Historical completion tests still independently reject
 old accepted skip records with unknown coverage. Declaration adequacy/authority
 and final semantic/integration checks remain separate, incomplete requirements.
 
+PLAN-114 treats `validatedTaskIds` as a scheduling hint, not sufficient proof for
+dependent execution. Before conductor or debug-retry worker admission, every
+direct `dependsOn` task must still have current accepted validation/Git/output
+evidence. A stale dependency refuses before runner invocation, attempt creation,
+task transition or `spawnedAgents` accounting. Reconcile and revalidate the
+dependency; SCALER does not replay the worker or repair evidence automatically.
+
+Run `node --test --import tsx test/dependency-evidence-admission.test.ts` for the
+stale-output reproduction, current dependency, shared admission and unrelated
+task controls. Selection remains synchronous and label-based; admission supplies
+the durable check. This does not infer dependencies or establish transitive
+semantic/integration correctness.
+
 PLAN-112 carries optional `outputPaths` through execution-plan tasks, structured
 task create/update tools and stage child planning reports into the existing
 validation manifest. Omit it to preserve a prior declaration; [] is an explicit
@@ -308,8 +321,9 @@ Neither establishes that the task's real expected outputs were fully declared.
 PLAN-111 requires that declaration for final run completion of every skipped
 task without verified committed outputs. It preserves historical state on refusal
 and requires declaration/revalidation; it does not infer [] for missing data.
-Per-task skip admission is still a follow-up. Policy-authorized declaration completeness and semantic/integration
-acceptance remain open. Legacy receipts need revalidation, not hash migration.
+PLAN-113 applies the same missing-basis refusal at per-task skip admission.
+Policy-authorized declaration completeness and semantic/integration acceptance
+remain open. Legacy receipts need revalidation, not hash migration.
 
 Run `node --test --import tsx test/declared-outputs.test.ts`. Nineteen checks cover
 post-validation mutation, successful commands that mutate outputs, deletion,
