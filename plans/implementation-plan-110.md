@@ -35,3 +35,18 @@ remain follow-ups. No mandatory Git/container/model requirement is introduced.
    gates are resolved with an expected-head guard. Deadline remains 18:00Z.
 
 No paid model calls, deployment, or arbitrary-writer isolation claim.
+
+## Result
+
+Eleven baseline regressions failed while two unchanged completion/restart
+controls passed. All nineteen final focused checks pass, including added path,
+streaming, public tool, deletion/symlink and independent-task checks.
+The output identity is separate from the historical Git candidate, so later
+unrelated commits do not invalidate a declared output merely by changing HEAD.
+Existing snapshot comparisons enforce the new identity; no parallel acceptance
+pipeline was added. Restored onto corrected PLAN-109 before the combined gate.
+
+Gate: build, 671/671 unit, 67/67 mock integration and 7/7 conformance/autopilot
+checks. No paid provider or deployment. P2.3 remains incomplete: declarations
+can still be omitted, and declaration adequacy/authority, semantic correctness
+and final integrated acceptance are not supplied by a digest.
