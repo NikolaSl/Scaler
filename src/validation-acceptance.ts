@@ -58,6 +58,7 @@ export async function captureValidationSnapshot(cwd: string, state: ScalerState,
 }
 
 async function fingerprintTaskRequirements(cwd: string, requirementIds: string[]): Promise<string> {
+  if (requirementIds.length === 0) return fingerprintJson([]);
   const requirements = await loadPrdRequirements(cwd);
   const byId = new Map(requirements.requirements.map((requirement) => [requirement.id, requirement]));
   const material = [...new Set(requirementIds)].sort().map((id) => {
