@@ -131,11 +131,15 @@ test("all-optional failures do not become positive commit evidence via rollup st
     await writeFile(join(dir, "output.txt"), "unvalidated output");
     await upsertValidationManifestCommand(dir, { taskId: "T-OPTIONAL", id: "optional", command: "node -e \"process.exit(1)\"", required: false });
     const run = await runTaskValidation(dir, state, "T-OPTIONAL");
-    assert.equal(run.status, "passed"); // Existing optional-check rollup is not authority.
+    assert.equal(run.status, "blocked"); // Refuse rollup-only success before automatic acceptance too.
+    assert.equal(run.acceptance?.accepted, false);
+    assert.match(run.acceptance?.message ?? "", /no current version-bound passing command evidence/);
     assert.equal(run.commandRuns[0]?.status, "failed");
     const result = await commitValidatedTask(dir, state, "T-OPTIONAL", ["output.txt"]);
     assert.equal(result.accepted, false);
-    assert.match(result.message, /no current version-bound passing command evidence/);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validating");
+    assert.deepEqual(await loadCommitReports(dir), []);
+    assert.deepEqual(await loadCommitSkips(dir), []);
   });
 });
 
