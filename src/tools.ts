@@ -317,6 +317,7 @@ const PrdRequirementUpdateParams = Type.Object({
 
 const ValidationManifestWriteParams = Type.Object({
   taskId: Type.String(),
+  outputPaths: Type.Optional(Type.Array(Type.String(), { description: "Exact project-relative output files, symlinks or deletions to bind to validation; omit when not yet specified. No directories or globs." })),
   commands: Type.Array(
     Type.Object({
       id: Type.String(),
@@ -713,6 +714,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const manifest = await saveValidationManifest(ctx.cwd, {
         taskId: params.taskId,
+        outputPaths: params.outputPaths,
         commands: params.commands.map((command) => ({
           id: command.id,
           command: command.command,

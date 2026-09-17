@@ -17,7 +17,8 @@ import { captureValidationSnapshot, verifyValidationRecordEvidence } from "./val
 // Provenance is necessary, not sufficient for final integrated correctness.
 // Historical candidates precede task commits; comparing all of them to current
 // HEAD would invalidate legitimate multi-task work. Committed outputs are checked
-// against their accepted commit; skip/non-Git output freshness remains separate.
+// against their accepted commit. Declared filesystem outputs are checked for
+// every acceptance kind; completeness of that declaration remains separate.
 async function verifyCompletionProvenance(cwd: string, state: ScalerState): Promise<string[]> {
   const durable = await loadState(cwd);
   if (durable.runId !== state.runId || durable.revision !== state.revision) {
@@ -41,7 +42,7 @@ async function verifyCompletionProvenance(cwd: string, state: ScalerState): Prom
       const { gitCandidateFingerprint: _historical, ...historical } = run.receipt.snapshot;
       const { gitCandidateFingerprint: _current, ...current } = await captureValidationSnapshot(cwd, state, task.id);
       if (fingerprintJson(historical) !== fingerprintJson(current)) {
-        errors.push("Completion evidence rejected: run, task, attempt, policy or context changed.");
+        errors.push("Completion evidence rejected: run, task, attempt, policy, context or declared output changed.");
       }
       const committed = commits.find((commit) => commit.taskId === task.id && commit.commitHash.trim()
         && matchesValidation(commit.validation, run));
