@@ -206,7 +206,7 @@ function validateStoredAttempt(attempt: TaskAttemptRecord): void {
   }
 }
 
-async function assertAttemptWriter(cwd: string, executionLockId: string, taskId: string): Promise<void> {
+export async function assertAttemptWriter(cwd: string, executionLockId: string, taskId: string): Promise<void> {
   const lock = await loadExecutionLock(cwd);
   if (!lock || lock.id !== executionLockId || lock.taskId !== taskId) {
     throw new Error(`Task attempt write rejected: execution lock does not own task ${taskId}.`);

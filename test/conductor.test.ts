@@ -491,6 +491,8 @@ test("runConductorStep reconciles an orphaned dispatch before selecting new work
       routeFingerprint: fingerprintJson({ route: "one" }),
       validationPolicyFingerprint: fingerprintJson({ policy: "one" }),
     });
+    state.tasks[0]!.attemptId = attempt.id;
+    await saveState(dir, state);
     await markTaskAttemptDispatching(dir, lock.lock.id, attempt.id);
     await releaseExecutionLock(dir, lock.lock.id);
 
