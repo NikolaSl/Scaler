@@ -843,8 +843,8 @@ export async function runTaskValidation(cwd: string, state: ScalerState, taskId:
     createdAt: new Date().toISOString(),
   };
   record.receipt = { snapshot, resultFingerprint: fingerprintValidationResult(record) };
-  // Passing evidence uses the shared acceptance verifier, including its final
-  // snapshot. Failed/blocked outcomes still need freshness but not passing proof.
+  // For passing evidence, the shared verifier captures the current snapshot and
+  // compares it to the receipt; failed/blocked outcomes check freshness below.
   const finalFreshness = record.status === "passed"
     ? await verifyValidationRunReceipt(cwd, state, taskId, record)
     : await checkAttemptEvidence(cwd, state, taskId);

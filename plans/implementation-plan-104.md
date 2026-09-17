@@ -45,8 +45,9 @@ digest is recomputed consistently.
 `verifyCurrentValidationReceipt` now loads the latest record and delegates to
 `verifyValidationRunReceipt`; automatic task validation uses that same verifier
 on its supervisor-generated record before publishing any Git acceptance. Passing
-runs reuse the verifier's final snapshot rather than adding a third candidate
-hash. Failed/blocked command outcomes retain their existing freshness checks.
+runs let the verifier capture and compare the post-command snapshot rather than
+performing a separate third candidate hash. The verifier returns diagnostics and
+does not mutate the receipt. Failed/blocked outcomes retain their freshness checks.
 Rejections persist blocked runs and retain executed command evidence, without
 promoting the task or publishing an accepted skip/commit.
 
@@ -60,3 +61,7 @@ Final-head Copilot review remains required before merge.
 The raw exported Git-decision helper, manual report/checklist acceptance, run
 completion and authenticated worker authority remain explicit follow-up work;
 this unit covers `runTaskValidation` and its existing execution-lock wrapper.
+
+Copilot review 5231899689 recommended approval and identified one wording issue
+(4033750720). Clarified that the verifier captures and compares a fresh snapshot;
+it neither returns a snapshot nor modifies the receipt. Runtime code is unchanged.
