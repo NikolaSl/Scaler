@@ -49,3 +49,12 @@ Initial gate on the prior PLAN-111 head: build, 687 unit, 67 mock integration
 and 7 conformance/autopilot. Before publication, include PLAN-111's Copilot
 manifest-preservation fix and PLAN-110's no-follow descriptor fix, then rerun the
 combined gate. Per-task skip admission and policy authority remain next work.
+
+## Combined gate
+
+Restored on corrected PLAN-111 and PLAN-110. The manifest-persistence conflict
+retains both supplied output transport and all existing criteria/waivers/DoD/
+creation identity. Both suites' preservation assertions pass. Build, 690 unit,
+67 mock integration and 7 conformance/autopilot checks pass. No published history
+was rewritten. Next bounded unit is missing-declaration refusal for per-task
+commit-skip admission; broader policy authority and integration remain open.

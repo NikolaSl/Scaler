@@ -174,6 +174,12 @@ Gate: build, 676 unit, 67 mock integration and 7 conformance/autopilot. Per-task
 skip admission and declaration transport are the next bounded units; adequacy,
 authority and semantic/integration acceptance remain open.
 
+PLAN-112 transports explicit outputPaths through execution plans, structured
+task create/update and stage child reports, preserving omitted versus [] and
+existing/default commands. Combined gate after review corrections: build, 690
+unit, 67 mock integration and 7 conformance/autopilot. Next is per-task skip
+admission with missing output declarations; P2.3 remains incomplete.
+
 1. Add a regression for the concrete defect and observe failure on the prior code.
 2. Implement the smallest sufficient fix; preserve unrelated user changes.
 3. Run focused checks, then build/integration when the boundary warrants it.
