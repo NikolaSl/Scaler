@@ -192,8 +192,10 @@ A stale validated-ID label can no longer dispatch downstream work after the
 dependency's current accepted output/evidence changes. Copilot follow-up also
 makes the shared rejection structured and defers projected agent-budget
 publication until the final dependency check succeeds in conductor and debug
-retry. Six focused checks cover the reproduced false dispatch, both late-race
-paths, shared admission, current and unrelated controls; build, 702 unit, 67
+retry. Snapshot failures also become dependency-scoped refusals instead of
+escaping admission as generic exceptions. Seven focused checks cover the
+reproduced false dispatch, both late-race paths, shared admission and snapshot
+failure, current and unrelated controls; build, 703 unit, 67
 mock integration and 7 conformance/autopilot pass. This is
 direct declared-dependency freshness only; graph validity, semantic/integration
 acceptance and policy authority remain open, so P2.3 is not complete.

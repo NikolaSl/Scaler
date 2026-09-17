@@ -291,7 +291,8 @@ dependency; SCALER does not replay the worker or repair evidence automatically.
 
 Run `node --test --import tsx test/dependency-evidence-admission.test.ts test/debug-retry.test.ts`
 for the stale-output reproduction, current dependency, shared admission,
-unrelated-task control and both late-race budget checks.
+unrelated-task control, both late-race budget checks and fail-closed conversion
+of Git snapshot errors into dependency-scoped refusals.
 Selection remains synchronous and label-based; admission supplies the durable
 check. This does not infer dependencies or establish transitive
 semantic/integration correctness.

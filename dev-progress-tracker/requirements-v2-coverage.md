@@ -217,8 +217,9 @@ PLAN-114 factors final-completion evidence into a read-only per-task verifier an
 uses it before direct-dependency worker admission. A stale predecessor output no
 longer permits downstream conductor work: no runner, attempt, task transition or
 spawned-agent charge occurs. Shared attempt admission rechecks the evidence; a
-current dependency and an unrelated stale task remain valid controls. Gate:
-build, 702 unit, 67 mock integration, 7 conformance/autopilot. This is partial
+snapshot failure becomes a dependency-scoped refusal instead of a generic
+exception; a current dependency and an unrelated stale task remain valid
+controls. Gate: build, 703 unit, 67 mock integration, 7 conformance/autopilot. This is partial
 SC-03/06/10/26 evidence only; inferred/transitive graph correctness, affected-plan
 invalidation, semantic integration and policy authority remain unverified.
 

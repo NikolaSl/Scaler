@@ -60,11 +60,12 @@ deterministic race tests mutate accepted dependency output after preflight in
 the normal and debug-retry routes and prove no worker, attempt or spawned-agent
 charge occurs.
 
-Six focused checks cover the reproduced stale dispatch, both late-race paths, a
-current accepted dependency, the shared admission boundary and an unrelated
-stale task that must not block independent work. The completion suite retains
-its existing outcomes. Final gate: build, 702 unit, 67 mock integration and 7
-conformance/autopilot pass.
+Seven focused checks cover the reproduced stale dispatch, both late-race paths,
+a current accepted dependency, the shared admission boundary, a Git snapshot
+failure and an unrelated stale task that must not block independent work.
+Snapshot failures are returned as dependency-scoped refusals instead of generic
+exceptions. The completion suite retains its existing outcomes. Final gate:
+build, 703 unit, 67 mock integration and 7 conformance/autopilot pass.
 
 Only direct declared dependencies are checked. Dependency discovery, transitive
 semantic sufficiency, affected-plan invalidation, declaration/policy authority
