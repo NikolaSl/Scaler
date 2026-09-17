@@ -77,8 +77,31 @@ for (const mutation of ["unstaged", "staged", "index_only", "assume_unchanged", 
     assert.equal(result.stopReason, "blocked");
     assert.equal((await loadState(dir)).stage, "execution");
     assert.match(result.message, /commit|output|artifact/i);
+    if (mutation === "index_only") assert.match(result.message, /index|staged/i);
   }));
 }
+
+test("a real accepted rename completes and still protects deletion of its source", async () => fixture(false, async (dir) => {
+  await exec("git", ["mv", "result.txt", "renamed.txt"], { cwd: dir });
+  const state = await loadState(dir);
+  state.tasks = [{ id: "T-RENAME", status: "validating", allowedPathPrefixes: ["renamed.txt"], updatedAt: state.updatedAt }];
+  state.validatedTaskIds = [];
+  state.completedTaskIds = [];
+  await saveState(dir, state);
+  await saveValidationManifest(dir, { taskId: "T-RENAME", commands: [{ id: "rename", required: true,
+    command: 'node -e "const f=require(\'fs\');if(f.existsSync(\'result.txt\')||f.readFileSync(\'renamed.txt\',\'utf8\')!==\'accepted\')process.exit(1)"',
+  }], createdAt: "", updatedAt: "" });
+  assert.equal((await runTaskValidation(dir, state, "T-RENAME")).status, "passed");
+  const commit = await commitWithExecutionLock(dir, await loadState(dir), "T-RENAME", ["renamed.txt"]);
+  assert.equal(commit.accepted, true, commit.message);
+  assert.deepEqual(commit.result?.report?.includedPaths, ["renamed.txt"]);
+  const completed = await complete(dir);
+  assert.equal(completed.completed, true, completed.message);
+  await writeFile(join(dir, "result.txt"), "recreated source");
+  const rejected = await complete(dir);
+  assert.equal(rejected.completed, false);
+  assert.match(rejected.message, /deletion.*recreated/i);
+}));
 
 test("completion rejects an untracked recreation of an accepted deletion", async () => fixture(true, async (dir) => {
   await writeFile(join(dir, "result.txt"), "recreated");

@@ -29,18 +29,35 @@ export async function verifyCommittedOutputs(cwd: string, report: CommitReportRe
     await git("merge-base", "--is-ancestor", commit, "HEAD");
     const changed = (await git("diff-tree", "--root", "--no-commit-id", "--name-only", "--no-renames", "-r", "-z", commit)).stdout.split("\0").filter(Boolean).sort();
     if (fingerprintJson(changed) !== fingerprintJson([...paths].sort())) {
-      return reject("reported paths do not match the actual commit.");
+      // Status-based reports can contain only rename/copy destinations. Accept
+      // that representation, but still verify every actual changed path below,
+      // including the deleted source of a rename.
+      const statuses = (await git("diff-tree", "--root", "--no-commit-id", "--name-status", "-M", "-C", "-r", "-z", commit)).stdout.split("\0").filter(Boolean);
+      const destinations: string[] = [];
+      for (let index = 0; index < statuses.length;) {
+        const status = statuses[index++]!;
+        const path = statuses[index++]!;
+        destinations.push(/^[RC]\d+$/.test(status) ? statuses[index++]! : path);
+      }
+      if (fingerprintJson(destinations.sort()) !== fingerprintJson([...paths].sort())) {
+        return reject("reported paths do not match the actual commit.");
+      }
     }
-    await git("diff", "--cached", "--quiet", "--no-ext-diff", "--no-textconv", "--ignore-submodules=none", commit, "--", ...paths);
+    try {
+      await git("diff", "--cached", "--quiet", "--no-ext-diff", "--no-textconv", "--ignore-submodules=none", commit, "--", ...changed);
+    } catch (error) {
+      if ((error as { code?: number }).code === 1) return reject("index/staged outputs differ from the accepted commit.");
+      throw error;
+    }
     // Read actual bytes: Git diff can hide edits behind assume-unchanged or
     // skip-worktree index flags. A committed deletion must remain absent too.
-    const entries = (await git("ls-tree", "-r", "-z", commit, "--", ...paths)).stdout.split("\0").filter(Boolean);
+    const entries = (await git("ls-tree", "-r", "-z", commit, "--", ...changed)).stdout.split("\0").filter(Boolean);
     const present = new Map(entries.map((entry) => {
       const tab = entry.indexOf("\t");
       const [mode, type, oid] = entry.slice(0, tab).split(" ");
       return [entry.slice(tab + 1), { mode, type, oid }] as const;
     }));
-    for (const path of paths) {
+    for (const path of changed) {
       const parts = path.split("/");
       for (let depth = 1; depth < parts.length; depth++) {
         try {

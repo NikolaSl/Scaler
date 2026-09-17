@@ -60,3 +60,14 @@ Such output providers need explicit normalization contracts in later work.
 Gate passed: build, 629/629 unit, 67/67 mock integration, 5/5 conformance.
 Includes unchanged file/deletion completion and restart, plus PLAN-106's actual
 two-task commits. Final-head review remains required before merge.
+
+## Copilot corrections
+
+Review 5232750684 identified two valid issues, both reproduced before correction:
+status-based rename records contain only a destination while no-renames Git diff
+lists source and destination; index mismatch returned a generic diagnostic.
+The corrected verifier accepts either actual changed paths or Git-normalized
+rename/copy destination lists, but verifies ALL actual changed paths, including
+the deleted source. A real accepted rename now completes; recreating its source
+then blocks completion. Expected Git diff exit 1 now names index/staged drift.
+Separate correction commit and corrected-head review required.
