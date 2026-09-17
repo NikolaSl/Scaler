@@ -206,3 +206,41 @@ available in the extension:
 This does not authenticate free-form text as original user wording, prove semantic
 necessity, or provide non-software evidence. The command is an explicit local user
 decision boundary; unattended agents must pause/propose when it is required.
+
+## Unit C result
+
+Three authorization regressions first demonstrated that a forged `source: user`
+could change or remove criteria and that stage bulk replacement could weaken or
+delete existing requirements. Model-facing PRD, planning, and stage routes now
+permit only initial normalization without mandatory criteria or idempotent repeats.
+Omitted requirements are preserved. Material changes require
+`/scaler-prd-amend`, an exact expected revision, and a user-supplied reason.
+
+The catalog stores monotonic revisions and exact embedded version history with
+the authority basis. Revision participates in the acceptance fingerprint, so an
+A→B→A content cycle does not revive old evidence. Bulk upserts validate the full
+set before publication and update the catalog/coverage under one exclusive PRD
+writer lock with atomic JSON replacement. Planning validates its plan before
+publishing requirement ledgers. This prevents stale unrelated writers from
+rolling back an authorized revision and prevents authorization rejection from
+leaving partial catalog, coverage, plan, task, artifact, or change records.
+
+The independent GPT-6 Astra/high review found and drove fixes for the stale-writer
+race, batch ordering, source-less stage idempotence, literal pipes in amendment
+JSON, and lock initialization cleanup. A final read-only review found no remaining
+actionable defect.
+
+Gate: TypeScript build, 743 unit tests, 67 mock integration tests and 7
+conformance/autopilot checks pass. No paid or real-model request was made. The
+local command is an explicit process boundary, not cryptographic user
+authentication; arbitrary filesystem mutation, semantic requirement necessity,
+non-software evidence authority and representative outcome quality remain open.
+
+## Next P2 closure unit
+
+Before adding another mechanism, inventory every remaining route that can grant
+task/run acceptance or weaken a current requirement and map each route to the
+shared receipt/authority guard. Reproduce only concrete bypasses. If the inventory
+finds none, record the P2 evidence boundary honestly and move the remaining
+semantic-necessity and minimal-planning work to its dependency-ordered phase
+instead of extending P2 speculatively.

@@ -377,6 +377,22 @@ Records a normalized stage artifact for `prd`, `knowledge`, `planning`, `executi
 
 Shows runtime PRD requirement coverage from `.scaler/prd/requirements.json`, `.scaler/prd/coverage.json`, and task `prdRefs` links.
 
+## `/scaler-prd-amend <requirementId> | <expected revision> | <reason> | <changes JSON>`
+
+Applies an explicit local-user amendment to an existing runtime requirement.
+The revision must exactly match the current requirement revision, the reason is
+required, and the JSON object may supply `statement`, `title`, `source`, or
+`acceptanceCriteria`. The command cannot create a requirement and refuses stale
+or no-op changes. Accepted changes increment the revision and append an exact
+version-history record. Model-facing PRD/planning tools cannot invoke this
+authority path and cannot change existing requirement content or criteria.
+
+Example:
+
+```text
+/scaler-prd-amend REQ-001 | 2 | User approved the integration gate | {"acceptanceCriteria":[{"id":"AC-E2E","statement":"Components work together","validationTaskId":"T-E2E","commandId":"integration","participantTaskIds":["T-A","T-B","T-E2E"]}]}
+```
+
 ## `/scaler-plan-status`
 
 Shows execution plan summary from `.scaler/plans/current-plan.json`, runtime PRD requirements, and supervisor task state.

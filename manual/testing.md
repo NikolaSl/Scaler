@@ -411,3 +411,19 @@ The test proves deterministic command evidence and current component identity;
 it does not prove that an agent had authority to create/delete the criterion,
 that the selected criterion is semantically sufficient, or that non-software and
 real-model outcomes meet their requirements.
+
+PLAN-118 unit C adds revision-checked local-user PRD amendments and immutable
+requirement history. `test/prd.test.ts`, `test/plans.test.ts`,
+`test/stage-workflow.test.ts`, `test/commands.test.ts`, and
+`test/completion-provenance.test.ts` cover model-route refusal, whole-catalog
+preservation, stale revisions, serialized concurrent writers, batch refusal with
+no partial ledgers, source-less idempotence, JSON containing `|`, invalid-plan
+ordering, and A→B→A evidence invalidation. The supported writer paths use an
+exclusive PRD publication lock and atomic JSON replacement; a held lock is never
+stolen by age.
+
+Unit C gate: TypeScript build, 743 unit tests, 67 mock integration tests and 7
+conformance/autopilot checks pass. GPT-6 Astra/high independently reviewed the
+implementation and all review findings were corrected. These checks do not
+authenticate arbitrary filesystem writers, prove semantic requirement necessity,
+or establish representative real-model/local-model outcome quality.

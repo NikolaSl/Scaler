@@ -24,11 +24,19 @@ Implemented requirement statuses:
 ```text
 /scaler-prd-status
 /scaler-prd-link T-001 | REQ-001,REQ-002
+/scaler-prd-amend REQ-001 | 1 | User-approved clarification | {"statement":"Clarified requirement"}
 ```
 
 `/scaler-prd-status` loads the runtime PRD requirements, explicit coverage entries, and current task state, then prints deterministic coverage counts and requirement/task links.
 
 `/scaler-prd-link` updates an existing task's `prdRefs` metadata. A task list shows PRD refs when present. Structured `scaler_planning_report` output can also create/update runtime requirements, save the execution plan, create/update planned tasks, align task `prdRefs`, and write coverage diagnostics before execution.
+
+`/scaler-prd-amend` is the explicit local-user boundary for changing an existing
+requirement. It requires the exact current revision, a non-empty reason, and a
+JSON object containing only the fields to change (`statement`, `title`, `source`,
+or `acceptanceCriteria`). It cannot create a requirement. A stale revision or an
+empty/no-op amendment fails without changing the catalog. Literal `|` characters
+are permitted inside the JSON payload.
 
 ## Task linkage
 
@@ -71,15 +79,25 @@ skipped, blocked, optional, missing or unrelated commands do not count.
 Validation receipt schema version 4 includes normalized criteria and a compact
 identity of the participating components. A changed and reaccepted component
 invalidates older integration evidence until the named command runs again.
-Omitted criteria are preserved by partial direct, PRD-stage and planning updates;
-an explicit empty array removes them. The runtime records this behavior but does
-not itself grant an agent authority to add or remove mandatory acceptance policy.
+Omitted criteria are preserved by partial direct, PRD-stage and planning updates.
+Model-facing tools and structured reports cannot add, change, or remove criteria,
+or materially change an existing statement, title, or source. An explicit empty
+array therefore fails on those routes. Use the revision-checked local-user
+amendment command for an authorized change.
+
+Each requirement has a monotonic `revision` and embedded `versionHistory`. Every
+accepted amendment appends the exact resulting content, timestamp, user-command
+authority basis, and reason; older versions remain reconstructable. Requirement
+fingerprints include the revision, so changing A→B→A still invalidates evidence
+captured at the earlier A. Bulk model writes preserve omitted requirements and
+are serialized with amendments; one unauthorized item rejects the batch before
+catalog, coverage, plan, task, or stage writes.
 
 ## Tools
 
 Implemented runtime PRD tools:
 
-- `scaler_prd_write` writes `.scaler/prd/current.md` and optionally replaces `requirements.json`. It can snapshot the previous current PRD first.
+- `scaler_prd_write` writes `.scaler/prd/current.md` and optionally merges normalized requirements into `requirements.json`. Omitted catalog entries are preserved. It can snapshot the previous current PRD first.
 - `scaler_prd_requirement_update` upserts one requirement and optionally updates its explicit coverage entry.
 - `scaler_planning_report` ingests planner output, links requirements to plan tasks, and records `.scaler/reports/planning-reports.json` diagnostics.
 
@@ -87,4 +105,9 @@ All three structured input paths accept optional requirement
 `acceptanceCriteria` objects with `id`, `statement`, `validationTaskId`,
 `commandId`, and `participantTaskIds`.
 
-These tools are intended for PRD/polishing or planning agents to keep the runtime PRD ledger current while execution progresses.
+These tools are intended for PRD/polishing or planning agents to keep the runtime
+PRD ledger current while execution progresses. Their `source` fields are data,
+not authentication. They may add a normalized requirement without mandatory
+criteria or repeat current content, but an amendment requires the user command.
+The lock protects supported writers; arbitrary filesystem tampering and process
+identity/containment remain separate security boundaries.
