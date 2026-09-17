@@ -62,14 +62,20 @@ export function fingerprintValidationResult(run: ValidationRunRecord): string {
 // Shared read-only boundary for direct commit/skip and their locked wrappers.
 // A digest binds versions; it is not authentication against a writer of ledgers.
 export async function verifyCurrentValidationReceipt(cwd: string, state: ScalerState, taskId: string): Promise<string[]> {
+  const run = (await loadValidationRuns(cwd)).find((run) => run.taskId === taskId);
+  return verifyValidationRunReceipt(cwd, state, taskId, run);
+}
+
+// Also used before automatic acceptance, while the supervisor-produced record
+// is still in memory. This checks evidence, not caller authority or signatures.
+export async function verifyValidationRunReceipt(cwd: string, state: ScalerState, taskId: string, run: ValidationRunRecord | undefined): Promise<string[]> {
   const durable = await loadState(cwd);
   if (durable.runId !== state.runId || durable.revision !== state.revision) {
     return ["Validation receipt rejected: state changed or was not persisted; reload and revalidate."];
   }
-  const run = (await loadValidationRuns(cwd)).find((run) => run.taskId === taskId);
   const hasEvidence = run?.commandRuns.some((command) => command.status === "passed"
     || (command.status === "skipped" && command.disposition === "skipped" && command.dispositionReason?.trim()));
-  if (!run?.receipt || run.status !== "passed" || !hasEvidence) {
+  if (!run?.receipt || run.taskId !== taskId || run.status !== "passed" || !hasEvidence) {
     return ["Validation receipt rejected: no current version-bound passing command evidence; revalidate."];
   }
   const diagnostics = await checkAttemptEvidence(cwd, state, taskId);

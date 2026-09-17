@@ -238,3 +238,15 @@ around a refusal by editing state or evidence ledgers. Changes to an accepted
 task require explicit replanning/replacement, not metadata edits retaining the
 accepted label. These guards do not yet establish evidence authority for manual
 validation reports/checklists, automatic acceptance or aggregate run completion.
+
+### Automatic task validation acceptance (PLAN-104)
+
+Run `node --test --import tsx test/automatic-validation-acceptance.test.ts test/validation-acceptance.test.ts test/validation-runner.test.ts`.
+`runTaskValidation` and its execution-lock wrapper now apply the same current
+receipt verifier as commit/skip before automatic Git acceptance. Empty checks or
+only failing optional checks produce a blocked validation record, not accepted
+progress. Required reasoned skips and actual passing checks remain supported.
+Direct callers must supply current persisted state; stale snapshots are refused
+before accepted Git records are published. Executed checks remain in the blocked
+record for diagnosis. This is not independent semantic validation or complete
+manual-report/checklist/run-completion authority.

@@ -121,6 +121,16 @@ does not close SC-01/10/26: manual validation/checklist authority, automatic
 acceptance, postcommit identity and aggregate completion still require work.
 PLAN-103 gate: build, 579/579 unit, 67/67 mock integration; review pending.
 
+PR #7 subsequently merged after completed final-head review recommending
+approval, with no findings. PLAN-104 reuses the same receipt verifier before
+automatic task validation publishes Git acceptance. Empty checks, optional-only
+failures and stale state no longer produce accepted skips/validated tasks.
+Five pre-fix failures, four positive controls and one task-identity test cover
+this boundary. Build, 46/46 focused, 589/589 unit and 67/67 mock integration pass.
+No third candidate hash is added to a passing validation. Review is pending;
+manual reports/checklists, raw Git-decision helper, postcommit identity and
+aggregate completion remain open. SC-01/10/26 are not declared compliant.
+
 Implementation has now started on merged baseline `8f4cf19`, following
 [PLAN-099](../plans/implementation-plan-099.md). The original assessment table
 above is retained as the reviewed baseline. P1.1 adds read-only existing-state

@@ -5,7 +5,7 @@
 
 import { spawn } from "node:child_process";
 import { checkAttemptEvidence } from "./attempt-evidence.js";
-import { captureValidationSnapshot, fingerprintValidationResult, type ValidationReceipt, type ValidationSnapshot } from "./validation-acceptance.js";
+import { captureValidationSnapshot, fingerprintValidationResult, verifyValidationRunReceipt, type ValidationReceipt, type ValidationSnapshot } from "./validation-acceptance.js";
 import { fingerprintJson } from "./fingerprints.js";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -834,15 +834,6 @@ export async function runTaskValidation(cwd: string, state: ScalerState, taskId:
     }
   }
 
-  const finalFreshness = await checkAttemptEvidence(cwd, state, taskId);
-  try {
-    if (fingerprintJson(snapshot) !== fingerprintJson(await captureValidationSnapshot(cwd, state, taskId))) {
-      finalFreshness.push("Validation evidence rejected: task, policy, context or candidate output changed during checks.");
-    }
-  } catch (error) {
-    finalFreshness.push(`Validation evidence rejected: snapshot unavailable after checks: ${String(error)}`);
-  }
-  if (finalFreshness.length > 0) return rejectStaleValidation(cwd, state, taskId, finalFreshness, commandRuns);
   const record: ValidationRunRecord = {
     id: `${taskId}-${Date.now()}`,
     taskId,
@@ -851,8 +842,23 @@ export async function runTaskValidation(cwd: string, state: ScalerState, taskId:
     policyDiagnostics: policy.diagnostics.length ? policy.diagnostics : undefined,
     createdAt: new Date().toISOString(),
   };
-  let result: ValidationApplyResult;
   record.receipt = { snapshot, resultFingerprint: fingerprintValidationResult(record) };
+  // For passing evidence, the shared verifier captures the current snapshot and
+  // compares it to the receipt; failed/blocked outcomes check freshness below.
+  const finalFreshness = record.status === "passed"
+    ? await verifyValidationRunReceipt(cwd, state, taskId, record)
+    : await checkAttemptEvidence(cwd, state, taskId);
+  if (record.status !== "passed") {
+    try {
+      if (fingerprintJson(snapshot) !== fingerprintJson(await captureValidationSnapshot(cwd, state, taskId))) {
+        finalFreshness.push("Validation evidence rejected: task, policy, context or candidate output changed during checks.");
+      }
+    } catch (error) {
+      finalFreshness.push(`Validation evidence rejected: snapshot unavailable after checks: ${String(error)}`);
+    }
+  }
+  if (finalFreshness.length > 0) return rejectStaleValidation(cwd, state, taskId, finalFreshness, commandRuns);
+  let result: ValidationApplyResult;
   let gitAcceptance: GitValidationAcceptanceDecision | undefined;
   if (record.status === "passed") {
     gitAcceptance = await evaluateValidationGitAcceptance(cwd, state, taskId, {
