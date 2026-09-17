@@ -24,10 +24,49 @@ export class TaskDependencyAdmissionError extends Error {
   }
 }
 
+export class TaskContractAdmissionError extends Error {
+  constructor(
+    readonly taskId: string,
+    readonly diagnostics: string[],
+  ) {
+    super(`Task ${taskId} contract admission rejected: ${diagnostics.join(" ")}`);
+    this.name = "TaskContractAdmissionError";
+  }
+}
+
+export async function verifyTaskExecutionContract(cwd: string, task: ScalerTaskState): Promise<string[]> {
+  const diagnostics: string[] = [];
+  if (!task.allowedPathPrefixes?.some((path) => path.trim())) {
+    diagnostics.push("missing declared project write scope (allowedPathPrefixes).");
+  }
+
+  let manifest;
+  try {
+    manifest = await getValidationManifestForTask(cwd, task.id);
+  } catch (error) {
+    diagnostics.push(`validation contract unavailable: ${String(error)}`);
+    return diagnostics;
+  }
+  if (manifest.outputPaths === undefined) {
+    diagnostics.push("missing declared output basis (outputPaths; use [] explicitly for no filesystem outputs).");
+  }
+  const acceptanceStatements = [
+    ...(task.definitionOfDone ?? []),
+    ...(manifest.definitionOfDone ?? []),
+    ...(manifest.acceptanceCriteria ?? []),
+  ];
+  if (!acceptanceStatements.some((statement) => statement.trim())) {
+    diagnostics.push("missing acceptance criteria (Definition of Done or validation-manifest acceptance criteria).");
+  }
+  return diagnostics;
+}
+
 export async function admitTaskExecution(
   cwd: string, lockId: string, state: ScalerState, task: ScalerTaskState,
   context: ResolvedContext, model: string | undefined, tools: string[],
 ): Promise<TaskAttemptRecord> {
+  const contractDiagnostics = await verifyTaskExecutionContract(cwd, task);
+  if (contractDiagnostics.length > 0) throw new TaskContractAdmissionError(task.id, contractDiagnostics);
   const dependencyDiagnostics = await verifyTaskDependenciesAccepted(cwd, state, task);
   if (dependencyDiagnostics.length > 0) throw new TaskDependencyAdmissionError(task.id, dependencyDiagnostics);
   const taskFingerprint = fingerprintTaskContract(task);

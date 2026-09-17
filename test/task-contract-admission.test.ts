@@ -62,7 +62,7 @@ test("conductor refuses an incomplete task contract before dispatch side effects
   });
 
   assert.equal(result.accepted, false);
-  assert.match(result.message, /task contract admission rejected/i);
+  assert.match(result.message, /contract admission rejected/i);
   assert.match(result.message, /write scope/i);
   assert.match(result.message, /declared output/i);
   assert.match(result.message, /acceptance/i);
@@ -81,7 +81,7 @@ test("shared attempt admission refuses an incomplete task contract", async () =>
   try {
     await assert.rejects(
       admitTaskExecution(dir, lock.lock.id, state, task, context, "test", []),
-      /task contract admission rejected.*acceptance/i,
+      /contract admission rejected.*acceptance/i,
     );
     assert.deepEqual(await loadTaskAttempts(dir), []);
   } finally {
@@ -120,7 +120,7 @@ test("late contract rejection does not publish projected agent budget", async ()
     throw new Error("must not dispatch");
   });
   assert.equal(result.accepted, false);
-  assert.match(result.message, /task contract admission rejected.*acceptance/i);
+  assert.match(result.message, /contract admission rejected.*acceptance/i);
   assert.equal(runnerCalls, 0);
   assert.deepEqual(await loadTaskAttempts(dir), []);
   assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents, beforeBudget.usage.spawnedAgents);

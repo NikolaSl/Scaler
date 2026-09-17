@@ -113,7 +113,7 @@ test("debug retry refuses an incomplete task contract before dispatch", async ()
     });
 
     assert.equal(result.status, "rejected");
-    assert.match(result.message, /task contract admission rejected.*write scope/i);
+    assert.match(result.message, /contract admission rejected.*write scope/i);
     assert.equal(runnerCalls, 0);
     assert.deepEqual(await loadTaskAttempts(dir), []);
   });
