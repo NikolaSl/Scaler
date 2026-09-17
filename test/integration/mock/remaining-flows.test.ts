@@ -44,7 +44,7 @@ import { loadStageArtifacts, upsertStageArtifact } from "../../../src/stages.js"
 import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
 import { createTask } from "../../../src/tasks.js";
 import type { ScalerState } from "../../../src/types.js";
-import { applyValidationReport, runTaskValidation, upsertValidationManifestCommand } from "../../../src/validation.js";
+import { getValidationManifestForTask, saveValidationManifest, applyValidationReport, runTaskValidation, upsertValidationManifestCommand } from "../../../src/validation.js";
 import { runConductorStep } from "../../../src/conductor.js";
 import { resumeScalerRun } from "../../../src/checkpoints.js";
 import { loadResumeVerificationRecords, loadWatchdogEvents, recordWatchdogHeartbeat, runWatchdogAssessment } from "../../../src/watchdogs.js";
@@ -476,6 +476,7 @@ test("mock integration: dependency-blocked task waits until dependency validates
     ];
     await saveState(dir, state);
     await upsertValidationManifestCommand(dir, { taskId: "T-DEP", id: "check", command: "node --input-type=module -e \"import {value} from './src/app.js'; if (value !== 1) process.exit(1)\"" });
+    await saveValidationManifest(dir, { ...await getValidationManifestForTask(dir, "T-DEP"), outputPaths: ["src/app.js"] });
     const first = await runConductorStep(dir, state, { execute: true }, (request) => Promise.resolve({
       taskId: request.taskId, exitCode: 0, stdoutEvents: [taskReport(request.taskId, request.attempt)], stderr: "", timedOut: false, aborted: false,
     }));
@@ -556,6 +557,7 @@ test("mock integration: explicit commit skip records evidence and validates afte
     state.tasks = [{ id: "T-GIT-SKIP", status: "validating", title: "Git skip", allowedPathPrefixes: ["src/app.js"], updatedAt: state.createdAt }];
     await saveState(dir, state);
     await writeFile(join(dir, "src/app.js"), "export const value = 6;\n");
+    await saveValidationManifest(dir, { ...await getValidationManifestForTask(dir, "T-GIT-SKIP"), outputPaths: ["src/app.js"] });
 
     const validation = await runValidationWithExecutionLock(dir, state, "T-GIT-SKIP");
     assert.equal(validation.accepted, false);

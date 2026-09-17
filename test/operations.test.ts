@@ -42,6 +42,7 @@ test("runValidationWithExecutionLock releases lock after validation", async () =
     await saveValidationManifest(dir, {
       taskId: "T-001",
       commands: [{ id: "pass", command: "node -e \"process.exit(0)\"", required: true }],
+      outputPaths: [],
       createdAt: "",
       updatedAt: "",
     });

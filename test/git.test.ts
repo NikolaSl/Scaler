@@ -12,7 +12,7 @@ import { promisify } from "node:util";
 import { test } from "node:test";
 import { assessGitStatusSafety, commitValidatedTask, ensureGitRepository, evaluateValidationGitAcceptance, formatCommitReports, formatCommitSkips, formatGitBootstrapRecords, loadCommitReports, loadCommitSkips, loadGitBootstrapRecords, skipTaskCommit } from "../src/git.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
-import { runTaskValidation, upsertValidationManifestCommand } from "../src/validation.js";
+import { getValidationManifestForTask, saveValidationManifest, runTaskValidation, upsertValidationManifestCommand } from "../src/validation.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -153,6 +153,7 @@ test("validation git acceptance records auto skip for clean task and explicit sk
     cleanState.tasks = [{ id: "T-CLEAN", title: "Clean task", status: "validating", allowedPathPrefixes: ["src"], updatedAt: cleanState.createdAt }];
     await saveState(dir, cleanState);
     await upsertValidationManifestCommand(dir, { taskId: "T-CLEAN", id: "test", command: "node -e \"process.exit(0)\"", required: true });
+    await saveValidationManifest(dir, { ...await getValidationManifestForTask(dir, "T-CLEAN"), outputPaths: [] });
     const cleanRun = await runTaskValidation(dir, cleanState, "T-CLEAN");
     const cleanDecision = await evaluateValidationGitAcceptance(dir, await loadState(dir), "T-CLEAN", cleanRun);
     assert.equal(cleanDecision.accepted, true);
@@ -165,6 +166,7 @@ test("validation git acceptance records auto skip for clean task and explicit sk
     state.tasks = [{ id: "T-SKIP", title: "Skip task", status: "validating", allowedPathPrefixes: ["src"], updatedAt: state.createdAt }];
     await saveState(dir, state);
     await upsertValidationManifestCommand(dir, { taskId: "T-SKIP", id: "test", command: "node -e \"process.exit(0)\"", required: true });
+    await saveValidationManifest(dir, { ...await getValidationManifestForTask(dir, "T-SKIP"), outputPaths: ["src/skip.ts"] });
     await runTaskValidation(dir, state, "T-SKIP");
 
     const result = await skipTaskCommit(dir, state, "T-SKIP", "No commit wanted for generated scratch output.");

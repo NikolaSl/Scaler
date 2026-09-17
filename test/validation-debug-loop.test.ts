@@ -13,6 +13,7 @@ import { createDefaultState, loadState, saveState } from "../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../src/subagents.js";
 import { runValidationDebugLoopWorkflow, selectTaskForValidationDebugLoop, type ValidationDebugLoopValidator } from "../src/validation-debug-loop.js";
 import type { ScalerState } from "../src/types.js";
+import { getValidationManifestForTask, saveValidationManifest } from "../src/validation.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-validation-debug-loop-test-"));
@@ -55,6 +56,7 @@ test("selectTaskForValidationDebugLoop prefers explicit, current, then first can
 test("runValidationDebugLoopWorkflow skips debug loop when validation passes", async () => {
   await withTempDir(async (dir) => {
     await writePackage(dir, 0);
+    await saveValidationManifest(dir, { ...await getValidationManifestForTask(dir, "T-VAL-DEBUG"), outputPaths: [] });
     const state = validatingState();
     await saveState(dir, state);
 

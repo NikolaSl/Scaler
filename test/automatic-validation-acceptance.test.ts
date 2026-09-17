@@ -58,7 +58,7 @@ for (const git of [false, true]) {
   for (const evidence of ["passed", "declared_skip"] as const) {
     test(`automatic ${git ? "Git" : "non-Git"} acceptance preserves current ${evidence} evidence`, async () => {
       await fixture(git, async (dir, state) => {
-        await saveValidationManifest(dir, { taskId: "T-AUTO", commands: [{
+        await saveValidationManifest(dir, { taskId: "T-AUTO", outputPaths: [], commands: [{
           id: "check", command: "node -e 'process.exit(0)'", required: true,
           ...(evidence === "declared_skip" ? { disposition: "skipped", dispositionReason: "Capability not applicable to this fixture" } : {}),
         }], createdAt: "", updatedAt: "" });

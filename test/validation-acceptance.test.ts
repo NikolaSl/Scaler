@@ -16,7 +16,7 @@ import { commitValidatedTask, loadCommitReports, loadCommitSkips, skipTaskCommit
 import { commitWithExecutionLock, skipCommitWithExecutionLock } from "../src/operations.js";
 import { getValidationRunsPath } from "../src/paths.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
-import { runTaskValidation, upsertValidationManifestCommand } from "../src/validation.js";
+import { getValidationManifestForTask, saveValidationManifest, runTaskValidation, upsertValidationManifestCommand } from "../src/validation.js";
 import { captureValidationSnapshot, fingerprintValidationResult } from "../src/validation-acceptance.js";
 import { fingerprintJson } from "../src/fingerprints.js";
 
@@ -39,6 +39,7 @@ async function validated(dir: string, command = "node -e \"process.exit(0)\"") {
   state.stage = "execution";
   state.tasks = [{ id: "T-RECEIPT", title: "Output", status: "ready", allowedPathPrefixes: ["output.txt"], updatedAt: state.updatedAt }];
   await upsertValidationManifestCommand(dir, { taskId: "T-RECEIPT", id: "check", command });
+  await saveValidationManifest(dir, { ...await getValidationManifestForTask(dir, "T-RECEIPT"), outputPaths: ["output.txt"] });
   await runConductorStep(dir, state, { execute: true }, async (request) => {
     await writeFile(join(dir, "output.txt"), "candidate");
     return { taskId: request.taskId, exitCode: 0, stdoutEvents: [{ type: "scaler_task_report", taskId: request.taskId, ...request.attempt, status: "completed", summary: "done", changedFiles: ["output.txt"] }], stderr: "", timedOut: false, aborted: false };

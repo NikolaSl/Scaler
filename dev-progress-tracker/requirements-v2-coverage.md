@@ -213,6 +213,13 @@ compatibility only. Updating that gate belongs to the later implementation phase
 revision 2 document integrity is checked separately during this change.
 # PLAN-106 continuation
 
+PLAN-113 requires a declared output basis at automatic and explicit task skip
+admission, preserving passing command facts without claiming task acceptance.
+Six false-success regressions are fixed; existing fixture assertions remain.
+Gate: build, 696 unit, 67 mock integration, 7 conformance/autopilot. Policy
+authority, declaration adequacy and final semantic/integration acceptance remain
+open; P2.3 and SC-01/10/26 are not yet complete.
+
 PLAN-112 transports declared outputs from plans and task tools into the existing
 validation policy, including child-event parsing. Nine baseline failures and
 two controls now pass in the focused transport/autopilot suite. Combined gate:

@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { test } from "node:test";
-import { evaluateValidationGitAcceptance, loadCommitSkips } from "../src/git.js";
+import { evaluateValidationGitAcceptance, loadCommitSkips, recordCommitSkip } from "../src/git.js";
 import { completeRunWithEvidence } from "../src/run-completion.js";
 import { fingerprintDeclaredOutputs, normalizeOutputPaths } from "../src/output-artifacts.js";
 import { captureValidationSnapshot } from "../src/validation-acceptance.js";
@@ -222,8 +222,18 @@ for (const git of [false, true]) {
       const policy = await getValidationManifestForTask(dir, "T-OUT");
       delete policy.outputPaths;
       await saveValidationManifest(dir, policy);
-      assert.equal((await runTaskValidation(dir, await loadState(dir), "T-OUT")).status, "passed");
+      const run = await runTaskValidation(dir, await loadState(dir), "T-OUT");
+      assert.equal(run.status, "passed");
+      assert.equal(run.acceptance?.accepted, false);
+      assert.ok(run.acceptance?.git);
+      // Seed the historical accepted record that pre-PLAN-113 versions could
+      // produce, so the completion guard remains tested independently.
+      await recordCommitSkip(dir, { taskId: "T-OUT", reason: "Historical skip without output declaration",
+        safety: run.acceptance.git.safety, validation: { runId: run.id, status: "passed",
+          commandCount: run.commandRuns.length, failedCommandIds: [], createdAt: run.createdAt } });
       const current = await loadState(dir);
+      current.tasks[0]!.status = "validated";
+      current.validatedTaskIds = current.completedTaskIds = ["T-OUT"];
       current.stage = stage;
       await saveState(dir, current);
       const before = await readFile(join(dir, ".scaler/state.json"), "utf8");
