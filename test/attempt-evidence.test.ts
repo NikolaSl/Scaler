@@ -23,7 +23,12 @@ async function fixture(fn: (dir: string) => Promise<void>) {
 async function completed(dir: string, command = "node -e \"require('fs').writeFileSync('validated-marker', 'ok')\"") {
   const state = createDefaultState();
   state.stage = "execution";
-  state.tasks = [{ id: "T-FRESH", status: "ready", title: "Fresh evidence", updatedAt: state.updatedAt }];
+  state.tasks = [{
+    id: "T-FRESH", status: "ready", title: "Fresh evidence",
+    allowedPathPrefixes: ["validated-marker"],
+    definitionOfDone: ["The validation probe confirms the reported result."],
+    updatedAt: state.updatedAt,
+  }];
   await writeFile(join(dir, "spec.md"), "Original input");
   await saveTaskContextManifest(dir, {
     version: 1, taskId: "T-FRESH", createdAt: state.createdAt, updatedAt: state.updatedAt,

@@ -29,8 +29,14 @@ async function withFixture(fn: (dir: string) => Promise<void>) {
     const state = createDefaultState();
     state.stage = "execution";
     state.tasks = [
-      { id: "T-DEP", status: "validating", allowedPathPrefixes: ["dependency.txt"], updatedAt: state.updatedAt },
-      { id: "T-NEXT", status: "ready", dependsOn: ["T-DEP"], allowedPathPrefixes: ["next.txt"], updatedAt: state.updatedAt },
+      {
+        id: "T-DEP", status: "validating", allowedPathPrefixes: ["dependency.txt"],
+        definitionOfDone: ["The accepted dependency content is validated."], updatedAt: state.updatedAt,
+      },
+      {
+        id: "T-NEXT", status: "ready", dependsOn: ["T-DEP"], allowedPathPrefixes: ["next.txt"],
+        definitionOfDone: ["The dependent work reports completion."], updatedAt: state.updatedAt,
+      },
     ];
     await saveState(dir, state);
     await saveValidationManifest(dir, {

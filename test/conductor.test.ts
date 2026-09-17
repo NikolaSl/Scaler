@@ -29,10 +29,17 @@ import { fingerprintJson } from "../src/fingerprints.js";
 import { acquireExecutionLock, loadExecutionLock, releaseExecutionLock } from "../src/locks.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import type { ScalerTaskStatus } from "../src/types.js";
+import { saveValidationManifest } from "../src/validation.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-conductor-test-"));
   try {
+    for (const taskId of ["T-001", "T-002", "T-003"]) {
+      await saveValidationManifest(dir, {
+        taskId, outputPaths: [], acceptanceCriteria: ["The synthetic task report is handed to validation."],
+        commands: [], createdAt: "", updatedAt: "",
+      });
+    }
     return await fn(dir);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -41,7 +48,11 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
 
 function stateWithTasks(statuses: ScalerTaskStatus[]) {
   const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-  state.tasks = statuses.map((status, index) => ({ id: `T-00${index + 1}`, status, updatedAt: state.createdAt }));
+  state.tasks = statuses.map((status, index) => ({
+    id: `T-00${index + 1}`, status,
+    allowedPathPrefixes: ["src"], definitionOfDone: ["The synthetic task report is handed to validation."],
+    updatedAt: state.createdAt,
+  }));
   return state;
 }
 
