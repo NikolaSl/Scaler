@@ -200,6 +200,16 @@ export async function runConductorStep(
     return { accepted: false, message: debugGate.reason, state, task: selection.task };
   }
 
+  const contractDiagnostics = options.execute ? await verifyTaskExecutionContract(cwd, selection.task) : [];
+  if (contractDiagnostics.length > 0) {
+    const message = new TaskContractAdmissionError(selection.task.id, contractDiagnostics).message;
+    await appendLogEvent(cwd, createLogEvent(state, {
+      eventType: "rejected_transition", summary: message, taskId: selection.task.id,
+      details: { diagnostics: contractDiagnostics, admission: "task_contract" },
+    }));
+    return { accepted: false, message, state, task: selection.task };
+  }
+
   const gitSafety = await assessGitStatusSafety(cwd, selection.task.allowedPathPrefixes ?? []);
   if (gitSafety.status === "unrelated") {
     const reason = `Pre-task git dirty-tree blocker for ${selection.task.id}: ${gitSafety.reason}`;
@@ -228,15 +238,6 @@ export async function runConductorStep(
   let activeAttempt: TaskAttemptRecord | undefined;
   let attemptTerminal = false;
   try {
-    const contractDiagnostics = options.execute ? await verifyTaskExecutionContract(cwd, selection.task) : [];
-    if (contractDiagnostics.length > 0) {
-      const message = new TaskContractAdmissionError(selection.task.id, contractDiagnostics).message;
-      await appendLogEvent(cwd, createLogEvent(state, {
-        eventType: "rejected_transition", summary: message, taskId: selection.task.id,
-        details: { diagnostics: contractDiagnostics, admission: "task_contract" },
-      }));
-      return { accepted: false, message, state, task: selection.task };
-    }
     const dependencyDiagnostics = await verifyTaskDependenciesAccepted(cwd, state, selection.task);
     if (dependencyDiagnostics.length > 0) {
       const message = dependencyDiagnostics.join(" ");

@@ -4,9 +4,11 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { test } from "node:test";
 import { getBudgetState } from "../src/budgets.js";
 import { buildTaskAgentPrompt, runConductorStep, type ConductorStepOptions } from "../src/conductor.js";
@@ -15,6 +17,8 @@ import { acquireExecutionLock, releaseExecutionLock } from "../src/locks.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { loadTaskAttempts, type TaskAttemptBinding } from "../src/task-attempts.js";
 import { saveValidationManifest } from "../src/validation.js";
+
+const execFileAsync = promisify(execFile);
 
 async function withFixture(fn: (dir: string) => Promise<void>) {
   const dir = await mkdtemp(join(tmpdir(), "scaler-task-contract-admission-"));
@@ -70,6 +74,24 @@ test("conductor refuses an incomplete task contract before dispatch side effects
   assert.deepEqual(await loadTaskAttempts(dir), []);
   assert.equal((await loadState(dir)).tasks[0]?.status, "ready");
   assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents, beforeBudget.usage.spawnedAgents);
+}));
+
+test("conductor rejects an incomplete contract before dirty-tree checkpointing", async () => withFixture(async (dir) => {
+  await execFileAsync("git", ["init"], { cwd: dir });
+  await writeFile(join(dir, "unrelated.txt"), "user work\n", "utf8");
+  const state = await loadState(dir);
+  state.tasks[0]!.allowedPathPrefixes = undefined;
+  await saveState(dir, state);
+
+  const result = await runConductorStep(dir, state, { execute: true }, async () => {
+    throw new Error("must not dispatch");
+  });
+
+  assert.equal(result.accepted, false);
+  assert.match(result.message, /contract admission rejected.*write scope/i);
+  assert.equal(result.checkpointPath, undefined);
+  assert.equal(result.state.stage, "execution");
+  assert.equal((await loadState(dir)).stage, "execution");
 }));
 
 test("shared attempt admission refuses an incomplete task contract", async () => withFixture(async (dir) => {

@@ -44,7 +44,8 @@ export async function verifyTaskExecutionContract(cwd: string, task: ScalerTaskS
   try {
     manifest = await getValidationManifestForTask(cwd, task.id);
   } catch (error) {
-    diagnostics.push(`validation contract unavailable: ${String(error)}`);
+    const message = error instanceof Error ? error.message : String(error);
+    diagnostics.push(`validation contract unavailable: ${message}`);
     return diagnostics;
   }
   if (manifest.outputPaths === undefined) {
