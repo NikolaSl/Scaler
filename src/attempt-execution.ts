@@ -8,6 +8,7 @@ import { verifyTaskDependenciesAccepted } from "./accepted-evidence.js";
 import type { ResolvedContext } from "./context.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { appendLogEvent, createLogEvent } from "./logging.js";
+import { normalizeOutputPaths } from "./output-artifacts.js";
 import { loadState, saveState } from "./state.js";
 import { transitionTask } from "./supervisor.js";
 import { admitTaskAttempt, assertAttemptWriter, completeTaskAttempt, loadTaskAttempts, markTaskAttemptDispatching, taskAttemptBinding, type TaskAttemptRecord } from "./task-attempts.js";
@@ -48,8 +49,13 @@ export async function verifyTaskExecutionContract(cwd: string, task: ScalerTaskS
     diagnostics.push(`validation contract unavailable: ${message}`);
     return diagnostics;
   }
-  if (!Array.isArray(manifest.outputPaths)) {
-    diagnostics.push("missing declared output basis (outputPaths; use [] explicitly for no filesystem outputs).");
+  try {
+    if (normalizeOutputPaths(manifest.outputPaths) === undefined) {
+      diagnostics.push("missing declared output basis (outputPaths; use [] explicitly for no filesystem outputs).");
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    diagnostics.push(`invalid declared output basis: ${message}`);
   }
   if (!hasNonEmptyString(task.definitionOfDone)
     && !hasNonEmptyString(manifest.definitionOfDone)

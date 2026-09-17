@@ -102,7 +102,7 @@ test("conductor returns a structured rejection for malformed legacy contract fie
   await writeFile(getValidationManifestsPath(dir), `${JSON.stringify({
     version: 1,
     manifests: [{
-      taskId: "T-WORK", outputPaths: "result.txt", acceptanceCriteria: { text: "looks present" },
+      taskId: "T-WORK", outputPaths: [123], acceptanceCriteria: { text: "looks present" },
       commands: [], createdAt: "", updatedAt: "",
     }],
   })}\n`, "utf8");
