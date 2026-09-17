@@ -6,6 +6,8 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import fsPromises from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -20,6 +22,34 @@ import { getValidationManifestForTask, runTaskValidation, saveValidationManifest
 
 const exec = promisify(execFile);
 const check = 'node -e "if(require(\'fs\').readFileSync(\'result.txt\',\'utf8\')!==\'ok\')process.exit(1)"';
+
+for (const replacement of ["symlink", "file"] as const) {
+  test(`declared hashing refuses a ${replacement} swap after lstat`, async (t) => fixture(false, async (dir) => {
+    const target = join(dir, "result.txt");
+    await writeFile(join(dir, "other.txt"), "different synthetic output");
+    const original = fsPromises.lstat;
+    let swapped = false;
+    t.mock.method(fsPromises, "lstat", (async (path: string) => {
+      const stat = await original(path);
+      if (path === target && !swapped) {
+        swapped = true;
+        // Keep the old inode alive so regular-file replacement is deterministic.
+        await fsPromises.rename(target, join(dir, "old-output.txt"));
+        if (replacement === "symlink") await symlink("other.txt", target);
+        else await writeFile(target, "replaced inode");
+      }
+      return stat;
+    }) as typeof fsPromises.lstat);
+    syncBuiltinESMExports();
+    try {
+      await assert.rejects(fingerprintDeclaredOutputs(dir, ["result.txt"]), /ELOOP|changed|replaced|symlink/i);
+      assert.equal(swapped, true);
+    } finally {
+      t.mock.restoreAll();
+      syncBuiltinESMExports();
+    }
+  }));
+}
 
 test("declared-output snapshot advertises schema version 2", async () => fixture(false, async (dir) => {
   assert.equal((await captureValidationSnapshot(dir, await loadState(dir), "T-OUT")).version, 2);

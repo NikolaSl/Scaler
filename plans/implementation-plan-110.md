@@ -61,3 +61,14 @@ bump: emitted version and refusal of a version-1 receipt with otherwise matching
 fields. Revalidation remains required; no compatibility proof is fabricated.
 Final corrected gate: build, 673 unit, 67 mock integration and 7
 conformance/autopilot checks pass. Existing nineteen output checks remain intact.
+
+Review 5233298199 identified a valid leaf lstat/open race. Two deterministic
+injected swaps (symlink and different regular-file inode) failed before repair.
+File capture now opens with O_NOFOLLOW/O_NONBLOCK, verifies type and identity
+against lstat, and hashes through that descriptor with before/after fstat checks.
+Bytes and executable mode come from the same descriptor; unsupported no-follow
+capability refuses capture. This closes the leaf-open window; arbitrary malicious
+ancestor replacement/writer containment still requires provider-level isolation.
+The suppressed outputPaths type-error diagnostic was also clarified.
+Corrected gate: build, 675/675 unit, 67/67 mock integration and 7/7
+conformance/autopilot checks. Both injected swaps refuse; prior controls remain.
