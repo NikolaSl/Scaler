@@ -16,10 +16,29 @@ import { fingerprintDeclaredOutputs, normalizeOutputPaths } from "../src/output-
 import { captureValidationSnapshot } from "../src/validation-acceptance.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { registerScalerTools } from "../src/tools.js";
+import { createTask, updateTask } from "../src/tasks.js";
 import { getValidationManifestForTask, runTaskValidation, saveValidationManifest, type TaskValidationManifest } from "../src/validation.js";
 
 const exec = promisify(execFile);
 const check = 'node -e "if(require(\'fs\').readFileSync(\'result.txt\',\'utf8\')!==\'ok\')process.exit(1)"';
+
+test("task command replacement preserves the rest of the validation policy", async () => fixture(false, async (dir) => {
+  await createTask(dir, await loadState(dir), { id: "T-POLICY" });
+  await saveValidationManifest(dir, { taskId: "T-POLICY", outputPaths: ["result.txt"],
+    definitionOfDone: ["Original task-specific criterion"], acceptanceCriteria: ["Existing acceptance basis"],
+    qualityWaivers: [{ code: "test_first", reason: "Document-only check", approvedBy: "fixture-supervisor" }],
+    commands: [{ id: "old", required: true, command: check }], createdAt: "2026-01-01T00:00:00Z", updatedAt: "" });
+  const before = await getValidationManifestForTask(dir, "T-POLICY");
+  const result = await updateTask(dir, await loadState(dir), { id: "T-POLICY", validationCommands: [{ id: "new", command: check, required: true }] });
+  assert.equal(result.accepted, true, result.message);
+  const after = await getValidationManifestForTask(dir, "T-POLICY");
+  assert.deepEqual(after.outputPaths, before.outputPaths);
+  assert.deepEqual(after.definitionOfDone, before.definitionOfDone);
+  assert.deepEqual(after.acceptanceCriteria, before.acceptanceCriteria);
+  assert.deepEqual(after.qualityWaivers, before.qualityWaivers);
+  assert.equal(after.createdAt, before.createdAt);
+  assert.equal(after.commands[0]!.id, "new");
+}));
 
 test("declared-output snapshot advertises schema version 2", async () => fixture(false, async (dir) => {
   assert.equal((await captureValidationSnapshot(dir, await loadState(dir), "T-OUT")).version, 2);

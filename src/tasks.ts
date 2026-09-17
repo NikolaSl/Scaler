@@ -312,11 +312,12 @@ async function persistTaskValidationCommands(
   const existing = (await loadValidationManifests(cwd)).find((manifest) => manifest.taskId === taskId);
   const timestamp = new Date().toISOString();
   await saveValidationManifest(cwd, {
+    ...existing,
     taskId,
     outputPaths: existing?.outputPaths,
-    definitionOfDone,
+    definitionOfDone: definitionOfDone ?? existing?.definitionOfDone,
     commands: commands.map((command) => ({ ...command, required: command.required ?? true })),
-    createdAt: timestamp,
+    createdAt: existing?.createdAt ?? timestamp,
     updatedAt: timestamp,
   });
 }

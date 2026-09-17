@@ -55,3 +55,12 @@ semantic/integration acceptance remain open. P2.3 is incomplete.
 Restored onto PLAN-110's reviewed schema-version correction before publication.
 Combined gate: build, 678 unit, 67 mock integration and 7 conformance/autopilot
 checks pass, including both new version controls. Prior local commits retained.
+
+## Copilot preservation follow-up
+
+The suppressed finding in review 5233293400 is valid. Command replacement
+preserved outputPaths but dropped other existing manifest fields. A regression
+failed before repair. Persistence now spreads the existing manifest and changes
+only the command set, supplied DoD and update timestamp, retaining criteria,
+waivers, creation identity and a preconfigured DoD when task metadata omits it.
+This does not authorize arbitrary acceptance-policy changes.
