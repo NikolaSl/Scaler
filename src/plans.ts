@@ -33,6 +33,7 @@ export type ReplanRequestTrigger = (typeof replanRequestTriggers)[number];
 export interface ExecutionPlanTask {
   id: string;
   outputPaths?: string[];
+  validationInputPaths?: string[];
   title: string;
   description?: string;
   taskKind?: ScalerTaskKind | string;
@@ -413,6 +414,7 @@ export async function applyExecutionPlanTasks(
           validationRefs: task.validationRefs,
           validationCommands: task.validationCommands,
           outputPaths: task.outputPaths,
+          validationInputPaths: task.validationInputPaths,
           qualityWaivers: task.qualityWaivers,
           qualityMode: "enforce",
           acceptanceAuthority: options.acceptanceAuthority ?? "system",
@@ -436,6 +438,7 @@ export async function applyExecutionPlanTasks(
       validationRefs: task.validationRefs,
       validationCommands: task.validationCommands,
       outputPaths: task.outputPaths,
+      validationInputPaths: task.validationInputPaths,
       qualityWaivers: task.qualityWaivers,
       qualityMode: "enforce",
     });
@@ -476,6 +479,7 @@ async function preflightExecutionPlanPolicyChanges(
       validationRefs: task.validationRefs,
       validationCommands: task.validationCommands,
       outputPaths: task.outputPaths,
+      validationInputPaths: task.validationInputPaths,
       qualityWaivers: task.qualityWaivers,
       acceptanceAuthority: authority,
     };
@@ -838,6 +842,7 @@ function normalizeExecutionPlan(plan: ExecutionPlanArtifact, now: Date): Executi
       definitionOfDone: normalizeList(task.definitionOfDone),
       validationRefs: normalizeList(task.validationRefs),
       outputPaths: normalizeOutputPaths(task.outputPaths),
+      validationInputPaths: normalizeOutputPaths(task.validationInputPaths),
       validationCommands: task.validationCommands?.map((command) => ({ ...command, id: command.id.trim(), command: command.command.trim() })).filter((command) => command.id && command.command),
       qualityWaivers: task.qualityWaivers?.map((waiver) => ({ ...waiver, code: waiver.code.trim(), reason: waiver.reason.trim() })).filter((waiver) => waiver.code && waiver.reason),
     })),

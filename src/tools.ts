@@ -227,6 +227,7 @@ const TaskValidationCommandParams = Type.Object({
 const TaskCreateParams = Type.Object({
   taskId: Type.String(),
   outputPaths: Type.Optional(Type.Array(Type.String(), { description: "Exact output paths to bind before validation; [] only for no filesystem outputs." })),
+  validationInputPaths: Type.Optional(Type.Array(Type.String(), { description: "Exact local validator, fixture, helper, or runner-config files whose bytes define the executable validation basis; [] only for self-contained commands." })),
   title: Type.Optional(Type.String()),
   status: Type.Optional(Type.String({ description: "Initial task status. Defaults to pending." })),
   taskKind: Type.Optional(Type.String({ description: "software, non_software, or mixed. Software/mixed tasks require test_first coverage or a waiver." })),
@@ -243,6 +244,7 @@ const TaskCreateParams = Type.Object({
 const TaskUpdateParams = Type.Object({
   taskId: Type.String(),
   outputPaths: Type.Optional(Type.Array(Type.String(), { description: "Replacement declared output paths; omit to preserve the existing basis." })),
+  validationInputPaths: Type.Optional(Type.Array(Type.String(), { description: "Replacement executable validation-basis paths; omit to preserve the existing basis." })),
   title: Type.Optional(Type.String()),
   status: Type.Optional(Type.String({ description: "Target task status; must be a valid transition." })),
   taskKind: Type.Optional(Type.String({ description: "software, non_software, or mixed." })),
@@ -286,6 +288,7 @@ const PlanningReportParams = Type.Object({
     tasks: Type.Array(Type.Object({
       id: Type.String(),
       outputPaths: Type.Optional(Type.Array(Type.String(), { description: "Exact output paths for the task's validation basis; [] only for no filesystem outputs." })),
+      validationInputPaths: Type.Optional(Type.Array(Type.String(), { description: "Exact files implementing the executable validation basis; [] only for self-contained commands." })),
       title: Type.String(),
       description: Type.Optional(Type.String()),
       taskKind: Type.Optional(Type.String()),
@@ -333,6 +336,7 @@ const PrdRequirementUpdateParams = Type.Object({
 const ValidationManifestWriteParams = Type.Object({
   taskId: Type.String(),
   outputPaths: Type.Optional(Type.Array(Type.String(), { description: "Exact project-relative output files, symlinks or deletions to bind to validation; omit when not yet specified. No directories or globs." })),
+  validationInputPaths: Type.Optional(Type.Array(Type.String(), { description: "Exact project-relative regular files implementing validation; omit to preserve the existing basis, [] only for self-contained commands." })),
   commands: Type.Array(
     Type.Object({
       id: Type.String(),
@@ -611,6 +615,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         validationRefs: params.validationRefs,
         validationCommands: params.validationCommands,
         outputPaths: params.outputPaths,
+        validationInputPaths: params.validationInputPaths,
         qualityWaivers: params.qualityWaivers,
         qualityMode: "enforce",
       });
@@ -639,6 +644,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         validationRefs: params.validationRefs,
         validationCommands: params.validationCommands,
         outputPaths: params.outputPaths,
+        validationInputPaths: params.validationInputPaths,
         qualityWaivers: params.qualityWaivers,
         qualityMode: "enforce",
         acceptanceAuthority: "model",
@@ -738,6 +744,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
           ...existing,
           taskId: params.taskId,
           outputPaths: params.outputPaths ?? existing.outputPaths,
+          validationInputPaths: params.validationInputPaths ?? existing.validationInputPaths,
           commands: params.commands.map((command) => ({
             ...existing.commands.find((candidate) => candidate.id === command.id),
             id: command.id,

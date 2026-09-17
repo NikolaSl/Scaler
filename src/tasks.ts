@@ -16,6 +16,7 @@ import { assertValidationPolicyMutationAuthorized, getValidationManifestForTask,
 export interface CreateTaskInput {
   id: string;
   outputPaths?: string[];
+  validationInputPaths?: string[];
   title?: string;
   status?: ScalerTaskStatus | string;
   taskKind?: ScalerTaskKind | string;
@@ -40,6 +41,7 @@ export interface CreateTaskResult {
 export interface UpdateTaskInput {
   id: string;
   outputPaths?: string[];
+  validationInputPaths?: string[];
   title?: string;
   status?: ScalerTaskStatus | string;
   taskKind?: ScalerTaskKind | string;
@@ -115,6 +117,7 @@ export async function updateTask(cwd: string, state: ScalerState, input: UpdateT
 async function updateTaskLocked(cwd: string, state: ScalerState, input: UpdateTaskInput): Promise<UpdateTaskResult> {
   await assertStateSnapshotCurrent(cwd, state);
   const outputPaths = normalizeOutputPaths(input.outputPaths);
+  const validationInputPaths = normalizeOutputPaths(input.validationInputPaths);
   const existing = state.tasks.find((task) => task.id === input.id);
   if (!existing) {
     const message = `Task update rejected: ${input.id} does not exist`;
@@ -193,7 +196,7 @@ async function updateTaskLocked(cwd: string, state: ScalerState, input: UpdateTa
     }
   }
 
-  await persistTaskValidationCommands(cwd, input.id, input.validationCommands, nextState.tasks.find((task) => task.id === input.id)?.definitionOfDone, outputPaths, acceptanceAuthority);
+  await persistTaskValidationCommands(cwd, input.id, input.validationCommands, nextState.tasks.find((task) => task.id === input.id)?.definitionOfDone, outputPaths, validationInputPaths, acceptanceAuthority);
   await saveState(cwd, nextState);
   const qualityReview = await reviewTaskDefinition(cwd, nextState, input.id, new Date(), { enforcement: qualityMode });
   await appendLogEvent(
@@ -226,12 +229,13 @@ export async function reviewTaskAcceptancePolicyMutation(
   if (fingerprintTaskContract(proposedTask) !== fingerprintTaskContract(existing)) {
     return `Acceptance policy update rejected for ${input.id}: model routes cannot replace an exercised task contract; use an explicit local user command.`;
   }
-  if (input.validationCommands !== undefined || input.outputPaths !== undefined) {
+  if (input.validationCommands !== undefined || input.outputPaths !== undefined || input.validationInputPaths !== undefined) {
     const manifest = await getValidationManifestForTask(cwd, input.id);
     try {
       await assertValidationPolicyMutationAuthorized(cwd, {
         ...manifest,
         outputPaths: normalizeOutputPaths(input.outputPaths) ?? manifest.outputPaths,
+        validationInputPaths: normalizeOutputPaths(input.validationInputPaths) ?? manifest.validationInputPaths,
         definitionOfDone: proposedTask.definitionOfDone ?? manifest.definitionOfDone,
         commands: input.validationCommands?.length
           ? input.validationCommands.map((command) => ({ ...command, required: command.required ?? true }))
@@ -246,6 +250,7 @@ export async function reviewTaskAcceptancePolicyMutation(
 
 export async function createTask(cwd: string, state: ScalerState, input: CreateTaskInput): Promise<CreateTaskResult> {
   const outputPaths = normalizeOutputPaths(input.outputPaths);
+  const validationInputPaths = normalizeOutputPaths(input.validationInputPaths);
   const status = input.status ?? "pending";
   if (status === "validated") {
     const message = `Task create rejected: ${input.id} acceptance requires the dedicated validation path; create an unvalidated task first.`;
@@ -312,7 +317,7 @@ export async function createTask(cwd: string, state: ScalerState, input: CreateT
     }
   }
 
-  await persistTaskValidationCommands(cwd, input.id, input.validationCommands, nextState.tasks.find((task) => task.id === input.id)?.definitionOfDone, outputPaths);
+  await persistTaskValidationCommands(cwd, input.id, input.validationCommands, nextState.tasks.find((task) => task.id === input.id)?.definitionOfDone, outputPaths, validationInputPaths);
   await saveState(cwd, nextState);
   const qualityReview = await reviewTaskDefinition(cwd, nextState, input.id, new Date(), { enforcement: qualityMode });
   await appendLogEvent(
@@ -367,15 +372,17 @@ async function persistTaskValidationCommands(
   commands: EmbeddedValidationManifestCommandInput[] | undefined,
   definitionOfDone: string[] | undefined,
   outputPaths: string[] | undefined,
+  validationInputPaths: string[] | undefined,
   authority: ValidationPolicyAuthority = "system",
 ): Promise<void> {
-  if ((!commands || commands.length === 0) && outputPaths === undefined) return;
+  if ((!commands || commands.length === 0) && outputPaths === undefined && validationInputPaths === undefined) return;
   const existing = await getValidationManifestForTask(cwd, taskId);
   const timestamp = new Date().toISOString();
   await saveValidationManifest(cwd, {
     ...existing,
     taskId,
     outputPaths: outputPaths ?? existing.outputPaths,
+    validationInputPaths: validationInputPaths ?? existing.validationInputPaths,
     definitionOfDone: definitionOfDone ?? existing.definitionOfDone,
     commands: commands?.length ? commands.map((command) => ({ ...command, required: command.required ?? true })) : existing.commands,
     createdAt: existing.createdAt || timestamp,

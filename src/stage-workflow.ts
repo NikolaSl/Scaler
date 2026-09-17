@@ -1013,6 +1013,7 @@ function parsePlanningReportInput(report: Record<string, unknown>): PlanningRepo
       prdRefs: stringArrayField(value, "prdRefs"),
       allowedPathPrefixes: stringArrayField(value, "allowedPathPrefixes"),
       outputPaths: normalizeOutputPaths(value.outputPaths as string[] | undefined),
+      validationInputPaths: normalizeOutputPaths(value.validationInputPaths as string[] | undefined),
       dependsOn: stringArrayField(value, "dependsOn"),
       definitionOfDone: stringArrayField(value, "definitionOfDone"),
       validationRefs: stringArrayField(value, "validationRefs"),
