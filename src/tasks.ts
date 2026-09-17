@@ -6,13 +6,15 @@
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { isScalerTaskStatus } from "./reports.js";
 import { saveState } from "./state.js";
+import { normalizeOutputPaths } from "./output-artifacts.js";
 import { reviewTaskDefinition, normalizeTaskKind, normalizeTaskQualityWaivers, type TaskDefinitionReviewRecord, type TaskQualityEnforcementMode, type TaskQualityWaiverInput } from "./task-quality.js";
 import { addTask, transitionTask } from "./supervisor.js";
 import type { ScalerState, ScalerTaskKind, ScalerTaskStatus } from "./types.js";
-import { loadValidationManifests, saveValidationManifest, type EmbeddedValidationManifestCommandInput } from "./validation.js";
+import { getValidationManifestForTask, saveValidationManifest, type EmbeddedValidationManifestCommandInput } from "./validation.js";
 
 export interface CreateTaskInput {
   id: string;
+  outputPaths?: string[];
   title?: string;
   status?: ScalerTaskStatus | string;
   taskKind?: ScalerTaskKind | string;
@@ -36,6 +38,7 @@ export interface CreateTaskResult {
 
 export interface UpdateTaskInput {
   id: string;
+  outputPaths?: string[];
   title?: string;
   status?: ScalerTaskStatus | string;
   taskKind?: ScalerTaskKind | string;
@@ -104,6 +107,7 @@ export async function retryTask(cwd: string, state: ScalerState, taskId: string,
 }
 
 export async function updateTask(cwd: string, state: ScalerState, input: UpdateTaskInput): Promise<UpdateTaskResult> {
+  const outputPaths = normalizeOutputPaths(input.outputPaths);
   const existing = state.tasks.find((task) => task.id === input.id);
   if (!existing) {
     const message = `Task update rejected: ${input.id} does not exist`;
@@ -175,7 +179,7 @@ export async function updateTask(cwd: string, state: ScalerState, input: UpdateT
     }
   }
 
-  await persistTaskValidationCommands(cwd, input.id, input.validationCommands, nextState.tasks.find((task) => task.id === input.id)?.definitionOfDone);
+  await persistTaskValidationCommands(cwd, input.id, input.validationCommands, nextState.tasks.find((task) => task.id === input.id)?.definitionOfDone, outputPaths);
   await saveState(cwd, nextState);
   const qualityReview = await reviewTaskDefinition(cwd, nextState, input.id, new Date(), { enforcement: qualityMode });
   await appendLogEvent(
@@ -187,6 +191,7 @@ export async function updateTask(cwd: string, state: ScalerState, input: UpdateT
 }
 
 export async function createTask(cwd: string, state: ScalerState, input: CreateTaskInput): Promise<CreateTaskResult> {
+  const outputPaths = normalizeOutputPaths(input.outputPaths);
   const status = input.status ?? "pending";
   if (status === "validated") {
     const message = `Task create rejected: ${input.id} acceptance requires the dedicated validation path; create an unvalidated task first.`;
@@ -253,7 +258,7 @@ export async function createTask(cwd: string, state: ScalerState, input: CreateT
     }
   }
 
-  await persistTaskValidationCommands(cwd, input.id, input.validationCommands, nextState.tasks.find((task) => task.id === input.id)?.definitionOfDone);
+  await persistTaskValidationCommands(cwd, input.id, input.validationCommands, nextState.tasks.find((task) => task.id === input.id)?.definitionOfDone, outputPaths);
   await saveState(cwd, nextState);
   const qualityReview = await reviewTaskDefinition(cwd, nextState, input.id, new Date(), { enforcement: qualityMode });
   await appendLogEvent(
@@ -307,17 +312,18 @@ async function persistTaskValidationCommands(
   taskId: string,
   commands: EmbeddedValidationManifestCommandInput[] | undefined,
   definitionOfDone: string[] | undefined,
+  outputPaths: string[] | undefined,
 ): Promise<void> {
-  if (!commands || commands.length === 0) return;
-  const existing = (await loadValidationManifests(cwd)).find((manifest) => manifest.taskId === taskId);
+  if ((!commands || commands.length === 0) && outputPaths === undefined) return;
+  const existing = await getValidationManifestForTask(cwd, taskId);
   const timestamp = new Date().toISOString();
   await saveValidationManifest(cwd, {
     ...existing,
     taskId,
-    outputPaths: existing?.outputPaths,
-    definitionOfDone: definitionOfDone ?? existing?.definitionOfDone,
-    commands: commands.map((command) => ({ ...command, required: command.required ?? true })),
-    createdAt: existing?.createdAt ?? timestamp,
+    outputPaths: outputPaths ?? existing.outputPaths,
+    definitionOfDone: definitionOfDone ?? existing.definitionOfDone,
+    commands: commands?.length ? commands.map((command) => ({ ...command, required: command.required ?? true })) : existing.commands,
+    createdAt: existing.createdAt || timestamp,
     updatedAt: timestamp,
   });
 }
