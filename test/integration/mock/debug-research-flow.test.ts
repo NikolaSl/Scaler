@@ -135,6 +135,8 @@ test("integration: validation failure escalates through debug report, research r
       status: "ready",
       allowedPathPrefixes: ["index.js", "test-runner.js", "package.json"],
       prdRefs: ["REQ-001"],
+      definitionOfDone: ["The cyclic failure is reproduced and handed to validation."],
+      outputPaths: [],
     });
     assert.equal(created.accepted, true);
 

@@ -138,7 +138,10 @@ test("mock integration: budget hard stops pause conductor and validation before 
     let state = stateAt("execution");
     state = setBudgetLimits(state, { spawnedAgents: { hard: 1 }, validationLoops: { hard: 1 } }, new Date("2026-01-01T00:00:00.000Z"));
     await saveState(dir, state);
-    const created = await createTask(dir, state, { id: "T-BUDGET", title: "Budget task", status: "ready", allowedPathPrefixes: ["src/app.js"] });
+    const created = await createTask(dir, state, {
+      id: "T-BUDGET", title: "Budget task", status: "ready", allowedPathPrefixes: ["src/app.js"],
+      definitionOfDone: ["The budget decision is enforced before dispatch."], outputPaths: [],
+    });
     const conductor = await runConductorStep(dir, created.state, { execute: true }, async () => {
       throw new Error("runner must not execute after hard budget refusal");
     });
@@ -471,8 +474,15 @@ test("mock integration: dependency-blocked task waits until dependency validates
   await withTempRepo(async (dir) => {
     const state = stateAt("execution");
     state.tasks = [
-      { id: "T-DEP", status: "ready", title: "Dependency", updatedAt: state.createdAt },
-      { id: "T-CHILD", status: "ready", title: "Child", dependsOn: ["T-DEP"], updatedAt: state.createdAt },
+      {
+        id: "T-DEP", status: "ready", title: "Dependency", allowedPathPrefixes: ["src/app.js"],
+        definitionOfDone: ["The dependency validation passes."], updatedAt: state.createdAt,
+      },
+      {
+        id: "T-CHILD", status: "ready", title: "Child", dependsOn: ["T-DEP"],
+        allowedPathPrefixes: ["src/app.js"], definitionOfDone: ["The child is prepared after its dependency validates."],
+        updatedAt: state.createdAt,
+      },
     ];
     await saveState(dir, state);
     await upsertValidationManifestCommand(dir, { taskId: "T-DEP", id: "check", command: "node --input-type=module -e \"import {value} from './src/app.js'; if (value !== 1) process.exit(1)\"" });
