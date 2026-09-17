@@ -30,7 +30,7 @@ async function fixture(flag: string | undefined, fn: (dir: string) => Promise<vo
     state.stage = "execution";
     state.tasks = [{ id: "T-HIDDEN", status: "validating", allowedPathPrefixes: ["result.txt"], updatedAt: state.updatedAt }];
     await saveState(dir, state);
-    await saveValidationManifest(dir, { taskId: "T-HIDDEN", commands: [{ id: "check", required: true,
+    await saveValidationManifest(dir, { taskId: "T-HIDDEN", outputPaths: ["result.txt"], commands: [{ id: "check", required: true,
       command: 'node -e "if(require(\'fs\').readFileSync(\'result.txt\',\'utf8\')!==\'accepted\')process.exit(1)"',
     }], createdAt: "", updatedAt: "" });
     assert.equal((await runTaskValidation(dir, state, "T-HIDDEN")).acceptance?.accepted, true);
@@ -43,8 +43,12 @@ for (const flag of ["--assume-unchanged", "--skip-worktree"]) {
     test(`${action} rejects a post-validation edit hidden by ${flag}`, async () => fixture(flag, async (dir) => {
       const head = (await exec("git", ["rev-parse", "HEAD"], { cwd: dir })).stdout;
       const skips = await loadCommitSkips(dir);
+      const candidateBefore = await captureValidationSnapshot(dir, await loadState(dir), "T-HIDDEN");
       await writeFile(join(dir, "result.txt"), "hidden mutation");
       const state = await loadState(dir);
+      const candidateAfter = await captureValidationSnapshot(dir, state, "T-HIDDEN");
+      assert.notEqual(candidateAfter.gitCandidateFingerprint, candidateBefore.gitCandidateFingerprint,
+        "Git candidate protection must still work independently of declared-output identity");
       const result = action === "commit" ? await commitValidatedTask(dir, state, "T-HIDDEN", ["result.txt"])
         : await skipTaskCommit(dir, state, "T-HIDDEN", "No commit required");
       assert.equal(result.accepted, false);

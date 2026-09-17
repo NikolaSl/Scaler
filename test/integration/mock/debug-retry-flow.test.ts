@@ -15,7 +15,7 @@ import { readLogEvents } from "../../../src/logging.js";
 import { runValidationWithExecutionLock } from "../../../src/operations.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
-import { loadValidationRuns, runTaskValidation, upsertValidationManifestCommand } from "../../../src/validation.js";
+import { getValidationManifestForTask, saveValidationManifest, loadValidationRuns, runTaskValidation, upsertValidationManifestCommand } from "../../../src/validation.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-debug-retry-integration-test-"));
@@ -53,6 +53,7 @@ test("mock integration: debug retry policy auto-starts next approach and runs fu
       evidenceRefs: ["validation:exact-marker"],
     });
 
+    await saveValidationManifest(dir, { ...await getValidationManifestForTask(dir, "T-RETRY-AUTO"), outputPaths: ["fixed.txt"] });
     const initialRun = await runTaskValidation(dir, state, "T-RETRY-AUTO");
     assert.equal(initialRun.status, "failed");
     await saveDebugRetryPolicy(dir, { autoStart: true, postExactPass: "validate" });
@@ -113,6 +114,7 @@ test("mock integration: debug next approach retry fixes exact validation before 
       evidenceRefs: ["validation:exact-marker"],
     });
 
+    await saveValidationManifest(dir, { ...await getValidationManifestForTask(dir, "T-RETRY-FLOW"), outputPaths: ["fixed.txt"] });
     const initialRun = await runTaskValidation(dir, state, "T-RETRY-FLOW");
     assert.equal(initialRun.status, "failed");
     const debugging = await loadState(dir);

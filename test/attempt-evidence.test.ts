@@ -13,7 +13,7 @@ import { runConductorStep } from "../src/conductor.js";
 import { saveTaskContextManifest } from "../src/context.js";
 import { getTaskAgentReportsPath } from "../src/paths.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
-import { applyValidationReport, runTaskValidation, upsertValidationManifestCommand } from "../src/validation.js";
+import { getValidationManifestForTask, saveValidationManifest, applyValidationReport, runTaskValidation, upsertValidationManifestCommand } from "../src/validation.js";
 
 async function fixture(fn: (dir: string) => Promise<void>) {
   const dir = await mkdtemp(join(tmpdir(), "scaler-attempt-evidence-"));
@@ -30,6 +30,9 @@ async function completed(dir: string, command = "node -e \"require('fs').writeFi
     items: [{ id: "spec", type: "file", reason: "Task input", priority: "required", scope: "full", source: "file", path: "spec.md" }],
   });
   await upsertValidationManifestCommand(dir, { taskId: "T-FRESH", id: "gate", command });
+  // The synthetic worker emits only its report; validated-marker is a probe
+  // showing whether the validation command ran, not a task deliverable.
+  await saveValidationManifest(dir, { ...await getValidationManifestForTask(dir, "T-FRESH"), outputPaths: [] });
   await runConductorStep(dir, state, { execute: true }, async (request) => ({
     taskId: request.taskId, exitCode: 0, stdoutEvents: [{
       type: "scaler_task_report", taskId: request.taskId, ...request.attempt, status: "completed", summary: "Done",

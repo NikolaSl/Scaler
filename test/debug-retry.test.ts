@@ -13,7 +13,7 @@ import { approveDebugRetry, buildNextApproachContextItem, formatDebugRetryPolicy
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult, RunTaskAgentOptions } from "../src/subagents.js";
 import type { ScalerState } from "../src/types.js";
-import { runTaskValidation, upsertValidationManifestCommand } from "../src/validation.js";
+import { getValidationManifestForTask, saveValidationManifest, runTaskValidation, upsertValidationManifestCommand } from "../src/validation.js";
 import { getBudgetState, setBudgetLimits } from "../src/budgets.js";
 import { loadTaskAttempts } from "../src/task-attempts.js";
 import { loadTaskAgentReports } from "../src/task-reports.js";
@@ -45,6 +45,7 @@ async function seedDebuggingTask(dir: string): Promise<ScalerState> {
     expectedResult: "fixed.txt exists",
     evidenceRefs: ["validation:exact"],
   });
+  await saveValidationManifest(dir, { ...await getValidationManifestForTask(dir, "T-RETRY"), outputPaths: ["fixed.txt"] });
   await runTaskValidation(dir, state, "T-RETRY");
   const debugging = await loadState(dir);
   await recordDebugReport(dir, debugging, {

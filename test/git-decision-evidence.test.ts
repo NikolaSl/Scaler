@@ -31,7 +31,7 @@ async function fixture(git: boolean, fn: (dir: string, state: ScalerState) => Pr
     state.stage = "execution";
     state.tasks = [{ id: "T-DIRECT", status: "validating", updatedAt: state.updatedAt }];
     await saveState(dir, state);
-    await saveValidationManifest(dir, { taskId: "T-DIRECT", commands: [{ id: "check", required: true,
+    await saveValidationManifest(dir, { taskId: "T-DIRECT", outputPaths: ["result.txt"], commands: [{ id: "check", required: true,
       command: 'node -e "if(require(\'fs\').readFileSync(\'result.txt\',\'utf8\')!==\'ok\')process.exit(1)"',
     }], createdAt: "", updatedAt: "" });
     await fn(dir, state);

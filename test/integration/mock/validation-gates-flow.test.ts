@@ -16,7 +16,7 @@ import { readLogEvents } from "../../../src/logging.js";
 import { runValidationWithExecutionLock } from "../../../src/operations.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { loadValidationEnvironmentRecords } from "../../../src/validation-environments.js";
-import { loadValidationChecklists, loadValidationManifests, loadValidationRuns } from "../../../src/validation.js";
+import { getValidationManifestForTask, saveValidationManifest, loadValidationChecklists, loadValidationManifests, loadValidationRuns } from "../../../src/validation.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -196,6 +196,8 @@ test("mock integration: validation records local-CI lifecycle evidence and statu
       { cwd: dir, hasUI: false },
     );
 
+    // Runtime lifecycle markers are validation probes, not task deliverables.
+    await saveValidationManifest(dir, { ...await getValidationManifestForTask(dir, "T-LIFECYCLE"), outputPaths: [] });
     await commands.get("scaler-validate")?.handler("T-LIFECYCLE", { cwd: dir, hasUI: false });
     await commands.get("scaler-validation-envs")?.handler(undefined, { cwd: dir, hasUI: false });
 
@@ -258,6 +260,7 @@ test("mock integration: validation dispositions skip with reason and block with 
       "T-SKIP | integration | node -e \"require('node:fs').writeFileSync('skip-disposition-should-not-run.txt','ran')\" | Integration tests | required | integration | exits 0 | manifest:skip | host | skipped:No integration surface changed",
       { cwd: dir, hasUI: false },
     );
+    await saveValidationManifest(dir, { ...await getValidationManifestForTask(dir, "T-SKIP"), outputPaths: ["skip-disposition-should-not-run.txt"] });
     await commands.get("scaler-validate")?.handler("T-SKIP", { cwd: dir, hasUI: false });
 
     let runs = await loadValidationRuns(dir);
@@ -307,6 +310,7 @@ test("mock integration: validation-add gate metadata persists through validation
     }];
     await saveState(dir, state);
 
+    await saveValidationManifest(dir, { ...await getValidationManifestForTask(dir, "T-GATE"), outputPaths: [] });
     const result = await runValidationWithExecutionLock(dir, state, "T-GATE");
 
     assert.equal(result.accepted, true);

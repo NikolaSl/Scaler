@@ -99,6 +99,7 @@ test("runTaskValidation records policy warnings without blocking default impleme
     await saveValidationManifest(dir, {
       taskId: "T-001",
       commands: [{ id: "ok", command: "node -e \"process.exit(0)\"", required: true, gate: "unit_tests" }],
+      outputPaths: [],
       createdAt: "",
       updatedAt: "",
     });
@@ -149,6 +150,7 @@ test("runTaskValidation treats required skipped gates with reasons as accepted w
     await saveValidationManifest(dir, {
       taskId: "T-001",
       commands: [{ id: "skip", command: "node -e \"require('node:fs').writeFileSync('skip-should-not-run.txt','ran')\"", required: true, gate: "integration_tests", disposition: "skipped", dispositionReason: "No integration path changed." }],
+      outputPaths: ["skip-should-not-run.txt"],
       createdAt: "",
       updatedAt: "",
     });
@@ -216,6 +218,7 @@ test("runTaskValidation validates task when all required commands pass", async (
     await saveValidationManifest(dir, {
       taskId: "T-001",
       commands: [{ id: "ok", command: "node -e \"process.exit(0)\"", required: true, gate: "build_compile", expectedResult: "build exits 0", environment: "host" }],
+      outputPaths: [],
       createdAt: "",
       updatedAt: "",
     });
