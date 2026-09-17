@@ -60,6 +60,18 @@ authority and interruption recovery are still open. A preliminary parallel-tool
 ledger parse failure is recorded in PLAN-099; subsequent green checks do not
 establish that the ledger race is fixed.
 
+PLAN-100 subsequently reproduces that execution-ledger defect: parallel writers
+lose records and readers observe partial JSON. Requests/results/transactions now
+serialize complete read/modify/write operations across processes and publish
+complete snapshots. Six new synthetic regressions cover parallel identity
+retention, reader visibility, independent workers, serialization failure,
+held-lock refusal and post-commit cleanup failure. Build, 514/514 unit tests and
+67/67 mock integrations pass. A cleanup failure cannot relabel an already
+committed tool result as failed; it emits a warning and leaves subsequent writers
+fail-closed for reconciliation.
+This is not a multi-file transaction, effect reconciliation or acceptance gate;
+other catalog ledgers remain outside this bounded change.
+
 Implementation has now started on merged baseline `8f4cf19`, following
 [PLAN-099](../plans/implementation-plan-099.md). The original assessment table
 above is retained as the reviewed baseline. P1.1 adds read-only existing-state

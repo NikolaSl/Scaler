@@ -4,8 +4,9 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { mkdir, open, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { getMcpServersPath, getToolCatalogPath, getToolIterationPolicyPath, getToolIterationRunsPath, getToolReplayApprovalsPath, getToolRequestsIndexPath, getToolResultsPath, getToolSchedulesPath, getToolSchemaDiscoveryRunsPath, getToolTransactionsPath } from "./paths.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
@@ -1392,8 +1393,10 @@ export async function prepareToolRequest(
     cwd,
   });
 
-  const requests = await loadToolRequests(cwd);
-  await writeToolRequestIndex(cwd, [...requests, record]);
+  await withToolLedgerWriteQueue(cwd, async () => {
+    const requests = await loadToolRequests(cwd);
+    await writeToolRequestIndex(cwd, [...requests, record]);
+  });
   await appendLogEvent(
     cwd,
     createLogEvent(state, {
@@ -1479,22 +1482,38 @@ async function rejectToolRequest(
 
 async function writeToolRequestIndex(cwd: string, requests: ToolRequestRecord[]): Promise<void> {
   const path = getToolRequestsIndexPath(cwd);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify({ version: 1, requests } satisfies ToolRequestIndex, null, 2)}\n`, "utf8");
+  await publishToolExecutionIndex(path, { version: 1, requests } satisfies ToolRequestIndex);
 }
 
 async function writeToolResultIndex(cwd: string, results: ToolResultRecord[]): Promise<void> {
   const path = getToolResultsPath(cwd);
-  await mkdir(dirname(path), { recursive: true });
   const sorted = [...results].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-  await writeFile(path, `${JSON.stringify({ version: 1, results: sorted } satisfies ToolResultIndex, null, 2)}\n`, "utf8");
+  await publishToolExecutionIndex(path, { version: 1, results: sorted } satisfies ToolResultIndex);
 }
 
 async function writeToolTransactionIndex(cwd: string, transactions: ToolTransactionRecord[]): Promise<void> {
   const path = getToolTransactionsPath(cwd);
-  await mkdir(dirname(path), { recursive: true });
   const sorted = [...transactions].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-  await writeFile(path, `${JSON.stringify({ version: 1, transactions: sorted } satisfies ToolTransactionIndex, null, 2)}\n`, "utf8");
+  await publishToolExecutionIndex(path, { version: 1, transactions: sorted } satisfies ToolTransactionIndex);
+}
+
+// Readers see either complete snapshot. This is not a transaction across indexes.
+async function publishToolExecutionIndex(path: string, index: unknown): Promise<void> {
+  const contents = `${JSON.stringify(index, null, 2)}\n`;
+  await mkdir(dirname(path), { recursive: true });
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  const file = await open(temporary, "wx", 0o600);
+  try {
+    try {
+      await file.writeFile(contents, "utf8");
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    await rename(temporary, path);
+  } finally {
+    await rm(temporary, { force: true });
+  }
 }
 
 async function writeToolSchemaIndex(cwd: string, records: ToolSchemaRecord[]): Promise<void> {
@@ -1700,7 +1719,9 @@ async function recordToolTransaction(
     createdAt: timestamp,
     updatedAt: timestamp,
   };
-  await writeToolTransactionIndex(cwd, [record, ...(await loadToolTransactions(cwd))]);
+  await withToolLedgerWriteQueue(cwd, async () => {
+    await writeToolTransactionIndex(cwd, [record, ...(await loadToolTransactions(cwd))]);
+  });
   return record;
 }
 
@@ -1816,6 +1837,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 async function withToolLedgerWriteQueue<T>(cwd: string, fn: () => Promise<T>): Promise<T> {
+  cwd = resolve(cwd);
   const previous = toolLedgerWriteQueues.get(cwd) ?? Promise.resolve();
   let releaseCurrent = (): void => undefined;
   const currentSlot = new Promise<void>((resolve) => {
@@ -1825,11 +1847,48 @@ async function withToolLedgerWriteQueue<T>(cwd: string, fn: () => Promise<T>): P
   toolLedgerWriteQueues.set(cwd, current);
   await previous.catch(() => undefined);
   try {
-    return await fn();
+    const lock = join(dirname(getToolRequestsIndexPath(cwd)), "execution-ledger.lock");
+    await mkdir(dirname(lock), { recursive: true });
+    const deadline = performance.now() + 2000;
+    for (;;) {
+      try {
+        await mkdir(lock);
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        if (performance.now() >= deadline) throw new Error(`Tool ledger publication lock is busy: ${lock}. Reconcile the owner before removing it.`);
+        await delay(10);
+      }
+    }
+    try {
+      return await fn();
+    } finally {
+      await releaseToolLedgerPublicationLock(lock);
+    }
   } finally {
     releaseCurrent();
     if (toolLedgerWriteQueues.get(cwd) === current) toolLedgerWriteQueues.delete(cwd);
   }
+}
+
+async function releaseToolLedgerPublicationLock(lock: string): Promise<void> {
+  let releaseError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await rmdir(lock);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      releaseError = error;
+      if (attempt < 2) await delay(10);
+    }
+  }
+  // Publication may already have committed. Do not report the tool operation as
+  // failed and invite an unsafe retry solely because lock cleanup failed.
+  process.emitWarning(
+    `Tool ledger publication lock could not be released: ${lock}. A preceding publication may already have committed; stop writers and reconcile the orphaned lock without automatically replaying tool effects. ${String(releaseError)}`,
+    { code: "SCALER_TOOL_LEDGER_LOCK_RELEASE_FAILED" },
+  );
 }
 
 function normalizeToolResultStatus(value: unknown): ToolResultStatus {

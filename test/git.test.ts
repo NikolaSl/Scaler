@@ -136,6 +136,8 @@ test("ensureGitRepository initializes repo and writes SCALER exclude rules witho
     assert.equal(record.status, "initialized");
     assert.equal(record.gitignoreUpdated, true);
     assert.match(exclude, /.scaler\/logs\//);
+    assert.ok(exclude.includes(".scaler/tool-requests/execution-ledger.lock/"));
+    assert.ok(exclude.includes(".scaler/tool-requests/*.tmp"));
     assert.equal(records[0]?.id, record.id);
     assert.match(formatGitBootstrapRecords(records), /initialized/);
     assert.equal(safety.status, "runtime_only");
