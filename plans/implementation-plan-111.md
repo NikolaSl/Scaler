@@ -51,3 +51,7 @@ Next: enforce a declared basis at per-task commit-skip admission and transport
 declarations through planning/task inputs, without giving workers authority to
 weaken them. Declaration adequacy and authorized policy changes plus final
 semantic/integration acceptance remain open. P2.3 is incomplete.
+
+Restored onto PLAN-110's reviewed schema-version correction before publication.
+Combined gate: build, 678 unit, 67 mock integration and 7 conformance/autopilot
+checks pass, including both new version controls. Prior local commits retained.
