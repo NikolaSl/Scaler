@@ -36,3 +36,19 @@ the fixture's known staged blob entry to the expected candidate identity.
 Gate: build, 649/649 unit, 67/67 mock integration, 5/5 conformance and clean diff.
 Final-head Copilot review remains required before merge. Skip/non-Git completion
 freshness and final requirement/integration proof remain open.
+# Copilot follow-up
+
+Finding 4034694761 is valid. The full index listing could exceed execFile's
+1 MiB output bound and unnecessarily canonicalized every clean tracked entry.
+A real 12,000-file clean-repository regression failed with
+ERR_CHILD_PROCESS_STDIO_MAXBUFFER before the correction. The index identity now
+captures only the raw staged delta (full object IDs and modes, no renames or
+external diff/text conversion), excluding runtime metadata. HEAD binds the
+unchanged baseline; unborn repositories use Git's empty-tree comparison.
+Unmerged indexes are refused because raw U records do not bind every stage.
+
+The large-index case, unborn staged-drift and unmerged-index checks pass, as do
+the prior hidden-edit, index-only and runtime-exclusion checks. Gate: build,
+652 unit, 67 mock integration, and 7 checks in test:conformance (including
+autopilot controls). This does not bound the existing full path/flag listing
+for arbitrarily large repositories; it removes the new full-index overhead.

@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -13,6 +13,7 @@ import { test } from "node:test";
 import { commitValidatedTask, loadCommitSkips, skipTaskCommit } from "../src/git.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { runTaskValidation, saveValidationManifest } from "../src/validation.js";
+import { captureValidationSnapshot } from "../src/validation-acceptance.js";
 
 const exec = promisify(execFile);
 async function fixture(flag: string | undefined, fn: (dir: string) => Promise<void>) {
@@ -73,4 +74,44 @@ test("staged runtime bookkeeping does not invalidate output evidence", async () 
   await exec("git", ["add", ".scaler/runtime-note.json"], { cwd: dir });
   const result = await skipTaskCommit(dir, await loadState(dir), "T-HIDDEN", "Runtime-only change");
   assert.equal(result.accepted, true, result.message);
+}));
+
+test("clean large index does not overflow snapshot metadata capture", async () => fixture(undefined, async (dir) => {
+  await mkdir(join(dir, "many"));
+  // Full --stage output exceeds execFile's 1 MiB bound, while path/flag
+  // metadata stays below it. Real tracked files keep the worktree clean.
+  for (let offset = 0; offset < 12000; offset += 100) {
+    await Promise.all(Array.from({ length: 100 }, (_, i) => writeFile(
+      join(dir, "many", `${String(offset + i).padStart(5, "0")}-${"x".repeat(40)}.txt`), "ok")));
+  }
+  await exec("git", ["add", "many"], { cwd: dir });
+  await exec("git", ["commit", "-m", "large clean index"], { cwd: dir });
+  const state = await loadState(dir);
+  const before = await captureValidationSnapshot(dir, state, "T-HIDDEN");
+  const after = await captureValidationSnapshot(dir, state, "T-HIDDEN");
+  assert.equal(after.gitCandidateFingerprint, before.gitCandidateFingerprint);
+}));
+
+test("unborn index drift is bound even when working bytes are restored", async () => fixture(undefined, async (dir) => {
+  await rm(join(dir, ".git"), { recursive: true });
+  await exec("git", ["init"], { cwd: dir });
+  await exec("git", ["add", "result.txt"], { cwd: dir });
+  const state = await loadState(dir);
+  const before = await captureValidationSnapshot(dir, state, "T-HIDDEN");
+  await writeFile(join(dir, "result.txt"), "staged mutation");
+  await exec("git", ["add", "result.txt"], { cwd: dir });
+  await writeFile(join(dir, "result.txt"), "accepted");
+  const after = await captureValidationSnapshot(dir, state, "T-HIDDEN");
+  assert.notEqual(after.gitCandidateFingerprint, before.gitCandidateFingerprint);
+}));
+
+test("unmerged index is refused rather than binding incomplete stage identities", async () => fixture(undefined, async (dir) => {
+  await exec("git", ["checkout", "-b", "other"], { cwd: dir });
+  await writeFile(join(dir, "result.txt"), "other");
+  await exec("git", ["commit", "-am", "other"], { cwd: dir });
+  await exec("git", ["checkout", "-b", "conflict", "HEAD~1"], { cwd: dir });
+  await writeFile(join(dir, "result.txt"), "conflict");
+  await exec("git", ["commit", "-am", "conflict"], { cwd: dir });
+  await assert.rejects(exec("git", ["merge", "other"], { cwd: dir }));
+  await assert.rejects(captureValidationSnapshot(dir, await loadState(dir), "T-HIDDEN"), /unmerged index/i);
 }));
