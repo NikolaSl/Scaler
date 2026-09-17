@@ -89,7 +89,13 @@ async function stageRunner(request: TaskAgentRequest): Promise<TaskAgentRunResul
       stdoutEvents: [{
         type: "scaler_prd_write",
         content: "# Runtime PRD\n\n- REQ-1: Implement the workflow.\n",
-        requirements: [{ id: "REQ-1", title: "Workflow", statement: "Implement the autonomous workflow.", source: "test" }],
+        requirements: [{
+          id: "REQ-1", title: "Workflow", statement: "Implement the autonomous workflow.", source: "test",
+          acceptanceCriteria: [{
+            id: "AC-WORKFLOW", statement: "The workflow operates end to end.", validationTaskId: "T-1",
+            commandId: "unit", participantTaskIds: ["T-1"],
+          }],
+        }],
       }],
       stderr: "",
       timedOut: false,
@@ -174,6 +180,7 @@ test("runAutonomousStageWorkflow executes PRD, Stage II research merge, and plan
       "execution_ready",
     ]);
     assert.equal((await loadPrdRequirements(dir)).requirements[0]?.id, "REQ-1");
+    assert.equal((await loadPrdRequirements(dir)).requirements[0]?.acceptanceCriteria?.[0]?.id, "AC-WORKFLOW");
     assert.equal((await loadResearchRequests(dir))[0]?.status, "resolved");
     assert.equal((await loadResearchReports(dir))[0]?.status, "complete");
     assert.match(await readFile(join(dir, ".scaler", "knowledge", "knowledge-report.md"), "utf8"), /deterministic ledgers/);

@@ -29,6 +29,8 @@ import {
   saveCurrentPrd,
   savePrdRequirements,
   computePrdCoverageSummary,
+  normalizePrdAcceptanceCriteria,
+  type RuntimePrdAcceptanceCriterion,
   type RuntimePrdRequirement,
 } from "./prd.js";
 import { requestReplan, type RequestReplanResult } from "./replanning.js";
@@ -340,7 +342,8 @@ export async function ingestPrdWriteReport(cwd: string, state: ScalerState, stdo
     ? await createPrdVersionSnapshot(cwd, { reason: stringField(report, "snapshotReason") ?? "PRD replaced by stage workflow" })
     : undefined;
   if (content) await saveCurrentPrd(cwd, content);
-  const requirements = parsePrdRequirements(requirementInputs, new Date().toISOString());
+  const existingRequirements = await loadPrdRequirements(cwd);
+  const requirements = parsePrdRequirements(requirementInputs, new Date().toISOString(), existingRequirements.requirements);
   if (requirements) await savePrdRequirements(cwd, { version: 1, requirements });
   const requirementIds = requirements?.map((requirement) => requirement.id) ?? [];
   const artifact = await upsertStageArtifact(cwd, {
@@ -926,7 +929,11 @@ function buildMergedKnowledgeMarkdown(requirements: RuntimePrdRequirement[], rep
   return { markdown: lines.join("\n"), sources, conclusions, unresolvedUnknowns, requirementRefs: [...requirementRefs].sort((a, b) => a.localeCompare(b)) };
 }
 
-function parsePrdRequirements(values: unknown[], timestamp: string): RuntimePrdRequirement[] | undefined {
+function parsePrdRequirements(
+  values: unknown[],
+  timestamp: string,
+  existing: RuntimePrdRequirement[] = [],
+): RuntimePrdRequirement[] | undefined {
   if (values.length === 0) return undefined;
   const requirements: RuntimePrdRequirement[] = [];
   for (const value of values) {
@@ -934,11 +941,14 @@ function parsePrdRequirements(values: unknown[], timestamp: string): RuntimePrdR
     const id = stringField(value, "id");
     const statement = stringField(value, "statement");
     if (!id || !statement) return undefined;
+    const criteria = parsePrdAcceptanceCriteria(value);
+    if (criteria === null) return undefined;
     requirements.push({
       id,
       statement,
       title: stringField(value, "title"),
       source: stringField(value, "source") ?? "stage_workflow_prd",
+      acceptanceCriteria: criteria ?? existing.find((requirement) => requirement.id === id)?.acceptanceCriteria,
       createdAt: timestamp,
       updatedAt: timestamp,
     });
@@ -954,11 +964,14 @@ function parsePlanningReportInput(report: Record<string, unknown>): PlanningRepo
     const statement = stringField(value, "statement");
     if (!id || !statement) return undefined;
     const status = stringField(value, "status");
+    const acceptanceCriteria = parsePrdAcceptanceCriteria(value);
+    if (acceptanceCriteria === null) return undefined;
     return {
       id,
       statement,
       title: stringField(value, "title"),
       source: stringField(value, "source"),
+      acceptanceCriteria,
       status: status && isRuntimePrdRequirementStatus(status) ? status : undefined,
       evidenceRefs: stringArrayField(value, "evidenceRefs"),
       notes: stringField(value, "notes"),
@@ -1011,6 +1024,29 @@ function parsePlanningReportInput(report: Record<string, unknown>): PlanningRepo
     requirements: requirements as PlanningReportInput["requirements"],
     plan,
   };
+}
+
+function parsePrdAcceptanceCriteria(
+  record: Record<string, unknown>,
+): RuntimePrdAcceptanceCriterion[] | undefined | null {
+  if (!("acceptanceCriteria" in record)) return undefined;
+  if (!Array.isArray(record.acceptanceCriteria)) return null;
+  const criteria: RuntimePrdAcceptanceCriterion[] = [];
+  for (const value of record.acceptanceCriteria) {
+    if (!isRecord(value)) return null;
+    const id = stringField(value, "id");
+    const statement = stringField(value, "statement");
+    const validationTaskId = stringField(value, "validationTaskId");
+    const commandId = stringField(value, "commandId");
+    const participantTaskIds = stringArrayField(value, "participantTaskIds");
+    if (!id || !statement || !validationTaskId || !commandId || !participantTaskIds) return null;
+    criteria.push({ id, statement, validationTaskId, commandId, participantTaskIds });
+  }
+  try {
+    return normalizePrdAcceptanceCriteria(criteria);
+  } catch {
+    return null;
+  }
 }
 
 function hasUsefulResearchReport(requirementId: string, reports: ResearchReport[]): boolean {

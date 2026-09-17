@@ -20,6 +20,7 @@ import {
   saveCurrentPrd,
   savePrdCoverage,
   savePrdRequirements,
+  upsertPrdRequirement,
 } from "../src/prd.js";
 import { createDefaultState } from "../src/state.js";
 
@@ -75,6 +76,23 @@ test("runtime PRD files save and load round trips", async () => {
     assert.equal((await loadPrdRequirements(dir)).requirements[0]?.id, "REQ-001");
     assert.equal((await loadPrdCoverage(dir)).entries[0]?.status, "pending");
     assert.equal((await loadPrdChanges(dir))[0]?.reason, "initial PRD");
+  });
+});
+
+test("requirement upserts preserve omitted criteria and clear only explicit empty criteria", async () => {
+  await withTempDir(async (dir) => {
+    const acceptanceCriteria = [{
+      id: "AC-INTEGRATION",
+      statement: "Components work together.",
+      validationTaskId: "T-B",
+      commandId: "integration",
+      participantTaskIds: ["T-B", "T-A", "T-A"],
+    }];
+    await upsertPrdRequirement(dir, { id: "REQ-ONE", statement: "Initial", acceptanceCriteria });
+    await upsertPrdRequirement(dir, { id: "REQ-ONE", statement: "Updated" });
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements[0]?.acceptanceCriteria?.[0]?.participantTaskIds, ["T-A", "T-B"]);
+    await upsertPrdRequirement(dir, { id: "REQ-ONE", statement: "Updated", acceptanceCriteria: [] });
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements[0]?.acceptanceCriteria, []);
   });
 });
 

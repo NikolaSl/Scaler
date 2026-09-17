@@ -14,6 +14,7 @@ import { formatMemorySearchResults, retrieveMemory, searchMemory, writeMemory, t
 import { recordProviderUsageBudget } from "./provider-usage.js";
 import {
   createPrdVersionSnapshot,
+  loadPrdRequirements,
   saveCurrentPrd,
   savePrdRequirements,
   upsertPrdRequirement,
@@ -255,6 +256,14 @@ const TaskUpdateParams = Type.Object({
   qualityWaivers: Type.Optional(Type.Array(TaskQualityWaiverParams)),
 });
 
+const PrdAcceptanceCriterionParams = Type.Object({
+  id: Type.String(),
+  statement: Type.String(),
+  validationTaskId: Type.String(),
+  commandId: Type.String(),
+  participantTaskIds: Type.Array(Type.String()),
+});
+
 const PlanningReportParams = Type.Object({
   id: Type.Optional(Type.String()),
   reason: Type.Optional(Type.String()),
@@ -264,6 +273,7 @@ const PlanningReportParams = Type.Object({
     statement: Type.String(),
     title: Type.Optional(Type.String()),
     source: Type.Optional(Type.String()),
+    acceptanceCriteria: Type.Optional(Type.Array(PrdAcceptanceCriterionParams)),
     status: Type.Optional(Type.String({ description: "pending, in_progress, implemented, validated, blocked, or needs_replan." })),
     evidenceRefs: Type.Optional(Type.Array(Type.String())),
     notes: Type.Optional(Type.String()),
@@ -302,6 +312,7 @@ const PrdWriteParams = Type.Object({
         statement: Type.String(),
         title: Type.Optional(Type.String()),
         source: Type.Optional(Type.String()),
+        acceptanceCriteria: Type.Optional(Type.Array(PrdAcceptanceCriterionParams)),
       }),
     ),
   ),
@@ -312,6 +323,7 @@ const PrdRequirementUpdateParams = Type.Object({
   statement: Type.String(),
   title: Type.Optional(Type.String()),
   source: Type.Optional(Type.String()),
+  acceptanceCriteria: Type.Optional(Type.Array(PrdAcceptanceCriterionParams)),
   status: Type.Optional(Type.String({ description: "pending, in_progress, implemented, validated, blocked, or needs_replan." })),
   taskIds: Type.Optional(Type.Array(Type.String())),
   evidenceRefs: Type.Optional(Type.Array(Type.String())),
@@ -651,6 +663,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
           statement: requirement.statement,
           title: requirement.title,
           source: requirement.source,
+          acceptanceCriteria: requirement.acceptanceCriteria,
           status: normalizePrdStatus(requirement.status),
           evidenceRefs: requirement.evidenceRefs,
           notes: requirement.notes,
@@ -674,8 +687,10 @@ export function registerScalerTools(pi: ExtensionAPI): void {
       let requirements: RuntimePrdRequirement[] | undefined;
       if (params.requirements) {
         const timestamp = new Date().toISOString();
+        const existing = new Map((await loadPrdRequirements(ctx.cwd)).requirements.map((requirement) => [requirement.id, requirement]));
         requirements = params.requirements.map((requirement) => ({
           ...requirement,
+          acceptanceCriteria: requirement.acceptanceCriteria ?? existing.get(requirement.id)?.acceptanceCriteria,
           createdAt: timestamp,
           updatedAt: timestamp,
         }));
@@ -701,6 +716,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         statement: params.statement,
         title: params.title,
         source: params.source,
+        acceptanceCriteria: params.acceptanceCriteria,
         status: params.status as RuntimePrdRequirementStatus | undefined,
         taskIds: params.taskIds,
         evidenceRefs: params.evidenceRefs,

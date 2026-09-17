@@ -15,7 +15,7 @@ import {
   getReplanDecisionsPath,
   getReplanRequestsPath,
 } from "./paths.js";
-import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, upsertPrdRequirement, type RuntimePrdRequirementStatus, type RuntimePrdRequirementsFile } from "./prd.js";
+import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, upsertPrdRequirement, type RuntimePrdAcceptanceCriterion, type RuntimePrdRequirementStatus, type RuntimePrdRequirementsFile } from "./prd.js";
 import { createTask, updateTask } from "./tasks.js";
 import type { ScalerState, ScalerTaskKind, ScalerTaskQualityWaiver } from "./types.js";
 import type { EmbeddedValidationManifestCommandInput } from "./validation.js";
@@ -74,6 +74,7 @@ export interface PlanningReportRequirementInput {
   statement: string;
   title?: string;
   source?: string;
+  acceptanceCriteria?: RuntimePrdAcceptanceCriterion[];
   status?: RuntimePrdRequirementStatus;
   evidenceRefs?: string[];
   notes?: string;
@@ -443,6 +444,7 @@ export async function applyPlanningReport(
       statement: requirement.statement,
       title: requirement.title,
       source: requirement.source ?? input.source ?? "planning_report",
+      acceptanceCriteria: requirement.acceptanceCriteria,
       status: requirement.status ?? (taskIdsByRequirement.get(requirement.id)?.length ? "in_progress" : "pending"),
       taskIds: taskIdsByRequirement.get(requirement.id),
       evidenceRefs: requirement.evidenceRefs,
