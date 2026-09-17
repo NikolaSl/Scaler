@@ -275,9 +275,11 @@ test("streamed candidate hashing preserves binary identity across multiple chunk
     for (let index = 0; index < bytes.length; index++) bytes[index] = index % 251;
     await writeFile(join(dir, "large.bin"), bytes);
     const head = (await exec("git", ["rev-parse", "HEAD"], { cwd: dir })).stdout.trim();
+    const originalBlob = (await exec("git", ["rev-parse", "HEAD:output.txt"], { cwd: dir })).stdout.trim();
     const snapshot = await captureValidationSnapshot(dir, state, "T-STREAM");
     assert.equal(snapshot.gitCandidateFingerprint, fingerprintJson({
       head, files: [{ path: "large.bin", kind: "file", executable: false, digest: createHash("sha256").update(bytes).digest("hex") }],
+      index: [`100644 ${originalBlob} 0\toutput.txt`],
     }));
   });
 });

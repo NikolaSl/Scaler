@@ -126,9 +126,19 @@ async function fingerprintGitCandidate(cwd: string): Promise<string | null> {
   }
   const changed = await exec("git", head ? ["diff", "--no-renames", "--name-only", "-z", "HEAD", "--"] : ["ls-files", "--cached", "-z"], { cwd: root });
   const untracked = await exec("git", ["ls-files", "--others", "--exclude-standard", "-z"], { cwd: root });
+  const flagged = await exec("git", ["ls-files", "-v", "-z"], { cwd: root });
+  const staged = await exec("git", ["ls-files", "--stage", "-z"], { cwd: root });
   const projectPrefix = relative(root, cwd).split(sep).filter(Boolean).join("/");
   const runtimePrefix = projectPrefix ? `${projectPrefix}/.scaler` : ".scaler";
-  const paths = [...new Set((changed.stdout + untracked.stdout).split("\0").filter((path) => path && path !== runtimePrefix && !path.startsWith(`${runtimePrefix}/`)))].sort();
+  const isOutputPath = (path: string) => path && path !== runtimePrefix && !path.startsWith(`${runtimePrefix}/`);
+  // Lowercase tags mean assume-unchanged; S/s means skip-worktree. These
+  // tracked files can be absent from Git diff even when physical bytes change.
+  const hiddenPaths = flagged.stdout.split("\0").filter((entry) => /^[a-zS] /.test(entry)).map((entry) => entry.slice(2));
+  const candidates = [...(changed.stdout + untracked.stdout).split("\0"), ...hiddenPaths];
+  const paths = [...new Set(candidates.filter(isOutputPath))].sort();
+  // Bind the index independently: restoring working bytes must not hide a
+  // different staged candidate. Runtime ledger entries remain excluded.
+  const index = staged.stdout.split("\0").filter((entry) => entry && isOutputPath(entry.slice(entry.indexOf("\t") + 1))).sort();
   const files = [];
   for (const path of paths) {
     const absolute = join(root, path);
@@ -147,7 +157,7 @@ async function fingerprintGitCandidate(cwd: string): Promise<string | null> {
       files.push({ path, kind: "deleted" });
     }
   }
-  return fingerprintJson({ head, files });
+  return fingerprintJson({ head, files, index });
 }
 
 async function fingerprintFile(path: string): Promise<string> {
