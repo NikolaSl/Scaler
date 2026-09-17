@@ -150,6 +150,11 @@ mock integration tests pass. Historical labels alone cannot complete a run;
 postcommit artifact freshness and integrated current-output acceptance remain
 open. See PLAN-106 for the exact proof boundary and next unit.
 
+PLAN-107 extends this to accepted Git output integrity: actual commit/path
+identity and ancestry, current bytes/modes/deletions and index checks. Build,
+629 unit and 67 mock integration tests pass. Skip/non-Git artifact freshness,
+unrelated outputs and final semantic/integration acceptance are still open.
+
 1. Add a regression for the concrete defect and observe failure on the prior code.
 2. Implement the smallest sufficient fix; preserve unrelated user changes.
 3. Run focused checks, then build/integration when the boundary warrants it.

@@ -4,6 +4,7 @@
  */
 
 import { checkAttemptEvidence } from "./attempt-evidence.js";
+import { verifyCommittedOutputs } from "./committed-outputs.js";
 import { fingerprintJson } from "./fingerprints.js";
 import { loadCommitReports, loadCommitSkips, type CommitValidationSummary } from "./git.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
@@ -15,7 +16,8 @@ import { captureValidationSnapshot, verifyValidationRecordEvidence } from "./val
 
 // Provenance is necessary, not sufficient for final integrated correctness.
 // Historical candidates precede task commits; comparing all of them to current
-// HEAD would invalidate legitimate multi-task work. Artifact freshness is separate.
+// HEAD would invalidate legitimate multi-task work. Committed outputs are checked
+// against their accepted commit; skip/non-Git output freshness remains separate.
 async function verifyCompletionProvenance(cwd: string, state: ScalerState): Promise<string[]> {
   const durable = await loadState(cwd);
   if (durable.runId !== state.runId || durable.revision !== state.revision) {
@@ -41,11 +43,12 @@ async function verifyCompletionProvenance(cwd: string, state: ScalerState): Prom
       if (fingerprintJson(historical) !== fingerprintJson(current)) {
         errors.push("Completion evidence rejected: run, task, attempt, policy or context changed.");
       }
-      const committed = commits.some((commit) => commit.taskId === task.id && commit.commitHash.trim()
+      const committed = commits.find((commit) => commit.taskId === task.id && commit.commitHash.trim()
         && matchesValidation(commit.validation, run));
       const skipped = skips.some((skip) => skip.taskId === task.id && skip.status === "skipped"
         && skip.reason.trim() && matchesValidation(skip.validation, run));
       if (!committed && !skipped) errors.push("Completion evidence rejected: no matching accepted Git commit or reasoned skip.");
+      if (committed) errors.push(...await verifyCommittedOutputs(cwd, committed));
     }
     diagnostics.push(...errors.map((error) => `${task.id}: ${error}`));
   }
