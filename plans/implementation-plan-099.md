@@ -168,6 +168,12 @@ validation, commit/skip and completion boundaries. Its gate passes build,
 coverage/authority and mandatory admission, plus semantic/integration acceptance,
 remain pending; P2.3 is not complete.
 
+PLAN-111 refuses final completion of skipped tasks without an explicit declared
+output basis, preserving preconfigured output paths across command updates.
+Gate: build, 676 unit, 67 mock integration and 7 conformance/autopilot. Per-task
+skip admission and declaration transport are the next bounded units; adequacy,
+authority and semantic/integration acceptance remain open.
+
 1. Add a regression for the concrete defect and observe failure on the prior code.
 2. Implement the smallest sufficient fix; preserve unrelated user changes.
 3. Run focused checks, then build/integration when the boundary warrants it.

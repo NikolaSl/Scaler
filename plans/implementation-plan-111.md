@@ -29,3 +29,25 @@ complete or authorized, or final semantic/integration correctness.
 Per-task skip admission and planning declaration transport remain next bounded
 units; this change specifically closes publication of a completed run without
 an output basis. No paid provider, deployment or new verifier framework.
+
+Fixture inspection identified one necessary preservation change: task planning
+or command updates rewrote the validation manifest and discarded previously
+configured outputPaths. Preserve that existing basis when replacing commands;
+the changed commands still invalidate policy identity. The full orchestration
+fixture predeclares [] before planning because its synthetic task emits no files,
+while file-producing fixtures declare one.txt, result.txt, fixed.txt or index.js.
+No worker is allowed to retrofit its own basis during an admitted attempt.
+
+## Validation and next action
+
+Four regressions reproduced unknown-output false completion in Git/non-Git
+execution and loaded completed states; the explicit [] control passed before
+and after. Focused combined tests: 53/53. Full gate: build, 676/676 unit,
+67/67 mock integration and 7/7 conformance/autopilot. Existing completion/flow
+assertions remain; five unit and one integration fixture now declare their
+actual output basis. No legacy state was rewritten as fresh proof.
+
+Next: enforce a declared basis at per-task commit-skip admission and transport
+declarations through planning/task inputs, without giving workers authority to
+weaken them. Declaration adequacy and authorized policy changes plus final
+semantic/integration acceptance remain open. P2.3 is incomplete.
