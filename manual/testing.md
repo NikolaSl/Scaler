@@ -303,8 +303,9 @@ an explicit validation-manifest `outputPaths` value, and a task/manifest
 Definition of Done or manifest acceptance criterion. Use `outputPaths: []` only
 when the task deliberately has no filesystem outputs. Preparation remains
 available for diagnosis; execute mode fails closed before attempt or agent-budget
-publication. Run `node --test --import tsx test/task-contract-admission.test.ts test/debug-retry.test.ts`
-for the direct, shared, late-race and compact-contract checks.
+publication and before dirty-tree pause checkpointing. Run
+`node --test --import tsx test/task-contract-admission.test.ts test/debug-retry.test.ts`
+for the direct, shared, late-race, git-safety-ordering and compact-contract checks.
 
 PLAN-112 carries optional `outputPaths` through execution-plan tasks, structured
 task create/update tools and stage child planning reports into the existing

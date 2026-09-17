@@ -62,7 +62,12 @@ and the late check occurs before attempt publication and spawned-agent budget.
 Five focused checks cover the three boundaries, late mutation and an explicit
 compact contract with `outputPaths: []`. Existing execution fixtures now state
 the contract they already assumed; their behavioral assertions are unchanged.
-Final gate: build, 708 unit, 67 mock integration and 7 conformance/autopilot.
+Copilot review exposed one earlier side effect: conductor could write a dirty-tree
+pause checkpoint before rejecting a missing write scope. The preflight now runs
+before git safety in execute mode, while the shared admission check still catches
+late mutation; a sixth focused check locks that ordering. Manifest read failures
+also preserve an `Error` message without adding a redundant `Error:` prefix.
+Final gate: build, 709 unit, 67 mock integration and 7 conformance/autopilot.
 
 This is a structural admission guard only. It does not prove that declared paths
 or criteria are sufficient, authorized or semantically correct, and it does not

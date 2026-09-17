@@ -217,7 +217,8 @@ PLAN-115 refuses worker execution without the three AC-02 structural contract
 prerequisites: declared project write scope, explicit output basis and an
 acceptance statement. Normal conductor, debug retry and shared attempt admission
 all fail before runner, attempt, task-transition or spawned-agent effects, with a
-second check covering late mutation. Gate: build, 708 unit, 67 mock integration
+second check covering late mutation and a pre-git-safety guard preventing pause
+checkpoints for inadmissible work. Gate: build, 709 unit, 67 mock integration
 and 7 conformance/autopilot. This is partial SC-02/10/26 evidence only;
 declaration authority/sufficiency, semantic correctness, integration acceptance
 and compact-default synthesis remain open.
