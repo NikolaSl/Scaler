@@ -222,3 +222,19 @@ Manual report/checklist and other acceptance routes remain P2.3 follow-up work.
 Rename detection is disabled for candidate enumeration so source deletion is not
 lost. Changed paths beneath symlink ancestors fail closed rather than reading
 through the link; reconcile the project structure before retrying validation.
+
+### Generic proposal acceptance guards (PLAN-103)
+
+Run `node --test --import tsx test/proposal-acceptance.test.ts test/tasks.test.ts test/reports.test.ts test/validation-acceptance.test.ts`.
+Generic report ingestion cannot request `taskTransition=validated` or
+`stageTransition=completed`. Task create/update cannot grant `validated` status;
+update also refuses rewriting an already validated task. This includes embedded
+validation commands: a rejected proposal does not replace its policy. A bundled
+report cannot apply its stage transition before refusing task acceptance.
+Ordinary non-accepting proposals continue to work, and refusals are audited.
+
+Use dedicated validation and commit/skip operations for acceptance; do not work
+around a refusal by editing state or evidence ledgers. Changes to an accepted
+task require explicit replanning/replacement, not metadata edits retaining the
+accepted label. These guards do not yet establish evidence authority for manual
+validation reports/checklists, automatic acceptance or aggregate run completion.

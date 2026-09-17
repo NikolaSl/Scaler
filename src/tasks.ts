@@ -129,6 +129,16 @@ export async function updateTask(cwd: string, state: ScalerState, input: UpdateT
     }
   }
 
+  // Keep invalid-transition diagnostics above, but do not publish the proposed
+  // transition or metadata when the request would grant/retain acceptance.
+  if (input.status === "validated" || existing.status === "validated") {
+    const message = existing.status === "validated"
+      ? `Task update rejected: ${input.id} is already validated; use explicit replanning/replacement instead of rewriting accepted metadata.`
+      : `Task update rejected: ${input.id} acceptance requires the dedicated validation path.`;
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "state", summary: message, taskId: input.id, details: input }));
+    return { state, accepted: false, message };
+  }
+
   const timestamp = new Date().toISOString();
   nextState = {
     ...nextState,
@@ -178,6 +188,11 @@ export async function updateTask(cwd: string, state: ScalerState, input: UpdateT
 
 export async function createTask(cwd: string, state: ScalerState, input: CreateTaskInput): Promise<CreateTaskResult> {
   const status = input.status ?? "pending";
+  if (status === "validated") {
+    const message = `Task create rejected: ${input.id} acceptance requires the dedicated validation path; create an unvalidated task first.`;
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "state", summary: message, taskId: input.id, details: input }));
+    return { state, accepted: false, message };
+  }
   if (!isScalerTaskStatus(status)) {
     await appendLogEvent(
       cwd,

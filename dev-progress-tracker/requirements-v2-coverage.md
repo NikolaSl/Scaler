@@ -110,6 +110,17 @@ reason/disposition must match the authorized policy. A malformed-producer
 regression and a positive skip fixture pass; simple tampering was already rejected.
 Gate: build, 26/26 acceptance, 569/569 unit and 67/67 mock integrations.
 
+PR #6 merged after completed final-head Copilot review. PLAN-103 then closes
+generic proposal acceptance: report ingestion refuses validated/completed
+transitions, task creation/update cannot grant validated status, and metadata
+updates cannot rewrite an already validated task. Nine new regressions failed
+before the fix, alongside a passing ordinary-proposal control. Refusals retain
+audit records without replacing task contracts or validation policies. All 57
+focused checks pass; dedicated receipt-backed commit/skip remain covered. This
+does not close SC-01/10/26: manual validation/checklist authority, automatic
+acceptance, postcommit identity and aggregate completion still require work.
+PLAN-103 gate: build, 579/579 unit, 67/67 mock integration; review pending.
+
 Implementation has now started on merged baseline `8f4cf19`, following
 [PLAN-099](../plans/implementation-plan-099.md). The original assessment table
 above is retained as the reviewed baseline. P1.1 adds read-only existing-state
