@@ -475,12 +475,14 @@ test("mock integration: dependency-blocked task waits until dependency validates
       { id: "T-CHILD", status: "ready", title: "Child", dependsOn: ["T-DEP"], updatedAt: state.createdAt },
     ];
     await saveState(dir, state);
+    await upsertValidationManifestCommand(dir, { taskId: "T-DEP", id: "check", command: "node --input-type=module -e \"import {value} from './src/app.js'; if (value !== 1) process.exit(1)\"" });
     const first = await runConductorStep(dir, state, { execute: true }, (request) => Promise.resolve({
       taskId: request.taskId, exitCode: 0, stdoutEvents: [taskReport(request.taskId, request.attempt)], stderr: "", timedOut: false, aborted: false,
     }));
     assert.equal(first.task?.id, "T-DEP");
-    const validation = await applyValidationReport(dir, await loadState(dir), { taskId: "T-DEP", status: "passed", summary: "Dependency passed" });
-    const second = await runConductorStep(dir, validation.state, { execute: false });
+    const validation = await runTaskValidation(dir, await loadState(dir), "T-DEP");
+    assert.equal(validation.acceptance?.accepted, true, validation.acceptance?.message);
+    const second = await runConductorStep(dir, await loadState(dir), { execute: false });
     assert.equal(second.task?.id, "T-CHILD");
   });
 });

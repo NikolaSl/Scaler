@@ -734,7 +734,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "scaler_validation_report",
     label: "Scaler Validation Report",
-    description: "Submit a structured validation report.",
+    description: "Record validation observations. Positive manual claims are proposals and cannot approve a task; supervisor verification is required.",
     parameters: ValidationReportParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const state = await ensureState(ctx.cwd);

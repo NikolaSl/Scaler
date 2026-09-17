@@ -869,7 +869,7 @@ export async function runTaskValidation(cwd: string, state: ScalerState, taskId:
       createdAt: record.createdAt,
     });
     if (gitAcceptance.accepted) {
-      result = await applyValidationReport(cwd, state, {
+      result = await applySupervisorValidationOutcome(cwd, state, {
         taskId,
         status: record.status,
         summary: `Validation ${record.status}: ${taskId}`,
@@ -1070,6 +1070,20 @@ export async function runValidationCommand(
 }
 
 export async function applyValidationReport(
+  cwd: string,
+  state: ScalerState,
+  report: ValidationReportInput,
+): Promise<ValidationApplyResult> {
+  if (report.status === "passed" || report.status === "not_applicable") {
+    return logAndReturn(cwd, state, report, false,
+      "Validation proposal recorded without task acceptance: positive manual claims require independent supervisor verification; report fields and evidence-reference strings are not authority.");
+  }
+  return applySupervisorValidationOutcome(cwd, state, report);
+}
+
+// Positive outcomes enter only from runTaskValidation after receipt and Git
+// acceptance checks. Never expose a caller-supplied trusted flag for this path.
+async function applySupervisorValidationOutcome(
   cwd: string,
   state: ScalerState,
   report: ValidationReportInput,
