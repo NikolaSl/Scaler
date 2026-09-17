@@ -52,10 +52,19 @@ lock before context/budget work; shared attempt admission checks again before
 writing an attempt. Refusal neither calls the runner nor creates an attempt,
 changes the dependent task, or charges `spawnedAgents`.
 
-Four focused checks cover the reproduced stale dispatch, a current accepted
-dependency, the shared admission boundary and an unrelated stale task that must
-not block independent work. The completion suite retains its existing outcomes.
-Final gate: build, 700 unit, 67 mock integration and 7 conformance/autopilot pass.
+Copilot review identified that the shared recheck could still throw after the
+projected budget had been published. Dependency admission now raises a typed
+rejection with dependency-scoped diagnostics, both callers return their normal
+structured refusal, and budget publication follows successful admission. Two
+deterministic race tests mutate accepted dependency output after preflight in
+the normal and debug-retry routes and prove no worker, attempt or spawned-agent
+charge occurs.
+
+Six focused checks cover the reproduced stale dispatch, both late-race paths, a
+current accepted dependency, the shared admission boundary and an unrelated
+stale task that must not block independent work. The completion suite retains
+its existing outcomes. Final gate: build, 702 unit, 67 mock integration and 7
+conformance/autopilot pass.
 
 Only direct declared dependencies are checked. Dependency discovery, transitive
 semantic sufficiency, affected-plan invalidation, declaration/policy authority
