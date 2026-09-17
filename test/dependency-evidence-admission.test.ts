@@ -4,10 +4,12 @@
  */
 
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { test } from "node:test";
 import { getBudgetState } from "../src/budgets.js";
 import { buildTaskAgentPrompt, runConductorStep, type ConductorStepOptions } from "../src/conductor.js";
@@ -17,6 +19,8 @@ import { loadState, saveState } from "../src/state.js";
 import { loadTaskAttempts, type TaskAttemptBinding } from "../src/task-attempts.js";
 import { createDefaultState } from "../src/state.js";
 import { runTaskValidation, saveValidationManifest } from "../src/validation.js";
+
+const exec = promisify(execFile);
 
 async function withFixture(fn: (dir: string) => Promise<void>) {
   const dir = await mkdtemp(join(tmpdir(), "scaler-dependency-evidence-"));
@@ -129,6 +133,36 @@ test("late dependency rejection does not publish projected agent budget", async 
   assert.deepEqual(await loadTaskAttempts(dir), []);
   assert.equal((await loadState(dir)).tasks.find((task) => task.id === "T-NEXT")?.status, "ready");
   assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents, beforeBudget.usage.spawnedAgents);
+}));
+
+test("shared admission converts dependency snapshot failures into structured rejection", async () => withFixture(async (dir) => {
+  await exec("git", ["init"], { cwd: dir });
+  await exec("git", ["config", "user.name", "Test"], { cwd: dir });
+  await exec("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+  await exec("git", ["add", "dependency.txt"], { cwd: dir });
+  await exec("git", ["commit", "-m", "base"], { cwd: dir });
+  await exec("git", ["checkout", "-b", "other"], { cwd: dir });
+  await writeFile(join(dir, "dependency.txt"), "other");
+  await exec("git", ["commit", "-am", "other"], { cwd: dir });
+  await exec("git", ["checkout", "-b", "conflict", "HEAD~1"], { cwd: dir });
+  await writeFile(join(dir, "dependency.txt"), "conflict");
+  await exec("git", ["commit", "-am", "conflict"], { cwd: dir });
+  await assert.rejects(exec("git", ["merge", "other"], { cwd: dir }));
+
+  const state = await loadState(dir);
+  const task = state.tasks.find((candidate) => candidate.id === "T-NEXT")!;
+  const context = buildTaskAgentPrompt({ state, task }).resolvedContext;
+  const lock = await acquireExecutionLock(dir, { operation: "test", taskId: task.id });
+  try {
+    await assert.rejects(
+      admitTaskExecution(dir, lock.lock.id, state, task, context, "test", []),
+      (error) => error instanceof TaskDependencyAdmissionError
+        && error.diagnostics.some((diagnostic) => /Dependency T-DEP:.*snapshot unavailable:.*unmerged index/i.test(diagnostic)),
+    );
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+  } finally {
+    await releaseExecutionLock(dir, lock.lock.id);
+  }
 }));
 
 test("stale unrelated accepted task does not block independent dispatch", async () => withFixture(async (dir) => {

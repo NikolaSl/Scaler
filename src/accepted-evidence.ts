@@ -47,7 +47,14 @@ export async function verifyAcceptedTaskEvidence(
   if (run?.receipt && errors.length === 0) {
     errors.push(...await checkAttemptEvidence(cwd, state, taskId));
     const { gitCandidateFingerprint: _historical, ...historical } = run.receipt.snapshot;
-    const { gitCandidateFingerprint: _current, ...current } = await captureValidationSnapshot(cwd, state, taskId);
+    let currentSnapshot;
+    try {
+      currentSnapshot = await captureValidationSnapshot(cwd, state, taskId);
+    } catch (error) {
+      errors.push(`${subject} rejected: snapshot unavailable: ${String(error)}`);
+      return errors;
+    }
+    const { gitCandidateFingerprint: _current, ...current } = currentSnapshot;
     if (fingerprintJson(historical) !== fingerprintJson(current)) {
       errors.push(`${subject} rejected: run, task, attempt, policy, context or declared output changed.`);
     }
