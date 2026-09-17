@@ -394,3 +394,20 @@ Four baseline failures demonstrate false completion after changed/new explicit
 links and stale receipts after removed/retargeted links. Unchanged/idempotent and
 unrelated-task controls remain valid. Both directions feed the existing canonical
 requirement-content fingerprint; the schema and acceptance routes are unchanged.
+
+PLAN-118 unit B adds `test/requirement-integration.test.ts`. Two negative
+baselines show that linked component success previously allowed completion when
+the named end-to-end command was missing or skipped. Current checks reject both,
+accept one exact required passing command, and reject the old integration receipt
+after a component output changes and is independently reaccepted. Rerunning the
+named command restores completion. PRD, tool and stage-workflow tests also cover
+criterion normalization and preservation through all structured input paths.
+Snapshot schema version 4 requires older receipts to be revalidated.
+Malformed or duplicate stage-provided criteria are refused before any PRD,
+catalog, stage-artifact or accepted audit write; malformed participant arrays are
+not silently narrowed.
+
+The test proves deterministic command evidence and current component identity;
+it does not prove that an agent had authority to create/delete the criterion,
+that the selected criterion is semantically sufficient, or that non-software and
+real-model outcomes meet their requirements.

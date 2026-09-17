@@ -95,8 +95,8 @@ the current accepted validation run. A skipped, blocked, failed, optional-only,
 unknown or unrelated command is not evidence. Criterion data is part of the
 requirement content fingerprint. The integration task snapshot additionally
 binds a compact, non-recursive identity for every participating component:
-current task contract, selected attempt/output identity, validation policy and
-latest accepted validation-result identity. Reaccepting a changed component
+current task contract, selected attempt/output identity, validation policy,
+context, declared outputs and stable commit/skip acceptance kind. Reaccepting a changed component
 therefore invalidates older integration evidence until the named command reruns.
 
 Transport the optional criterion through direct PRD tools, structured PRD stage
@@ -119,6 +119,37 @@ This unit proves deterministic software-command integration evidence only. It
 does not authorize agents to add/remove mandatory criteria, prove semantic link
 necessity, or solve non-software evidence authority. Those remain explicit P2
 gaps and must not be claimed complete from this unit.
+
+## Unit B result
+
+The two negative baseline scenarios failed before implementation: completion
+accepted both a missing named integration command and a declared skip. The
+passing end-to-end control remained green. Runtime requirements now accept
+normalized optional `acceptanceCriteria`; duplicate criterion ids and malformed
+or empty identities fail closed. Omitted criteria survive partial direct,
+PRD-stage and planning updates, while explicit `[]` is a deliberate removal.
+
+Completion requires one exact required runnable command with current `passed`
+evidence. Receipt schema version 4 binds the owner to the canonical criterion and
+to non-owner participant task/attempt/output/policy/context/declared-output and
+stable Git commit or reasoned-skip identity. It deliberately does not hash nested
+receipts or run ids: this avoids self-invalidating owners and reciprocal rerun
+cycles, while changed outputs/contracts/policies still invalidate old integration
+evidence. A regression changes and reaccepts one component, proves the older
+integration result stale, then reruns the named command successfully.
+
+An independent review found that malformed stage criteria could be parsed as an
+omitted catalog after PRD content had already been written. Stage ingestion now
+validates the full requirement/criterion payload before every write and rejects
+non-string participant ids instead of silently narrowing them. The dedicated
+regression preserves both PRD content and requirements on refusal.
+
+Gate: TypeScript build, 731 unit tests, 67 mock integration tests and 7
+conformance/autopilot checks pass. A GPT-6 Astra/high read-only design review
+found no further actionable defect after the ingestion correction. This is partial
+AC-26/27 evidence only. Criterion change authority/history, semantic necessity,
+non-software integration evidence and representative real-model outcome quality
+remain open.
 
 ## Review-delivery diagnostic
 

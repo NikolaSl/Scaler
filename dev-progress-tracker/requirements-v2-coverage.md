@@ -44,7 +44,7 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-24 | Partial | Tests and usage reports exist; representative outcome evaluation and revision 2 coverage gate are pending. | `src/provider-usage.ts`, `src/conformance.ts` | [AC-24](../specs/acceptance-scenarios.md#ac-24) |
 | SC-25 | Failed | Tool focus reads methods from ctx although reviewed Pi exposes them on ExtensionAPI; permissive mock masks this. | `src/index.ts`, `test/extension-shape.test.ts` | [AC-25](../specs/acceptance-scenarios.md#ac-25) |
 | SC-26 | Partial | Automation loop exists; revised complete-run, cancellation and recovery guarantees not demonstrated. | `src/autopilot.ts` | [AC-26](../specs/acceptance-scenarios.md#ac-26) |
-| SC-27 | Partial | Requirement versions/links exist; task status alone is insufficient proof of current requirement acceptance. | `src/prd.ts` | [AC-27](../specs/acceptance-scenarios.md#ac-27) |
+| SC-27 | Partial | Current named command evidence and participant identity now gate declared integration criteria; authority/history, semantic necessity and non-software evidence remain open. | `src/prd.ts`, `src/run-completion.ts`, `test/requirement-integration.test.ts` | [AC-27](../specs/acceptance-scenarios.md#ac-27) |
 
 ## Implementation progress — PLAN-099
 

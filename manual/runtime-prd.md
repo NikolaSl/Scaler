@@ -61,6 +61,20 @@ revalidation when they omit that content. Unrelated tasks' coverage entries do
 not change the fingerprint. Tasks with no links in either direction do not read
 the requirement-content file; the coverage ledger is still checked for links.
 
+Requirements may optionally declare named `acceptanceCriteria`. A criterion
+contains its stable id and statement, the existing validation task and command
+that supplies its evidence, and the participating task ids. Criteria are never
+inferred merely because several tasks link to the same requirement. Completion
+requires the exact mapped command to be required, runnable and actually passed;
+skipped, blocked, optional, missing or unrelated commands do not count.
+
+Validation receipt schema version 4 includes normalized criteria and a compact
+identity of the participating components. A changed and reaccepted component
+invalidates older integration evidence until the named command runs again.
+Omitted criteria are preserved by partial direct, PRD-stage and planning updates;
+an explicit empty array removes them. The runtime records this behavior but does
+not itself grant an agent authority to add or remove mandatory acceptance policy.
+
 ## Tools
 
 Implemented runtime PRD tools:
@@ -68,5 +82,9 @@ Implemented runtime PRD tools:
 - `scaler_prd_write` writes `.scaler/prd/current.md` and optionally replaces `requirements.json`. It can snapshot the previous current PRD first.
 - `scaler_prd_requirement_update` upserts one requirement and optionally updates its explicit coverage entry.
 - `scaler_planning_report` ingests planner output, links requirements to plan tasks, and records `.scaler/reports/planning-reports.json` diagnostics.
+
+All three structured input paths accept optional requirement
+`acceptanceCriteria` objects with `id`, `statement`, `validationTaskId`,
+`commandId`, and `participantTaskIds`.
 
 These tools are intended for PRD/polishing or planning agents to keep the runtime PRD ledger current while execution progresses.
