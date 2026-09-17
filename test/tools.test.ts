@@ -18,6 +18,7 @@ import { loadState } from "../src/state.js";
 import { loadTaskAgentReports } from "../src/task-reports.js";
 import { loadToolRequests, loadToolResults, loadToolSchemaRecords } from "../src/tool-requests.js";
 import { scalerToolNames, registerScalerTools } from "../src/tools.js";
+import { getValidationManifestForTask } from "../src/validation.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-tools-test-"));
@@ -81,6 +82,7 @@ test("scaler_task_create records stable audit summary when quality metadata is c
         dependsOn: [],
         prdRefs: ["REQ-AUDIT"],
         definitionOfDone: ["Audit task complete"],
+        validationInputPaths: [],
         validationCommands: [
           { id: "test-first", command: "node -e \"process.exit(0)\"", gate: "test_first", required: true },
           { id: "unit", command: "node -e \"process.exit(0)\"", gate: "unit_tests", required: true },
@@ -92,6 +94,7 @@ test("scaler_task_create records stable audit summary when quality metadata is c
     );
 
     const events = await readLogEvents(dir);
+    assert.deepEqual((await getValidationManifestForTask(dir, "T-AUDIT")).validationInputPaths, []);
     assert.ok(events.some((event) => event.eventType === "state" && event.summary === "Task created: T-AUDIT"));
     assert.ok(events.some((event) => event.eventType === "tool" && event.summary === "Task created: T-AUDIT" && Boolean(event.detailsPath)));
   });
@@ -302,6 +305,7 @@ test("scaler_planning_report syncs planner output", async () => {
             prdRefs: ["REQ-TOOL"],
             allowedPathPrefixes: ["src"],
             definitionOfDone: ["Tool task complete"],
+            validationInputPaths: [],
             validationCommands: [
               { id: "test-first", command: "node -e \"process.exit(0)\"", gate: "test_first", required: true },
               { id: "unit", command: "node -e \"process.exit(0)\"", gate: "unit_tests", required: true },
@@ -316,6 +320,8 @@ test("scaler_planning_report syncs planner output", async () => {
 
     assert.equal(result?.details.status, "accepted");
     assert.equal((await loadExecutionPlan(dir)).planVersion, 3);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks[0]?.validationInputPaths, []);
+    assert.deepEqual((await getValidationManifestForTask(dir, "T-TOOL-PLAN")).validationInputPaths, []);
     assert.equal((await loadPrdRequirements(dir)).requirements[0]?.id, "REQ-TOOL");
     assert.equal((await loadPrdRequirements(dir)).requirements[0]?.acceptanceCriteria, undefined);
     assert.equal((await loadPlanningReports(dir))[0]?.id, "PLAN-TOOL");

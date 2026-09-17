@@ -14,7 +14,7 @@ import { promisify } from "node:util";
 import { test } from "node:test";
 import { evaluateValidationGitAcceptance, loadCommitSkips, recordCommitSkip } from "../src/git.js";
 import { completeRunWithEvidence } from "../src/run-completion.js";
-import { fingerprintDeclaredOutputs, normalizeOutputPaths } from "../src/output-artifacts.js";
+import { fingerprintDeclaredOutputs, fingerprintValidationInputs, normalizeOutputPaths } from "../src/output-artifacts.js";
 import { captureValidationSnapshot } from "../src/validation-acceptance.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { registerScalerTools } from "../src/tools.js";
@@ -23,6 +23,21 @@ import { getValidationManifestForTask, runTaskValidation, saveValidationManifest
 
 const exec = promisify(execFile);
 const check = 'node -e "if(require(\'fs\').readFileSync(\'result.txt\',\'utf8\')!==\'ok\')process.exit(1)"';
+
+test("validation input hashing requires present regular files without symlink ancestors", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "scaler-validation-inputs-"));
+  try {
+    await writeFile(join(dir, "check.cjs"), "process.exit(0);\n");
+    const initial = await fingerprintValidationInputs(dir, ["check.cjs"]);
+    await writeFile(join(dir, "check.cjs"), "process.exit(1);\n");
+    assert.notEqual(await fingerprintValidationInputs(dir, ["check.cjs"]), initial);
+    await symlink("check.cjs", join(dir, "linked.cjs"));
+    await assert.rejects(fingerprintValidationInputs(dir, ["linked.cjs"]), /regular file/i);
+    await assert.rejects(fingerprintValidationInputs(dir, ["missing.cjs"]), /ENOENT|no such file/i);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
 test("task command replacement preserves the rest of the validation policy", async () => fixture(false, async (dir) => {
   await createTask(dir, await loadState(dir), { id: "T-POLICY" });
@@ -70,11 +85,11 @@ for (const replacement of ["symlink", "file"] as const) {
   }));
 }
 
-test("validation snapshot advertises integration-bound schema version 4", async () => fixture(false, async (dir) => {
-  assert.equal((await captureValidationSnapshot(dir, await loadState(dir), "T-OUT")).version, 4);
+test("validation snapshot advertises validation-input-bound schema version 5", async () => fixture(false, async (dir) => {
+  assert.equal((await captureValidationSnapshot(dir, await loadState(dir), "T-OUT")).version, 5);
 }));
 
-for (const version of [1, 2, 3]) {
+for (const version of [1, 2, 3, 4]) {
   test(`version ${version} receipt cannot be reused under requirement-bound snapshot semantics`, async () => fixture(false, async (dir) => {
     const run = await runTaskValidation(dir, await loadState(dir), "T-OUT");
     assert.ok(run.receipt);
@@ -204,15 +219,19 @@ test("unsafe declared paths and unsupported objects are refused", async () => fi
   assert.notEqual(await fingerprintDeclaredOutputs(dir, []), null);
 }));
 
-test("public manifest tool retains declared output identity through acceptance", async () => fixture(false, async (dir) => {
+test("public manifest tool retains declared output and executable validation-input identity", async () => fixture(false, async (dir) => {
   const registered = new Map<string, { execute: (...args: any[]) => Promise<unknown> }>();
   registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<unknown> }) {
     registered.set(definition.name, definition);
   } } as never);
   const tool = registered.get("scaler_validation_manifest_write");
   assert.ok(tool);
-  await tool.execute("manifest", { taskId: "T-OUT", outputPaths: ["result.txt"], commands: [{ id: "check", command: check }] }, undefined, undefined, { cwd: dir });
-  assert.deepEqual((await getValidationManifestForTask(dir, "T-OUT")).outputPaths, ["result.txt"]);
+  await writeFile(join(dir, "check.cjs"), "if(require('fs').readFileSync('result.txt','utf8')!=='ok')process.exit(1);\n");
+  await tool.execute("manifest", { taskId: "T-OUT", outputPaths: ["result.txt"], validationInputPaths: ["check.cjs"], commands: [{ id: "check", command: "node check.cjs" }] }, undefined, undefined, { cwd: dir });
+  const saved = await getValidationManifestForTask(dir, "T-OUT");
+  assert.deepEqual(saved.outputPaths, ["result.txt"]);
+  assert.deepEqual(saved.validationInputPaths, ["check.cjs"]);
+  assert.ok(saved.validationInputFingerprint);
   assert.equal((await runTaskValidation(dir, await loadState(dir), "T-OUT")).status, "passed");
   await writeFile(join(dir, "result.txt"), "changed after validation");
   assert.equal((await completeRunWithEvidence(dir, await loadState(dir))).accepted, false);

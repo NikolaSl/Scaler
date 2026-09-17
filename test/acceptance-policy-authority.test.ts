@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { acceptReplanProposal, applyPlanningReport, loadExecutionPlan, loadReplanDecisions, saveExecutionPlan } from "../src/plans.js";
+import { verifyAcceptedTaskEvidence } from "../src/accepted-evidence.js";
 import { loadPrdRequirements } from "../src/prd.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { registerScalerTools } from "../src/tools.js";
@@ -109,6 +110,43 @@ test("rerun accepts repaired output when the executable validation basis is unch
     assert.equal(rerun.status, "passed");
     assert.equal(rerun.acceptance?.accepted, true);
     assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
+  });
+});
+
+test("model authority cannot rebaseline a changed executable validation input", async () => {
+  await withExternalFailedPolicy(async (dir) => {
+    const original = await getValidationManifestForTask(dir, "T-BASIS");
+    await writeFile(join(dir, "check.cjs"), "process.exit(0);\n");
+    await assert.rejects(saveValidationManifest(dir, original, { authority: "model" }), /acceptance policy|authority|user command/i);
+    const current = await getValidationManifestForTask(dir, "T-BASIS");
+    assert.equal(current.revision ?? 1, 1);
+    assert.equal(current.validationInputFingerprint, original.validationInputFingerprint);
+  });
+});
+
+test("explicit user authority can rebaseline a corrected executable validation input", async () => {
+  await withExternalFailedPolicy(async (dir) => {
+    const original = await getValidationManifestForTask(dir, "T-BASIS");
+    await writeFile(join(dir, "check.cjs"), "process.exit(0);\n");
+    const corrected = await saveValidationManifest(dir, original, {
+      authority: "user_command",
+      reason: "The original check encoded the wrong acceptance rule.",
+    });
+    assert.equal(corrected.revision, 2);
+    assert.notEqual(corrected.validationInputFingerprint, original.validationInputFingerprint);
+    assert.equal(corrected.versionHistory?.[0]?.policy.validationInputFingerprint, original.validationInputFingerprint);
+    assert.equal((await runTaskValidation(dir, await loadState(dir), "T-BASIS")).status, "passed");
+  });
+});
+
+test("accepted evidence becomes stale when a declared validation input changes", async () => {
+  await withExternalFailedPolicy(async (dir) => {
+    await writeFile(join(dir, "result.txt"), "fixed");
+    assert.equal((await runTaskValidation(dir, await loadState(dir), "T-BASIS")).status, "passed");
+    const accepted = await loadState(dir);
+    assert.equal(accepted.tasks[0]?.status, "validated");
+    await writeFile(join(dir, "check.cjs"), "process.exit(0);\n");
+    assert.match((await verifyAcceptedTaskEvidence(dir, accepted, "T-BASIS")).join(" "), /validation basis|snapshot unavailable/i);
   });
 });
 
