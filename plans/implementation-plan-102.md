@@ -91,3 +91,15 @@ leave the candidate digest unchanged. Candidate enumeration now uses
 refused before reading a candidate through them. Neither fix expands tool grants.
 Build, 19/19 acceptance regressions, 562/562 unit tests and 67/67 mock integrations
 pass after this correction. It is a separate commit requiring current-head review.
+
+### Copilot review fixes
+
+Review 5230550362 raised two valid findings (4032712797 / 4032712816):
+snapshot failures escaped commit/skip and both validation snapshot points as
+exceptions. Four new regressions reproduced the thrown errors. The receipt
+verifier now returns rejection diagnostics; validation records a blocked run,
+preserving any commands already executed and leaving task acceptance unchanged.
+Low-level snapshot helpers still throw to callers that explicitly request capture;
+acceptance/validation boundaries convert those failures to refusal, never success.
+Build, 23/23 acceptance regressions, 566/566 unit and 67/67 mock integration tests
+passed after the corrections. Re-review on the corrected head is required.

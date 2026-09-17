@@ -74,9 +74,13 @@ export async function verifyCurrentValidationReceipt(cwd: string, state: ScalerS
   if (run.receipt.resultFingerprint !== fingerprintValidationResult(run)) {
     diagnostics.push("Validation receipt rejected: validation result changed.");
   }
-  const current = await captureValidationSnapshot(cwd, state, taskId);
-  if (fingerprintJson(run.receipt.snapshot) !== fingerprintJson(current)) {
-    diagnostics.push("Validation receipt rejected: run, task, attempt, policy, context or candidate output changed.");
+  try {
+    const current = await captureValidationSnapshot(cwd, state, taskId);
+    if (fingerprintJson(run.receipt.snapshot) !== fingerprintJson(current)) {
+      diagnostics.push("Validation receipt rejected: run, task, attempt, policy, context or candidate output changed.");
+    }
+  } catch (error) {
+    diagnostics.push(`Validation receipt rejected: snapshot unavailable: ${String(error)}`);
   }
   const manifest = await getValidationManifestForTask(cwd, taskId);
   for (const command of manifest.commands.filter((command) => command.required)) {

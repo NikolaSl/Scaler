@@ -213,3 +213,50 @@ test("candidate snapshot refuses symlink ancestors instead of reading their targ
     await assert.rejects(captureValidationSnapshot(dir, state, "T-LINK"), /symlink ancestor/);
   });
 });
+
+for (const route of ["commit", "skip"] as const) {
+  test(`${route} turns snapshot errors into rejected results without Git effects`, async () => {
+    await fixture(async (dir) => {
+      const { state } = await validated(dir);
+      await unlink(join(dir, "output.txt"));
+      await mkdir(join(dir, "output.txt"));
+      const head = (await exec("git", ["rev-parse", "HEAD"], { cwd: dir })).stdout;
+      const result = route === "commit" ? await commitWithExecutionLock(dir, state, "T-RECEIPT", ["output.txt"])
+        : await skipCommitWithExecutionLock(dir, state, "T-RECEIPT", "skip");
+      assert.equal(result.accepted, false);
+      assert.match(result.message, /snapshot.*unsupported file type/i);
+      assert.equal((await exec("git", ["rev-parse", "HEAD"], { cwd: dir })).stdout, head);
+      assert.deepEqual(await loadCommitReports(dir), []);
+      assert.deepEqual(await loadCommitSkips(dir), []);
+    });
+  });
+}
+
+test("validation records pre-command snapshot errors as blocked evidence", async () => {
+  await fixture(async (dir) => {
+    const { state } = await validated(dir);
+    await unlink(join(dir, "output.txt"));
+    await mkdir(join(dir, "output.txt"));
+    const run = await runTaskValidation(dir, state, "T-RECEIPT");
+    assert.equal(run.status, "blocked");
+    assert.equal(run.acceptance?.accepted, false);
+    assert.match(run.acceptance?.message ?? "", /snapshot.*unsupported file type/i);
+    assert.deepEqual(run.commandRuns, []);
+    const stored = JSON.parse(await readFile(getValidationRunsPath(dir), "utf8"));
+    assert.equal(stored.runs[0].id, run.id);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validating");
+  });
+});
+
+test("validation records post-command snapshot errors while preserving executed checks", async () => {
+  await fixture(async (dir) => {
+    const { run } = await validated(dir, "node -e \"const fs=require('fs');fs.unlinkSync('output.txt');fs.mkdirSync('output.txt')\"");
+    assert.equal(run.status, "blocked");
+    assert.equal(run.acceptance?.accepted, false);
+    assert.match(run.acceptance?.message ?? "", /snapshot.*unsupported file type/i);
+    assert.equal(run.commandRuns[0]?.status, "passed");
+    const stored = JSON.parse(await readFile(getValidationRunsPath(dir), "utf8"));
+    assert.equal(stored.runs[0].id, run.id);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validating");
+  });
+});
