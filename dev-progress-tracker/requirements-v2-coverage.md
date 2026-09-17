@@ -213,6 +213,15 @@ compatibility only. Updating that gate belongs to the later implementation phase
 revision 2 document integrity is checked separately during this change.
 # PLAN-106 continuation
 
+PLAN-116 adds the current runtime PRD ledger to the final completion guard. An
+unlinked current requirement, a stale explicit link to a nonexistent task, or a
+computed status other than `validated` now blocks completion under the execution
+lock. Two baseline false completions and a linked current control are covered;
+the staged integration fixture declares its existing requirement link. Gate:
+build, 713 unit, 67 mock integration and 7 conformance/autopilot. This is partial
+SC-10/26/27 evidence only; semantic linkage, minimality, authority and cross-task
+integration adequacy remain open, so overall statuses are unchanged.
+
 PLAN-115 refuses worker execution without the three AC-02 structural contract
 prerequisites: declared project write scope, explicit output basis and an
 acceptance statement. Normal conductor, debug retry and shared attempt admission

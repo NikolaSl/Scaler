@@ -211,6 +211,14 @@ conformance/autopilot pass. Declaration sufficiency/authority and semantic or
 integration acceptance remain open; no unrelated task-quality fields or inferred
 defaults were added.
 
+PLAN-116 adds current runtime-requirement coverage to final run completion. Every
+recorded requirement must link only to tasks present in current state and compute
+to `validated`; unlinked requirements and stale explicit task ids fail closed.
+Two baseline failures and one positive control cover the new boundary. Build,
+713 unit, 67 mock integration and 7 conformance/autopilot checks pass. This does
+not verify semantic link correctness, minimality, authority or cross-task
+integration adequacy; P2.3 and SC-10/26 remain incomplete.
+
 1. Add a regression for the concrete defect and observe failure on the prior code.
 2. Implement the smallest sufficient fix; preserve unrelated user changes.
 3. Run focused checks, then build/integration when the boundary warrants it.

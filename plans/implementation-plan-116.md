@@ -43,3 +43,19 @@ manifest, infer semantic coverage, or alter planning and task admission.
 This unit proves structural current-requirement coverage at final completion. It
 does not prove that task-to-requirement links are semantically correct, that the
 declared task set is minimal, or that cross-task integration is adequate.
+
+## Result
+
+Two baseline regressions confirmed that final completion accepted both an
+unlinked current requirement and a coverage entry naming only a nonexistent
+task. The completion verifier now loads current runtime requirements and coverage
+under its existing execution lock and rejects missing links, stale task ids and
+any computed status other than `validated`. Runs without runtime requirements
+retain their prior behavior; a current task linked through `prdRefs` remains a
+positive control.
+
+The existing staged integration fixture now states its already-assumed
+`REQ-STAGE` task link. Final gate: TypeScript build, 713 unit tests, 67 mock
+integration tests and 7 conformance/autopilot checks pass. Semantic link
+correctness, minimality, authority and cross-task integration adequacy remain
+outside this structural guard, so P2.3 and SC-10/26 are not declared complete.
