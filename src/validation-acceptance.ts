@@ -5,7 +5,8 @@
 
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstat, readFile, readlink } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { lstat, readlink } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { promisify } from "node:util";
 import { captureValidationContext, checkAttemptEvidence } from "./attempt-evidence.js";
@@ -50,7 +51,8 @@ export async function captureValidationSnapshot(cwd: string, state: ScalerState,
 }
 
 export function fingerprintValidationResult(run: ValidationRunRecord): string {
-  // Serialize the same optional-field representation that is persisted to JSON.
+  // Canonicalize command evidence: absent policy diagnostics mean an empty list;
+  // the JSON round-trip drops undefined optional fields in nested command records.
   return fingerprintJson(JSON.parse(JSON.stringify({
     id: run.id, taskId: run.taskId, status: run.status,
     commandRuns: run.commandRuns, policyDiagnostics: run.policyDiagnostics ?? [],
@@ -121,7 +123,7 @@ async function fingerprintGitCandidate(cwd: string): Promise<string | null> {
       }
       const stat = await lstat(absolute);
       if (stat.isSymbolicLink()) files.push({ path, kind: "symlink", target: await readlink(absolute) });
-      else if (stat.isFile()) files.push({ path, kind: "file", executable: (stat.mode & 0o111) !== 0, digest: createHash("sha256").update(await readFile(absolute)).digest("hex") });
+      else if (stat.isFile()) files.push({ path, kind: "file", executable: (stat.mode & 0o111) !== 0, digest: await fingerprintFile(absolute) });
       else throw new Error(`Cannot capture validation candidate ${path}: unsupported file type; reconcile before acceptance.`);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -129,4 +131,10 @@ async function fingerprintGitCandidate(cwd: string): Promise<string | null> {
     }
   }
   return fingerprintJson({ head, files });
+}
+
+async function fingerprintFile(path: string): Promise<string> {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest("hex");
 }

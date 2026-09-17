@@ -103,3 +103,11 @@ Low-level snapshot helpers still throw to callers that explicitly request captur
 acceptance/validation boundaries convert those failures to refusal, never success.
 Build, 23/23 acceptance regressions, 566/566 unit and 67/67 mock integration tests
 passed after the corrections. Re-review on the corrected head is required.
+
+Review 5230606015 confirmed no new inline findings but raised two reasonable
+follow-ups in its body: whole-file buffering and an inaccurate optional-field
+comment. File digests now use `createReadStream` with incremental hashing rather
+than `readFile`; a multi-chunk binary fixture checks byte-identical digests.
+The comment now states the actual normalization (absent diagnostics become `[]`,
+undefined nested optional fields are dropped). This is not a scale benchmark.
+Final corrected gate: build, 24/24 acceptance, 567/567 unit, 67/67 mock integration.

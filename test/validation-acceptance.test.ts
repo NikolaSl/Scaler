@@ -5,6 +5,7 @@
 
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +18,7 @@ import { getValidationRunsPath } from "../src/paths.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { runTaskValidation, upsertValidationManifestCommand } from "../src/validation.js";
 import { captureValidationSnapshot } from "../src/validation-acceptance.js";
+import { fingerprintJson } from "../src/fingerprints.js";
 
 const exec = promisify(execFile);
 async function fixture(fn: (dir: string) => Promise<void>) {
@@ -258,5 +260,20 @@ test("validation records post-command snapshot errors while preserving executed 
     const stored = JSON.parse(await readFile(getValidationRunsPath(dir), "utf8"));
     assert.equal(stored.runs[0].id, run.id);
     assert.equal((await loadState(dir)).tasks[0]?.status, "validating");
+  });
+});
+
+test("streamed candidate hashing preserves binary identity across multiple chunks", async () => {
+  await fixture(async (dir) => {
+    const state = createDefaultState();
+    state.tasks = [{ id: "T-STREAM", status: "validating", updatedAt: state.updatedAt }];
+    const bytes = Buffer.alloc(4 * 1024 * 1024 + 3);
+    for (let index = 0; index < bytes.length; index++) bytes[index] = index % 251;
+    await writeFile(join(dir, "large.bin"), bytes);
+    const head = (await exec("git", ["rev-parse", "HEAD"], { cwd: dir })).stdout.trim();
+    const snapshot = await captureValidationSnapshot(dir, state, "T-STREAM");
+    assert.equal(snapshot.gitCandidateFingerprint, fingerprintJson({
+      head, files: [{ path: "large.bin", kind: "file", executable: false, digest: createHash("sha256").update(bytes).digest("hex") }],
+    }));
   });
 });
