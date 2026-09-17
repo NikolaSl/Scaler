@@ -44,6 +44,7 @@ async function needsDataRunner(request: TaskAgentRequest): Promise<TaskAgentRunR
     stdoutEvents: [{
       type: "scaler_task_report",
       taskId: "T-MISS-FLOW",
+      ...request.attempt,
       status: "needs_data",
       summary: "Need file context before implementation.",
       changedFiles: [],
@@ -68,6 +69,7 @@ async function completionRunner(request: TaskAgentRequest): Promise<TaskAgentRun
     stdoutEvents: [{
       type: "scaler_task_report",
       taskId: "T-MISS-FLOW",
+      ...request.attempt,
       status: "completed",
       summary: "Context retrieved; ready for validation.",
       changedFiles: ["src/result.ts"],

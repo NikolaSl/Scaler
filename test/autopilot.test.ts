@@ -86,6 +86,7 @@ async function taskRunner(request: TaskAgentRequest): Promise<TaskAgentRunResult
     stdoutEvents: [{
       type: "scaler_task_report",
       taskId: "T-AUTO",
+      ...request.attempt,
       status: "completed",
       summary: "Task completed by full automation test.",
       changedFiles: [],

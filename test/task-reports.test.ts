@@ -9,7 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createDefaultState } from "../src/state.js";
+import { fingerprintJson } from "../src/fingerprints.js";
 import { formatTaskAgentReportList, ingestTaskAgentReportFromRun, loadTaskAgentReports, recordTaskAgentReport } from "../src/task-reports.js";
+import type { TaskAttemptBinding } from "../src/task-attempts.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-task-reports-test-"));
@@ -93,5 +95,38 @@ test("ingestTaskAgentReportFromRun reports missing and invalid payloads", async 
     });
     assert.equal(invalid.status, "invalid");
     assert.match(invalid.diagnostics.join(" "), /does not match expected task/);
+  });
+});
+
+test("ingestTaskAgentReportFromRun requires the exact admitted attempt binding", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const binding: TaskAttemptBinding = {
+      runId: state.runId,
+      attemptId: "attempt-current",
+      taskFingerprint: fingerprintJson({ task: 1 }),
+      inputFingerprint: fingerprintJson({ input: 1 }),
+      routeFingerprint: fingerprintJson({ route: 1 }),
+      validationPolicyFingerprint: fingerprintJson({ policy: 1 }),
+    };
+    const result = await ingestTaskAgentReportFromRun(dir, state, "T-BOUND", {
+      taskId: "T-BOUND",
+      exitCode: 0,
+      stdoutEvents: [{
+        type: "scaler_task_report",
+        taskId: "T-BOUND",
+        ...binding,
+        attemptId: "attempt-stale",
+        status: "completed",
+        summary: "Stale report.",
+      }],
+      stderr: "",
+      timedOut: false,
+      aborted: false,
+    }, binding);
+
+    assert.equal(result.status, "invalid");
+    assert.match(result.diagnostics.join(" "), /attempt-stale.*attempt-current/);
+    assert.deepEqual(await loadTaskAgentReports(dir), []);
   });
 });

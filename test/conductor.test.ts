@@ -24,7 +24,9 @@ import { saveTaskContextManifest } from "../src/context.js";
 import { loadContextSplitRecords } from "../src/context-splits.js";
 import { recordDebugAttempt } from "../src/debug.js";
 import { loadTaskAgentReports } from "../src/task-reports.js";
-import { acquireExecutionLock, loadExecutionLock } from "../src/locks.js";
+import { admitTaskAttempt, loadTaskAttempts, markTaskAttemptDispatching, type TaskAttemptBinding } from "../src/task-attempts.js";
+import { fingerprintJson } from "../src/fingerprints.js";
+import { acquireExecutionLock, loadExecutionLock, releaseExecutionLock } from "../src/locks.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import type { ScalerTaskStatus } from "../src/types.js";
 
@@ -43,10 +45,12 @@ function stateWithTasks(statuses: ScalerTaskStatus[]) {
   return state;
 }
 
-function completedTaskReport(taskId: string, summary = "Task complete.") {
+function completedTaskReport(request: string | { taskId: string; attempt?: TaskAttemptBinding }, summary = "Task complete.") {
+  const taskId = typeof request === "string" ? request : request.taskId;
   return {
     type: "scaler_task_report",
     taskId,
+    ...(typeof request === "string" ? {} : request.attempt),
     status: "completed",
     summary,
     changedFiles: ["src/app.ts"],
@@ -204,6 +208,7 @@ test("runConductorStep releases execution lock after prepare", async () => {
 
     assert.equal(result.accepted, true);
     assert.equal(await loadExecutionLock(dir), undefined);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
   });
 });
 
@@ -220,7 +225,7 @@ test("runConductorStep prepares selected task and writes checkpoint", async () =
     assert.equal(persisted.currentTaskId, null);
     const executed = await runConductorStep(dir, persisted, { execute: true }, async (request) => {
       assert.equal((await loadState(dir)).tasks[0]?.status, "running");
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [completedTaskReport(request.taskId)], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [completedTaskReport(request)], stderr: "", timedOut: false, aborted: false };
     });
     assert.equal(executed.accepted, true);
     assert.equal(executed.state.tasks[0]?.status, "validating");
@@ -278,7 +283,7 @@ test("runConductorStep records context tokens and spawned agents", async () => {
     const result = await runConductorStep(dir, state, { execute: true }, async (request) => ({
       taskId: request.taskId,
       exitCode: 0,
-      stdoutEvents: [completedTaskReport(request.taskId)],
+      stdoutEvents: [completedTaskReport(request)],
       stderr: "",
       timedOut: false,
       aborted: false,
@@ -298,7 +303,7 @@ test("runConductorStep records provider usage budgets from task-agent runs", asy
     const result = await runConductorStep(dir, state, { execute: true }, async (request) => ({
       taskId: request.taskId,
       exitCode: 0,
-      stdoutEvents: [completedTaskReport(request.taskId)],
+      stdoutEvents: [completedTaskReport(request)],
       stderr: "",
       timedOut: false,
       aborted: false,
@@ -344,7 +349,7 @@ test("runConductorStep preserves worker-persisted state before accounting and ha
       await saveState(dir, childState);
       return {
         taskId: request.taskId, exitCode: 0,
-        stdoutEvents: [completedTaskReport(request.taskId)], stderr: "", timedOut: false, aborted: false,
+        stdoutEvents: [completedTaskReport(request)], stderr: "", timedOut: false, aborted: false,
         usage: { inputTokens: 21, outputTokens: 9, totalTokens: 30, costMicros: 44, sources: ["mock"] },
       };
     });
@@ -364,7 +369,7 @@ test("runConductorStep rejects a child result after the durable run is replaced"
     const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
       // Inject an externally replaced run: the normal save API now rejects it.
       await writeFile(join(dir, ".scaler", "state.json"), JSON.stringify({ ...replacement, revision: 1 }));
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [completedTaskReport(request.taskId)], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [completedTaskReport(request)], stderr: "", timedOut: false, aborted: false };
     });
     assert.equal(result.accepted, false);
     assert.match(result.message, /stale.*run|run.*changed/i);
@@ -391,7 +396,7 @@ test("runConductorStep executes task with injected runner", async () => {
         return {
           taskId: request.taskId,
           exitCode: options?.timeoutMs === 123 ? 0 : 1,
-          stdoutEvents: [{ type: "done" }, completedTaskReport(request.taskId)],
+          stdoutEvents: [{ type: "done" }, completedTaskReport(request)],
           stderr: "",
           timedOut: false,
           aborted: false,
@@ -405,7 +410,10 @@ test("runConductorStep executes task with injected runner", async () => {
 
     assert.equal(result.accepted, true);
     assert.equal(result.runResult?.exitCode, 0);
-    assert.deepEqual(result.runResult?.stdoutEvents, [{ type: "done" }, completedTaskReport("T-001")]);
+    assert.equal(result.runResult?.stdoutEvents.length, 2);
+    assert.deepEqual(result.runResult?.stdoutEvents[0], { type: "done" });
+    assert.equal((result.runResult?.stdoutEvents[1] as { taskId?: string })?.taskId, "T-001");
+    assert.equal((result.runResult?.stdoutEvents[1] as { attemptId?: string })?.attemptId, runs[0]?.attempt?.attemptId);
     assert.equal(persisted.tasks[0]?.status, "validating");
     assert.equal(handoffs[0]?.status, "validation_required");
     assert.equal(runs[0]?.status, "passed");
@@ -415,6 +423,86 @@ test("runConductorStep executes task with injected runner", async () => {
     assert.equal((await loadTaskAgentReports(dir))[0]?.status, "completed");
     assert.equal(runs[0]?.timedOut, false);
     assert.equal(runs[0]?.aborted, false);
+    const attempts = await loadTaskAttempts(dir);
+    assert.equal(attempts[0]?.status, "completed");
+    assert.equal(attempts[0]?.outcome, "succeeded");
+    assert.equal(attempts[0]?.id, runs[0]?.attempt?.attemptId);
+    assert.equal(attempts[0]?.id, handoffs[0]?.attempt?.attemptId);
+    assert.equal(attempts[0]?.outputFingerprint, runs[0]?.outputFingerprint);
+    assert.equal(attempts[0]?.outputFingerprint, handoffs[0]?.outputFingerprint);
+    assert.equal(persisted.tasks[0]?.attemptId, attempts[0]?.id);
+    assert.match(result.prompt ?? "", new RegExp(`Attempt ID: ${attempts[0]?.id}`));
+  });
+});
+
+test("runConductorStep rejects a report from a different attempt", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => ({
+      taskId: request.taskId,
+      exitCode: 0,
+      stdoutEvents: [{ ...completedTaskReport(request), attemptId: "stale-attempt" }],
+      stderr: "",
+      timedOut: false,
+      aborted: false,
+    }));
+
+    assert.equal(result.validationHandoff?.status, "task_agent_report_invalid");
+    assert.match(result.validationHandoff?.diagnostics?.join(" ") ?? "", /stale-attempt.*does not match admitted/);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "blocked");
+    assert.deepEqual(await loadTaskAgentReports(dir), []);
+    const attempt = (await loadTaskAttempts(dir))[0];
+    assert.equal(attempt?.status, "failed");
+    assert.equal(attempt?.outcome, "failed");
+  });
+});
+
+test("runConductorStep records unknown outcome and blocks replay when runner throws after dispatch", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+
+    await assert.rejects(
+      runConductorStep(dir, state, { execute: true }, async () => { throw new Error("runner transport lost"); }),
+      /runner transport lost/,
+    );
+
+    const attempt = (await loadTaskAttempts(dir))[0];
+    assert.equal(attempt?.status, "interrupted");
+    assert.equal(attempt?.outcome, "unknown");
+    assert.match(attempt?.diagnostics?.join(" ") ?? "", /runner transport lost/);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "blocked");
+    assert.equal(await loadExecutionLock(dir), undefined);
+  });
+});
+
+test("runConductorStep reconciles an orphaned dispatch before selecting new work", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["running", "ready"]);
+    state.stage = "execution";
+    await saveState(dir, state);
+    const lock = await acquireExecutionLock(dir, { operation: "crashed", taskId: "T-001" });
+    const attempt = await admitTaskAttempt(dir, lock.lock.id, {
+      runId: state.runId,
+      taskId: "T-001",
+      taskFingerprint: fingerprintJson({ task: "T-001" }),
+      inputFingerprint: fingerprintJson({ input: "one" }),
+      routeFingerprint: fingerprintJson({ route: "one" }),
+      validationPolicyFingerprint: fingerprintJson({ policy: "one" }),
+    });
+    await markTaskAttemptDispatching(dir, lock.lock.id, attempt.id);
+    await releaseExecutionLock(dir, lock.lock.id);
+
+    const result = await runConductorStep(dir, await loadState(dir), { execute: true }, async () => {
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /automatic replay is blocked/);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "blocked");
+    assert.equal((await loadState(dir)).tasks[1]?.status, "ready");
+    assert.equal((await loadTaskAttempts(dir))[0]?.status, "interrupted");
   });
 });
 
