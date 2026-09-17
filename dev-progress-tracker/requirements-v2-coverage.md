@@ -213,6 +213,11 @@ compatibility only. Updating that gate belongs to the later implementation phase
 revision 2 document integrity is checked separately during this change.
 # PLAN-106 continuation
 
+PLAN-107 / `src/committed-outputs.ts` and `test/completion-artifacts.test.ts`
+add actual committed-output integrity and ancestry checks. Build, 629 unit and
+67 mock integration tests pass. This extends provenance without claiming
+skip/non-Git freshness, semantic acceptance or full SC-10/26 coverage.
+
 Completion now requires matching current-run validation provenance and Git
 commit/skip evidence via `src/run-completion.ts`, including loaded completed
 states in autopilot/stage-conductor/stage-workflow and execution artifacts.

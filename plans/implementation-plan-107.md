@@ -40,3 +40,23 @@ acceptance remain separate work. Overlapping later edits to an earlier task's
 outputs require new validation of that task, rather than treating the later task
 label as proof of earlier requirements. No full P2.3/SC-10/26 claim, deployment,
 paid provider, background service or new framework.
+
+## Implementation and validation
+
+Nine baseline mutation cases failed while both unchanged controls passed.
+Follow-up probes reproduced two more bypasses in a Git-diff-only implementation:
+assume-unchanged and skip-worktree hid changed working files. The final verifier
+reads actual file bytes/modes/symlink targets and compares Git blob identities,
+checks the index separately, and verifies committed deletions remain absent.
+It does not run external diff/textconv filters or follow symlink ancestors.
+An index-only change with the working file restored is also rejected.
+
+The verifier reuses existing commit records, verifies actual path lists and
+ancestry, and refuses unsupported submodule outputs. Raw content comparison may
+refuse workspaces relying on checkout/clean transformations (e.g. CRLF/filter
+conversion); it does not run arbitrary filters to manufacture equivalence.
+Such output providers need explicit normalization contracts in later work.
+
+Gate passed: build, 629/629 unit, 67/67 mock integration, 5/5 conformance.
+Includes unchanged file/deletion completion and restart, plus PLAN-106's actual
+two-task commits. Final-head review remains required before merge.

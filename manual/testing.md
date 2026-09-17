@@ -269,6 +269,14 @@ model's agreement as a substitute. This is an explicit capability limitation,
 not a claim of complete P2.3 or SC-10 support.
 # Completion provenance regression
 
+`test/completion-artifacts.test.ts` (PLAN-107) additionally rejects drift of
+accepted committed outputs, missing/orphaned commits, incorrect path lists,
+recreated deletions, index-only edits and changes hidden by Git index flags.
+It reads actual bytes/modes/targets instead of trusting Git status. Independent
+later commits remain valid when earlier outputs are unchanged. Filtered/CRLF
+worktrees and submodules may be refused pending an explicit normalization or
+provider contract. Skip/non-Git output freshness and final integration remain open.
+
 `node --test --import tsx test/completion-provenance.test.ts` exercises legacy
 execution/completed labels, stage-artifact and wrapper completion, changed
 run/task/policy/result evidence, missing Git acceptance, newer failed validation,
