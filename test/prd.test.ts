@@ -79,7 +79,7 @@ test("runtime PRD files save and load round trips", async () => {
   });
 });
 
-test("requirement upserts preserve omitted criteria and clear only explicit empty criteria", async () => {
+test("model-route requirement upserts preserve criteria and reject explicit removal", async () => {
   await withTempDir(async (dir) => {
     const acceptanceCriteria = [{
       id: "AC-INTEGRATION",
@@ -88,11 +88,38 @@ test("requirement upserts preserve omitted criteria and clear only explicit empt
       commandId: "integration",
       participantTaskIds: ["T-B", "T-A", "T-A"],
     }];
-    await upsertPrdRequirement(dir, { id: "REQ-ONE", statement: "Initial", acceptanceCriteria });
-    await upsertPrdRequirement(dir, { id: "REQ-ONE", statement: "Updated" });
+    await savePrdRequirements(dir, {
+      version: 1,
+      requirements: [{
+        id: "REQ-ONE", statement: "Initial", acceptanceCriteria,
+        createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
+      }],
+    });
+    await upsertPrdRequirement(dir, { id: "REQ-ONE", statement: "Initial" });
     assert.deepEqual((await loadPrdRequirements(dir)).requirements[0]?.acceptanceCriteria?.[0]?.participantTaskIds, ["T-A", "T-B"]);
-    await upsertPrdRequirement(dir, { id: "REQ-ONE", statement: "Updated", acceptanceCriteria: [] });
-    assert.deepEqual((await loadPrdRequirements(dir)).requirements[0]?.acceptanceCriteria, []);
+    const before = await loadPrdRequirements(dir);
+    await assert.rejects(
+      () => upsertPrdRequirement(dir, { id: "REQ-ONE", statement: "Initial", source: "user", acceptanceCriteria: [] }),
+      /amendment authority|required user command/i,
+    );
+    assert.deepEqual(await loadPrdRequirements(dir), before);
+  });
+});
+
+test("model-route requirement upserts cannot introduce mandatory criteria", async () => {
+  await withTempDir(async (dir) => {
+    const acceptanceCriteria = [{
+      id: "AC-NEW", statement: "New mandatory gate.", validationTaskId: "T-ONE",
+      commandId: "integration", participantTaskIds: ["T-ONE"],
+    }];
+    await assert.rejects(
+      () => upsertPrdRequirement(dir, {
+        id: "REQ-NEW", statement: "Agent-normalized requirement", source: "user", acceptanceCriteria,
+      }),
+      /amendment authority|required user command/i,
+    );
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    assert.deepEqual(await loadPrdChanges(dir), []);
   });
 });
 

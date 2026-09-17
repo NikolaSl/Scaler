@@ -102,6 +102,32 @@ test("PRD stage ingestion rejects malformed criteria before writing content or r
   });
 });
 
+test("PRD stage ingestion cannot replace requirements or weaken current acceptance", async () => {
+  await withTempDir(async (dir) => {
+    const state = createState("prd");
+    await saveState(dir, state);
+    await upsertPrdRequirement(dir, { id: "REQ-KEEP", statement: "Keep this requirement." });
+    await upsertPrdRequirement(dir, { id: "REQ-OTHER", statement: "Preserve this requirement too." });
+    const before = await loadPrdRequirements(dir);
+
+    const result = await ingestPrdWriteReport(dir, state, [{
+      type: "scaler_prd_write",
+      content: "# Unauthorized replacement",
+      requirements: [{
+        id: "REQ-KEEP",
+        statement: "Weakened requirement.",
+        source: "user",
+        acceptanceCriteria: [],
+      }],
+    }]);
+
+    assert.equal(result.ingested, false);
+    assert.match(result.reason ?? "", /amendment authority|required user command/i);
+    assert.deepEqual(await loadPrdRequirements(dir), before);
+    assert.equal(await loadCurrentPrd(dir), "");
+  });
+});
+
 async function stageRunner(request: TaskAgentRequest): Promise<TaskAgentRunResult> {
   if (request.taskId === "stage-prd") {
     assert.ok(request.tools?.includes("read"));
