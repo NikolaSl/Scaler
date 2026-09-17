@@ -7,6 +7,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
 import { captureValidationContext } from "./attempt-evidence.js";
+import { verifyTaskDependenciesAccepted } from "./accepted-evidence.js";
 import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult, interruptTaskExecution, reconcileInterruptedTaskAttempt } from "./attempt-execution.js";
 import { writeCheckpoint } from "./checkpoints.js";
 import { assessCompression, formatCompressionGuidance, type CompressionAssessment } from "./compression.js";
@@ -227,6 +228,12 @@ export async function runConductorStep(
   let activeAttempt: TaskAttemptRecord | undefined;
   let attemptTerminal = false;
   try {
+    const dependencyDiagnostics = await verifyTaskDependenciesAccepted(cwd, state, selection.task);
+    if (dependencyDiagnostics.length > 0) {
+      const message = dependencyDiagnostics.join(" ");
+      await appendLogEvent(cwd, createLogEvent(state, { eventType: "rejected_transition", summary: message, taskId: selection.task.id }));
+      return { accepted: false, message, state, task: selection.task };
+    }
     let nextState = state;
     if (options.execute && selection.promotePending) {
       nextState = transitionTask(nextState, selection.task.id, "ready", { reason: "Conductor selected pending task." });

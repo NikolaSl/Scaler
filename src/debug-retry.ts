@@ -7,6 +7,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
 import { captureValidationContext, checkAttemptEvidence } from "./attempt-evidence.js";
+import { verifyTaskDependenciesAccepted } from "./accepted-evidence.js";
 import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult, interruptTaskExecution, reconcileInterruptedTaskAttempt } from "./attempt-execution.js";
 import { completeTaskAttempt, taskAttemptBinding, type TaskAttemptRecord } from "./task-attempts.js";
 import {
@@ -264,6 +265,13 @@ export async function runDebugNextApproachRetry(
   let activeAttempt: TaskAttemptRecord | undefined;
   let attemptTerminal = false;
   try {
+    const dependencyDiagnostics = await verifyTaskDependenciesAccepted(cwd, state, selection.task);
+    if (dependencyDiagnostics.length > 0) {
+      const message = dependencyDiagnostics.join(" ");
+      const retry = await upsertRetryRecord(cwd, buildRetryRecord(selection, "rejected", false, message));
+      await appendLogEvent(cwd, createLogEvent(state, { eventType: "rejected_transition", summary: message, taskId: selection.task.id }));
+      return { accepted: false, message, status: "rejected", state, task: selection.task, retry };
+    }
     let workingState = state;
 
     const runningTask = workingState.tasks.find((task) => task.id === selection.task.id) ?? selection.task;
