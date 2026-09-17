@@ -5,6 +5,7 @@
 
 import { loadAcceptedEvidenceContext, verifyAcceptedTaskEvidence } from "./accepted-evidence.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
+import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements } from "./prd.js";
 import { loadState, saveState } from "./state.js";
 import { transitionStage } from "./supervisor.js";
 import type { ScalerState } from "./types.js";
@@ -22,6 +23,25 @@ async function verifyCompletionProvenance(cwd: string, state: ScalerState): Prom
   if (!state.tasks.length || state.tasks.some((task) => task.status !== "validated")
     || new Set(state.tasks.map((task) => task.id)).size !== state.tasks.length) {
     return ["Completion evidence rejected: a nonempty set of distinct validated tasks is required."];
+  }
+  const requirements = await loadPrdRequirements(cwd);
+  if (requirements.requirements.length > 0) {
+    const coverage = computePrdCoverageSummary(requirements, await loadPrdCoverage(cwd), state);
+    const currentTaskIds = new Set(state.tasks.map((task) => task.id));
+    const diagnostics = coverage.entries.flatMap((entry) => {
+      if (entry.linkedTaskIds.length === 0) {
+        return [`${entry.requirementId}: Completion evidence rejected: no linked task in current state.`];
+      }
+      const missingTaskIds = entry.linkedTaskIds.filter((taskId) => !currentTaskIds.has(taskId));
+      if (missingTaskIds.length > 0) {
+        return [`${entry.requirementId}: Completion evidence rejected: linked task is not current: ${missingTaskIds.join(", ")}.`];
+      }
+      if (entry.status !== "validated") {
+        return [`${entry.requirementId}: Completion evidence rejected: current requirement coverage is ${entry.status}, not validated.`];
+      }
+      return [];
+    });
+    if (diagnostics.length > 0) return diagnostics;
   }
   const context = await loadAcceptedEvidenceContext(cwd);
   const diagnostics: string[] = [];
