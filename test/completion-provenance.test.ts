@@ -184,6 +184,40 @@ test("completion accepts a current runtime requirement linked to validated task 
   assert.equal((await loadState(dir)).stage, "completed");
 }));
 
+test("completion rejects evidence for an earlier linked requirement statement", async () => fixture(async (dir, state) => {
+  state.tasks[0]!.prdRefs = ["REQ-CHANGE"];
+  await saveState(dir, state);
+  await upsertPrdRequirement(dir, { id: "REQ-CHANGE", statement: "Produce version one" });
+  assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
+  await upsertPrdRequirement(dir, { id: "REQ-CHANGE", statement: "Produce materially different version two" });
+  const result = await completeRunWithEvidence(dir, await loadState(dir));
+  assert.equal(result.accepted, false);
+  assert.match(result.message, /requirement|receipt|evidence|changed/i);
+  assert.equal((await loadState(dir)).stage, "execution");
+}));
+
+test("completion preserves evidence after an identical requirement-content upsert", async () => fixture(async (dir, state) => {
+  state.tasks[0]!.prdRefs = ["REQ-SAME"];
+  await saveState(dir, state);
+  const requirement = { id: "REQ-SAME", title: "Stable requirement", statement: "Produce the same output", source: "user" };
+  await upsertPrdRequirement(dir, requirement);
+  assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
+  await upsertPrdRequirement(dir, requirement);
+  const result = await completeRunWithEvidence(dir, await loadState(dir));
+  assert.equal(result.accepted, true, result.message);
+}));
+
+test("completion rejects evidence captured while a referenced requirement was missing", async () => fixture(async (dir, state) => {
+  state.tasks[0]!.prdRefs = ["REQ-LATE"];
+  await saveState(dir, state);
+  assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
+  await upsertPrdRequirement(dir, { id: "REQ-LATE", statement: "Requirement added after validation" });
+  const result = await completeRunWithEvidence(dir, await loadState(dir));
+  assert.equal(result.accepted, false);
+  assert.match(result.message, /requirement|receipt|evidence|changed/i);
+  assert.equal((await loadState(dir)).stage, "execution");
+}));
+
 test("two real task commits retain valid completion provenance across changed HEAD", async () => fixture(async (dir, state) => {
   await exec("git", ["init"], { cwd: dir });
   await exec("git", ["config", "user.name", "Test"], { cwd: dir });
