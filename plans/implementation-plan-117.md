@@ -53,11 +53,13 @@ commit/skip, dependency admission and completion without another ledger.
 
 An identical content upsert remains valid because timestamps are excluded.
 Schema version 1 and 2 receipts fail closed and require revalidation. Final gate:
-TypeScript build, 717 unit tests, 67 mock integration tests and 7
+TypeScript build, 718 unit tests, 67 mock integration tests and 7
 conformance/autopilot checks pass. Semantic sufficiency, integration criteria,
 necessity and requirement-authority validation remain open.
 
 Copilot review identified an unnecessary PRD file read for tasks with no
 `prdRefs`. The empty requirement set now returns its canonical fingerprint
-directly; the 51 focused checks and build pass on the corrected head. This is a
-performance-only fast path and does not relax receipt comparison.
+directly; a regression proves that unlinked tasks no longer read even a malformed
+PRD file while linked tasks still fail closed. The 78 focused checks and build
+pass on the corrected head. This is a performance-only fast path and does not
+relax receipt comparison.

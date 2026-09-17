@@ -224,7 +224,7 @@ runtime requirement referenced by the task. A changed statement/title/source or
 a missing-to-present reference invalidates old evidence across validation,
 commit/skip, dependency admission and completion; identical content rewrites do
 not. Two baseline false completions and the stable-content control pass. Build,
-717 unit, 67 mock integration and 7 conformance/autopilot checks pass. Semantic
+718 unit, 67 mock integration and 7 conformance/autopilot checks pass. Semantic
 link sufficiency and requirement-level integration acceptance remain open.
 
 1. Add a regression for the concrete defect and observe failure on the prior code.
