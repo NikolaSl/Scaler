@@ -60,6 +60,58 @@ async function withFailedPolicy(
   }
 }
 
+async function withExternalFailedPolicy(
+  fn: (dir: string) => Promise<void>,
+) {
+  const dir = await mkdtemp(join(tmpdir(), "scaler-validator-basis-"));
+  try {
+    await writeFile(join(dir, "result.txt"), "broken");
+    await writeFile(join(dir, "check.cjs"), "const fs=require('fs');if(fs.readFileSync('result.txt','utf8')!=='fixed')process.exit(1);\n");
+    const state = createDefaultState();
+    state.stage = "execution";
+    state.tasks = [{
+      id: "T-BASIS", title: "Preserve executable validation basis", status: "validating", taskKind: "software",
+      atomicityRationale: "One independently testable result.", allowedPathPrefixes: ["result.txt"],
+      definitionOfDone: ["result.txt contains fixed"], validationRefs: ["unit"], updatedAt: state.updatedAt,
+    }];
+    await saveState(dir, state);
+    await saveValidationManifest(dir, {
+      taskId: "T-BASIS", outputPaths: ["result.txt"], definitionOfDone: ["result.txt contains fixed"],
+      validationInputPaths: ["check.cjs"],
+      commands: [
+        { id: "test-first", command: "node -e \"process.exit(0)\"", gate: "test_first", required: true },
+        { id: "unit", command: "node check.cjs", gate: "unit_tests", required: true },
+      ],
+      createdAt: "", updatedAt: "",
+    } as Parameters<typeof saveValidationManifest>[1] & { validationInputPaths: string[] });
+    assert.equal((await runTaskValidation(dir, await loadState(dir), "T-BASIS")).status, "failed");
+    await fn(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test("rerun rejects an unchanged command whose executable validation basis was weakened", async () => {
+  await withExternalFailedPolicy(async (dir) => {
+    await writeFile(join(dir, "check.cjs"), "process.exit(0);\n");
+    const rerun = await runTaskValidation(dir, await loadState(dir), "T-BASIS");
+    assert.equal(rerun.status, "blocked");
+    assert.equal(rerun.commandRuns.length, 0);
+    assert.match(rerun.acceptance?.message ?? "", /validation basis|acceptance policy/i);
+    assert.notEqual((await loadState(dir)).tasks[0]?.status, "validated");
+  });
+});
+
+test("rerun accepts repaired output when the executable validation basis is unchanged", async () => {
+  await withExternalFailedPolicy(async (dir) => {
+    await writeFile(join(dir, "result.txt"), "fixed");
+    const rerun = await runTaskValidation(dir, await loadState(dir), "T-BASIS");
+    assert.equal(rerun.status, "passed");
+    assert.equal(rerun.acceptance?.accepted, true);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
+  });
+});
+
 test("model task update cannot replace exercised definition and validation commands", async () => {
   await withFailedPolicy(async (dir, tools) => {
     const result = await tools.get("scaler_task_update")!.execute("update", {
