@@ -23,6 +23,7 @@ export interface TaskAttemptRecord {
   status: TaskAttemptStatus;
   outcome?: TaskAttemptOutcome;
   outputFingerprint?: string;
+  validationContextFingerprint?: string;
   reportId?: string;
   diagnostics?: string[];
   createdAt: string;
@@ -51,6 +52,7 @@ export interface TaskAttemptCompletionInput {
   status: "completed" | "failed" | "interrupted";
   outcome: TaskAttemptOutcome;
   outputFingerprint?: string;
+  validationContextFingerprint?: string;
   reportId?: string;
   diagnostics?: string[];
 }
@@ -150,6 +152,7 @@ export async function completeTaskAttempt(
     status: input.status,
     outcome: input.outcome,
     outputFingerprint: input.outputFingerprint,
+    validationContextFingerprint: input.validationContextFingerprint,
     reportId: input.reportId?.trim() || undefined,
     diagnostics: uniqueNonEmpty(input.diagnostics ?? []),
     updatedAt: now.toISOString(),
@@ -172,6 +175,9 @@ function validateAdmission(input: TaskAttemptAdmissionInput): void {
 }
 
 function validateCompletion(input: TaskAttemptCompletionInput): void {
+  if (input.validationContextFingerprint !== undefined && !fingerprintPattern.test(input.validationContextFingerprint)) {
+    throw new Error("Task attempt completion requires a valid validationContextFingerprint.");
+  }
   if (input.outputFingerprint !== undefined && !fingerprintPattern.test(input.outputFingerprint)) {
     throw new Error("Task attempt completion requires a valid outputFingerprint.");
   }
@@ -198,10 +204,11 @@ function validateStoredAttempt(attempt: TaskAttemptRecord): void {
       status: attempt.status,
       outcome: attempt.outcome as TaskAttemptOutcome,
       outputFingerprint: attempt.outputFingerprint,
+      validationContextFingerprint: attempt.validationContextFingerprint,
       reportId: attempt.reportId,
       diagnostics: attempt.diagnostics,
     });
-  } else if (attempt.outcome || attempt.outputFingerprint || attempt.reportId) {
+  } else if (attempt.outcome || attempt.outputFingerprint || attempt.validationContextFingerprint || attempt.reportId) {
     throw new Error(`Open task attempt ${attempt.id} contains terminal fields.`);
   }
 }

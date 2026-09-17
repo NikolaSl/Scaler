@@ -6,6 +6,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
+import { captureValidationContext } from "./attempt-evidence.js";
 import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult, interruptTaskExecution, reconcileInterruptedTaskAttempt } from "./attempt-execution.js";
 import { writeCheckpoint } from "./checkpoints.js";
 import { assessCompression, formatCompressionGuidance, type CompressionAssessment } from "./compression.js";
@@ -321,9 +322,10 @@ export async function runConductorStep(
       })).state;
     }
     const reportIngestion = runResult?.exitCode === 0
-      ? await ingestTaskAgentReportFromRun(cwd, nextState, runningTask.id, runResult, attemptBinding)
+      ? await ingestTaskAgentReportFromRun(cwd, nextState, runningTask.id, runResult, attemptBinding!)
       : undefined;
     const outputFingerprint = reportIngestion?.report?.outputFingerprint;
+    const validationContextFingerprint = runResult ? await captureValidationContext(cwd, nextState, runningTask.id) : undefined;
     const runRecord = runResult ? await recordTaskAgentRun(cwd, runResult, new Date(), summarizeTaskAgentReportIngestion(reportIngestion, runResult), { attempt: attemptBinding, outputFingerprint }) : undefined;
     const handoff = runResult ? await applyTaskRunHandoff(cwd, nextState, runningTask.id, runResult, reportIngestion, new Date(), { attempt: attemptBinding, outputFingerprint }) : undefined;
     if (runResult && activeAttempt) {
@@ -333,6 +335,7 @@ export async function runConductorStep(
         status: succeeded ? "completed" : "failed",
         outcome: succeeded ? "succeeded" : "failed",
         outputFingerprint: acceptedReport?.outputFingerprint,
+        validationContextFingerprint,
         reportId: acceptedReport?.id,
         diagnostics: reportIngestion?.diagnostics,
       });

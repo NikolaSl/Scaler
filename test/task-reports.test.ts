@@ -22,6 +22,28 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
+function bindingFor(runId: string): TaskAttemptBinding {
+  return {
+    runId, attemptId: "current-attempt",
+    taskFingerprint: fingerprintJson({ task: 1 }),
+    inputFingerprint: fingerprintJson({ input: 1 }),
+    routeFingerprint: fingerprintJson({ route: 1 }),
+    validationPolicyFingerprint: fingerprintJson({ policy: 1 }),
+  };
+}
+
+test("report ingestion refuses an omitted binding even for a runtime JavaScript caller", async () => {
+  await withTempDir(async (dir) => {
+    const result = await ingestTaskAgentReportFromRun(dir, createDefaultState(), "T-1", {
+      taskId: "T-1", exitCode: 0,
+      stdoutEvents: [{ type: "scaler_task_report", taskId: "T-1", status: "completed", summary: "unbound" }],
+      stderr: "", timedOut: false, aborted: false,
+    }, undefined as unknown as TaskAttemptBinding);
+    assert.equal(result.accepted, false);
+    assert.deepEqual(await loadTaskAgentReports(dir), []);
+  });
+});
+
 test("recordTaskAgentReport persists normalized report records", async () => {
   await withTempDir(async (dir) => {
     const report = await recordTaskAgentReport(dir, {
@@ -44,6 +66,7 @@ test("ingestTaskAgentReportFromRun accepts exact assistant JSON payloads", async
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     const payload = JSON.stringify({
       type: "scaler_task_report",
+      ...bindingFor(state.runId),
       taskId: "T-JSON",
       status: "completed",
       summary: "JSON report accepted.",
@@ -63,10 +86,10 @@ test("ingestTaskAgentReportFromRun accepts exact assistant JSON payloads", async
       stderr: "",
       timedOut: false,
       aborted: false,
-    }, "run-1", new Date("2026-01-01T00:00:01.000Z"));
+    }, bindingFor(state.runId), new Date("2026-01-01T00:00:01.000Z"));
 
     assert.equal(result.accepted, true);
-    assert.equal(result.report?.runId, "run-1");
+    assert.equal(result.report?.runId, state.runId);
     assert.equal((await loadTaskAgentReports(dir))[0]?.summary, "JSON report accepted.");
   });
 });
@@ -81,7 +104,7 @@ test("ingestTaskAgentReportFromRun reports missing and invalid payloads", async 
       stderr: "",
       timedOut: false,
       aborted: false,
-    });
+    }, bindingFor(state.runId));
     assert.equal(missing.status, "missing");
     assert.match(missing.diagnostics.join(" "), /Missing required scaler_task_report/);
 
@@ -92,7 +115,7 @@ test("ingestTaskAgentReportFromRun reports missing and invalid payloads", async 
       stderr: "",
       timedOut: false,
       aborted: false,
-    });
+    }, bindingFor(state.runId));
     assert.equal(invalid.status, "invalid");
     assert.match(invalid.diagnostics.join(" "), /does not match expected task/);
   });

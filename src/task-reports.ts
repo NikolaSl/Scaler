@@ -140,9 +140,18 @@ export async function ingestTaskAgentReportFromRun(
   state: ScalerState,
   taskId: string,
   runResult: TaskAgentRunResult,
-  expectedBinding?: TaskAttemptBinding | string,
+  expectedBinding: TaskAttemptBinding,
   now = new Date(),
 ): Promise<TaskAgentReportIngestionResult> {
+  if (!expectedBinding || expectedBinding.runId !== state.runId || runResult.taskId !== taskId
+    || !["attemptId", "taskFingerprint", "inputFingerprint", "routeFingerprint", "validationPolicyFingerprint"]
+      .every((key) => typeof expectedBinding[key as keyof TaskAttemptBinding] === "string" && expectedBinding[key as keyof TaskAttemptBinding].length > 0)) {
+    const result: TaskAgentReportIngestionResult = {
+      status: "invalid", accepted: false, diagnostics: ["Task report ingestion requires the current run and complete admitted attempt binding."],
+    };
+    await logTaskReportIngestion(cwd, state, taskId, result);
+    return result;
+  }
   const payloads = extractStructuredReportPayloads(runResult.stdoutEvents, "scaler_task_report");
   if (payloads.length === 0) {
     const result: TaskAgentReportIngestionResult = {
@@ -156,8 +165,8 @@ export async function ingestTaskAgentReportFromRun(
 
   const diagnostics: string[] = [];
   for (const payload of payloads) {
-    const input = taskAgentReportInputFromPayload(payload, typeof expectedBinding === "string" ? expectedBinding : undefined);
-    const normalized = normalizeTaskAgentReportInput(input, taskId, typeof expectedBinding === "string" ? undefined : expectedBinding);
+    const input = taskAgentReportInputFromPayload(payload);
+    const normalized = normalizeTaskAgentReportInput(input, taskId, expectedBinding);
     if (!normalized.ok) {
       diagnostics.push(...normalized.diagnostics);
       continue;
@@ -189,7 +198,7 @@ export function formatTaskAgentReportList(records: TaskAgentReportRecord[], task
   return lines.join("\n");
 }
 
-function taskAgentReportInputFromPayload(payload: Record<string, unknown>, runId: string | undefined): TaskAgentReportInput {
+function taskAgentReportInputFromPayload(payload: Record<string, unknown>): TaskAgentReportInput {
   return {
     taskId: stringField(payload.taskId),
     status: stringField(payload.status),
@@ -204,7 +213,7 @@ function taskAgentReportInputFromPayload(payload: Record<string, unknown>, runId
     blockers: stringArrayField(payload.blockers),
     missingData: stringArrayField(payload.missingData),
     recommendedNextAction: stringField(payload.recommendedNextAction),
-    runId: runId ?? stringField(payload.runId),
+    runId: stringField(payload.runId),
     attemptId: stringField(payload.attemptId),
     taskFingerprint: stringField(payload.taskFingerprint),
     inputFingerprint: stringField(payload.inputFingerprint),

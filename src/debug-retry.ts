@@ -6,6 +6,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
+import { captureValidationContext, checkAttemptEvidence } from "./attempt-evidence.js";
 import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult, interruptTaskExecution, reconcileInterruptedTaskAttempt } from "./attempt-execution.js";
 import { completeTaskAttempt, taskAttemptBinding, type TaskAttemptRecord } from "./task-attempts.js";
 import {
@@ -354,15 +355,17 @@ export async function runDebugNextApproachRetry(
       })).state;
     }
     const reportIngestion = runResult.exitCode === 0
-      ? await ingestTaskAgentReportFromRun(cwd, workingState, runningTask.id, runResult, binding)
+      ? await ingestTaskAgentReportFromRun(cwd, workingState, runningTask.id, runResult, binding!)
       : undefined;
     const identity = { attempt: binding, outputFingerprint: reportIngestion?.report?.outputFingerprint };
+    const validationContextFingerprint = await captureValidationContext(cwd, workingState, runningTask.id);
     const runRecord = await recordTaskAgentRun(cwd, runResult, new Date(), summarizeTaskAgentReportIngestion(reportIngestion, runResult), identity);
     const handoff = await applyTaskRunHandoff(cwd, workingState, runningTask.id, runResult, reportIngestion, new Date(), identity);
     const succeeded = runResult.exitCode === 0 && reportIngestion?.report?.status === "completed";
     await completeTaskAttempt(cwd, lock.lock.id, activeAttempt.id, {
       status: succeeded ? "completed" : "failed", outcome: succeeded ? "succeeded" : "failed",
       outputFingerprint: identity.outputFingerprint, reportId: reportIngestion?.report?.id,
+      validationContextFingerprint,
       diagnostics: reportIngestion?.diagnostics,
     });
     attemptTerminal = true;
@@ -410,7 +413,15 @@ export async function runDebugNextApproachRetry(
       return { accepted: false, message: retry.message, status: "task_agent_failed", state: handoff.state, task: runningTask, retry, prompt, invocation, runResult };
     }
 
+    const freshness = await checkAttemptEvidence(cwd, handoff.state, runningTask.id);
+    if (freshness.length > 0) {
+      return { accepted: false, message: freshness.join(" "), status: "rejected", state: handoff.state, task: runningTask, prompt, invocation, runResult };
+    }
     const exactValidationRun = await runValidationCommandSet(cwd, runningTask.id, selection.exactCommands, "debug-retry-exact");
+    const finalFreshness = await checkAttemptEvidence(cwd, handoff.state, runningTask.id);
+    if (finalFreshness.length > 0) {
+      return { accepted: false, message: finalFreshness.join(" "), status: "rejected", state: handoff.state, task: runningTask, prompt, invocation, runResult, exactValidationRun };
+    }
     await logValidationSummaryAudit(cwd, handoff.state, {
       taskId: runningTask.id,
       runId: exactValidationRun.id,
