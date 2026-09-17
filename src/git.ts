@@ -9,7 +9,7 @@ import { dirname } from "node:path";
 import { promisify } from "node:util";
 import { logGitCommitAudit } from "./logging.js";
 import { getCommitReportsPath, getCommitSkipsPath, getGitBootstrapReportsPath } from "./paths.js";
-import { loadValidationRuns, type ValidationRunRecord } from "./validation.js";
+import { getValidationManifestForTask, loadValidationRuns, type ValidationRunRecord } from "./validation.js";
 import { verifyCurrentValidationReceipt, verifyValidationRunReceipt } from "./validation-acceptance.js";
 import type { ScalerState } from "./types.js";
 
@@ -273,6 +273,9 @@ export async function evaluateValidationGitAcceptance(
   // passing summary cannot authorize publication of an accepted skip.
   const diagnostics = await verifyValidationRunReceipt(cwd, state, taskId, run);
   if (diagnostics.length) return { accepted: false, status: "blocked", message: diagnostics.join(" "), safety };
+  if (["not_git_repo", "clean", "runtime_only"].includes(safety.status) && !(await hasDeclaredOutputBasis(cwd, taskId))) {
+    return { accepted: false, status: "blocked", message: missingOutputBasisMessage, safety };
+  }
   const validation: CommitValidationSummary = {
     runId: run.id, status: run.status, commandCount: run.commandRuns.length,
     failedCommandIds: run.commandRuns.filter((command) => ["failed", "timed_out", "blocked"].includes(command.status)).map((command) => command.commandId),
@@ -336,12 +339,21 @@ export async function skipTaskCommit(
   }
   const receiptDiagnostics = await verifyCurrentValidationReceipt(cwd, state, taskId);
   if (receiptDiagnostics.length > 0) return logCommitResult(cwd, state, taskId, { accepted: false, message: receiptDiagnostics.join(" "), safety });
+  if (!(await hasDeclaredOutputBasis(cwd, taskId))) {
+    return logCommitResult(cwd, state, taskId, { accepted: false, message: missingOutputBasisMessage, safety });
+  }
   const trimmedReason = reason.trim();
   if (!trimmedReason) {
     return logCommitResult(cwd, state, taskId, { accepted: false, message: "Commit skip refused: reason is required.", safety });
   }
   const skip = await recordCommitSkip(cwd, { taskId, reason: trimmedReason, validation, safety, status: "skipped" });
   return logCommitResult(cwd, state, taskId, { accepted: true, message: `Commit skipped for ${taskId}: ${trimmedReason}`, safety, skip });
+}
+
+const missingOutputBasisMessage = "Commit skip refused: declare outputPaths in the validation manifest and revalidate; use [] only for work with no filesystem outputs.";
+
+async function hasDeclaredOutputBasis(cwd: string, taskId: string): Promise<boolean> {
+  return (await getValidationManifestForTask(cwd, taskId)).outputPaths !== undefined;
 }
 
 export async function loadCommitReports(cwd: string): Promise<CommitReportRecord[]> {
