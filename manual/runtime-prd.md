@@ -41,6 +41,13 @@ Tasks may store `prdRefs` during creation/update:
 
 Coverage computation treats validated linked tasks as validated coverage unless an explicit `blocked` or `needs_replan` coverage entry exists for that requirement.
 
+Final run completion also checks this current coverage. When runtime requirements
+exist, each one must link to at least one task in current state, every recorded
+task link must still exist, and the computed status must be `validated`. Add or
+replan the missing task and revalidate its evidence instead of relying on a stale
+coverage label. This is a structural completeness check; it does not infer or
+certify that a task link is semantically adequate.
+
 ## Tools
 
 Implemented runtime PRD tools:

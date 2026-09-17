@@ -373,3 +373,10 @@ execution-lock contention, non-Git acceptance/restart and two real sequential
 task commits. Positive chain fixtures use command-checked evidence. PLAN-106
 establishes provenance only; accepted artifact freshness and final integration
 remain separate acceptance work. Passing this suite is not full SC-26 compliance.
+
+PLAN-116 extends the same suite with current runtime-requirement coverage. It
+reproduces and rejects an unlinked requirement and a stale explicit link to a
+nonexistent task, while retaining a linked, validated control. The staged
+integration fixture declares its `REQ-STAGE` task link explicitly. These checks
+establish structural final coverage only, not semantic linkage or cross-task
+integration adequacy.
