@@ -9,8 +9,32 @@ migration, with separate traceable commits. Requirements PR #1 was merged as
 
 Implement through reviewed increments on topic branches. Do not claim v2
 compliance or deploy unattended operation while acceptance/authority bypasses
-remain. Do not merge a PR automatically. This plan is a durable continuation
-record, not a promise of background execution or a scheduled task.
+remain. Merge authority follows the current user instruction below. This plan
+is a durable continuation record; scheduled execution is recorded separately.
+
+### Overnight authorization and review policy
+
+Nikola explicitly authorized autonomous implementation, Copilot review requests,
+and merging PRs after review when there are no valid unresolved findings and
+applicable tests pass. The unattended work window ends at
+`2026-09-17T06:49:57Z` (09:49:57 Europe/Sofia). Stop unattended mutations then
+and preserve a handoff unless the user extends or changes the instruction.
+This supersedes the earlier no-automatic-merge instruction for this window.
+
+- Request `copilot-pull-request-reviewer[bot]` through the GitHub review-request
+  API; the login without `[bot]` is not the supported reviewer identity.
+- Wait for a completed review covering the changes. Silence is not approval.
+  Evaluate findings against code and requirements; fix valid issues and record
+  evidence for findings that do not apply. Re-review changed code when needed.
+- Merge only the reviewed, tested head using an expected-head-SHA guard and a
+  merge commit to preserve implementation history. Respect branch protection.
+- Keep paid model spending and deployment out of scope. Existing free-provider
+  synthetic tests are permitted; do not disclose credentials.
+- Continuations must inspect current remote state before acting and avoid
+  overlapping work. Scheduling details are recorded separately; scheduling does
+  not guarantee execution tools or phase completion. Report concrete blockers.
+- Next work after PR #3: make the parallel tool-ledger race reproducible, address
+  it in a bounded change, then continue P2.2 attempt/evidence binding.
 
 ## Architecture direction
 
@@ -58,6 +82,61 @@ replacement alone does not prevent lost updates. P2 must add revision checks and
 migrate every mutation path before claiming SC-13. P1.2 addresses the task
 conductor only; audit all other child execution paths in P2. P1.3 initially covers
 the directly owned process; descendant containment belongs to P6's provider work.
+
+## P2 executable units
+
+P1 merged in PR #2 as `90f347852b758ecb56168dafc6068f2480aef7f7`.
+Deliver P2 through bounded PRs; none alone establishes SC-13 or full acceptance.
+
+| Unit | Change | Acceptance boundary | Status |
+|---|---|---|---|
+| P2.1 | Serialize state publication across processes and compare run identity/revision before replacement. Preserve read-only legacy loading. | Stale writers and concurrent writers cannot lose committed updates; missing/malformed state and held publication locks fail safely. Build and unit/mock integration gate. | Implemented; gate passed, separate ledger flake recorded below |
+| P2.2 | Persist attempt identity and input/output/policy fingerprints; reconcile interrupted attempts. | Reject replaced attempts and stale output after restart without replaying uncertain effects. | Pending |
+| P2.3 | Route reports, commands, hooks and validation through shared version-bound acceptance. | Current independent evidence and integration criteria required; legacy accepted labels are not fresh proof. | Pending |
+
+Mutation inventory for P2.1: all production `state.json` publications are in
+`src/state.ts`. Callers are `autopilot`, `budgets`, `checkpoints`, `conductor`,
+`debug-retry`, `index` commands/hooks, `missing-context`, `operations`, `replanning`,
+`reports`, `stage-advancement`, `stage-workflow`, `tasks`, `validation`, and
+`watchdogs`. Derived snapshots must carry the revision they read, and successful
+saves must propagate the committed revision before the next write. Conflicts are
+explicit failures, not automatic retries of actions or merges of stale objects.
+The state publication lock is distinct from the longer execution lock so worker
+usage hooks can save while their parent waits. No time-based lock stealing.
+
+Other JSON ledgers, multi-file atomicity, process authority and semantic evidence
+acceptance remain P2.2/P2.3/P6 work; a state revision does not solve them.
+Fixtures: two copies of one revision, two OS processes released from a common
+barrier, a deleted state file, legacy/malformed revision metadata, and an existing
+publication lock. Focused command: `node --test --import tsx test/state.test.ts`;
+final gate: `npm run build` and `npm test`.
+
+### P2.1 validation record and handoff
+
+- Four new regressions failed on P1: stale overwrite, both independent processes
+  accepting the same base, recreation of deleted state, and silent run replacement.
+  All now pass. Seven added tests also cover logical legacy revision migration,
+  invalid revision preservation, and bounded contention without age-based stealing.
+- `npm run build` passed. Final `npm test` passed 508/508 unit/component tests
+  and 67/67 mock integrations. `git diff --check` passed.
+- Pi 0.85.1 with `opencode-free-test/big-pickle` passed the existing synthetic
+  task-report/validation-handoff contract 1/1 (about 14 seconds, 45-second limit).
+  This checks actual subprocess/report compatibility, not end-to-end quality.
+- Fixture changes preserve existing assertions: subsequent actions use the last
+  committed snapshot instead of a fresh run or stale pre-action state; the
+  replaced-run test now injects an external file replacement explicitly because
+  `saveState` correctly refuses it. The Git fixture creates valid state directly
+  instead of first writing an incomplete `{}` placeholder.
+- A preliminary mock run observed `Unexpected end of JSON input` in
+  `loadToolResults` during the parallel tool-schedule test. The ledger code is
+  unchanged here. Six bounded isolated checks on merged P1 passed, and the final
+  changed-branch gate passed, so baseline reproducibility is not established.
+  Do not interpret the final green run as fixing this race risk. Parallel tool
+  ledger read/modify/write serialization remains an explicit follow-up.
+- P2.2 next: inventory durable attempt/evidence records, include the tool-ledger
+  race above, then bind attempt IDs to input/output/policy versions and define
+  interruption reconciliation. State conflicts fail explicitly; no automatic
+  action replay, stale merge, or multi-file transaction is introduced in P2.1.
 
 ## Working and verification process
 

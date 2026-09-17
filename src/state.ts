@@ -6,6 +6,7 @@
 import { link, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { getStatePath } from "./paths.js";
 import type { ScalerState } from "./types.js";
 
@@ -13,6 +14,7 @@ export function createDefaultState(now = new Date()): ScalerState {
   const timestamp = now.toISOString();
   return {
     version: 1,
+    revision: 0,
     runId: randomUUID(),
     complexityLevel: 0,
     stage: "idle",
@@ -36,7 +38,7 @@ export async function loadState(cwd: string): Promise<ScalerState> {
   const statePath = getStatePath(cwd);
   try {
     const raw = await readFile(statePath, "utf8");
-    return JSON.parse(raw) as ScalerState;
+    return parseStoredState(raw);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return createDefaultState();
@@ -45,21 +47,82 @@ export async function loadState(cwd: string): Promise<ScalerState> {
   }
 }
 
+export class StateConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StateConflictError";
+  }
+}
+
+export class StateWriteBusyError extends Error {
+  constructor(path: string) {
+    super(`State publication lock is held: ${path}. Reconcile an interrupted writer before retrying.`);
+    this.name = "StateWriteBusyError";
+  }
+}
+
+// Legacy files are logically revision 1; reading never rewrites them or upgrades
+// their validation evidence. Revision 0 is reserved for a never-persisted state.
+function parseStoredState(raw: string): ScalerState {
+  const state = JSON.parse(raw) as ScalerState;
+  const revision = state.revision === undefined ? 1 : state.revision;
+  if (!Number.isSafeInteger(revision) || revision < 1) throw new Error("Invalid stored state revision.");
+  return { ...state, revision };
+}
+
 export async function saveState(cwd: string, state: ScalerState): Promise<void> {
-  await publishState(cwd, state, false);
+  // Capture the proposal and base before awaiting the lock. Never reread and
+  // silently rebase an already computed mutation on a newer snapshot.
+  const proposal = structuredClone(state);
+  if (!Number.isSafeInteger(proposal.revision) || proposal.revision < 0
+    || proposal.revision >= Number.MAX_SAFE_INTEGER) throw new Error("Invalid proposed state revision.");
+  const statePath = getStatePath(cwd);
+  await mkdir(dirname(statePath), { recursive: true });
+  const lockPath = `${statePath}.lock`;
+  const deadline = performance.now() + 2000;
+  for (;;) {
+    try {
+      await mkdir(lockPath);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (performance.now() >= deadline) throw new StateWriteBusyError(lockPath);
+      await delay(10);
+    }
+  }
+  try {
+    let current: ScalerState | undefined;
+    try {
+      current = parseStoredState(await readFile(statePath, "utf8"));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    if (current
+      ? current.runId !== proposal.runId || current.revision !== proposal.revision
+      : proposal.revision !== 0) {
+      throw new StateConflictError(`Stale state write: expected run=${proposal.runId} revision=${proposal.revision}; current run=${current?.runId ?? "missing"} revision=${current?.revision ?? "missing"}.`);
+    }
+    const nextState = { ...proposal, revision: proposal.revision + 1, updatedAt: new Date().toISOString() };
+    await publishState(cwd, nextState, !current);
+    // Existing callers retain their state object between saves. Advance only
+    // persistence metadata, and only after publication has succeeded.
+    state.revision = nextState.revision;
+    state.updatedAt = nextState.updatedAt;
+  } finally {
+    await rm(lockPath, { recursive: true });
+  }
 }
 
 // Publish a complete snapshot on the same filesystem. This prevents torn reads;
-// it is not a compare-and-swap transaction and does not serialize state writers.
+// saveState holds the publication lock across comparison and replacement.
 async function publishState(cwd: string, state: ScalerState, createOnly: boolean): Promise<void> {
   const statePath = getStatePath(cwd);
   await mkdir(dirname(statePath), { recursive: true });
-  const nextState = { ...state, updatedAt: new Date().toISOString() } satisfies ScalerState;
   const temporaryPath = `${statePath}.${randomUUID()}.tmp`;
   try {
     const file = await open(temporaryPath, "wx", 0o600);
     try {
-      await file.writeFile(`${JSON.stringify(nextState, null, 2)}\n`, "utf8");
+      await file.writeFile(`${JSON.stringify(state, null, 2)}\n`, "utf8");
       await file.sync();
     } finally {
       await file.close();
@@ -75,14 +138,14 @@ async function publishState(cwd: string, state: ScalerState, createOnly: boolean
 
 export async function ensureState(cwd: string): Promise<ScalerState> {
   try {
-    return JSON.parse(await readFile(getStatePath(cwd), "utf8")) as ScalerState;
+    return parseStoredState(await readFile(getStatePath(cwd), "utf8"));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   try {
-    await publishState(cwd, createDefaultState(), true);
+    await saveState(cwd, createDefaultState());
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    if (!(error instanceof StateConflictError)) throw error;
   }
   return loadState(cwd);
 }

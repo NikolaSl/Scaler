@@ -4,6 +4,8 @@ coverage/
 
 # SCALER runtime data
 .scaler/state.json
+.scaler/state.json.lock/
+.scaler/state.json.*.tmp
 .scaler/logs/
 .scaler/cache/
 .scaler/artifacts/

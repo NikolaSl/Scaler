@@ -60,6 +60,7 @@ export interface RejectedTransition {
 
 export interface ScalerState {
   version: 1;
+  revision: number;
   runId: string;
   complexityLevel: number;
   stage: ScalerStage;

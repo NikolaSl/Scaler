@@ -362,7 +362,8 @@ test("runConductorStep rejects a child result after the durable run is replaced"
     const state = stateWithTasks(["ready"]);
     const replacement = createDefaultState();
     const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
-      await saveState(dir, replacement);
+      // Inject an externally replaced run: the normal save API now rejects it.
+      await writeFile(join(dir, ".scaler", "state.json"), JSON.stringify({ ...replacement, revision: 1 }));
       return { taskId: request.taskId, exitCode: 0, stdoutEvents: [completedTaskReport(request.taskId)], stderr: "", timedOut: false, aborted: false };
     });
     assert.equal(result.accepted, false);

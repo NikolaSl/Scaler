@@ -14,7 +14,7 @@ import { getBudgetState } from "../../../src/budgets.js";
 import scalerExtension from "../../../src/index.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { runValidationWithExecutionLock } from "../../../src/operations.js";
-import { createDefaultState, loadState, saveState } from "../../../src/state.js";
+import { loadState, saveState } from "../../../src/state.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -92,10 +92,9 @@ test("mock integration: budget command configures validation hard-stop before ex
     const configured = await loadState(dir);
     assert.deepEqual(getBudgetState(configured).limits.validationLoops, { soft: undefined, hard: 0 });
 
-    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const state = configured;
     state.stage = "execution";
     state.currentTaskId = "T-BUDGET-VALIDATION";
-    state.budgets = configured.budgets;
     state.tasks = [{
       id: "T-BUDGET-VALIDATION",
       status: "validating",

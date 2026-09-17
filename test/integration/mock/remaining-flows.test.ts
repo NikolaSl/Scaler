@@ -147,7 +147,8 @@ test("mock integration: budget hard stops pause conductor and validation before 
     assert.equal((await loadState(dir)).stage, "paused");
     assert.ok((await readLogEvents(dir)).some((event) => event.eventType === "budget"));
 
-    const validationState = stateAt("execution");
+    const validationState = await loadState(dir);
+    validationState.stage = "execution";
     validationState.tasks = [{ id: "T-VAL", status: "validating", title: "Validate", updatedAt: validationState.createdAt }];
     validationState.currentTaskId = "T-VAL";
     const limitedValidation = setBudgetLimits(validationState, { validationLoops: { hard: 1 } }, new Date("2026-01-01T00:00:00.000Z"));
@@ -208,7 +209,7 @@ test("mock integration: context discovery feeds conductor prompt with local evid
     assert.ok(manifest?.items.some((item) => item.source === "file" && item.path === "src/app.js"));
     assert.ok(manifest?.items.some((item) => item.source === "memory"));
 
-    const oversized = await runConductorStep(dir, { ...state, tasks: [{ ...state.tasks[0]!, status: "ready" }] }, {
+    const oversized = await runConductorStep(dir, { ...result.state, tasks: [{ ...result.state.tasks[0]!, status: "ready" }] }, {
       tokenBudget: 100,
       contextItems: [{ id: "huge", type: "file", reason: "Huge exact context", content: "x".repeat(400), priority: "required", scope: "full", exactness: "exact" }],
     });

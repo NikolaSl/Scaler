@@ -48,6 +48,18 @@ Those results do not verify revision 2, a local model, or the real host end to e
 
 ## Implementation progress — PLAN-099
 
+P2.1 follows merged P1 (`90f3478`). `saveState` now compares run identity and
+revision under a short cross-process publication lock. Stale snapshots and
+deleted-state recreation are rejected; successful saves advance persistence
+metadata. Legacy files load without rewriting bytes or inventing evidence.
+An interrupted lock fails closed and requires reconciliation before removal.
+Final validation: build, 508/508 unit tests, 67/67 mock integrations and one real
+Pi 0.85.1/Big Pickle synthetic report-to-validation-handoff contract passed.
+This is partial SC-13 evidence only. Attempt-bound acceptance, multi-file ledgers,
+authority and interruption recovery are still open. A preliminary parallel-tool
+ledger parse failure is recorded in PLAN-099; subsequent green checks do not
+establish that the ledger race is fixed.
+
 Implementation has now started on merged baseline `8f4cf19`, following
 [PLAN-099](../plans/implementation-plan-099.md). The original assessment table
 above is retained as the reviewed baseline. P1.1 adds read-only existing-state

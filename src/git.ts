@@ -100,6 +100,8 @@ export interface GitBootstrapIndex {
 }
 
 const scalerGitIgnoreRules = [
+  ".scaler/state.json.lock/",
+  ".scaler/state.json.*.tmp",
   ".scaler/logs/",
   ".scaler/cache/",
   ".scaler/artifacts/",

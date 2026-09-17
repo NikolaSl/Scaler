@@ -290,7 +290,7 @@ test("mock integration: validation-add gate metadata persists through validation
     assert.equal(manifest?.commands[0]?.expectedResult, "process exits 0");
     assert.deepEqual(manifest?.commands[0]?.evidenceRefs, ["evidence:unit"]);
 
-    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const state = await loadState(dir);
     state.stage = "execution";
     state.currentTaskId = "T-GATE";
     state.tasks = [{
