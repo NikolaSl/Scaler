@@ -16,6 +16,7 @@ import packagedScalerExtension from "../extensions/scaler/index.js";
 import { loadWatchdogHeartbeats } from "../src/watchdogs.js";
 import { readLogEvents } from "../src/logging.js";
 import { getLogToolsDir } from "../src/paths.js";
+import { loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { loadStorageInventory, loadStorageMaintenanceSchedule, updateStorageMaintenanceSchedule } from "../src/storage.js";
 
@@ -126,6 +127,7 @@ test("extension registers scaler commands", () => {
     "scaler-replan-accept",
     "scaler-replan-request",
     "scaler-prd-link",
+    "scaler-prd-amend",
     "scaler-task-retry",
     "scaler-step",
     "scaler-validation-checklist",
@@ -461,5 +463,31 @@ test("extension command handlers write command audit events", async () => {
 
     assert.deepEqual(events.filter((event) => event.eventType === "command").map((event) => (event.details as { phase: string }).phase), ["start", "end"]);
     assert.equal(events.filter((event) => event.eventType === "command").every((event) => Boolean(event.detailsPath)), true);
+  });
+});
+
+test("explicit PRD amendment command applies an exact revision under the execution lock", async () => {
+  await withTempDir(async (dir) => {
+    await upsertPrdRequirement(dir, { id: "REQ-COMMAND", statement: "Original wording" });
+    const commands = new Map<string, { handler: (args: string | undefined, ctx: { cwd: string; hasUI: boolean }) => Promise<void> }>();
+    const fakePi = {
+      on() {},
+      registerTool() {},
+      registerCommand(name: string, command: { handler: (args: string | undefined, ctx: { cwd: string; hasUI: boolean }) => Promise<void> }) {
+        commands.set(name, command);
+      },
+    };
+    scalerExtension(fakePi as never);
+
+    await commands.get("scaler-prd-amend")?.handler(
+      'REQ-COMMAND | 1 | User clarified the output | {"statement":"Authorized wording"}',
+      { cwd: dir, hasUI: false },
+    );
+
+    const requirement = (await loadPrdRequirements(dir)).requirements[0];
+    assert.equal(requirement?.statement, "Authorized wording");
+    assert.equal(requirement?.revision, 2);
+    assert.equal(requirement?.versionHistory?.[1]?.authority.kind, "user_command");
+    assert.equal(requirement?.versionHistory?.[1]?.authority.reason, "User clarified the output");
   });
 });

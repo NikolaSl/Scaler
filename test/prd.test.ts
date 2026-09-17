@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
+  amendPrdRequirement,
   appendPrdChange,
   computePrdCoverageSummary,
   createPrdVersionSnapshot,
@@ -120,6 +121,42 @@ test("model-route requirement upserts cannot introduce mandatory criteria", asyn
     );
     assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
     assert.deepEqual(await loadPrdChanges(dir), []);
+  });
+});
+
+test("explicit user amendment records immutable versions and rejects stale bases", async () => {
+  await withTempDir(async (dir) => {
+    await upsertPrdRequirement(dir, {
+      id: "REQ-AMEND", statement: "Original normalized wording", source: "initial-input",
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    const acceptanceCriteria = [{
+      id: "AC-END", statement: "Operate end to end.", validationTaskId: "T-END",
+      commandId: "integration", participantTaskIds: ["T-A", "T-END"],
+    }];
+    const amended = await amendPrdRequirement(dir, {
+      id: "REQ-AMEND",
+      expectedRevision: 1,
+      reason: "User explicitly requires the end-to-end gate.",
+      changes: { statement: "Authorized amended wording", acceptanceCriteria },
+      now: new Date("2026-01-01T00:01:00.000Z"),
+    });
+
+    assert.equal(amended.revision, 2);
+    assert.deepEqual(amended.versionHistory?.map((version) => version.revision), [1, 2]);
+    assert.equal(amended.versionHistory?.[0]?.statement, "Original normalized wording");
+    assert.equal(amended.versionHistory?.[0]?.authority.kind, "normalized_input");
+    assert.equal(amended.versionHistory?.[1]?.statement, "Authorized amended wording");
+    assert.deepEqual(amended.versionHistory?.[1]?.acceptanceCriteria, acceptanceCriteria);
+    assert.deepEqual(amended.versionHistory?.[1]?.authority, {
+      kind: "user_command", reason: "User explicitly requires the end-to-end gate.",
+    });
+
+    const beforeStale = await loadPrdRequirements(dir);
+    await assert.rejects(() => amendPrdRequirement(dir, {
+      id: "REQ-AMEND", expectedRevision: 1, reason: "Stale overwrite", changes: { acceptanceCriteria: [] },
+    }), /stale.*expected revision 1.*current revision 2/i);
+    assert.deepEqual(await loadPrdRequirements(dir), beforeStale);
   });
 });
 

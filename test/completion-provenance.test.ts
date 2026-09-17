@@ -14,7 +14,7 @@ import { runScalerAutomation } from "../src/autopilot.js";
 import { commitWithExecutionLock } from "../src/operations.js";
 import { acquireExecutionLock, releaseExecutionLock } from "../src/locks.js";
 import { getCommitSkipsPath, getValidationRunsPath } from "../src/paths.js";
-import { loadPrdCoverage, savePrdCoverage, upsertPrdRequirement } from "../src/prd.js";
+import { amendPrdRequirement, loadPrdCoverage, savePrdCoverage, upsertPrdRequirement } from "../src/prd.js";
 import { completeRunWithEvidence } from "../src/run-completion.js";
 import { advanceStageAfterReadyArtifact } from "../src/stage-advancement.js";
 import { runStageConductorLoop } from "../src/stage-conductor.js";
@@ -190,7 +190,10 @@ test("completion rejects evidence for an earlier linked requirement statement", 
   await saveState(dir, state);
   await upsertPrdRequirement(dir, { id: "REQ-CHANGE", statement: "Produce version one" });
   assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
-  await upsertPrdRequirement(dir, { id: "REQ-CHANGE", statement: "Produce materially different version two" });
+  await amendPrdRequirement(dir, {
+    id: "REQ-CHANGE", expectedRevision: 1, reason: "User changed the required output.",
+    changes: { statement: "Produce materially different version two" },
+  });
   const result = await completeRunWithEvidence(dir, await loadState(dir));
   assert.equal(result.accepted, false);
   assert.match(result.message, /requirement|receipt|evidence|changed/i);
@@ -227,9 +230,16 @@ for (const change of ["statement", "late-link"] as const) {
       });
     }
     assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
-    await upsertPrdRequirement(dir, {
-      id: "REQ-EXPLICIT", statement: "New requirement content", status: "pending", taskIds: ["T-ONE"],
-    });
+    if (change === "statement") {
+      await amendPrdRequirement(dir, {
+        id: "REQ-EXPLICIT", expectedRevision: 1, reason: "User changed explicit requirement content.",
+        changes: { statement: "New requirement content" },
+      });
+    } else {
+      await upsertPrdRequirement(dir, {
+        id: "REQ-EXPLICIT", statement: "New requirement content", status: "pending", taskIds: ["T-ONE"],
+      });
+    }
     const current = await loadState(dir);
     const receiptErrors = await verifyCurrentValidationReceipt(dir, current, "T-ONE");
     const completion = await completeRunWithEvidence(dir, current);

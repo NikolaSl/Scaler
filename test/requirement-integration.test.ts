@@ -8,7 +8,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { upsertPrdRequirement, type UpsertPrdRequirementInput } from "../src/prd.js";
+import { amendPrdRequirement, upsertPrdRequirement } from "../src/prd.js";
 import { completeRunWithEvidence } from "../src/run-completion.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import type { ScalerState } from "../src/types.js";
@@ -67,12 +67,16 @@ async function fixture(
       createdAt: "",
       updatedAt: "",
     });
-    const requirement = {
+    await upsertPrdRequirement(dir, {
       id: "REQ-JOINT",
       statement: "Produce two components that work together.",
-      acceptanceCriteria: [integrationCriterion],
-    } as UpsertPrdRequirementInput & { acceptanceCriteria: TestAcceptanceCriterion[] };
-    await upsertPrdRequirement(dir, requirement);
+    });
+    await amendPrdRequirement(dir, {
+      id: "REQ-JOINT",
+      expectedRevision: 1,
+      reason: "User requires explicit end-to-end integration evidence.",
+      changes: { acceptanceCriteria: [integrationCriterion] },
+    });
 
     assert.equal((await runTaskValidation(dir, await loadState(dir), "T-A")).acceptance?.accepted, true);
     assert.equal((await runTaskValidation(dir, await loadState(dir), "T-B")).acceptance?.accepted, true);

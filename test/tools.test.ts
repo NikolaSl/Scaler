@@ -290,10 +290,7 @@ test("scaler_planning_report syncs planner output", async () => {
       "tool-call",
       {
         id: "PLAN-TOOL",
-        requirements: [{ id: "REQ-TOOL", statement: "Tool requirement", acceptanceCriteria: [{
-          id: "AC-TOOL", statement: "Tool output integrates.", validationTaskId: "T-TOOL-PLAN",
-          commandId: "unit", participantTaskIds: ["T-TOOL-PLAN"],
-        }] }],
+        requirements: [{ id: "REQ-TOOL", statement: "Tool requirement" }],
         plan: {
           planVersion: 3,
           status: "active",
@@ -320,7 +317,7 @@ test("scaler_planning_report syncs planner output", async () => {
     assert.equal(result?.details.status, "accepted");
     assert.equal((await loadExecutionPlan(dir)).planVersion, 3);
     assert.equal((await loadPrdRequirements(dir)).requirements[0]?.id, "REQ-TOOL");
-    assert.equal((await loadPrdRequirements(dir)).requirements[0]?.acceptanceCriteria?.[0]?.id, "AC-TOOL");
+    assert.equal((await loadPrdRequirements(dir)).requirements[0]?.acceptanceCriteria, undefined);
     assert.equal((await loadPlanningReports(dir))[0]?.id, "PLAN-TOOL");
   });
 });
@@ -334,10 +331,7 @@ test("scaler_prd_write writes current PRD and requirements", async () => {
       "tool-call",
       {
         content: "# Runtime PRD",
-        requirements: [{ id: "REQ-001", statement: "Show status.", acceptanceCriteria: [{
-          id: "AC-STATUS", statement: "Status composes.", validationTaskId: "T-STATUS",
-          commandId: "integration", participantTaskIds: ["T-STATUS"],
-        }] }],
+        requirements: [{ id: "REQ-001", statement: "Show status." }],
       },
       undefined,
       undefined,
@@ -348,12 +342,12 @@ test("scaler_prd_write writes current PRD and requirements", async () => {
     assert.equal((await loadPrdRequirements(dir)).requirements[0]?.id, "REQ-001");
     await registered.get("scaler_prd_write")?.execute(
       "tool-call-2",
-      { content: "# Revised PRD", requirements: [{ id: "REQ-001", statement: "Show revised status." }] },
+      { content: "# Revised PRD", requirements: [{ id: "REQ-001", statement: "Show status." }] },
       undefined,
       undefined,
       { cwd: dir },
     );
-    assert.equal((await loadPrdRequirements(dir)).requirements[0]?.acceptanceCriteria?.[0]?.id, "AC-STATUS");
+    assert.equal((await loadPrdRequirements(dir)).requirements[0]?.acceptanceCriteria, undefined);
   });
 });
 
@@ -370,10 +364,6 @@ test("scaler_prd_requirement_update upserts requirement and coverage", async () 
         status: "implemented",
         taskIds: ["T-001"],
         evidenceRefs: ["validation:run-1"],
-        acceptanceCriteria: [{
-          id: "AC-TASK", statement: "Task integrates.", validationTaskId: "T-001",
-          commandId: "integration", participantTaskIds: ["T-001"],
-        }],
       },
       undefined,
       undefined,
@@ -382,6 +372,31 @@ test("scaler_prd_requirement_update upserts requirement and coverage", async () 
 
     assert.equal((await loadPrdRequirements(dir)).requirements[0]?.statement, "Task is validated.");
     assert.equal((await loadPrdCoverage(dir)).entries[0]?.status, "implemented");
-    assert.equal((await loadPrdRequirements(dir)).requirements[0]?.acceptanceCriteria?.[0]?.commandId, "integration");
+    assert.equal((await loadPrdRequirements(dir)).requirements[0]?.acceptanceCriteria, undefined);
+  });
+});
+
+test("model-facing PRD tools cannot invent mandatory acceptance criteria", async () => {
+  await withTempDir(async (dir) => {
+    const registered = new Map<string, { execute: (...args: any[]) => Promise<unknown> }>();
+    registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<unknown> }) { registered.set(definition.name, definition); } } as never);
+    const proposal = {
+      id: "REQ-UNAUTHORIZED", statement: "Agent proposal", source: "user",
+      acceptanceCriteria: [{
+        id: "AC-FORGED", statement: "Agent-created blocking gate.", validationTaskId: "T-ONE",
+        commandId: "integration", participantTaskIds: ["T-ONE"],
+      }],
+    };
+
+    await assert.rejects(() => registered.get("scaler_prd_write")!.execute(
+      "tool-call", { content: "# Must not be written", requirements: [proposal] }, undefined, undefined, { cwd: dir },
+    ), /explicit user command/i);
+    assert.equal(await loadCurrentPrd(dir), "");
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+
+    await assert.rejects(() => registered.get("scaler_prd_requirement_update")!.execute(
+      "tool-call", proposal, undefined, undefined, { cwd: dir },
+    ), /explicit user command/i);
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
   });
 });

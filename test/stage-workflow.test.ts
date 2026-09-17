@@ -128,6 +128,24 @@ test("PRD stage ingestion cannot replace requirements or weaken current acceptan
   });
 });
 
+test("PRD stage catalog omission preserves requirements not named by the report", async () => {
+  await withTempDir(async (dir) => {
+    const state = createState("prd");
+    await saveState(dir, state);
+    await upsertPrdRequirement(dir, { id: "REQ-ONE", statement: "One", source: "initial" });
+    await upsertPrdRequirement(dir, { id: "REQ-TWO", statement: "Two", source: "initial" });
+
+    const result = await ingestPrdWriteReport(dir, state, [{
+      type: "scaler_prd_write",
+      content: "# Refreshed normalized PRD",
+      requirements: [{ id: "REQ-ONE", statement: "One" }],
+    }]);
+
+    assert.equal(result.ingested, true, result.reason);
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements.map((requirement) => requirement.id).sort(), ["REQ-ONE", "REQ-TWO"]);
+  });
+});
+
 async function stageRunner(request: TaskAgentRequest): Promise<TaskAgentRunResult> {
   if (request.taskId === "stage-prd") {
     assert.ok(request.tools?.includes("read"));
@@ -141,10 +159,6 @@ async function stageRunner(request: TaskAgentRequest): Promise<TaskAgentRunResul
         content: "# Runtime PRD\n\n- REQ-1: Implement the workflow.\n",
         requirements: [{
           id: "REQ-1", title: "Workflow", statement: "Implement the autonomous workflow.", source: "test",
-          acceptanceCriteria: [{
-            id: "AC-WORKFLOW", statement: "The workflow operates end to end.", validationTaskId: "T-1",
-            commandId: "unit", participantTaskIds: ["T-1"],
-          }],
         }],
       }],
       stderr: "",
@@ -230,7 +244,7 @@ test("runAutonomousStageWorkflow executes PRD, Stage II research merge, and plan
       "execution_ready",
     ]);
     assert.equal((await loadPrdRequirements(dir)).requirements[0]?.id, "REQ-1");
-    assert.equal((await loadPrdRequirements(dir)).requirements[0]?.acceptanceCriteria?.[0]?.id, "AC-WORKFLOW");
+    assert.equal((await loadPrdRequirements(dir)).requirements[0]?.acceptanceCriteria, undefined);
     assert.equal((await loadResearchRequests(dir))[0]?.status, "resolved");
     assert.equal((await loadResearchReports(dir))[0]?.status, "complete");
     assert.match(await readFile(join(dir, ".scaler", "knowledge", "knowledge-report.md"), "utf8"), /deterministic ledgers/);

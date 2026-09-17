@@ -32,7 +32,7 @@ import {
   validateExecutionPlan,
   validateReplanRequest,
 } from "../src/plans.js";
-import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements } from "../src/prd.js";
+import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
 import { createDefaultState } from "../src/state.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -228,6 +228,29 @@ test("applyPlanningReport reports coverage warnings for unlinked and unknown ref
     assert.deepEqual(result.report.diagnostics.unlinkedRequirementIds, ["REQ-KNOWN"]);
     assert.deepEqual(result.report.diagnostics.unknownPlanRequirementIds, ["REQ-UNKNOWN"]);
     assert.deepEqual(result.report.diagnostics.planUnlinkedTaskIds, ["T-NOREF"]);
+  });
+});
+
+test("planning report rejects requirement amendments before plan or task writes", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await upsertPrdRequirement(dir, { id: "REQ-LOCKED", statement: "Original user scope" });
+    const before = await loadPrdRequirements(dir);
+
+    await assert.rejects(() => applyPlanningReport(dir, state, {
+      id: "PLAN-UNAUTHORIZED",
+      source: "user",
+      requirements: [{ id: "REQ-LOCKED", statement: "Planner-expanded scope", source: "user" }],
+      plan: {
+        planVersion: 1,
+        status: "active",
+        tasks: [validPlanTask("T-UNAUTHORIZED", "Unauthorized task", { prdRefs: ["REQ-LOCKED"] })],
+      },
+    }), /amendment authority.*explicit user command/i);
+
+    assert.deepEqual(await loadPrdRequirements(dir), before);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.equal(state.tasks.length, 0);
   });
 });
 
