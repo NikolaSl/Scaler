@@ -52,7 +52,7 @@ function registeredCommands(): Map<string, { handler: CommandHandler }> {
   return commands;
 }
 
-test("mock integration: non-software checklist failure then pass updates task state and audit", async () => {
+test("mock integration: checklist failure enters debugging but a positive claim cannot self-approve", async () => {
   await withTempRepo(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     state.stage = "execution";
@@ -86,15 +86,17 @@ test("mock integration: non-software checklist failure then pass updates task st
     const checklists = await loadValidationChecklists(dir);
     assert.equal(checklists[0]?.status, "passed");
     assert.equal(checklists[0]?.gate, "source_validation");
-    assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
+    assert.equal((await loadState(dir)).tasks[0]?.status, "debugging");
+    assert.deepEqual((await loadState(dir)).validatedTaskIds, []);
 
     const events = await readLogEvents(dir);
     assert.ok(events.some((event) => event.eventType === "validation" && event.summary === "Validation summary: T-CHECKLIST failed"));
     assert.ok(events.some((event) => event.eventType === "validation" && event.summary === "Validation summary: T-CHECKLIST passed"));
+    assert.ok(events.some((event) => event.eventType === "validation" && event.summary.includes("proposal recorded without task acceptance")));
   });
 });
 
-test("mock integration: evidence-required checklist fails without evidence then passes with evidence", async () => {
+test("mock integration: evidence-reference shape can pass without granting checklist acceptance", async () => {
   await withTempRepo(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     state.stage = "execution";
@@ -121,7 +123,8 @@ test("mock integration: evidence-required checklist fails without evidence then 
     checklists = await loadValidationChecklists(dir);
     assert.equal(checklists[0]?.status, "passed");
     assert.deepEqual(checklists[0]?.evidencePolicy?.missingEvidenceItemIds, []);
-    assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
+    assert.equal((await loadState(dir)).tasks[0]?.status, "debugging");
+    assert.deepEqual((await loadState(dir)).validatedTaskIds, []);
   });
 });
 

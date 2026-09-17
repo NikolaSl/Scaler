@@ -26,7 +26,7 @@ function stateWithTask(status: "running" | "validating" | "debugging") {
   return addTask(createDefaultState(), { id: "T-001", status });
 }
 
-test("passed validation moves validating task to validated", async () => {
+test("manual passed validation cannot promote a validating task", async () => {
   await withTempDir(async (dir) => {
     const result = await applyValidationReport(dir, stateWithTask("validating"), {
       taskId: "T-001",
@@ -34,13 +34,14 @@ test("passed validation moves validating task to validated", async () => {
       summary: "tests passed",
     });
 
-    assert.equal(result.accepted, true);
-    assert.equal(result.state.tasks[0]?.status, "validated");
-    assert.deepEqual(result.state.validatedTaskIds, ["T-001"]);
+    assert.equal(result.accepted, false);
+    assert.equal(result.state.tasks[0]?.status, "validating");
+    assert.deepEqual(result.state.validatedTaskIds, []);
+    assert.match(result.message, /proposal.*independent supervisor verification/);
   });
 });
 
-test("passed validation moves debugging task to validated", async () => {
+test("manual passed validation cannot promote a debugging task", async () => {
   await withTempDir(async (dir) => {
     const result = await applyValidationReport(dir, stateWithTask("debugging"), {
       taskId: "T-001",
@@ -48,8 +49,9 @@ test("passed validation moves debugging task to validated", async () => {
       summary: "debug fix passed",
     });
 
-    assert.equal(result.accepted, true);
-    assert.equal(result.state.tasks[0]?.status, "validated");
+    assert.equal(result.accepted, false);
+    assert.equal(result.state.tasks[0]?.status, "debugging");
+    assert.deepEqual(result.state.validatedTaskIds, []);
   });
 });
 
@@ -132,7 +134,7 @@ test("recordValidationChecklist fails evidence-required gates when required pass
   });
 });
 
-test("recordValidationChecklist accepts evidence-required gates with checklist evidence", async () => {
+test("recordValidationChecklist records evidence references without granting acceptance", async () => {
   await withTempDir(async (dir) => {
     const result = await recordValidationChecklist(dir, stateWithTask("validating"), {
       taskId: "T-001",
@@ -145,7 +147,8 @@ test("recordValidationChecklist accepts evidence-required gates with checklist e
 
     assert.equal(result.record.status, "passed");
     assert.deepEqual(result.record.evidencePolicy?.missingEvidenceItemIds, []);
-    assert.equal(result.applyResult.state.tasks[0]?.status, "validated");
+    assert.equal(result.applyResult.accepted, false);
+    assert.equal(result.applyResult.state.tasks[0]?.status, "validating");
   });
 });
 
@@ -161,6 +164,8 @@ test("recordValidationChecklist does not require evidence for custom gates", asy
 
     assert.equal(result.record.status, "passed");
     assert.equal(result.record.evidencePolicy, undefined);
+    assert.equal(result.applyResult.accepted, false);
+    assert.equal(result.applyResult.state.tasks[0]?.status, "validating");
   });
 });
 
@@ -186,7 +191,7 @@ test("recordValidationChecklist persists checklist and applies failed non-softwa
   });
 });
 
-test("recordValidationChecklist applies passed non-software validation", async () => {
+test("recordValidationChecklist retains passed non-software claims as proposals", async () => {
   await withTempDir(async (dir) => {
     const result = await recordValidationChecklist(dir, stateWithTask("validating"), {
       taskId: "T-001",
@@ -198,8 +203,9 @@ test("recordValidationChecklist applies passed non-software validation", async (
     });
 
     assert.equal(result.record.status, "passed");
-    assert.equal(result.applyResult.state.tasks[0]?.status, "validated");
-    assert.deepEqual(result.applyResult.state.validatedTaskIds, ["T-001"]);
+    assert.equal(result.applyResult.accepted, false);
+    assert.equal(result.applyResult.state.tasks[0]?.status, "validating");
+    assert.deepEqual(result.applyResult.state.validatedTaskIds, []);
   });
 });
 

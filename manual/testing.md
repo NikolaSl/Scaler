@@ -250,3 +250,20 @@ Direct callers must supply current persisted state; stale snapshots are refused
 before accepted Git records are published. Executed checks remain in the blocked
 record for diagnosis. This is not independent semantic validation or complete
 manual-report/checklist/run-completion authority.
+
+### Manual validation claims (PLAN-105)
+
+`applyValidationReport`, `scaler_validation_report` and manual checklists no
+longer promote tasks for caller-supplied `passed` or `not_applicable`. Positive
+claims and checklist evidence-reference strings are retained in the audit
+history, with `accepted=false` and a supervisor-verification diagnostic. A
+checklist record's `passed` status describes its reported items, not task
+acceptance. The registered tool still accounts for its call even when refused.
+Failed/partial/blocked observations retain their debugging/replanning behavior.
+
+Run `node --test --import tsx test/manual-validation-authority.test.ts test/validation.test.ts test/automatic-validation-acceptance.test.ts test/validation-acceptance.test.ts`.
+Actual supervisor command validation still accepts through current receipts and
+Git checks. Non-software acceptance needs an independent verifier that is not yet
+implemented; do not fabricate evidence, add dummy commands or treat a second
+model's agreement as a substitute. This is an explicit capability limitation,
+not a claim of complete P2.3 or SC-10 support.

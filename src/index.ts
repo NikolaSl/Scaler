@@ -1664,7 +1664,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("scaler-validation-checklist", {
-    description: "Record a deterministic non-software validation checklist: /scaler-validation-checklist <taskId> | <gate> | <summary> | <id::status::required::statement::evidence;...> | <evidence refs>",
+    description: "Record a non-software validation checklist proposal (positive claims do not approve tasks): /scaler-validation-checklist <taskId> | <gate> | <summary> | <id::status::required::statement::evidence;...> | <evidence refs>",
     handler: async (args, ctx) => {
       const parsed = parseValidationChecklistArgs(args);
       if (!parsed) {

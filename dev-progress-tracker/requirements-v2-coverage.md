@@ -131,6 +131,17 @@ No third candidate hash is added to a passing validation. Review is pending;
 manual reports/checklists, raw Git-decision helper, postcommit identity and
 aggregate completion remain open. SC-01/10/26 are not declared compliant.
 
+PLAN-105 makes manual positive validation/report/checklist claims proposal-only.
+Eight regressions (including actual registered tool execution) failed before the
+fix. Caller-supplied passed/not-applicable or evidence refs no longer promote a
+task. Checklist claims and failure/blocking diagnostics remain recorded; normal
+tool-call budget accounting is preserved. Supervisor command validation applies
+positive outcomes privately after receipt/Git checks. Build, 597/597 unit and
+67/67 mock integration pass; completed final-head review remains required.
+Independent non-software acceptance is explicitly unavailable until an appropriate
+verifier exists; no dummy-command or mandatory-second-model workaround is added.
+Full SC-01/10/26 coverage, postcommit identity and aggregate completion remain open.
+
 Implementation has now started on merged baseline `8f4cf19`, following
 [PLAN-099](../plans/implementation-plan-099.md). The original assessment table
 above is retained as the reviewed baseline. P1.1 adds read-only existing-state
