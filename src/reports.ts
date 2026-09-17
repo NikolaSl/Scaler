@@ -70,6 +70,14 @@ export function validateReportInput(report: ScalerReportInput): string | undefin
   if (report.taskTransition !== undefined && !report.taskId) {
     return "Task transition report did not include taskId.";
   }
+  // Generic reports carry proposals, not supervisor acceptance evidence. Check
+  // before applying either transition so bundled requests cannot partly succeed.
+  if (report.taskTransition === "validated") {
+    return "Task acceptance requires the dedicated validation path; a generic report cannot grant validated status.";
+  }
+  if (report.stageTransition === "completed") {
+    return "Run completion requires the dedicated completion path; a generic report cannot complete a run.";
+  }
   return undefined;
 }
 
