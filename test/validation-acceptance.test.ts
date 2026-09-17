@@ -17,7 +17,7 @@ import { commitWithExecutionLock, skipCommitWithExecutionLock } from "../src/ope
 import { getValidationRunsPath } from "../src/paths.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { runTaskValidation, upsertValidationManifestCommand } from "../src/validation.js";
-import { captureValidationSnapshot } from "../src/validation-acceptance.js";
+import { captureValidationSnapshot, fingerprintValidationResult } from "../src/validation-acceptance.js";
 import { fingerprintJson } from "../src/fingerprints.js";
 
 const exec = promisify(execFile);
@@ -277,3 +277,30 @@ test("streamed candidate hashing preserves binary identity across multiple chunk
     }));
   });
 });
+
+for (const malformed of [false, true]) {
+  test(`required skipped evidence ${malformed ? "must retain its declared reason even in a self-consistent receipt" : "with declared reason remains acceptable"}`, async () => {
+    await fixture(async (dir) => {
+      const state = createDefaultState();
+      state.tasks = [{ id: "T-SKIPPED", status: "validating", allowedPathPrefixes: ["output.txt"], updatedAt: state.updatedAt }];
+      await saveState(dir, state);
+      await writeFile(join(dir, "output.txt"), "candidate");
+      await upsertValidationManifestCommand(dir, { taskId: "T-SKIPPED", id: "pass", command: "node -e \"process.exit(0)\"", required: true });
+      await upsertValidationManifestCommand(dir, { taskId: "T-SKIPPED", id: "skip", command: "node -e \"process.exit(1)\"", required: true, disposition: "skipped", dispositionReason: "Declared optional platform exclusion" });
+      const run = await runTaskValidation(dir, state, "T-SKIPPED");
+      assert.equal(run.status, "passed");
+      if (malformed) {
+        const path = getValidationRunsPath(dir);
+        const ledger = JSON.parse(await readFile(path, "utf8"));
+        delete ledger.runs[0].commandRuns.find((command: { commandId: string }) => command.commandId === "skip").dispositionReason;
+        // Deliberately simulate a malformed producer, not post-receipt tampering
+        // (the existing result digest already rejects the latter).
+        ledger.runs[0].receipt.resultFingerprint = fingerprintValidationResult(ledger.runs[0]);
+        await writeFile(path, JSON.stringify(ledger));
+      }
+      const result = await commitValidatedTask(dir, state, "T-SKIPPED", ["output.txt"]);
+      assert.equal(result.accepted, !malformed, result.message);
+      if (malformed) assert.match(result.message, /required command skip/);
+    });
+  });
+}

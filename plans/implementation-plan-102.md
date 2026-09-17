@@ -111,3 +111,11 @@ than `readFile`; a multi-chunk binary fixture checks byte-identical digests.
 The comment now states the actual normalization (absent diagnostics become `[]`,
 undefined nested optional fields are dropped). This is not a scale benchmark.
 Final corrected gate: build, 24/24 acceptance, 567/567 unit, 67/67 mock integration.
+
+Review 5230641032 raised skip-evidence consistency. Simple post-receipt tampering
+was already rejected by the result digest; the reproduced gap required a
+self-consistent malformed producer receipt. The verifier now requires the stored
+skip disposition and non-empty reason to match the current declared policy, while
+retaining (not replacing) policy authorization. Positive reasoned skips still work.
+This improves evidence shape checks without claiming authenticated ledgers.
+Gate after this correction: build, 26/26 acceptance, 569/569 unit, 67/67 mock tests.

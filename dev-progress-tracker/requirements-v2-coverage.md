@@ -105,6 +105,10 @@ The subsequent review's buffering concern is addressed with incremental streamed
 file hashing plus a multi-chunk binary fixture; its misleading-comment note is
 corrected. Gate: build, 24/24 acceptance, 567/567 unit and 67/67 mock integration.
 No measured scale-envelope or memory-saving claim is implied.
+Skip-evidence consistency is also checked independently of its digest: stored
+reason/disposition must match the authorized policy. A malformed-producer
+regression and a positive skip fixture pass; simple tampering was already rejected.
+Gate: build, 26/26 acceptance, 569/569 unit and 67/67 mock integrations.
 
 Implementation has now started on merged baseline `8f4cf19`, following
 [PLAN-099](../plans/implementation-plan-099.md). The original assessment table

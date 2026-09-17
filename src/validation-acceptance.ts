@@ -87,7 +87,10 @@ export async function verifyCurrentValidationReceipt(cwd: string, state: ScalerS
   const manifest = await getValidationManifestForTask(cwd, taskId);
   for (const command of manifest.commands.filter((command) => command.required)) {
     const evidence = run.commandRuns.find((run) => run.commandId === command.id && run.command === command.command && run.required);
-    if (!evidence || (evidence.status !== "passed" && !(evidence.status === "skipped" && command.disposition === "skipped" && command.dispositionReason?.trim()))) {
+    const declaredSkip = evidence?.status === "skipped" && evidence.disposition === "skipped"
+      && Boolean(evidence.dispositionReason?.trim()) && command.disposition === "skipped"
+      && evidence.dispositionReason?.trim() === command.dispositionReason?.trim();
+    if (!evidence || (evidence.status !== "passed" && !declaredSkip)) {
       diagnostics.push(`Validation receipt rejected: required command ${command.id} has no passing evidence or declared skip.`);
     }
   }
