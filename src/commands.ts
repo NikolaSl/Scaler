@@ -196,6 +196,13 @@ export interface ParsedPrdLinkArgs {
   prdRefs: string[];
 }
 
+export interface ParsedPrdAmendArgs {
+  requirementId: string;
+  expectedRevision: number;
+  reason: string;
+  changes: Record<string, unknown>;
+}
+
 export interface ParsedCommitArgs {
   taskId?: string;
   allowedPathPrefixes?: string[];
@@ -641,6 +648,22 @@ export function parsePrdLinkArgs(args: string | undefined): ParsedPrdLinkArgs | 
   const prdRefs = parseCommaList(parts[1]);
   if (!taskId || !prdRefs) return undefined;
   return { taskId, prdRefs };
+}
+
+export function parsePrdAmendArgs(args: string | undefined): ParsedPrdAmendArgs | undefined {
+  const parts = splitPipeArgs(args);
+  const requirementId = parts[0]?.trim();
+  const revisionText = parts[1]?.trim() ?? "";
+  const expectedRevision = /^\d+$/.test(revisionText) ? Number.parseInt(revisionText, 10) : Number.NaN;
+  const reason = parts[2]?.trim();
+  if (!requirementId || !Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || !reason || !parts[3]?.trim()) return undefined;
+  try {
+    const changes = JSON.parse(parts[3]) as unknown;
+    if (!changes || typeof changes !== "object" || Array.isArray(changes)) return undefined;
+    return { requirementId, expectedRevision, reason, changes: changes as Record<string, unknown> };
+  } catch {
+    return undefined;
+  }
 }
 
 export function parseCommitArgs(args: string | undefined): ParsedCommitArgs {

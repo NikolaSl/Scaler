@@ -23,6 +23,7 @@ import {
   parseMemorySearchArgs,
   parseMissingContextResolveArgs,
   parseMissingContextRunArgs,
+  parsePrdAmendArgs,
   parsePrdLinkArgs,
   parseReplanRequestArgs,
   parseReplanRunArgs,
@@ -67,7 +68,7 @@ import { formatDebugAgentRunList, loadDebugAgentRunRecords, runDebugAgentStep } 
 import { runDebugConductorLoop } from "./debug-conductor.js";
 import { approveDebugRetry, formatDebugRetryApprovals, formatDebugRetryPolicy, formatDebugRetrySummary, loadDebugRetryApprovals, loadDebugRetryPolicy, runDebugRetryPolicyWorkflow, saveDebugRetryPolicy } from "./debug-retry.js";
 import { ensureGitRepository, formatCommitReports, formatCommitSkips, formatGitBootstrapRecords, loadCommitReports, loadCommitSkips, loadGitBootstrapRecords } from "./git.js";
-import { clearExecutionLock, formatExecutionLock, loadExecutionLock } from "./locks.js";
+import { acquireExecutionLock, clearExecutionLock, formatExecutionLock, loadExecutionLock, releaseExecutionLock } from "./locks.js";
 import { createLogEvent, appendLogEvent, externalizeLargeToolResult, logCommandAudit, logStateEvent, logToolAudit } from "./logging.js";
 import { formatMemorySearchResults, loadMemoryIndex, searchMemory, type MemoryValidity } from "./memory.js";
 import { dispatchMissingContextRequest, formatMissingContextRequests, loadMissingContextRequests, resolveMissingContextRequest, unblockTasksWithResolvedMissingContext } from "./missing-context.js";
@@ -88,7 +89,7 @@ import {
   loadReplanRequests,
   summarizeExecutionPlan,
 } from "./plans.js";
-import { computePrdCoverageSummary, formatPrdCoverageSummary, loadPrdCoverage, loadPrdRequirements } from "./prd.js";
+import { amendPrdRequirement, computePrdCoverageSummary, formatPrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type AmendPrdRequirementInput } from "./prd.js";
 import { extractProviderUsage, recordProviderUsageBudget } from "./provider-usage.js";
 import { requestReplan } from "./replanning.js";
 import { formatReplanAgentRunList, loadReplanAgentRunRecords, runReplanAgentStep } from "./replan-agent.js";
@@ -1626,6 +1627,50 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const result = await updateTask(ctx.cwd, state, { id: parsed.taskId, prdRefs: parsed.prdRefs });
       if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
       else console.log(result.message);
+    },
+  });
+
+  pi.registerCommand("scaler-prd-amend", {
+    description: "Apply an explicit user-authorized requirement amendment: /scaler-prd-amend <REQ-ID> | <expected revision> | <reason> | <changes JSON>",
+    handler: async (args, ctx) => {
+      const parsed = parsePrdAmendArgs(args);
+      if (!parsed) {
+        const message = "Usage: /scaler-prd-amend <REQ-ID> | <expected revision> | <reason> | <JSON fields: statement,title,source,acceptanceCriteria>";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+      if (isChildAgent) {
+        const message = "Runtime PRD amendment refused: only the parent user-command route can authorize requirement changes.";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+      const allowedKeys = new Set(["statement", "title", "source", "acceptanceCriteria"]);
+      const unknownKeys = Object.keys(parsed.changes).filter((key) => !allowedKeys.has(key));
+      if (unknownKeys.length > 0) throw new Error(`Unknown runtime PRD amendment fields: ${unknownKeys.join(", ")}.`);
+      const lock = await acquireExecutionLock(ctx.cwd, {
+        operation: "prd_amend",
+        reason: `User-authorized amendment for ${parsed.requirementId}: ${parsed.reason}`,
+      });
+      if (!lock.acquired) {
+        if (ctx.hasUI) ctx.ui.notify(lock.message, "warning");
+        else console.log(lock.message);
+        return;
+      }
+      try {
+        const requirement = await amendPrdRequirement(ctx.cwd, {
+          id: parsed.requirementId,
+          expectedRevision: parsed.expectedRevision,
+          reason: parsed.reason,
+          changes: parsed.changes as AmendPrdRequirementInput["changes"],
+        });
+        const message = `Runtime PRD requirement amended: ${requirement.id} revision=${requirement.revision}`;
+        if (ctx.hasUI) ctx.ui.notify(message, "info");
+        else console.log(message);
+      } finally {
+        await releaseExecutionLock(ctx.cwd, lock.lock.id);
+      }
     },
   });
 

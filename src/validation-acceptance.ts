@@ -74,6 +74,7 @@ async function fingerprintTaskRequirements(cwd: string, taskId: string, taskRequ
     const requirement = byId.get(id);
     return requirement ? {
       id: requirement.id,
+      revision: requirement.revision ?? 1,
       statement: requirement.statement,
       title: requirement.title ?? null,
       source: requirement.source ?? null,

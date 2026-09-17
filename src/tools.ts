@@ -15,8 +15,8 @@ import { recordProviderUsageBudget } from "./provider-usage.js";
 import {
   createPrdVersionSnapshot,
   loadPrdRequirements,
+  preflightPrdRequirementUpserts,
   saveCurrentPrd,
-  savePrdRequirements,
   upsertPrdRequirement,
   type RuntimePrdRequirement,
   type RuntimePrdRequirementStatus,
@@ -682,19 +682,22 @@ export function registerScalerTools(pi: ExtensionAPI): void {
     description: "Write the polished runtime PRD and optional requirement catalog under .scaler/prd.",
     parameters: PrdWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const proposedRequirements = (params.requirements ?? []).map((requirement) => ({
+        id: requirement.id,
+        statement: requirement.statement,
+        title: requirement.title,
+        source: requirement.source,
+        acceptanceCriteria: requirement.acceptanceCriteria,
+      }));
+      await preflightPrdRequirementUpserts(ctx.cwd, proposedRequirements);
       const snapshotPath = params.snapshotCurrent ? await createPrdVersionSnapshot(ctx.cwd, { reason: params.snapshotReason ?? "PRD replaced" }) : undefined;
       await saveCurrentPrd(ctx.cwd, params.content);
       let requirements: RuntimePrdRequirement[] | undefined;
       if (params.requirements) {
-        const timestamp = new Date().toISOString();
-        const existing = new Map((await loadPrdRequirements(ctx.cwd)).requirements.map((requirement) => [requirement.id, requirement]));
-        requirements = params.requirements.map((requirement) => ({
-          ...requirement,
-          acceptanceCriteria: requirement.acceptanceCriteria ?? existing.get(requirement.id)?.acceptanceCriteria,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        }));
-        await savePrdRequirements(ctx.cwd, { version: 1, requirements });
+        requirements = [];
+        for (const requirement of proposedRequirements) {
+          requirements.push(await upsertPrdRequirement(ctx.cwd, requirement));
+        }
       }
       await logTool(ctx.cwd, "scaler_prd_write", "Runtime PRD written", { snapshotPath, requirements });
       return textResult(`Runtime PRD written${snapshotPath ? ` snapshot=${snapshotPath}` : ""}`, {

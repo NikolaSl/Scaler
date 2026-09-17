@@ -26,8 +26,9 @@ import {
   isRuntimePrdRequirementStatus,
   loadPrdCoverage,
   loadPrdRequirements,
+  preflightPrdRequirementUpserts,
   saveCurrentPrd,
-  savePrdRequirements,
+  upsertPrdRequirement,
   computePrdCoverageSummary,
   normalizePrdAcceptanceCriteria,
   type RuntimePrdAcceptanceCriterion,
@@ -343,12 +344,26 @@ export async function ingestPrdWriteReport(cwd: string, state: ScalerState, stdo
   if (requirementInputs.length > 0 && !requirements) {
     return { attempted: true, ingested: false, reason: "Invalid scaler_prd_write requirements or acceptance criteria." };
   }
+  const proposedRequirements = requirements?.map((requirement) => ({
+    id: requirement.id,
+    statement: requirement.statement,
+    title: requirement.title,
+    source: requirement.source,
+    acceptanceCriteria: requirement.acceptanceCriteria,
+  })) ?? [];
+  try {
+    await preflightPrdRequirementUpserts(cwd, proposedRequirements);
+  } catch (error) {
+    return { attempted: true, ingested: false, reason: error instanceof Error ? error.message : String(error) };
+  }
   const snapshotPath = booleanField(report, "snapshotCurrent")
     ? await createPrdVersionSnapshot(cwd, { reason: stringField(report, "snapshotReason") ?? "PRD replaced by stage workflow" })
     : undefined;
   if (content) await saveCurrentPrd(cwd, content);
-  if (requirements) await savePrdRequirements(cwd, { version: 1, requirements });
-  const requirementIds = requirements?.map((requirement) => requirement.id) ?? [];
+  if (requirements) {
+    for (const requirement of proposedRequirements) await upsertPrdRequirement(cwd, requirement);
+  }
+  const requirementIds = proposedRequirements.map((requirement) => requirement.id);
   const artifact = await upsertStageArtifact(cwd, {
     stage: "prd",
     status: "ready",
@@ -950,7 +965,7 @@ function parsePrdRequirements(
       id,
       statement,
       title: stringField(value, "title"),
-      source: stringField(value, "source") ?? "stage_workflow_prd",
+      source: stringField(value, "source") ?? existing.find((requirement) => requirement.id === id)?.source ?? "stage_workflow_prd",
       acceptanceCriteria: criteria ?? existing.find((requirement) => requirement.id === id)?.acceptanceCriteria,
       createdAt: timestamp,
       updatedAt: timestamp,
