@@ -20,6 +20,7 @@ import {
   type StageArtifactStage,
 } from "./stages.js";
 import type { ScalerState } from "./types.js";
+import { completeRunWithEvidence } from "./run-completion.js";
 
 export type StageConductorAction = "advance" | "run_stage_agent" | "unsupported_stage";
 export type StageConductorLoopStopReason =
@@ -91,7 +92,7 @@ export async function runStageConductorStep(
     : undefined;
 
   return {
-    accepted: stageAgent.accepted,
+    accepted: stageAgent.accepted && (advancement?.accepted ?? true),
     action: "run_stage_agent",
     message: formatStageConductorMessage(readiness, stageAgent, advancement, Boolean(options.execute)),
     stage,
@@ -143,14 +144,19 @@ export async function runStageConductorLoop(
     break;
   }
 
-  if (currentState.stage === "completed") stopReason = "completed";
+  let completionMessage = "";
+  if (currentState.stage === "completed") {
+    const completion = await completeRunWithEvidence(cwd, currentState);
+    stopReason = completion.accepted ? "completed" : "step_rejected";
+    completionMessage = `\n${completion.message}`;
+  }
   return {
-    accepted: steps.length > 0 && steps.every((step) => step.accepted),
-    completed: currentState.stage === "completed",
+    accepted: stopReason !== "step_rejected" && steps.length > 0 && steps.every((step) => step.accepted),
+    completed: currentState.stage === "completed" && stopReason === "completed",
     stopReason,
     steps,
     finalState: currentState,
-    message: formatStageConductorLoopMessage(steps, currentState, stopReason),
+    message: formatStageConductorLoopMessage(steps, currentState, stopReason) + completionMessage,
   };
 }
 

@@ -19,7 +19,7 @@ import {
   type StageWorkflowResult,
   type StageWorkflowRunners,
 } from "./stage-workflow.js";
-import { transitionStage } from "./supervisor.js";
+import { completeRunWithEvidence } from "./run-completion.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
 import type { GitCommitTaskResult } from "./git.js";
 import type { ValidationRunRecord } from "./validation.js";
@@ -147,13 +147,19 @@ export async function runScalerAutomation(
       continue;
     }
 
-    const completedState = await completeIfAllTasksValidated(cwd, currentState);
-    if (completedState.stage === "completed") {
-      currentState = completedState;
+    if (currentState.stage === "execution" && currentState.tasks.length > 0
+      && currentState.tasks.every((task) => task.status === "validated")) {
+      const completion = await completeRunWithEvidence(cwd, currentState);
+      if (!completion.accepted) {
+        stopReason = "blocked";
+        steps.push(blockedStep(currentState, completion.message));
+        break;
+      }
+      currentState = completion.state;
       steps.push({
         action: "complete",
         accepted: true,
-        message: "All planned tasks are validated; SCALER run completed.",
+        message: completion.message,
         stage: currentState.stage,
       });
       stopReason = "completed";
@@ -296,12 +302,17 @@ export async function runScalerAutomation(
   }
 
   currentState = await loadState(cwd);
-  if (currentState.stage === "completed") stopReason = "completed";
+  if (currentState.stage === "completed") {
+    // Includes loaded legacy completed states and the last-iteration path.
+    const completion = await completeRunWithEvidence(cwd, currentState);
+    stopReason = completion.accepted ? "completed" : "blocked";
+    if (!completion.accepted) steps.push(blockedStep(currentState, completion.message));
+  }
   const stopClassification = classifyAutomationStopReason(stopReason);
   const accepted = steps.every((step) => step.accepted) && stopClassification.accepted;
   const result: ScalerAutomationResult = {
     accepted,
-    completed: currentState.stage === "completed",
+    completed: currentState.stage === "completed" && stopReason === "completed",
     stopReason,
     steps,
     finalState: currentState,
@@ -313,14 +324,6 @@ export async function runScalerAutomation(
     details: { stopReason, steps: steps.map((step) => ({ action: step.action, accepted: step.accepted, taskId: step.taskId, message: firstLine(step.message) })) },
   }));
   return result;
-}
-
-async function completeIfAllTasksValidated(cwd: string, state: ScalerState): Promise<ScalerState> {
-  if (state.stage !== "execution" || state.tasks.length === 0) return state;
-  if (!state.tasks.every((task) => task.status === "validated")) return state;
-  const completed = transitionStage(state, "completed", { reason: "All planned tasks validated by SCALER automation." });
-  await saveState(cwd, completed);
-  return await loadState(cwd);
 }
 
 function isStageWorkflowStage(stage: ScalerState["stage"]): boolean {

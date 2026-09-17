@@ -211,3 +211,12 @@ The current src/conformance.ts recognizes legacy PRD-* IDs and does not validate
 SC-* coverage or these acceptance scenarios. Its existing passing test is historical
 compatibility only. Updating that gate belongs to the later implementation phase;
 revision 2 document integrity is checked separately during this change.
+# PLAN-106 continuation
+
+Completion now requires matching current-run validation provenance and Git
+commit/skip evidence via `src/run-completion.ts`, including loaded completed
+states in autopilot/stage-conductor/stage-workflow and execution artifacts.
+`test/completion-provenance.test.ts` includes real sequential commits and
+non-Git skip controls. Historical HEAD equality is deliberately not required;
+accepted artifact freshness and final integration remain open. SC-01/10/26
+and P2.3 remain incomplete; this entry does not upgrade their overall status.

@@ -54,6 +54,7 @@ import {
 import { extractStructuredReportPayloads, type TaskAgentRunResult } from "./subagents.js";
 import { transitionStage } from "./supervisor.js";
 import type { ScalerState } from "./types.js";
+import { completeRunWithEvidence } from "./run-completion.js";
 
 export type StageWorkflowAction =
   | "advance_ready_stage"
@@ -224,9 +225,14 @@ export async function runAutonomousStageWorkflow(
     }
   }
 
-  if (currentState.stage === "completed") stopReason = "completed";
-  const accepted = steps.length > 0 && steps.every((step) => step.accepted);
-  const message = formatStageWorkflowMessage(steps, currentState, stopReason);
+  let completionMessage = "";
+  if (currentState.stage === "completed") {
+    const completion = await completeRunWithEvidence(cwd, currentState);
+    stopReason = completion.accepted ? "completed" : "step_rejected";
+    completionMessage = `\n${completion.message}`;
+  }
+  const accepted = stopReason !== "step_rejected" && steps.length > 0 && steps.every((step) => step.accepted);
+  const message = formatStageWorkflowMessage(steps, currentState, stopReason) + completionMessage;
   const runRecord = await recordStageWorkflowRun(cwd, {
     id: `stage-workflow-${Date.now()}`,
     status: accepted ? "passed" : "failed",
@@ -245,7 +251,7 @@ export async function runAutonomousStageWorkflow(
 
   return {
     accepted,
-    completed: currentState.stage === "completed",
+    completed: currentState.stage === "completed" && stopReason === "completed",
     stopReason,
     steps,
     finalState: currentState,
