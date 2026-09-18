@@ -58,6 +58,24 @@ Operators can also run deterministic semantic-style candidate search without inj
 
 If a source cannot be resolved, SCALER preserves a `MISSING CONTEXT` item instead of silently dropping it.
 
+## Final prompt admission
+
+Execution uses the task manifest allowance, an explicit caller allowance, or an
+8,000-token default. Allowances must be positive safe integers; malformed
+explicit or persisted values fail closed. Conductor and debug retry estimate the
+complete SCALER-owned prompt after context resolution and wrapper construction,
+including a fixed-length execution-attempt identity envelope. An oversized
+prompt is refused before runner dispatch, attempt creation, task `running`
+transition, or spawned-agent accounting. Required exact bytes are not silently
+dropped or summarized to force admission. Prepare mode and split diagnostics
+remain available because they do not launch a worker.
+
+The estimator is the documented conservative `characters / 4` approximation.
+It does not include provider/Pi system instructions, tool schemas, hooks,
+history, protocol framing, output reserve, later tool results, or
+provider-specific tokenization. Passing this check therefore proves only that
+the known SCALER prompt is not already over its declared allowance.
+
 ## Missing-context lifecycle
 
 Task agents must report missing data instead of guessing. When an accepted `scaler_task_report` uses `status=needs_data`/`blocked` or includes `missingData`, SCALER creates normalized requests under:

@@ -47,3 +47,24 @@ Run focused conductor, debug-retry and context tests first, then the TypeScript
 build, full unit suite, mock integration and conformance/autopilot gates. Obtain
 two independent GPT-6 Astra/high exact-head reviews before treating this bounded
 unit as complete.
+
+## Result
+
+Implemented on the P3 phase branch. Conductor and debug retry now size the final
+SCALER-owned task prompt, including a fixed-length attempt-binding envelope,
+before execution side effects. Oversized prompts and malformed allowances fail
+closed before runner dispatch, attempt admission, task `running` transition, or
+spawned-agent accounting. Persisted manifest allowances are also required to be
+positive safe integers.
+
+Validation at the final implementation tree:
+
+- focused build and prompt/context tests: 64/64 passed;
+- full TypeScript build and unit suite: 796/796 passed;
+- mock integration: 67/67 passed;
+- conformance/autopilot: 7/7 passed;
+- two independent GPT-6 Astra/high exact-head reviews: no remaining actionable
+  findings after the non-finite allowance correction.
+
+This closes only the reproduced SCALER-prompt bypass. The provider envelope and
+tokenizer limitations above remain the next P3 accounting boundary.

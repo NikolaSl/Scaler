@@ -269,6 +269,16 @@ model's agreement as a substitute. This is an explicit capability limitation,
 not a claim of complete P2.3 or SC-10 support.
 # Completion provenance regression
 
+PLAN-119 covers final SCALER prompt admission. Conductor and debug retry measure
+the fully rendered task prompt rather than trusting context-item estimates, and
+refuse an oversized or malformed allowance before runner, attempt, task-state or
+spawn-budget effects. The regressions cover oversized required exact context,
+understated item estimates, wrapper-only overflow, debug retry, non-finite
+explicit/persisted allowances and sufficient-budget controls. Run
+`node --test --import tsx test/conductor.test.ts test/debug-retry.test.ts test/context.test.ts test/context-splits.test.ts`.
+This remains a rough SCALER-owned-envelope gate; provider system/tool/history
+tokens and provider-specific tokenization are not yet measured.
+
 PLAN-113 requires declared `outputPaths` before automatic non-Git/clean/runtime
 commit skips or explicit commit skips can accept a task. A successful command
 may still have `status: passed` while `acceptance.accepted` is false; callers

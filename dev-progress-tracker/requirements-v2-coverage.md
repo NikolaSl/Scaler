@@ -22,7 +22,7 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-02 | Partial | Task fields/report contracts exist; complete versioned attempt/executor contract not established. | `src/types.ts`, `src/tasks.ts`, `src/task-reports.ts` | [AC-02](../specs/acceptance-scenarios.md#ac-02) |
 | SC-03 | Partial | Dependencies and plans exist; minimal/incremental planning and all admission guards need scenario coverage. | `src/plans.ts`, `src/conductor.ts` | [AC-03](../specs/acceptance-scenarios.md#ac-03) |
 | SC-04 | Failed | English keyword classifier routes 'What is Docker?' to level 4 and a complex Bulgarian request to level 1. | `src/adaptive.ts` | [AC-04](../specs/acceptance-scenarios.md#ac-04) |
-| SC-05 | Failed | Required context bypass and unchanged oversized dispatch prompt reproduced. | `src/context.ts`, `src/conductor.ts` | [AC-05](../specs/acceptance-scenarios.md#ac-05) |
+| SC-05 | Partial | Final SCALER-owned conductor/debug prompts now fail closed when oversized or given malformed allowances; provider/system/tool/history envelopes and tokenizer-accurate accounting remain unverified. | `src/prompt-admission.ts`, `src/context.ts`, `src/conductor.ts`, `src/debug-retry.ts`, `test/conductor.test.ts`, `test/debug-retry.test.ts`, `test/context.test.ts` | [AC-05](../specs/acceptance-scenarios.md#ac-05) |
 | SC-06 | Partial | Validity labels and memory references exist; dependency-based freshness and invalidation unverified. | `src/memory.ts`, `src/context.ts` | [AC-06](../specs/acceptance-scenarios.md#ac-06) |
 | SC-07 | Partial | Retrieval exists; file section scope uses prefix truncation rather than the requested section. | `src/context.ts` | [AC-07](../specs/acceptance-scenarios.md#ac-07) |
 | SC-08 | Partial | Isolated tools and catalogs exist; measured per-request three-mode policy not established; active-tool API mismatch found. | `src/tool-requests.ts`, `src/index.ts` | [AC-08](../specs/acceptance-scenarios.md#ac-08) |
@@ -47,6 +47,18 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-27 | Partial | Current named command evidence and participant identity gate declared integration criteria; revision-checked user amendments and immutable history prevent model-route criterion changes. Semantic necessity and non-software evidence remain open. | `src/prd.ts`, `src/run-completion.ts`, `test/requirement-integration.test.ts`, `test/prd.test.ts` | [AC-27](../specs/acceptance-scenarios.md#ac-27) |
 
 ## Implementation progress — PLAN-099
+
+PLAN-119 fixes the reproduced oversized-required-context dispatch at the final
+SCALER prompt boundary. Conductor and debug retry use a shared pre-dispatch
+admission decision after wrapper construction, with a fixed-length attempt
+identity sizing envelope; malformed explicit and persisted allowances fail
+closed. Required exact bytes are preserved, and rejection precedes runner,
+attempt, running-state and spawned-agent effects. Gate: build, 796 unit,
+67 mock integration and 7 conformance/autopilot. Two independent GPT-6
+Astra/high exact-head reviews found no remaining issue after the non-finite
+allowance fix. SC-05 advances from Failed to Partial only: provider system/tool
+schemas/hooks/history, output reserve, later tool results and provider-specific
+tokenization remain outside this bounded admission check.
 
 P2.1 follows merged P1 (`90f3478`). `saveState` now compares run identity and
 revision under a short cross-process publication lock. Stale snapshots and
