@@ -407,3 +407,24 @@ fails broken output, model-owned drafts can still be refined, and an authorized
 pre-run correction is versioned. Run the focused authority/tool/planning tests,
 then the full applicable build, unit, mock-integration and conformance gate and
 obtain fresh exact-head independent review.
+
+### Unit F result and review evidence
+
+The public manifest, task-update and planning counterexamples now reject before
+policy, task, plan or requirement publication. Manifest provenance distinguishes
+model-owned drafts from system/user-established policy. Legacy manifests retain
+conservative authority after idempotent writes, and an exercised generated
+default cannot be replaced through a first model save. Explicit user corrections
+before or after first exercise require a reason and retain revision history.
+
+Model authority is propagated through model-facing task creation and planning,
+so legitimate unexercised drafts remain editable. Planning also preflights a
+preconfigured manifest for a task not yet in state, but only when task creation
+would actually persist manifest fields; unchanged inheritance remains allowed.
+
+Two GPT-6 Astra/high exact-head reviews reproduced three authority bypasses and
+one compatibility over-rejection. All findings were corrected, both final
+reviews reported no remaining actionable issue, and the final TypeScript build,
+full unit suite, 67 mock integration tests and 7 conformance/autopilot checks
+pass. This is bounded policy-authority evidence, not semantic validation
+sufficiency, complete task-field provenance, or representative model quality.

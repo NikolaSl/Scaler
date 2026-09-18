@@ -478,3 +478,10 @@ the same explicit reason, revision and version history used after exercise.
 Legacy manifests without provenance reject material model changes. This is an
 authority boundary only: it does not prove semantic test sufficiency or assign
 provenance to every unexercised task metadata field.
+
+The Unit F regression set also covers provenance laundering through an
+idempotent legacy write, replacement of an exercised generated default,
+preconfigured manifests for tasks not yet in state, and a positive unchanged
+inheritance control. Final validation passes the TypeScript build, full unit
+suite, 67 mock integration tests and 7 conformance/autopilot checks; two
+independent GPT-6 Astra/high exact-head reviews report no remaining finding.

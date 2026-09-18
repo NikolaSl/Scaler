@@ -220,6 +220,10 @@ policies require the explicit reasoned local-user amendment path. Manifest,
 task-update and planning regressions verify rejection before partial task, plan
 or requirement publication. This is bounded policy-authority evidence, not
 semantic validation sufficiency or complete provenance for all task metadata.
+Legacy/default-policy and preconfigured-task cases are included, while unchanged
+preconfigured policy inheritance remains supported. Final build, full unit, 67
+mock integration and 7 conformance/autopilot checks pass; two independent
+GPT-6 Astra/high exact-head reviews report no remaining actionable finding.
 
 PLAN-118 unit E binds explicitly declared local checker, fixture and validation
 configuration files to the acceptance policy and schema-v5 receipt snapshots.
