@@ -216,6 +216,89 @@ test("model manifest write cannot replace an exercised failing command", async (
   });
 });
 
+test("model manifest write cannot replace an established policy before first validation", async () => {
+  await withFailedPolicy(async (dir, tools) => {
+    assert.equal((await getValidationManifestForTask(dir, "T-POLICY")).establishedAuthority, "system");
+    const result = await tools.get("scaler_validation_manifest_write")!.execute("manifest", {
+      taskId: "T-POLICY",
+      outputPaths: ["result.txt"],
+      commands: [
+        { id: "test-first", command: "node -e \"process.exit(0)\"", required: true },
+        { id: "unit", command: "node -e \"process.exit(0)\"", required: true },
+      ],
+    }, undefined, undefined, { cwd: dir });
+
+    assert.equal(result.details.status, "rejected");
+    assert.match(result.content[0].text, /established policy|authority|user command/i);
+    assert.match((await getValidationManifestForTask(dir, "T-POLICY")).commands.find((command) => command.id === "unit")?.command ?? "", /readFileSync/);
+    assert.equal((await runTaskValidation(dir, await loadState(dir), "T-POLICY")).status, "failed");
+    assert.notEqual((await loadState(dir)).tasks[0]?.status, "validated");
+  }, false);
+});
+
+test("model task update cannot replace an established manifest before first validation", async () => {
+  await withFailedPolicy(async (dir, tools) => {
+    const result = await tools.get("scaler_task_update")!.execute("update", {
+      taskId: "T-POLICY",
+      definitionOfDone: ["Any result is acceptable"],
+      validationCommands: [
+        { id: "test-first", command: "node -e \"process.exit(0)\"", gate: "test_first", required: true },
+        { id: "unit", command: "node -e \"process.exit(0)\"", gate: "unit_tests", required: true },
+      ],
+      outputPaths: ["result.txt"],
+    }, undefined, undefined, { cwd: dir });
+
+    assert.equal(result.details.status, "rejected");
+    assert.match(result.content[0].text, /established policy|authority|user command/i);
+    assert.deepEqual((await loadState(dir)).tasks[0]?.definitionOfDone, ["result.txt contains fixed"]);
+    assert.match((await getValidationManifestForTask(dir, "T-POLICY")).commands.find((command) => command.id === "unit")?.command ?? "", /readFileSync/);
+  }, false);
+});
+
+test("model authority can refine its own unexercised draft policy", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "scaler-model-policy-draft-"));
+  try {
+    const first = await saveValidationManifest(dir, {
+      taskId: "T-DRAFT",
+      commands: [{ id: "unit", command: "node -e \"process.exit(1)\"", required: true }],
+      createdAt: "",
+      updatedAt: "",
+    }, { authority: "model" });
+    assert.equal(first.establishedAuthority, "model");
+
+    const refined = await saveValidationManifest(dir, {
+      ...first,
+      commands: [{ id: "unit", command: "node -e \"process.exit(0)\"", required: true }],
+    }, { authority: "model" });
+    assert.equal(refined.establishedAuthority, "model");
+    assert.match(refined.commands[0]?.command ?? "", /process\.exit\(0\)/);
+    assert.equal(refined.revision, first.revision);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("user correction of an established policy before first validation is reasoned and versioned", async () => {
+  await withFailedPolicy(async (dir) => {
+    const current = await getValidationManifestForTask(dir, "T-POLICY");
+    const corrected = {
+      ...current,
+      commands: current.commands.map((command) => command.id === "unit"
+        ? { ...command, description: "Corrected before first validation" }
+        : command),
+    };
+    await assert.rejects(saveValidationManifest(dir, corrected, { authority: "user_command" }), /reason is required/i);
+
+    const saved = await saveValidationManifest(dir, corrected, {
+      authority: "user_command",
+      reason: "Correct the operator-established check before its first run.",
+    });
+    assert.equal(saved.establishedAuthority, "user_command");
+    assert.equal(saved.revision, 2);
+    assert.equal(saved.versionHistory?.[0]?.reason, "Correct the operator-established check before its first run.");
+  }, false);
+});
+
 test("an idempotent model manifest write preserves omitted exercised metadata", async () => {
   await withFailedPolicy(async (dir, tools) => {
     const result = await tools.get("scaler_validation_manifest_write")!.execute("manifest", {
@@ -384,6 +467,31 @@ test("planning rejects an exercised policy replacement before plan or task publi
     assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
     assert.deepEqual((await loadState(dir)).tasks[0]?.definitionOfDone, ["result.txt contains fixed"]);
   });
+});
+
+test("planning rejects an established policy replacement before first validation or publication", async () => {
+  await withFailedPolicy(async (dir) => {
+    await assert.rejects(applyPlanningReport(dir, await loadState(dir), {
+      requirements: [{ id: "REQ-NOT-PUBLISHED", statement: "Must not be published after a rejected policy replacement" }],
+      plan: {
+        planVersion: 2,
+        status: "active",
+        tasks: [{
+          id: "T-POLICY", title: "Preserve acceptance policy", taskKind: "software",
+          atomicityRationale: "One independently testable result.", allowedPathPrefixes: ["result.txt"],
+          prdRefs: ["REQ-NOT-PUBLISHED"], definitionOfDone: ["Any result is acceptable"],
+          validationRefs: ["unit"], outputPaths: ["result.txt"],
+          validationCommands: [
+            { id: "test-first", command: "node -e \"process.exit(0)\"", gate: "test_first", required: true },
+            { id: "unit", command: "node -e \"process.exit(0)\"", gate: "unit_tests", required: true },
+          ],
+        }],
+      },
+    }), /rejected before publication.*acceptance policy/i);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    assert.deepEqual((await loadState(dir)).tasks[0]?.definitionOfDone, ["result.txt contains fixed"]);
+  }, false);
 });
 
 test("planning cannot publish between first validation and policy authority checking", async () => {
