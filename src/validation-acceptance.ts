@@ -61,17 +61,26 @@ async function fingerprintTaskRequirements(cwd: string, requirementIds: string[]
   if (requirementIds.length === 0) return fingerprintJson([]);
   const requirements = await loadPrdRequirements(cwd);
   assertValidRequirementsCatalog(requirements);
-  const material = [...new Set(requirementIds)].sort().map((id) => {
-    const matches = requirements.requirements.filter((candidate) => candidate?.id === id);
-    if (matches.length > 1) throw new Error(`Malformed runtime PRD requirements: duplicate linked requirement ${id}.`);
-    const requirement = matches[0];
+  const linkedIds = [...new Set(requirementIds)].sort();
+  const linkedIdSet = new Set(linkedIds);
+  const requirementsById = new Map<string, Record<string, unknown>>();
+  for (const candidate of requirements.requirements) {
+    const candidateId = candidate && typeof candidate === "object" ? candidate.id : undefined;
+    if (typeof candidateId !== "string" || !linkedIdSet.has(candidateId)) continue;
+    if (requirementsById.has(candidateId)) {
+      throw new Error(`Malformed runtime PRD requirements: duplicate linked requirement ${candidateId}.`);
+    }
+    requirementsById.set(candidateId, candidate);
+  }
+  const material = linkedIds.map((id) => {
+    const requirement = requirementsById.get(id);
     if (requirement) {
       assertValidRequirementContent(requirement, id);
       return {
-      id: requirement.id,
-      statement: requirement.statement,
-      title: requirement.title ?? null,
-      source: requirement.source ?? null,
+        id: requirement.id,
+        statement: requirement.statement,
+        title: requirement.title ?? null,
+        source: requirement.source ?? null,
       };
     }
     return { id, missing: true };
