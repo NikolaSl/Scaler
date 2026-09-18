@@ -297,6 +297,10 @@ test("runDebugNextApproachRetry executes next approach and leaves exact-pass tas
   await withTempDir(async (dir) => {
     const state = await seedDebuggingTask(dir);
     const runner = async (request: TaskAgentRequest, _options?: RunTaskAgentOptions): Promise<TaskAgentRunResult> => {
+      assert.ok(request.providerAdmission);
+      assert.equal(request.providerAdmission.outputReserveTokens, 1_024);
+      assert.equal(request.providerAdmission.safetyMarginTokens, 1_024);
+      assert.ok(request.providerAdmission.requestTokenAllowance > 0);
       await writeFile(join(request.cwd ?? dir, "fixed.txt"), "ok\n", "utf8");
       return passingRun(request);
     };

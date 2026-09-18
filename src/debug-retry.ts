@@ -30,6 +30,7 @@ import { appendLogEvent, createLogEvent, logAgentPromptAudit, logValidationSumma
 import { commitWithExecutionLock, runValidationWithExecutionLock, type LockedOperationResult } from "./operations.js";
 import { getDebugRetryApprovalsPath, getDebugRetryPolicyPath } from "./paths.js";
 import { recordProviderUsageBudget } from "./provider-usage.js";
+import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
 import { assessTaskPromptAdmission, createPromptSizingAttemptBinding, resolveTaskPromptTokenBudget, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
 import { loadState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
@@ -372,7 +373,15 @@ export async function runDebugNextApproachRetry(
       details: { debugReportId: selection.report.id, exactCommandIds: selection.exactCommands.map((command) => command.id) },
     });
 
-    const request = { taskId: runningTask.id, prompt, tools: options.tools, model: options.model, cwd, attempt: binding };
+    const request = {
+      taskId: runningTask.id,
+      prompt,
+      tools: options.tools,
+      model: options.model,
+      cwd,
+      providerAdmission: createStrictProviderAdmissionPolicy(promptTokenBudget),
+      attempt: binding,
+    };
     const invocation = buildTaskAgentInvocation(request);
 
     if (!options.execute) {

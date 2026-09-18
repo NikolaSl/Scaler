@@ -26,6 +26,7 @@ import { appendLogEvent, createLogEvent, logAgentPromptAudit } from "./logging.j
 import { createMissingContextRequestsFromTaskReport, refreshAndUnblockMissingContext } from "./missing-context.js";
 import { getTaskAgentRunsPath, getValidationHandoffsPath } from "./paths.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
+import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
 import { assessTaskPromptAdmission, createPromptSizingAttemptBinding, resolveTaskPromptTokenBudget, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
 import { saveState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
@@ -343,6 +344,7 @@ export async function runConductorStep(
       tools,
       model: options.model,
       cwd,
+      providerAdmission: createStrictProviderAdmissionPolicy(promptTokenBudget),
       attempt: attemptBinding,
     };
     const invocation = buildTaskAgentInvocation(request);

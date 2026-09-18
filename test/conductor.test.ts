@@ -497,6 +497,10 @@ test("runConductorStep executes task with injected runner", async () => {
         assert.ok(request.tools?.includes("edit"));
         assert.ok(request.tools?.includes("write"));
         assert.ok(request.tools?.includes("scaler_task_report"));
+        assert.ok(request.providerAdmission);
+        assert.equal(request.providerAdmission.outputReserveTokens, 1_024);
+        assert.equal(request.providerAdmission.safetyMarginTokens, 1_024);
+        assert.ok(request.providerAdmission.requestTokenAllowance > 0);
         return {
           taskId: request.taskId,
           exitCode: options?.timeoutMs === 123 ? 0 : 1,

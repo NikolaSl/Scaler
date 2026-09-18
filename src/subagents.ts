@@ -7,6 +7,11 @@ import { spawn } from "node:child_process";
 import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractProviderUsage, type ProviderUsage } from "./provider-usage.js";
+import {
+  providerAdmissionEnvironmentKeys,
+  validateProviderAdmissionPolicy,
+  type ProviderAdmissionPolicy,
+} from "./provider-admission.js";
 import { recordWatchdogCleanup } from "./watchdogs.js";
 import type { TaskAttemptBinding } from "./task-attempts.js";
 
@@ -19,6 +24,7 @@ export interface TaskAgentRequest {
   model?: string;
   appendSystemPromptPath?: string;
   extensionPaths?: string[];
+  providerAdmission?: ProviderAdmissionPolicy;
   attempt?: TaskAttemptBinding;
 }
 
@@ -46,6 +52,15 @@ export interface RunTaskAgentOptions {
 
 export function buildTaskAgentInvocation(request: TaskAgentRequest, command = "pi"): TaskAgentInvocation {
   const args = ["--mode", "json", "-p", "--no-session"];
+  const strictProviderAdmission = request.providerAdmission !== undefined;
+  if (strictProviderAdmission) {
+    const diagnostics = validateProviderAdmissionPolicy(request.providerAdmission!);
+    if (diagnostics.length > 0) throw new Error(`Invalid provider admission policy: ${diagnostics.join("; ")}.`);
+    if ((request.extensionPaths?.length ?? 0) > 0) {
+      throw new Error("Strict provider admission does not allow additional extension paths.");
+    }
+    args.push("--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files");
+  }
   const grantedTools = normalizeGrantedTools(request);
   const extensionPaths = resolveChildAgentExtensionPaths(request, grantedTools.length > 0);
 
@@ -82,6 +97,12 @@ export function getDefaultScalerChildExtensionPath(): string {
   return fileURLToPath(new URL(`./index${extension}`, import.meta.url));
 }
 
+export function getProviderAdmissionExtensionPath(): string {
+  const currentPath = fileURLToPath(import.meta.url);
+  const extension = extname(currentPath) || ".js";
+  return fileURLToPath(new URL(`./provider-admission-extension${extension}`, import.meta.url));
+}
+
 export function normalizeGrantedTools(request: TaskAgentRequest): string[] {
   if (request.noTools) return [];
   return uniqueStrings(request.tools ?? []);
@@ -89,6 +110,10 @@ export function normalizeGrantedTools(request: TaskAgentRequest): string[] {
 
 export function resolveChildAgentExtensionPaths(request: TaskAgentRequest, toolsGranted = normalizeGrantedTools(request).length > 0): string[] {
   const provided = uniqueStrings(request.extensionPaths ?? []);
+  if (request.providerAdmission) {
+    if (provided.length > 0) throw new Error("Strict provider admission does not allow additional extension paths.");
+    return [...(toolsGranted ? [getDefaultScalerChildExtensionPath()] : []), getProviderAdmissionExtensionPath()];
+  }
   if (!toolsGranted || provided.length > 0) return provided;
   return [getDefaultScalerChildExtensionPath()];
 }
@@ -115,13 +140,21 @@ export async function runTaskAgent(
     return { taskId: request.taskId, exitCode: 130, stdoutEvents: [], stderr: "Task agent cancelled before launch.", timedOut: false, aborted: true };
   }
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");
+  const environment: NodeJS.ProcessEnv = { ...process.env, SCALER_CHILD_AGENT: "1" };
+  for (const key of providerAdmissionEnvironmentKeys) delete environment[key];
+  if (request.providerAdmission) {
+    environment.SCALER_PROVIDER_ADMISSION = "strict";
+    environment.SCALER_REQUEST_TOKEN_ALLOWANCE = String(request.providerAdmission.requestTokenAllowance);
+    environment.SCALER_OUTPUT_RESERVE_TOKENS = String(request.providerAdmission.outputReserveTokens);
+    environment.SCALER_REQUEST_MARGIN_TOKENS = String(request.providerAdmission.safetyMarginTokens);
+  }
 
   return await new Promise<TaskAgentRunResult>((resolve, reject) => {
     const child = spawn(invocation.command, invocation.args, {
       cwd: invocation.cwd,
       // Routing metadata only: children keep their explicitly selected tools.
       // This flag does not grant authority or disable permission enforcement.
-      env: { ...process.env, SCALER_CHILD_AGENT: "1" },
+      env: environment,
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
     });
