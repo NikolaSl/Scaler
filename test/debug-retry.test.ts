@@ -19,6 +19,7 @@ import { getBudgetState, setBudgetLimits } from "../src/budgets.js";
 import { loadTaskAttempts } from "../src/task-attempts.js";
 import { loadTaskAgentReports } from "../src/task-reports.js";
 import { loadExecutionLock } from "../src/locks.js";
+import { saveTaskContextManifest } from "../src/context.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-debug-retry-test-"));
@@ -98,6 +99,36 @@ test("debug retry refuses hard budget before running state or attempt admission"
     assert.equal(result.state.tasks[0]?.status, "debugging");
     assert.equal(getBudgetState(result.state).usage.spawnedAgents ?? 0, 0);
     assert.deepEqual(await loadTaskAttempts(dir), []);
+  });
+});
+
+test("debug retry refuses an oversized final prompt before attempt and runner", async () => {
+  await withTempDir(async (dir) => {
+    const state = await seedDebuggingTask(dir);
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-RETRY",
+      tokenBudget: 100,
+      items: [{
+        id: "huge-exact", type: "file", reason: "The retry requires exact source.",
+        priority: "required", scope: "full", exactness: "exact", source: "inline",
+        content: "x".repeat(20_000),
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.updatedAt,
+    });
+    let runnerCalls = 0;
+    const result = await runDebugNextApproachRetry(dir, state, { execute: true }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.status, "rejected");
+    assert.equal(result.promptAdmission?.accepted, false);
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+    assert.equal((await loadState(dir)).tasks.find((task) => task.id === "T-RETRY")?.status, "debugging");
+    assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents ?? 0, 0);
   });
 });
 

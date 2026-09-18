@@ -263,6 +263,78 @@ test("runConductorStep records context split artifacts for oversized resolved co
   });
 });
 
+test("runConductorStep refuses an oversized required prompt before execution side effects", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, {
+      execute: true,
+      tokenBudget: 1_000,
+      contextItems: [{
+        id: "huge-exact", type: "file", reason: "The task requires the exact source.",
+        content: `EXACT_START\n${"x".repeat(40_000)}\nEXACT_END`,
+        priority: "required", scope: "full", exactness: "exact",
+      }],
+    }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.promptAdmission?.accepted, false);
+    assert.ok((result.promptAdmission?.estimatedTokens ?? 0) > 1_000);
+    assert.match(result.message, /final SCALER prompt refused/i);
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+    assert.equal(result.state.tasks[0]?.status, "ready");
+    assert.equal(getBudgetState(result.state).usage.spawnedAgents ?? 0, 0);
+    assert.ok(result.contextSplit);
+  });
+});
+
+test("runConductorStep measures prompt bytes instead of trusting understated item estimates", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, {
+      execute: true,
+      tokenBudget: 1_000,
+      contextItems: [{
+        id: "understated", type: "file", reason: "Caller estimate is not dispatch authority.",
+        content: "x".repeat(20_000), priority: "required", scope: "full", exactness: "exact", estimatedTokens: 1,
+      }],
+    }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.promptAdmission?.accepted, false);
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+    assert.equal(result.contextSplit, undefined);
+  });
+});
+
+test("runConductorStep refuses when the final wrapper alone exceeds the allowance", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, { execute: true, tokenBudget: 1, contextItems: [] }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.promptAdmission?.accepted, false);
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+    assert.equal(result.state.tasks[0]?.status, "ready");
+  });
+});
+
 test("runConductorStep uses task context manifest when explicit context is absent", async () => {
   await withTempDir(async (dir) => {
     const state = stateWithTasks(["ready"]);
