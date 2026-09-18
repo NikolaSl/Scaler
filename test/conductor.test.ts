@@ -461,6 +461,37 @@ test("runConductorStep blocks a required section without a selector before dispa
   });
 });
 
+test("required context refusal does not promote a pending task", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["pending"]);
+    state.stage = "execution";
+    await writeFile(join(dir, "reference.md"), "## Target\ncontract\n", "utf8");
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-001",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+    let runnerCalls = 0;
+
+    const result = await runConductorStep(dir, state, { execute: true }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.state.tasks[0]?.status, "pending");
+    assert.equal(result.task?.status, "pending");
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+    assert.equal(getBudgetState(result.state).usage.spawnedAgents ?? 0, 0);
+  });
+});
+
 test("runConductorStep records context tokens and spawned agents", async () => {
   await withTempDir(async (dir) => {
     const state = stateWithTasks(["ready"]);

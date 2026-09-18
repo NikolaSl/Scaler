@@ -465,6 +465,31 @@ test("file section scope resolves the selected exact Markdown heading", async ()
   });
 });
 
+test("inline backtick text does not hide the next Markdown heading", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await writeFile(
+      join(dir, "reference.md"),
+      "## Target\ncontract\n```inline example```\n## Next\nDO_NOT_INCLUDE_NEXT\n",
+      "utf8",
+    );
+    const [item] = await resolveTaskContextManifest(dir, state, {
+      version: 1,
+      taskId: "T-SECTION",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    assert.equal(item?.available, true);
+    assert.doesNotMatch(item?.content ?? "", /## Next|DO_NOT_INCLUDE_NEXT/);
+  });
+});
+
 for (const [description, source, selector, diagnostic] of [
   ["missing heading", "## Other\ncontent\n", { kind: "markdown-heading", heading: "Target" }, /not found/i],
   ["ambiguous heading", "## Target\nfirst\n## Target\nsecond\n", { kind: "markdown-heading", heading: "Target" }, /ambiguous/i],
