@@ -11,6 +11,9 @@ Context items include:
 - `reason`
 - `priority`: `required`, `useful`, or `optional`
 - `scope`: `full`, `section`, `snippet`, `summary`, or `reference-only`
+- `selector`: file-backed `section` items use
+  `{ "kind": "markdown-heading", "heading": "...", "maxChars": N }`;
+  `maxChars` defaults to 3,200
 - `exactness`: optional `exact`, `summary-ok`, or `reference-only`
 - `content`
 
@@ -56,7 +59,18 @@ Existing manifests are preserved; discovery only runs when a manifest is created
 
 Operators can also run deterministic semantic-style candidate search without injecting the results. Candidate search scores task metadata, query terms, memory summaries/tags, allowed files, changed files, PRD refs, and existing manifest items, then returns a small candidate list with reasons. Candidates become active only after explicit approval into the task manifest.
 
-If a source cannot be resolved, SCALER preserves a `MISSING CONTEXT` item instead of silently dropping it.
+If a source cannot be resolved, SCALER preserves a structured unavailable
+`MISSING CONTEXT` item instead of silently dropping it. Required unavailable
+items refuse conductor and debug-retry dispatch before attempt, task transition
+or spawned-agent accounting.
+
+File-backed `section` scope is exact Markdown ATX-heading retrieval, not prefix
+truncation. The selector must identify one unique heading outside fenced code.
+Retrieval includes its nested subsections and stops before the next equal-or-higher
+heading while preserving the original substring and line endings. Missing,
+ambiguous or oversized selections are unavailable; SCALER does not truncate them
+while claiming exactness. Two selectors may reference distinct sections of the
+same file.
 
 ## Final prompt admission
 
@@ -120,7 +134,7 @@ SCALER uses deterministic compression policy helpers for task-agent prompts:
 - SCALER registers a Pi `context` hook that injects only approved manifest items for the current task when they are compact (`summary`, `snippet`, or `reference-only`) and non-optional. Full and optional items remain pull-based and are not automatically inserted into the parent-session LLM context.
 - Fresh minimal-context continuation handoffs are recorded in `.scaler/context/handoffs.json` with prompt artifacts under `.scaler/context/handoffs/`; execution is blocked unless the generated handoff prompt is below the active-context target and smaller than the split context.
 
-Default/discovered manifests mark file snippets, task metadata, validation evidence, execution-plan entries, changed paths, and PRD coverage as `exact`; memory summaries are `summary-ok`; PRD id-only links are `reference-only`. Summary/reference-only memory items inject id/title/path/tags/summary only; full memory content is injected only when a context item or retrieval request asks for `full`, and `section:<heading>` retrieval injects the matching Markdown section when found.
+Default/discovered manifests mark file snippets, task metadata, validation evidence, execution-plan entries, changed paths, and PRD coverage as `exact`; memory summaries are `summary-ok`; PRD id-only links are `reference-only`. Summary/reference-only memory items inject id/title/path/tags/summary only; full memory content is injected only when a context item or retrieval request asks for `full`. Memory's `section:<heading>` retrieval remains separate from file-manifest selectors.
 
 ## Commands
 

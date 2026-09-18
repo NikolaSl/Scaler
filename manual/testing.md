@@ -293,6 +293,18 @@ Pi's compaction route bypasses the provider-request hook. Run
 This is not tokenizer-accurate evidence and does not validate alternate provider
 APIs, real model quality, token savings or scale.
 
+PLAN-121 replaces file `scope: "section"` prefix truncation with explicit,
+exact Markdown-heading selection. The conductor fixture puts the required
+section after a 72k-character unrelated prefix and proves that the actual worker
+prompt contains only the selected section (including nested headings), not the
+prefix or following peer section. Missing selectors/headings, ambiguous matches
+and oversized selected sections fail before runner, attempt, task-transition or
+spawn-budget effects. Fenced pseudo-headings, CRLF preservation and two selectors
+for one file are covered. Run
+`node --test --import tsx test/context.test.ts test/conductor.test.ts test/debug-retry.test.ts`.
+This is bounded ATX-heading retrieval, not AST/semantic retrieval or automatic
+task splitting.
+
 PLAN-113 requires declared `outputPaths` before automatic non-Git/clean/runtime
 commit skips or explicit commit skips can accept a task. A successful command
 may still have `status: passed` while `acceptance.accepted` is false; callers

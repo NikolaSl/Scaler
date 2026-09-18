@@ -24,7 +24,7 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-04 | Failed | English keyword classifier routes 'What is Docker?' to level 4 and a complex Bulgarian request to level 1. | `src/adaptive.ts` | [AC-04](../specs/acceptance-scenarios.md#ac-04) |
 | SC-05 | Partial | Conductor/debug children now fail closed at both the rendered SCALER prompt and final OpenAI Chat Completions payload boundaries, including system/tool/history, output reserve, model window and compaction-route isolation. Exact tokenization, alternate providers, parent/other child routes, internal retries and observed-usage reconciliation remain open. | `src/prompt-admission.ts`, `src/provider-admission.ts`, `src/provider-admission-extension.ts`, `src/subagents.ts`, `src/conductor.ts`, `src/debug-retry.ts`, `test/provider-admission.test.ts`, `test/provider-admission-host.test.ts`, `test/subagents.test.ts` | [AC-05](../specs/acceptance-scenarios.md#ac-05) |
 | SC-06 | Partial | Validity labels and memory references exist; dependency-based freshness and invalidation unverified. | `src/memory.ts`, `src/context.ts` | [AC-06](../specs/acceptance-scenarios.md#ac-06) |
-| SC-07 | Partial | Retrieval exists; file section scope uses prefix truncation rather than the requested section. | `src/context.ts` | [AC-07](../specs/acceptance-scenarios.md#ac-07) |
+| SC-07 | Partial | File-manifest section retrieval now uses an explicit Markdown-heading selector, preserves exact source bytes/line endings, ignores fenced pseudo-headings and fails closed for missing, ambiguous or oversized required sections before worker side effects. AST/semantic retrieval, automatic splitting and stale-source version binding remain open. | `src/context.ts`, `src/conductor.ts`, `src/debug-retry.ts`, `test/context.test.ts`, `test/conductor.test.ts` | [AC-07](../specs/acceptance-scenarios.md#ac-07) |
 | SC-08 | Partial | Isolated tools and catalogs exist; measured per-request three-mode policy not established; active-tool API mismatch found. | `src/tool-requests.ts`, `src/index.ts` | [AC-08](../specs/acceptance-scenarios.md#ac-08) |
 | SC-09 | Not assessed | Model option exists; local-only envelope and end-to-end acceptance not demonstrated in this review. | `src/subagents.ts` | [AC-09](../specs/acceptance-scenarios.md#ac-09) |
 | SC-10 | Failed | Accepted status can be obtained without validation runs; evidence/version acceptance needs repair. | `src/validation.ts`, `src/tools.ts` | [AC-10](../specs/acceptance-scenarios.md#ac-10) |
@@ -58,6 +58,15 @@ uses `ctx.abort()` before transport. Review regressions additionally close Pi's
 unguarded provider-backed compaction route and reject audio or multiple-output
 payloads. This remains Partial: alternate APIs/routes, exact tokenizers,
 provider-internal retries and observed usage reconciliation are not covered.
+
+PLAN-121 closes the reproduced file-section prefix substitution: manifests carry
+an explicit Markdown-heading selector, exact retrieval includes nested headings
+and stops at the next peer/ancestor, and required unavailable selections block
+conductor/debug dispatch. The 72k-character fixture now dispatches the exact
+Target section rather than an unrelated 3,200-character prefix. Build, 833 unit,
+67 mock integration and 7 conformance/autopilot checks pass. SC-07 remains
+Partial because source-version binding, broader selector kinds and automatic
+effective task splitting are not established.
 
 PLAN-119 fixes the reproduced oversized-required-context dispatch at the final
 SCALER prompt boundary. Conductor and debug retry use a shared pre-dispatch

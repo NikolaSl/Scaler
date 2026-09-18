@@ -57,3 +57,20 @@ AST/function retrieval, semantic selector inference, embeddings, summaries,
 automatic task splitting, model escalation or a second provider API. Fresh
 context handoff and provider-backed compaction routes remain separate admission
 work. No real model request, paid provider call or deployment is authorized.
+
+## Result
+
+Implemented on the P3 phase branch with separate plan, failing reproduction,
+implementation and boundary-test commits. File manifests now carry an explicit
+Markdown-heading selector. Retrieval preserves the exact substring and line
+endings, includes nested headings, ignores fenced pseudo-headings and stops at
+the next peer/ancestor. Missing selectors/headings, ambiguous matches and
+oversized sections become structured unavailable context. Required unavailable
+context refuses conductor and debug-retry dispatch before attempt, state or
+spawn-budget side effects.
+
+The reproduced 72k-character conductor fixture now dispatches the exact Target
+section rather than the unrelated 3,200-character prefix. Build, 833 unit, 67
+mock integration and 7 conformance/autopilot checks pass; the focused
+context/conductor/debug set passes 70/70. Independent exact-head review remains
+required before this bounded unit is treated as complete.
