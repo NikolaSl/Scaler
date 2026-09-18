@@ -490,6 +490,32 @@ test("inline backtick text does not hide the next Markdown heading", async () =>
   });
 });
 
+test("list-contained code fences do not expose pseudo Markdown headings", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await writeFile(
+      join(dir, "reference.md"),
+      "- ```markdown\n  ## Target\n  FENCED_FAKE\n  ```\n\n## Target\nREAL_CONTRACT\n## Next\nNEXT_CONTENT\n",
+      "utf8",
+    );
+    const [item] = await resolveTaskContextManifest(dir, state, {
+      version: 1,
+      taskId: "T-SECTION",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    assert.equal(item?.available, true);
+    assert.match(item?.content ?? "", /^## Target\nREAL_CONTRACT\n$/);
+    assert.doesNotMatch(item?.content ?? "", /FENCED_FAKE|NEXT_CONTENT/);
+  });
+});
+
 for (const [description, source, selector, diagnostic] of [
   ["missing heading", "## Other\ncontent\n", { kind: "markdown-heading", heading: "Target" }, /not found/i],
   ["ambiguous heading", "## Target\nfirst\n## Target\nsecond\n", { kind: "markdown-heading", heading: "Target" }, /ambiguous/i],
