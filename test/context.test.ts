@@ -670,6 +670,31 @@ test("dedenting from a nested list fence restores the parent container", async (
   });
 });
 
+test("a lazy list paragraph preserves its container for a following fence", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await writeFile(
+      join(dir, "reference.md"),
+      "## Target\ncontract\n- item\ncontinued text\n  ```markdown\n  code\n\n## Next\nNEXT_CONTENT\n",
+      "utf8",
+    );
+    const [item] = await resolveTaskContextManifest(dir, state, {
+      version: 1,
+      taskId: "T-SECTION",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    assert.equal(item?.available, true);
+    assert.doesNotMatch(item?.content ?? "", /## Next|NEXT_CONTENT/);
+  });
+});
+
 test("mixed space and tab list padding uses Markdown columns", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState();
