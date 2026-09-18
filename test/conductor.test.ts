@@ -379,6 +379,88 @@ test("runConductorStep uses task context manifest when explicit context is absen
   });
 });
 
+test("runConductorStep dispatches the selected exact Markdown section", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    const source = [
+      "# Reference",
+      "## Introduction",
+      "UNRELATED_PREFIX",
+      "filler line\n".repeat(6_000),
+      "## Target",
+      "EXACT_TARGET_CONTRACT = keep_this_unchanged;",
+      "### Nested",
+      "NESTED_TARGET_DETAIL",
+      "## Next",
+      "DO_NOT_INCLUDE_NEXT",
+      "",
+    ].join("\n");
+    await writeFile(join(dir, "reference.md"), source, "utf8");
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-001",
+      tokenBudget: 8_000,
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      } as never],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+    let dispatchedPrompt = "";
+
+    const result = await runConductorStep(dir, state, { execute: true, tools: ["read"] }, async (request) => {
+      dispatchedPrompt = request.prompt;
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [completedTaskReport(request)],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
+
+    assert.equal(result.accepted, true, result.message);
+    assert.match(dispatchedPrompt, /EXACT_TARGET_CONTRACT/);
+    assert.match(dispatchedPrompt, /NESTED_TARGET_DETAIL/);
+    assert.doesNotMatch(dispatchedPrompt, /UNRELATED_PREFIX|DO_NOT_INCLUDE_NEXT/);
+  });
+});
+
+test("runConductorStep blocks a required section without a selector before dispatch", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    await writeFile(join(dir, "reference.md"), "## Target\ncontract\n", "utf8");
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-001",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+    let runnerCalls = 0;
+
+    const result = await runConductorStep(dir, state, { execute: true }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /required context.*selector|selector.*required context/i);
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+    assert.equal(result.state.tasks[0]?.status, "ready");
+    assert.equal(getBudgetState(result.state).usage.spawnedAgents ?? 0, 0);
+  });
+});
+
 test("runConductorStep records context tokens and spawned agents", async () => {
   await withTempDir(async (dir) => {
     const state = stateWithTasks(["ready"]);

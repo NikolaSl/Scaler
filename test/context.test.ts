@@ -422,6 +422,65 @@ test("resolveTaskContextManifest preserves missing source entries as missing con
   });
 });
 
+test("file section scope resolves the selected exact Markdown heading", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    const source = [
+      "# Reference",
+      "## Introduction",
+      "UNRELATED_PREFIX",
+      "filler line\n".repeat(300),
+      "## Target",
+      "EXACT_TARGET_CONTRACT = keep_this_unchanged;",
+      "### Nested",
+      "NESTED_TARGET_DETAIL",
+      "## Next",
+      "DO_NOT_INCLUDE_NEXT",
+      "",
+    ].join("\n");
+    await writeFile(join(dir, "reference.md"), source, "utf8");
+    const manifest = {
+      version: 1 as const,
+      taskId: "T-SECTION",
+      items: [{
+        id: "target", type: "file" as const, reason: "Exact Target contract", priority: "required" as const,
+        scope: "section" as const, source: "file" as const, path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    };
+
+    const [item] = await resolveTaskContextManifest(dir, state, manifest as never);
+
+    assert.match(item?.content ?? "", /^## Target\r?\n/);
+    assert.match(item?.content ?? "", /EXACT_TARGET_CONTRACT/);
+    assert.match(item?.content ?? "", /### Nested\r?\nNESTED_TARGET_DETAIL/);
+    assert.doesNotMatch(item?.content ?? "", /UNRELATED_PREFIX|DO_NOT_INCLUDE_NEXT/);
+    assert.equal(item?.exactness, "exact");
+  });
+});
+
+test("file section scope without a selector is explicitly unavailable", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await writeFile(join(dir, "reference.md"), "## Target\ncontract\n", "utf8");
+    const [item] = await resolveTaskContextManifest(dir, state, {
+      version: 1,
+      taskId: "T-SECTION",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    assert.equal(item?.available, false);
+    assert.match(item?.content ?? "", /MISSING CONTEXT.*selector/is);
+  });
+});
+
 test("validateTaskContextManifest rejects invalid and incomplete items", () => {
   const base = {
     version: 1 as const,
