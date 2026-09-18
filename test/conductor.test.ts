@@ -335,6 +335,27 @@ test("runConductorStep refuses when the final wrapper alone exceeds the allowanc
   });
 });
 
+test("runConductorStep refuses a non-finite prompt allowance", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, {
+      execute: true,
+      tokenBudget: Number.POSITIVE_INFINITY,
+      contextItems: [{ id: "huge", type: "file", reason: "Must not become unbounded.", content: "x".repeat(40_000), priority: "required", scope: "full" }],
+    }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.promptAdmission?.accepted, false);
+    assert.match(result.message, /positive finite integer/i);
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+  });
+});
+
 test("runConductorStep uses task context manifest when explicit context is absent", async () => {
   await withTempDir(async (dir) => {
     const state = stateWithTasks(["ready"]);

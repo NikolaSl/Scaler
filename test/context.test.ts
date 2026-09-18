@@ -247,6 +247,16 @@ test("saveTaskContextManifest and loadTaskContextManifest round trip normalized 
   });
 });
 
+test("task context manifest rejects a non-finite persisted token budget", async () => {
+  await withTempDir(async (dir) => {
+    const manifest = createDefaultTaskContextManifest(createDefaultState(), "T-001");
+    await assert.rejects(
+      saveTaskContextManifest(dir, { ...manifest, tokenBudget: Number.POSITIVE_INFINITY }),
+      /positive finite integer/i,
+    );
+  });
+});
+
 test("ensureTaskContextManifest creates discovered manifest when missing", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState();
