@@ -60,6 +60,7 @@ export async function captureValidationSnapshot(cwd: string, state: ScalerState,
 async function fingerprintTaskRequirements(cwd: string, requirementIds: string[]): Promise<string> {
   if (requirementIds.length === 0) return fingerprintJson([]);
   const requirements = await loadPrdRequirements(cwd);
+  assertValidRequirementsCatalog(requirements);
   const material = [...new Set(requirementIds)].sort().map((id) => {
     const matches = requirements.requirements.filter((candidate) => candidate?.id === id);
     if (matches.length > 1) throw new Error(`Malformed runtime PRD requirements: duplicate linked requirement ${id}.`);
@@ -76,6 +77,17 @@ async function fingerprintTaskRequirements(cwd: string, requirementIds: string[]
     return { id, missing: true };
   });
   return fingerprintJson(material);
+}
+
+function assertValidRequirementsCatalog(catalog: unknown): asserts catalog is {
+  version: 1;
+  requirements: Array<Record<string, unknown>>;
+} {
+  if (!catalog || typeof catalog !== "object"
+      || (catalog as Record<string, unknown>).version !== 1
+      || !Array.isArray((catalog as Record<string, unknown>).requirements)) {
+    throw new Error("Malformed runtime PRD requirements: expected version 1 with a requirements array.");
+  }
 }
 
 function assertValidRequirementContent(requirement: unknown, expectedId: string): asserts requirement is {
