@@ -29,6 +29,7 @@ export interface CreateTaskInput {
   validationCommands?: EmbeddedValidationManifestCommandInput[];
   qualityWaivers?: TaskQualityWaiverInput[];
   qualityMode?: TaskQualityEnforcementMode;
+  acceptanceAuthority?: ValidationPolicyAuthority;
 }
 
 export interface CreateTaskResult {
@@ -318,7 +319,15 @@ export async function createTask(cwd: string, state: ScalerState, input: CreateT
     }
   }
 
-  await persistTaskValidationCommands(cwd, input.id, input.validationCommands, nextState.tasks.find((task) => task.id === input.id)?.definitionOfDone, outputPaths, validationInputPaths);
+  await persistTaskValidationCommands(
+    cwd,
+    input.id,
+    input.validationCommands,
+    nextState.tasks.find((task) => task.id === input.id)?.definitionOfDone,
+    outputPaths,
+    validationInputPaths,
+    input.acceptanceAuthority ?? "system",
+  );
   await saveState(cwd, nextState);
   const qualityReview = await reviewTaskDefinition(cwd, nextState, input.id, new Date(), { enforcement: qualityMode });
   await appendLogEvent(

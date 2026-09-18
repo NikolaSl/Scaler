@@ -19,7 +19,7 @@ import { applyPrdRequirementUpserts, computePrdCoverageSummary, loadPrdCoverage,
 import { assertStateSnapshotCurrent } from "./state.js";
 import { createTask, reviewTaskAcceptancePolicyMutation, updateTask, type UpdateTaskInput } from "./tasks.js";
 import type { ScalerState, ScalerTaskKind, ScalerTaskQualityWaiver } from "./types.js";
-import { getValidationManifestForTask, withValidationPolicyLock, type EmbeddedValidationManifestCommandInput, type ValidationPolicyAuthority } from "./validation.js";
+import { assertValidationPolicyMutationAuthorized, getValidationManifestForTask, loadValidationManifests, withValidationPolicyLock, type EmbeddedValidationManifestCommandInput, type ValidationPolicyAuthority } from "./validation.js";
 
 export const executionPlanStatuses = ["draft", "active", "superseded", "completed"] as const;
 export type ExecutionPlanStatus = (typeof executionPlanStatuses)[number];
@@ -444,6 +444,7 @@ export async function applyExecutionPlanTasks(
       validationInputPaths: task.validationInputPaths,
       qualityWaivers: task.qualityWaivers,
       qualityMode: "enforce",
+      acceptanceAuthority: options.acceptanceAuthority ?? "system",
     });
     nextState = result.state;
     if (result.accepted) createdTaskIds.push(task.id);
@@ -467,9 +468,28 @@ async function preflightExecutionPlanPolicyChanges(
   authority: ValidationPolicyAuthority,
 ): Promise<string[]> {
   const rejections: string[] = [];
+  const manifests = await loadValidationManifests(cwd);
   for (const task of plan.tasks) {
     const existing = state.tasks.find((candidate) => candidate.id === task.id);
-    if (!existing) continue;
+    if (!existing) {
+      const manifest = manifests.find((candidate) => candidate.taskId === task.id);
+      if (!manifest) continue;
+      try {
+        await assertValidationPolicyMutationAuthorized(cwd, {
+          ...manifest,
+          outputPaths: task.outputPaths ?? manifest.outputPaths,
+          validationInputPaths: task.validationInputPaths ?? manifest.validationInputPaths,
+          definitionOfDone: task.definitionOfDone ?? manifest.definitionOfDone,
+          qualityWaivers: task.qualityWaivers ?? manifest.qualityWaivers,
+          commands: task.validationCommands?.length
+            ? task.validationCommands.map((command) => ({ ...command, required: command.required ?? true }))
+            : manifest.commands,
+        }, { authority }, manifests);
+      } catch (error) {
+        rejections.push(error instanceof Error ? error.message : String(error));
+      }
+      continue;
+    }
     const input: UpdateTaskInput = {
       id: task.id,
       title: task.title,

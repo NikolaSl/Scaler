@@ -483,8 +483,9 @@ export async function saveValidationManifest(
     const current = persistedCurrent
       ?? await createDefaultValidationManifest(cwd, manifest.taskId);
     const changed = fingerprintValidationPolicy(current) !== fingerprintValidationPolicy(normalized);
+    const exercised = changed && await hasValidationRunForTask(cwd, manifest.taskId);
     await assertValidationPolicyMutationAuthorized(cwd, normalized, options, manifests, normalized);
-    const authorizedAmendment = changed && persistedCurrent !== undefined && options.authority === "user_command";
+    const authorizedAmendment = changed && options.authority === "user_command" && (persistedCurrent !== undefined || exercised);
     if (authorizedAmendment) {
       const reason = options.reason?.trim();
       if (!reason) throw new Error(`Acceptance policy update rejected for ${manifest.taskId}: an explicit user-command reason is required.`);
@@ -507,9 +508,13 @@ export async function saveValidationManifest(
     }
     normalized = {
       ...normalized,
-      establishedAuthority: changed
-        ? (options.authority ?? "system")
-        : (persistedCurrent?.establishedAuthority ?? options.authority ?? "system"),
+      establishedAuthority: persistedCurrent
+        ? (changed
+            ? (options.authority ?? "system")
+            : (persistedCurrent.establishedAuthority ?? "system"))
+        : (exercised
+            ? (options.authority === "user_command" ? "user_command" : "system")
+            : (options.authority ?? "system")),
     };
     const next = [normalized, ...manifests.filter((candidate) => candidate.taskId !== manifest.taskId)];
     await writeValidationManifestIndex(cwd, next);
@@ -573,14 +578,15 @@ export async function assertValidationPolicyMutationAuthorized(
 ): Promise<void> {
   if ((options.authority ?? "system") !== "model") return;
   const manifests = loadedManifests ?? await loadValidationManifests(cwd);
-  const current = manifests.find((manifest) => manifest.taskId === proposed.taskId);
-  if (!current) return;
+  const persistedCurrent = manifests.find((manifest) => manifest.taskId === proposed.taskId);
+  const exercised = await hasValidationRunForTask(cwd, proposed.taskId);
+  if (!persistedCurrent && !exercised) return;
+  const current = persistedCurrent ?? await createDefaultValidationManifest(cwd, proposed.taskId);
   // saveValidationManifest passes the exact normalized snapshot it will write.
   // Re-reading executable inputs here would authorize one filesystem version
   // while persisting another if the validator changes between both hashes.
   const normalized = normalizedProposed ?? await normalizeValidationManifest(cwd, proposed);
   if (fingerprintValidationPolicy(current) === fingerprintValidationPolicy(normalized)) return;
-  const exercised = await hasValidationRunForTask(cwd, proposed.taskId);
   if (!exercised && current.establishedAuthority === "model") return;
   throw new Error(`Acceptance policy update rejected for ${proposed.taskId}: model routes cannot replace an established policy; use an explicit local user command with a recorded reason.`);
 }
