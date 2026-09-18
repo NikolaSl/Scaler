@@ -13,7 +13,7 @@ import { test } from "node:test";
 import { runScalerAutomation } from "../src/autopilot.js";
 import { commitWithExecutionLock } from "../src/operations.js";
 import { acquireExecutionLock, releaseExecutionLock } from "../src/locks.js";
-import { getCommitSkipsPath, getValidationRunsPath } from "../src/paths.js";
+import { getCommitSkipsPath, getPrdRequirementsPath, getValidationRunsPath } from "../src/paths.js";
 import { upsertPrdRequirement } from "../src/prd.js";
 import { completeRunWithEvidence } from "../src/run-completion.js";
 import { advanceStageAfterReadyArtifact } from "../src/stage-advancement.js";
@@ -22,6 +22,7 @@ import { runAutonomousStageWorkflow } from "../src/stage-workflow.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { upsertStageArtifact } from "../src/stages.js";
 import type { ScalerState } from "../src/types.js";
+import { captureValidationSnapshot } from "../src/validation-acceptance.js";
 import { loadValidationRuns, runTaskValidation, saveValidationManifest } from "../src/validation.js";
 
 const exec = promisify(execFile);
@@ -216,6 +217,20 @@ test("completion rejects evidence captured while a referenced requirement was mi
   assert.equal(result.accepted, false);
   assert.match(result.message, /requirement|receipt|evidence|changed/i);
   assert.equal((await loadState(dir)).stage, "execution");
+}));
+
+test("validation snapshot rejects a structurally malformed linked requirement", async () => fixture(async (dir, state) => {
+  state.tasks[0]!.prdRefs = ["REQ-BROKEN"];
+  await saveState(dir, state);
+  await upsertPrdRequirement(dir, { id: "REQ-BROKEN", statement: "Produce the declared output" });
+  await writeFile(getPrdRequirementsPath(dir), JSON.stringify({
+    version: 1,
+    requirements: [{ id: "REQ-BROKEN", statement: 42, createdAt: "", updatedAt: "" }],
+  }));
+  await assert.rejects(
+    captureValidationSnapshot(dir, state, "T-ONE"),
+    /requirement|malformed/i,
+  );
 }));
 
 test("two real task commits retain valid completion provenance across changed HEAD", async () => fixture(async (dir, state) => {
