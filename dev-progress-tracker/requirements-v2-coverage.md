@@ -213,6 +213,14 @@ compatibility only. Updating that gate belongs to the later implementation phase
 revision 2 document integrity is checked separately during this change.
 # PLAN-106 continuation
 
+PLAN-118 unit F closes the reproduced pre-first-validation manifest replacement
+route. Validation manifests now retain establishment authority; material model
+changes are allowed only for model-owned unexercised drafts, while system/user
+policies require the explicit reasoned local-user amendment path. Manifest,
+task-update and planning regressions verify rejection before partial task, plan
+or requirement publication. This is bounded policy-authority evidence, not
+semantic validation sufficiency or complete provenance for all task metadata.
+
 PLAN-118 unit E binds explicitly declared local checker, fixture and validation
 configuration files to the acceptance policy and schema-v5 receipt snapshots.
 Validation, direct Git decisions, dependency admission and completion reject

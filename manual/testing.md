@@ -468,3 +468,13 @@ publishing requirements, plans or task changes. If the task creates its own
 validator, create it first and write the manifest before the first validation.
 
 Run `node --test --import tsx test/acceptance-policy-authority.test.ts test/validation-acceptance.test.ts test/plans.test.ts test/tools.test.ts test/stage-workflow.test.ts test/replan-agent.test.ts` for the focused basis, authority, transport and publication coverage. These checks protect only declared local files; they do not infer shell dependencies, prove declaration completeness or establish semantic/real-model outcome quality.
+
+PLAN-118 unit F distinguishes a model-owned unexercised manifest draft from an
+acceptance policy already established by the system or an explicit local user
+command. Public manifest writes, task updates and planning reports cannot weaken
+an established manifest before its first validation. Idempotent writes and
+model-owned draft refinement remain supported; an operator correction requires
+the same explicit reason, revision and version history used after exercise.
+Legacy manifests without provenance reject material model changes. This is an
+authority boundary only: it does not prove semantic test sufficiency or assign
+provenance to every unexercised task metadata field.
