@@ -234,6 +234,9 @@ export async function ensureTaskContextManifest(cwd: string, state: ScalerState,
 export function validateTaskContextManifest(manifest: TaskContextManifest): void {
   if (manifest.version !== 1) throw new Error(`Unsupported task context manifest version: ${String(manifest.version)}`);
   if (!manifest.taskId.trim()) throw new Error("Task context manifest taskId is required.");
+  if (manifest.tokenBudget !== undefined && (!Number.isSafeInteger(manifest.tokenBudget) || manifest.tokenBudget <= 0)) {
+    throw new Error("Task context manifest tokenBudget must be a positive finite integer.");
+  }
   const ids = new Set<string>();
   for (const item of manifest.items) validateTaskContextManifestItem(item, ids);
 }

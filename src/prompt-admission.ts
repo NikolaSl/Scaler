@@ -34,6 +34,14 @@ export function createPromptSizingAttemptBinding(runId: string): TaskAttemptBind
 
 export function assessTaskPromptAdmission(prompt: string, tokenBudget: number): TaskPromptAdmissionDecision {
   const estimatedTokens = estimateTokens(prompt);
+  if (!Number.isSafeInteger(tokenBudget) || tokenBudget <= 0) {
+    return {
+      accepted: false,
+      estimatedTokens,
+      tokenBudget,
+      message: `Final SCALER prompt refused: token allowance must be a positive finite integer; received ${String(tokenBudget)}.`,
+    };
+  }
   const accepted = estimatedTokens <= tokenBudget;
   return {
     accepted,
