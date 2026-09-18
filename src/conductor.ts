@@ -249,11 +249,7 @@ export async function runConductorStep(
       return { accepted: false, message, state, task: selection.task };
     }
     let nextState = state;
-    if (options.execute && selection.promotePending) {
-      nextState = transitionTask(nextState, selection.task.id, "ready", { reason: "Conductor selected pending task." });
-    }
-
-    const runningTask = nextState.tasks.find((task) => task.id === selection.task!.id)!;
+    let runningTask = selection.task;
     const contextManifest = options.contextItems ? undefined : await ensureTaskContextManifest(cwd, nextState, runningTask.id);
     const contextItems = options.contextItems ?? (await resolveTaskContextManifest(cwd, nextState, contextManifest!));
     const requiredContextDiagnostics = getRequiredContextDiagnostics(contextItems);
@@ -266,6 +262,10 @@ export async function runConductorStep(
         details: { admission: "required_context", diagnostics: requiredContextDiagnostics },
       }));
       return { accepted: false, message, state: nextState, task: runningTask };
+    }
+    if (options.execute && selection.promotePending) {
+      nextState = transitionTask(nextState, selection.task.id, "ready", { reason: "Conductor selected pending task." });
+      runningTask = nextState.tasks.find((task) => task.id === selection.task!.id)!;
     }
     const promptTokenBudget = resolveTaskPromptTokenBudget(options.tokenBudget, contextManifest?.tokenBudget);
     let { prompt, resolvedContext, compressionAssessment } = buildTaskAgentPrompt({

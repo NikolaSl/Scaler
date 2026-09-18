@@ -543,7 +543,10 @@ function extractMarkdownHeadingSection(content: string, path: string, selector: 
       offset = end;
       continue;
     }
-    if (fenceMatch) {
+    const marker = fenceMatch?.[1]?.[0] as "`" | "~" | undefined;
+    const validFenceOpener = fenceMatch !== null
+      && !(marker === "`" && fenceMatch[2]!.includes("`"));
+    if (validFenceOpener) {
       fence = { marker: fenceMatch[1]![0] as "`" | "~", length: fenceMatch[1]!.length };
       offset = end;
       continue;
