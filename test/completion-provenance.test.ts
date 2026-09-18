@@ -240,6 +240,18 @@ for (const [description, requirements] of [
   }));
 }
 
+test("validation snapshot rejects a malformed requirements document deterministically", async () => fixture(async (dir, state) => {
+  state.tasks[0]!.prdRefs = ["REQ-BROKEN"];
+  await saveState(dir, state);
+  await upsertPrdRequirement(dir, { id: "REQ-BROKEN", statement: "Produce the declared output" });
+  await writeFile(getPrdRequirementsPath(dir), JSON.stringify({ version: 1 }));
+
+  await assert.rejects(
+    captureValidationSnapshot(dir, state, "T-ONE"),
+    /Malformed runtime PRD requirements: expected version 1 with a requirements array/,
+  );
+}));
+
 test("two real task commits retain valid completion provenance across changed HEAD", async () => fixture(async (dir, state) => {
   await exec("git", ["init"], { cwd: dir });
   await exec("git", ["config", "user.name", "Test"], { cwd: dir });
