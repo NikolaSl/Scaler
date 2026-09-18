@@ -213,7 +213,8 @@ export async function reviewTaskAcceptancePolicyMutation(
   input: UpdateTaskInput,
 ): Promise<string | undefined> {
   const authority = input.acceptanceAuthority ?? "system";
-  if (authority !== "model" || !(await hasValidationRunForTask(cwd, input.id))) return undefined;
+  if (authority !== "model") return undefined;
+  const exercised = await hasValidationRunForTask(cwd, input.id);
   const proposedTask = {
     ...existing,
     title: input.title ?? existing.title,
@@ -226,7 +227,7 @@ export async function reviewTaskAcceptancePolicyMutation(
     validationRefs: input.validationRefs ? normalizeIdList(input.validationRefs) : existing.validationRefs,
     qualityWaivers: input.qualityWaivers ? normalizeTaskQualityWaivers(input.qualityWaivers) : existing.qualityWaivers,
   };
-  if (fingerprintTaskContract(proposedTask) !== fingerprintTaskContract(existing)) {
+  if (exercised && fingerprintTaskContract(proposedTask) !== fingerprintTaskContract(existing)) {
     return `Acceptance policy update rejected for ${input.id}: model routes cannot replace an exercised task contract; use an explicit local user command.`;
   }
   if (input.validationCommands !== undefined || input.outputPaths !== undefined || input.validationInputPaths !== undefined) {
