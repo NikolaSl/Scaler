@@ -527,34 +527,88 @@ async function resolveFileContextContent(
   return [`File ${scope}: ${path}`, content.slice(0, maxChars), `... [truncated ${content.length - maxChars} chars; request full file if needed]`].join("\n");
 }
 
+function scanMarkdownIndent(line: string, startIndex = 0, startColumn = 0): { columns: number; index: number } {
+  let columns = startColumn;
+  let index = startIndex;
+  while (index < line.length) {
+    if (line[index] === " ") {
+      columns += 1;
+    } else if (line[index] === "\t") {
+      columns += 4 - (columns % 4);
+    } else {
+      break;
+    }
+    index += 1;
+  }
+  return { columns, index };
+}
+
+function parseMarkdownListItem(
+  line: string,
+  activeContentIndent?: number,
+): { contentIndent: number; contentIndex: number } | undefined {
+  const indent = scanMarkdownIndent(line);
+  const bases = activeContentIndent === undefined ? [0] : [activeContentIndent, 0];
+  for (const base of bases) {
+    const relativeIndent = indent.columns - base;
+    if (relativeIndent < 0 || relativeIndent > 3) continue;
+    const marker = line.slice(indent.index).match(/^(?:[-+*]|\d{1,9}[.)])/);
+    if (!marker) continue;
+    const markerEndIndex = indent.index + marker[0].length;
+    const markerEndColumn = indent.columns + marker[0].length;
+    if (markerEndIndex === line.length) {
+      return { contentIndent: markerEndColumn + 1, contentIndex: markerEndIndex };
+    }
+    if (line[markerEndIndex] !== " ") continue;
+    const padding = line.slice(markerEndIndex).match(/^ +/)![0].length;
+    const effectivePadding = padding <= 4 ? padding : 1;
+    return {
+      contentIndent: markerEndColumn + effectivePadding,
+      contentIndex: markerEndIndex + effectivePadding,
+    };
+  }
+  return undefined;
+}
+
 function extractMarkdownHeadingSection(content: string, path: string, selector: MarkdownHeadingSelector): string {
   const headings: Array<{ level: number; text: string; start: number }> = [];
   let fence: { marker: "`" | "~"; length: number; minIndent: number; maxIndent: number } | undefined;
+  let activeListIndent: number | undefined;
   let offset = 0;
   while (offset < content.length) {
     const newline = content.indexOf("\n", offset);
     const end = newline === -1 ? content.length : newline + 1;
     const sourceLine = content.slice(offset, end);
     const line = sourceLine.replace(/\r?\n$/, "");
-    const directFenceMatch = line.match(/^( {0,3})(`{3,}|~{3,})(.*)$/);
-    const listFenceMatch = line.match(/^( {0,3}(?:[-+*]|\d{1,9}[.)]) {1,4})(`{3,}|~{3,})(.*)$/);
+    const indent = scanMarkdownIndent(line);
     if (fence) {
-      const leadingSpaces = line.match(/^ */)![0].length;
-      if (fence.minIndent === 0 || line.trim() === "" || leadingSpaces >= fence.minIndent) {
-        const closing = new RegExp(`^ {${fence.minIndent},${fence.maxIndent}}${fence.marker === "`" ? "`" : "~"}{${fence.length},}[ \\t]*$`);
-        if (closing.test(line)) fence = undefined;
+      if (fence.minIndent === 0 || line.trim() === "" || indent.columns >= fence.minIndent) {
+        const closing = new RegExp(`^${fence.marker === "`" ? "`" : "~"}{${fence.length},}[ \\t]*$`);
+        if (indent.columns <= fence.maxIndent && closing.test(line.slice(indent.index))) fence = undefined;
         offset = end;
         continue;
       }
       fence = undefined;
+      activeListIndent = undefined;
     }
-    const fenceMarker = directFenceMatch?.[2] ?? listFenceMatch?.[2];
-    const fenceInfo = directFenceMatch?.[3] ?? listFenceMatch?.[3];
+
+    if (line.trim() !== "" && activeListIndent !== undefined && indent.columns < activeListIndent) {
+      activeListIndent = undefined;
+    }
+    const listItem = parseMarkdownListItem(line, activeListIndent);
+    if (listItem) activeListIndent = listItem.contentIndent;
+    const fenceIndent = listItem
+      ? scanMarkdownIndent(line, listItem.contentIndex, listItem.contentIndent)
+      : indent;
+    const relativeFenceIndent = fenceIndent.columns - (activeListIndent ?? 0);
+    const fenceMatch = line.slice(fenceIndent.index).match(/^(`{3,}|~{3,})(.*)$/);
+    const fenceMarker = relativeFenceIndent >= 0 && relativeFenceIndent <= 3 ? fenceMatch?.[1] : undefined;
+    const fenceInfo = fenceMatch?.[2];
     const marker = fenceMarker?.[0] as "`" | "~" | undefined;
     const validFenceOpener = fenceMarker !== undefined
       && !(marker === "`" && fenceInfo!.includes("`"));
     if (validFenceOpener) {
-      const containerIndent = listFenceMatch?.[1].length ?? 0;
+      const containerIndent = activeListIndent ?? 0;
       fence = {
         marker: marker!,
         length: fenceMarker!.length,
