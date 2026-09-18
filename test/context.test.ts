@@ -429,6 +429,10 @@ test("file section scope resolves the selected exact Markdown heading", async ()
       "# Reference",
       "## Introduction",
       "UNRELATED_PREFIX",
+      "```markdown",
+      "## Target",
+      "FENCED_PSEUDO_TARGET",
+      "```",
       "filler line\n".repeat(300),
       "## Target",
       "EXACT_TARGET_CONTRACT = keep_this_unchanged;",
@@ -437,7 +441,7 @@ test("file section scope resolves the selected exact Markdown heading", async ()
       "## Next",
       "DO_NOT_INCLUDE_NEXT",
       "",
-    ].join("\n");
+    ].join("\r\n");
     await writeFile(join(dir, "reference.md"), source, "utf8");
     const manifest = {
       version: 1 as const,
@@ -453,11 +457,66 @@ test("file section scope resolves the selected exact Markdown heading", async ()
 
     const [item] = await resolveTaskContextManifest(dir, state, manifest as never);
 
-    assert.match(item?.content ?? "", /^## Target\r?\n/);
+    assert.match(item?.content ?? "", /^## Target\r\n/);
     assert.match(item?.content ?? "", /EXACT_TARGET_CONTRACT/);
-    assert.match(item?.content ?? "", /### Nested\r?\nNESTED_TARGET_DETAIL/);
-    assert.doesNotMatch(item?.content ?? "", /UNRELATED_PREFIX|DO_NOT_INCLUDE_NEXT/);
+    assert.match(item?.content ?? "", /### Nested\r\nNESTED_TARGET_DETAIL/);
+    assert.doesNotMatch(item?.content ?? "", /UNRELATED_PREFIX|FENCED_PSEUDO_TARGET|DO_NOT_INCLUDE_NEXT/);
     assert.equal(item?.exactness, "exact");
+  });
+});
+
+for (const [description, source, selector, diagnostic] of [
+  ["missing heading", "## Other\ncontent\n", { kind: "markdown-heading", heading: "Target" }, /not found/i],
+  ["ambiguous heading", "## Target\nfirst\n## Target\nsecond\n", { kind: "markdown-heading", heading: "Target" }, /ambiguous/i],
+  ["oversized heading", "## Target\n123456789\n", { kind: "markdown-heading", heading: "Target", maxChars: 8 }, /oversized/i],
+] as const) {
+  test(`file section scope reports ${description} as unavailable`, async () => {
+    await withTempDir(async (dir) => {
+      const state = createDefaultState();
+      await writeFile(join(dir, "reference.md"), source, "utf8");
+      const [item] = await resolveTaskContextManifest(dir, state, {
+        version: 1,
+        taskId: "T-SECTION",
+        items: [{
+          id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+          scope: "section", source: "file", path: "reference.md", selector,
+        }],
+        createdAt: state.createdAt,
+        updatedAt: state.createdAt,
+      });
+
+      assert.equal(item?.available, false);
+      assert.match(item?.diagnostic ?? "", diagnostic);
+    });
+  });
+}
+
+test("task context manifest round trips two selectors for the same file", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    const saved = await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-SECTION",
+      items: [
+        {
+          id: "one", type: "file", reason: "First section", priority: "required", scope: "section",
+          source: "file", path: "reference.md", selector: { kind: "markdown-heading", heading: " One ", maxChars: 200 },
+        },
+        {
+          id: "two", type: "file", reason: "Second section", priority: "required", scope: "section",
+          source: "file", path: "reference.md", selector: { kind: "markdown-heading", heading: "Two", maxChars: 300 },
+        },
+      ],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+    const loaded = await loadTaskContextManifest(dir, "T-SECTION");
+
+    assert.equal(saved.items[0]?.selector?.heading, "One");
+    assert.deepEqual(loaded?.items.map((item) => item.selector), [
+      { kind: "markdown-heading", heading: "One", maxChars: 200 },
+      { kind: "markdown-heading", heading: "Two", maxChars: 300 },
+    ]);
   });
 });
 
@@ -494,4 +553,10 @@ test("validateTaskContextManifest rejects invalid and incomplete items", () => {
   assert.throws(() => validateTaskContextManifest({ ...base, items: [{ ...base.items[0]!, exactness: "lossy" as never }] }), /Invalid task context item exactness/);
   assert.throws(() => validateTaskContextManifest({ ...base, items: [{ ...base.items[0]!, path: undefined }] }), /file path is required/);
   assert.throws(() => validateTaskContextManifest({ ...base, items: [base.items[0]!, base.items[0]!] }), /Duplicate task context item id/);
+  assert.throws(() => validateTaskContextManifest({ ...base, items: [{
+    ...base.items[0]!, scope: "section", selector: { kind: "markdown-heading", heading: "", maxChars: 10 },
+  }] }), /selector is invalid/);
+  assert.throws(() => validateTaskContextManifest({ ...base, items: [{
+    ...base.items[0]!, scope: "section", selector: { kind: "markdown-heading", heading: "Target", maxChars: 0 },
+  }] }), /maxChars must be a positive finite integer/);
 });
