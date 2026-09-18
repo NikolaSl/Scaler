@@ -219,19 +219,26 @@ test("completion rejects evidence captured while a referenced requirement was mi
   assert.equal((await loadState(dir)).stage, "execution");
 }));
 
-test("validation snapshot rejects a structurally malformed linked requirement", async () => fixture(async (dir, state) => {
-  state.tasks[0]!.prdRefs = ["REQ-BROKEN"];
-  await saveState(dir, state);
-  await upsertPrdRequirement(dir, { id: "REQ-BROKEN", statement: "Produce the declared output" });
-  await writeFile(getPrdRequirementsPath(dir), JSON.stringify({
-    version: 1,
-    requirements: [{ id: "REQ-BROKEN", statement: 42, createdAt: "", updatedAt: "" }],
+for (const [description, requirements] of [
+  ["missing statement", [{ id: "REQ-BROKEN", createdAt: "", updatedAt: "" }]],
+  ["non-string statement", [{ id: "REQ-BROKEN", statement: 42, createdAt: "", updatedAt: "" }]],
+  ["non-string optional content", [{ id: "REQ-BROKEN", statement: "valid", title: {}, source: null, createdAt: "", updatedAt: "" }]],
+  ["duplicate identifier", [
+    { id: "REQ-BROKEN", statement: "first", createdAt: "", updatedAt: "" },
+    { id: "REQ-BROKEN", statement: "second", createdAt: "", updatedAt: "" },
+  ]],
+] as const) {
+  test(`validation snapshot rejects linked requirement with ${description}`, async () => fixture(async (dir, state) => {
+    state.tasks[0]!.prdRefs = ["REQ-BROKEN"];
+    await saveState(dir, state);
+    await upsertPrdRequirement(dir, { id: "REQ-BROKEN", statement: "Produce the declared output" });
+    await writeFile(getPrdRequirementsPath(dir), JSON.stringify({ version: 1, requirements }));
+    await assert.rejects(
+      captureValidationSnapshot(dir, state, "T-ONE"),
+      /requirement|malformed/i,
+    );
   }));
-  await assert.rejects(
-    captureValidationSnapshot(dir, state, "T-ONE"),
-    /requirement|malformed/i,
-  );
-}));
+}
 
 test("two real task commits retain valid completion provenance across changed HEAD", async () => fixture(async (dir, state) => {
   await exec("git", ["init"], { cwd: dir });
