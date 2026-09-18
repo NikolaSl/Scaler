@@ -276,8 +276,22 @@ spawn-budget effects. The regressions cover oversized required exact context,
 understated item estimates, wrapper-only overflow, debug retry, non-finite
 explicit/persisted allowances and sufficient-budget controls. Run
 `node --test --import tsx test/conductor.test.ts test/debug-retry.test.ts test/context.test.ts test/context-splits.test.ts`.
-This remains a rough SCALER-owned-envelope gate; provider system/tool/history
-tokens and provider-specific tokenization are not yet measured.
+This remains the early SCALER-owned-envelope gate.
+
+PLAN-120 adds strict provider-payload admission for executable conductor and
+debug-retry children using the installed Pi 0.80.3 OpenAI Chat Completions
+adapter. Pure tests cover the final serialized system/tool/history/tool-result
+payload, UTF-8 sizing, task/model limits, useful output reserve, margin,
+malformed limits, audio/images and multiple completions. Subprocess tests cover
+ambient-resource suppression, extension ordering and numeric-only policy
+transport. Installed-host SDK tests replace `fetch` before session creation and
+make no network request; they prove that `ctx.abort()` stops an oversized
+request, that throwing does not, that a sufficient request still reaches the
+stub, and that strict children cancel provider-backed auto-compaction because
+Pi's compaction route bypasses the provider-request hook. Run
+`node --test --import tsx test/provider-admission.test.ts test/provider-admission-host.test.ts test/subagents.test.ts test/conductor.test.ts test/debug-retry.test.ts`.
+This is not tokenizer-accurate evidence and does not validate alternate provider
+APIs, real model quality, token savings or scale.
 
 PLAN-113 requires declared `outputPaths` before automatic non-Git/clean/runtime
 commit skips or explicit commit skips can accept a task. A successful command

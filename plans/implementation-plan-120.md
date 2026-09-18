@@ -68,3 +68,27 @@ Run focused provider-admission, subprocess and installed-host SDK tests, then th
 TypeScript build, full unit suite, mock integration and conformance/autopilot
 gates. Obtain two independent GPT-6 Astra/high exact-head reviews before treating
 this bounded unit as complete.
+
+## Result
+
+Implemented on the P3 phase branch with separate plan, reproduction,
+implementation, review-regression and review-fix commits. Conductor and
+debug-retry pass a validated numeric strict policy to isolated children. The
+last-loaded admission extension checks the actual final OpenAI Chat Completions
+payload, preserves required content and synchronously aborts rejected calls
+before transport. Best-effort diagnostics contain measurements and model
+identity only, never request content or credentials.
+
+The first two independent GPT-6 Astra/high reviews found two valid bypasses:
+Pi's provider-backed compaction does not emit `before_provider_request`, and
+audio/multiple-completion payload shapes were not rejected. Separate regression
+and fix commits now cancel strict-profile compaction and fail closed on those
+unsupported shapes. Both exact-head re-reviews found no remaining actionable
+issue within this bounded scope.
+
+The installed-host checks use an intercepted synthetic fetch and no real
+provider call. They demonstrate oversized refusal, sufficient-envelope
+admission, effective `ctx.abort()` semantics, swallowed-hook-exception behavior
+and compaction-route cancellation. Final validation: TypeScript build, 825 unit,
+67 mock integration and 7 conformance/autopilot checks passed; the final focused
+provider/subprocess/conductor/debug set passed 90/90.

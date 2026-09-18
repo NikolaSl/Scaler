@@ -70,11 +70,30 @@ transition, or spawned-agent accounting. Required exact bytes are not silently
 dropped or summarized to force admission. Prepare mode and split diagnostics
 remain available because they do not launch a worker.
 
-The estimator is the documented conservative `characters / 4` approximation.
-It does not include provider/Pi system instructions, tool schemas, hooks,
-history, protocol framing, output reserve, later tool results, or
-provider-specific tokenization. Passing this check therefore proves only that
-the known SCALER prompt is not already over its declared allowance.
+This early estimator remains the documented `characters / 4` approximation.
+Executable conductor and debug-retry children then use a second, stricter gate
+at Pi's `before_provider_request` boundary. For the supported OpenAI Chat
+Completions text/tool payload emitted by installed Pi 0.80.3, SCALER counts the serialized UTF-8 bytes
+of the final provider request. That conservative upper bound includes Pi system
+instructions, tool schemas, history, injected context, pending tool results and
+protocol fields. The gate adds the provider's actual output limit and a 1,024
+token safety margin, then compares the total with both the task allowance and
+the selected model context window. Pi output clamping below the required 1,024
+token useful reserve is also refused.
+
+Strict children disable ambient extension, skill, prompt-template and context
+file discovery, load the admission extension last, and reject extra extension
+paths. Policy transport contains validated numeric limits only. A refusal calls
+`ctx.abort()` before the transport; a thrown hook error is not treated as
+enforcement. The strict profile also cancels Pi's provider-backed compaction,
+whose summary request bypasses `before_provider_request` in Pi 0.80.3.
+
+The provider gate currently supports only the installed Pi 0.80.3 OpenAI Chat
+Completions text/tool shape. Alternate APIs, image/audio and multiple-completion
+payloads fail closed. The byte bound can conservatively reject a request that an
+exact tokenizer would admit. Parent interactive calls, other child routes,
+provider-internal retries and reconciliation against observed usage remain
+later P3 work.
 
 ## Missing-context lifecycle
 

@@ -22,7 +22,7 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-02 | Partial | Task fields/report contracts exist; complete versioned attempt/executor contract not established. | `src/types.ts`, `src/tasks.ts`, `src/task-reports.ts` | [AC-02](../specs/acceptance-scenarios.md#ac-02) |
 | SC-03 | Partial | Dependencies and plans exist; minimal/incremental planning and all admission guards need scenario coverage. | `src/plans.ts`, `src/conductor.ts` | [AC-03](../specs/acceptance-scenarios.md#ac-03) |
 | SC-04 | Failed | English keyword classifier routes 'What is Docker?' to level 4 and a complex Bulgarian request to level 1. | `src/adaptive.ts` | [AC-04](../specs/acceptance-scenarios.md#ac-04) |
-| SC-05 | Partial | Final SCALER-owned conductor/debug prompts now fail closed when oversized or given malformed allowances; provider/system/tool/history envelopes and tokenizer-accurate accounting remain unverified. | `src/prompt-admission.ts`, `src/context.ts`, `src/conductor.ts`, `src/debug-retry.ts`, `test/conductor.test.ts`, `test/debug-retry.test.ts`, `test/context.test.ts` | [AC-05](../specs/acceptance-scenarios.md#ac-05) |
+| SC-05 | Partial | Conductor/debug children now fail closed at both the rendered SCALER prompt and final OpenAI Chat Completions payload boundaries, including system/tool/history, output reserve, model window and compaction-route isolation. Exact tokenization, alternate providers, parent/other child routes, internal retries and observed-usage reconciliation remain open. | `src/prompt-admission.ts`, `src/provider-admission.ts`, `src/provider-admission-extension.ts`, `src/subagents.ts`, `src/conductor.ts`, `src/debug-retry.ts`, `test/provider-admission.test.ts`, `test/provider-admission-host.test.ts`, `test/subagents.test.ts` | [AC-05](../specs/acceptance-scenarios.md#ac-05) |
 | SC-06 | Partial | Validity labels and memory references exist; dependency-based freshness and invalidation unverified. | `src/memory.ts`, `src/context.ts` | [AC-06](../specs/acceptance-scenarios.md#ac-06) |
 | SC-07 | Partial | Retrieval exists; file section scope uses prefix truncation rather than the requested section. | `src/context.ts` | [AC-07](../specs/acceptance-scenarios.md#ac-07) |
 | SC-08 | Partial | Isolated tools and catalogs exist; measured per-request three-mode policy not established; active-tool API mismatch found. | `src/tool-requests.ts`, `src/index.ts` | [AC-08](../specs/acceptance-scenarios.md#ac-08) |
@@ -47,6 +47,17 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-27 | Partial | Current named command evidence and participant identity gate declared integration criteria; revision-checked user amendments and immutable history prevent model-route criterion changes. Semantic necessity and non-software evidence remain open. | `src/prd.ts`, `src/run-completion.ts`, `test/requirement-integration.test.ts`, `test/prd.test.ts` | [AC-27](../specs/acceptance-scenarios.md#ac-27) |
 
 ## Implementation progress — PLAN-099
+
+PLAN-120 adds the next bounded SC-05 layer for conductor and debug-retry child
+calls. Strict child invocations suppress ambient resources and load a final
+provider-admission extension. The extension measures the actual serialized
+installed Pi 0.80.3 OpenAI Chat Completions text/tool payload with a conservative UTF-8
+byte upper bound, includes the provider output limit plus an explicit useful
+reserve and safety margin, and compares against task and model limits. Refusal
+uses `ctx.abort()` before transport. Review regressions additionally close Pi's
+unguarded provider-backed compaction route and reject audio or multiple-output
+payloads. This remains Partial: alternate APIs/routes, exact tokenizers,
+provider-internal retries and observed usage reconciliation are not covered.
 
 PLAN-119 fixes the reproduced oversized-required-context dispatch at the final
 SCALER prompt boundary. Conductor and debug retry use a shared pre-dispatch
