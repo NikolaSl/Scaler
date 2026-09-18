@@ -224,19 +224,30 @@ test("unsafe declared paths and unsupported objects are refused", async () => fi
 }));
 
 test("public manifest tool retains declared output and executable validation-input identity", async () => fixture(false, async (dir) => {
-  const registered = new Map<string, { execute: (...args: any[]) => Promise<unknown> }>();
-  registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<unknown> }) {
+  const registered = new Map<string, { execute: (...args: any[]) => Promise<any> }>();
+  registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<any> }) {
     registered.set(definition.name, definition);
   } } as never);
   const tool = registered.get("scaler_validation_manifest_write");
   assert.ok(tool);
+  const state = await loadState(dir);
+  state.tasks.push({ id: "T-MODEL-DRAFT", status: "validating", updatedAt: state.updatedAt });
+  await saveState(dir, state);
+  await saveValidationManifest(dir, {
+    taskId: "T-MODEL-DRAFT",
+    outputPaths: ["result.txt"],
+    commands: [{ id: "check", required: true, command: check }],
+    createdAt: "",
+    updatedAt: "",
+  }, { authority: "model" });
   await writeFile(join(dir, "check.cjs"), "if(require('fs').readFileSync('result.txt','utf8')!=='ok')process.exit(1);\n");
-  await tool.execute("manifest", { taskId: "T-OUT", outputPaths: ["result.txt"], validationInputPaths: ["check.cjs"], commands: [{ id: "check", command: "node check.cjs" }] }, undefined, undefined, { cwd: dir });
-  const saved = await getValidationManifestForTask(dir, "T-OUT");
+  const write = await tool.execute("manifest", { taskId: "T-MODEL-DRAFT", outputPaths: ["result.txt"], validationInputPaths: ["check.cjs"], commands: [{ id: "check", command: "node check.cjs" }] }, undefined, undefined, { cwd: dir });
+  assert.equal(write.details.status, "written");
+  const saved = await getValidationManifestForTask(dir, "T-MODEL-DRAFT");
   assert.deepEqual(saved.outputPaths, ["result.txt"]);
   assert.deepEqual(saved.validationInputPaths, ["check.cjs"]);
   assert.ok(saved.validationInputFingerprint);
-  assert.equal((await runTaskValidation(dir, await loadState(dir), "T-OUT")).status, "passed");
+  assert.equal((await runTaskValidation(dir, await loadState(dir), "T-MODEL-DRAFT")).status, "passed");
   await writeFile(join(dir, "result.txt"), "changed after validation");
   assert.equal((await completeRunWithEvidence(dir, await loadState(dir))).accepted, false);
 }));

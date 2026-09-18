@@ -278,6 +278,66 @@ test("model authority can refine its own unexercised draft policy", async () => 
   }
 });
 
+test("an idempotent model write cannot claim a legacy policy and weaken it next", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "scaler-legacy-policy-authority-"));
+  try {
+    const original = await saveValidationManifest(dir, {
+      taskId: "T-LEGACY",
+      commands: [{ id: "unit", command: "node -e \"process.exit(1)\"", required: true }],
+      createdAt: "",
+      updatedAt: "",
+    });
+    const legacy = { ...original };
+    delete legacy.establishedAuthority;
+    const indexPath = join(dir, ".scaler/reports/validation-manifests.json");
+    await writeFile(indexPath, `${JSON.stringify({ version: 1, manifests: [legacy] }, null, 2)}\n`);
+
+    const idempotent = await saveValidationManifest(dir, legacy, { authority: "model" });
+    assert.equal(idempotent.establishedAuthority, "system");
+    await assert.rejects(saveValidationManifest(dir, {
+      ...idempotent,
+      commands: [{ id: "unit", command: "node -e \"process.exit(0)\"", required: true }],
+    }, { authority: "model" }), /established policy|authority|user command/i);
+    assert.match((await getValidationManifestForTask(dir, "T-LEGACY")).commands[0]?.command ?? "", /process\.exit\(1\)/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("an exercised derived default policy cannot be replaced by a first model save", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "scaler-default-policy-authority-"));
+  try {
+    await writeFile(join(dir, "package.json"), JSON.stringify({
+      scripts: { test: "node -e \"process.exit(1)\"" },
+    }));
+    const state = createDefaultState();
+    state.stage = "execution";
+    state.tasks = [{ id: "T-DEFAULT", status: "validating", updatedAt: state.updatedAt }];
+    await saveState(dir, state);
+    assert.equal((await runTaskValidation(dir, state, "T-DEFAULT")).status, "failed");
+
+    const current = await getValidationManifestForTask(dir, "T-DEFAULT");
+    await assert.rejects(saveValidationManifest(dir, {
+      ...current,
+      commands: [{ id: "unit", command: "node -e \"process.exit(0)\"", required: true }],
+    }, { authority: "model" }), /established policy|authority|user command/i);
+
+    await assert.rejects(saveValidationManifest(dir, {
+      ...current,
+      commands: [{ id: "unit", command: "node -e \"process.exit(0)\"", required: true }],
+    }, { authority: "user_command" }), /reason is required/i);
+    const amended = await saveValidationManifest(dir, {
+      ...current,
+      commands: [{ id: "unit", command: "node -e \"process.exit(0)\"", required: true }],
+    }, { authority: "user_command", reason: "Correct the exercised generated default." });
+    assert.equal(amended.establishedAuthority, "user_command");
+    assert.equal(amended.revision, 2);
+    assert.equal(amended.versionHistory?.[0]?.reason, "Correct the exercised generated default.");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("user correction of an established policy before first validation is reasoned and versioned", async () => {
   await withFailedPolicy(async (dir) => {
     const current = await getValidationManifestForTask(dir, "T-POLICY");
@@ -492,6 +552,42 @@ test("planning rejects an established policy replacement before first validation
     assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
     assert.deepEqual((await loadState(dir)).tasks[0]?.definitionOfDone, ["result.txt contains fixed"]);
   }, false);
+});
+
+test("planning cannot replace a preconfigured policy before creating its task", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "scaler-preconfigured-policy-authority-"));
+  try {
+    await saveState(dir, createDefaultState());
+    await saveValidationManifest(dir, {
+      taskId: "T-PRECONFIGURED",
+      outputPaths: ["result.txt"],
+      definitionOfDone: ["result.txt contains fixed"],
+      commands: [{ id: "unit", command: "node -e \"process.exit(1)\"", required: true }],
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    await assert.rejects(applyPlanningReport(dir, await loadState(dir), {
+      requirements: [{ id: "REQ-NOT-PUBLISHED", statement: "Must not publish around a preconfigured policy" }],
+      plan: {
+        planVersion: 2,
+        status: "active",
+        tasks: [{
+          id: "T-PRECONFIGURED", title: "Replace preconfigured policy", taskKind: "software",
+          atomicityRationale: "One independently testable result.", allowedPathPrefixes: ["result.txt"],
+          prdRefs: ["REQ-NOT-PUBLISHED"], definitionOfDone: ["Any result is acceptable"],
+          validationRefs: ["unit"], outputPaths: ["result.txt"],
+          validationCommands: [{ id: "unit", command: "node -e \"process.exit(0)\"", required: true }],
+        }],
+      },
+    }), /rejected before publication.*established policy/i);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    assert.deepEqual((await loadState(dir)).tasks, []);
+    assert.match((await getValidationManifestForTask(dir, "T-PRECONFIGURED")).commands[0]?.command ?? "", /process\.exit\(1\)/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("planning cannot publish between first validation and policy authority checking", async () => {
