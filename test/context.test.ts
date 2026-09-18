@@ -516,6 +516,58 @@ test("list-contained code fences do not expose pseudo Markdown headings", async 
   });
 });
 
+test("an unclosed list fence ends before a following document heading", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await writeFile(
+      join(dir, "reference.md"),
+      "## Target\ncontract\n- ```markdown\n  code\n\n## Next\nNEXT_CONTENT\n",
+      "utf8",
+    );
+    const [item] = await resolveTaskContextManifest(dir, state, {
+      version: 1,
+      taskId: "T-SECTION",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    assert.equal(item?.available, true);
+    assert.match(item?.content ?? "", /^## Target\ncontract\n- ```markdown\n  code\n\n$/);
+    assert.doesNotMatch(item?.content ?? "", /## Next|NEXT_CONTENT/);
+  });
+});
+
+test("over-indented backticks after a list marker do not open a fence", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await writeFile(
+      join(dir, "reference.md"),
+      "## Target\ncontract\n\n-     ```\n\n## Next\nNEXT_CONTENT\n",
+      "utf8",
+    );
+    const [item] = await resolveTaskContextManifest(dir, state, {
+      version: 1,
+      taskId: "T-SECTION",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    assert.equal(item?.available, true);
+    assert.match(item?.content ?? "", /-     ```/);
+    assert.doesNotMatch(item?.content ?? "", /## Next|NEXT_CONTENT/);
+  });
+});
+
 for (const [description, source, selector, diagnostic] of [
   ["missing heading", "## Other\ncontent\n", { kind: "markdown-heading", heading: "Target" }, /not found/i],
   ["ambiguous heading", "## Target\nfirst\n## Target\nsecond\n", { kind: "markdown-heading", heading: "Target" }, /ambiguous/i],
