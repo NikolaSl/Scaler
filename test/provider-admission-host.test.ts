@@ -14,6 +14,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import scalerExtension from "../src/index.js";
 import { assessTaskPromptAdmission } from "../src/prompt-admission.js";
+import { assessProviderRequestAdmission, createStrictProviderAdmissionPolicy } from "../src/provider-admission.js";
 
 const policyEnv = {
   SCALER_PROVIDER_ADMISSION: "strict",
@@ -24,48 +25,73 @@ const policyEnv = {
 
 // All provider traffic is replaced before creating the SDK session. No live
 // credentials, endpoints, command providers or global resource discovery are used.
-async function runInstalledHost(systemCharacters: number, extensions: ExtensionFactory[] = []) {
+async function runInstalledHost(systemCharacters: number, extensions: ExtensionFactory[] = [], options: { autoCompaction?: boolean } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "scaler-provider-host-test-"));
   const savedFetch = globalThis.fetch;
   const savedEnv = Object.fromEntries(Object.keys(policyEnv).map((key) => [key, process.env[key]]));
   let session: AgentSession | undefined;
   let fetchCalls = 0;
   let payload: Record<string, unknown> | undefined;
+  const payloads: Record<string, unknown>[] = [];
+  let compactionCancelled = false;
   try {
     Object.assign(process.env, policyEnv);
+    if (options.autoCompaction) process.env.SCALER_OUTPUT_RESERVE_TOKENS = "1024";
     globalThis.fetch = async (_input, init) => {
       fetchCalls += 1;
       assert.equal(typeof init?.body, "string", "expected SDK JSON request body");
       payload = JSON.parse(init?.body as string) as Record<string, unknown>;
+      payloads.push(payload);
+      if (options.autoCompaction) {
+        // A successful answer is needed to trigger Pi's threshold compaction.
+        const common = { id: "synthetic", object: "chat.completion.chunk", created: 0, model: "synthetic-window" };
+        const chunks = [
+          { ...common, choices: [{ index: 0, delta: { role: "assistant", content: "Done." }, finish_reason: null }] },
+          { ...common, choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 1100, completion_tokens: 3, total_tokens: 1103 } },
+        ];
+        return new Response(`${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`, {
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
       return new Response(JSON.stringify({ error: { message: "Synthetic transport: no network", type: "invalid_request_error" } }), {
         status: 400, headers: { "content-type": "application/json" },
       });
     };
     const authStorage = AuthStorage.inMemory();
     authStorage.setRuntimeApiKey("openai", "synthetic-not-a-credential");
-    const settingsManager = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } });
+    const settingsManager = SettingsManager.inMemory({
+      compaction: options.autoCompaction
+        ? { enabled: true, reserveTokens: 7900, keepRecentTokens: 0 }
+        : { enabled: false },
+      retry: { enabled: false },
+    });
     const model = {
       id: "synthetic-window", name: "Synthetic window", api: "openai-completions" as const,
       provider: "openai", baseUrl: "https://example.invalid/v1", reasoning: false,
       input: ["text" as const], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 8000, maxTokens: 1000,
+      contextWindow: 8000, maxTokens: options.autoCompaction ? 2000 : 1000,
     };
     const loader = new DefaultResourceLoader({
       cwd: dir, agentDir: join(dir, "agent"), settingsManager,
       noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
       systemPrompt: `HOST_SYSTEM_START\n${"s".repeat(systemCharacters)}\nHOST_SYSTEM_END`,
-      extensionFactories: [scalerExtension, ...extensions],
+      // Tool-less children load admission alone, without SCALER's separate
+      // deterministic compaction handler (see resolveChildAgentExtensionPaths).
+      extensionFactories: [...(options.autoCompaction ? [] : [scalerExtension]), ...extensions],
     });
     await loader.reload();
     ({ session } = await createAgentSession({
       cwd: dir, agentDir: join(dir, "agent"), authStorage,
       modelRegistry: ModelRegistry.inMemory(authStorage), model, settingsManager,
-      sessionManager: SessionManager.inMemory(dir), resourceLoader: loader, tools: ["read"],
+      sessionManager: SessionManager.inMemory(dir), resourceLoader: loader, tools: options.autoCompaction ? [] : ["read"],
     }));
-    await session.prompt("Inspect the exact source.");
+    session.subscribe((event) => {
+      if (event.type === "compaction_end" && event.aborted) compactionCancelled = true;
+    });
+    await session.prompt(options.autoCompaction ? `Inspect. ${"x".repeat(4000)}` : "Inspect the exact source.");
     const lastMessage = session.messages.at(-1);
     return {
-      fetchCalls, payload,
+      fetchCalls, payload, payloads, model, compactionCancelled,
       stopReason: lastMessage?.role === "assistant" ? lastMessage.stopReason : undefined,
     };
   } finally {
@@ -102,6 +128,25 @@ test("provider admission permits an adequate installed Pi envelope", async () =>
   const result = await runInstalledHost(40, [await admissionExtension()]);
   assert.equal(result.fetchCalls, 1);
   assert.ok(result.payload);
+});
+
+test("installed Pi auto-compaction bypasses provider-request hooks without the strict profile", async () => {
+  let hookCalls = 0;
+  const result = await runInstalledHost(40, [(pi) => {
+    pi.on("before_provider_request", () => { hookCalls += 1; });
+  }], { autoCompaction: true });
+  assert.equal(result.fetchCalls, 2, "ordinary answer and an unguarded compaction request reach transport");
+  assert.equal(hookCalls, 1, "Pi does not emit before_provider_request for compaction");
+  const policy = createStrictProviderAdmissionPolicy(8000);
+  assert.equal(assessProviderRequestAdmission({ payload: result.payloads[0], model: result.model, policy }).accepted, true);
+  assert.equal(assessProviderRequestAdmission({ payload: result.payloads[1], model: result.model, policy }).accepted, false);
+});
+
+test("strict provider admission cancels automatic compaction before unguarded transport", async () => {
+  const result = await runInstalledHost(40, [await admissionExtension()], { autoCompaction: true });
+  assert.equal(result.fetchCalls, 1, "only the admitted ordinary request may reach transport");
+  assert.equal(result.stopReason, "stop", "cancelling compaction must preserve the successful ordinary answer");
+  assert.equal(result.compactionCancelled, true);
 });
 
 test("installed Pi swallows throwing provider hooks but ctx.abort prevents transport", async () => {

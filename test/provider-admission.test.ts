@@ -87,3 +87,28 @@ test("provider admission refuses unsupported API, opaque payloads and image cont
     assert.equal(assessProviderRequestAdmission({ payload: request, model, policy }).accepted, false);
   }
 });
+
+for (const content of [null, "Audio transcript."]) {
+  test(`provider admission refuses assistant audio references with ${content === null ? "null" : "text"} content`, () => {
+    const request = {
+      ...payload(),
+      messages: [{ role: "assistant", content, audio: { id: "audio-reference-not-inline-content" } }],
+    };
+    assert.equal(assessProviderRequestAdmission({ payload: request, model, policy }).accepted, false);
+  });
+}
+
+for (const [name, extra] of [
+  ["audio configuration", { audio: { voice: "alloy", format: "wav" } }],
+  ["audio output modalities", { modalities: ["text", "audio"] }],
+] as const) {
+  test(`provider admission refuses top-level ${name}`, () => {
+    assert.equal(assessProviderRequestAdmission({ payload: { ...payload(), ...extra }, model, policy }).accepted, false);
+  });
+}
+
+test("provider admission refuses multiple completions rather than counting only one output limit", () => {
+  for (const n of [2, 3, 100]) {
+    assert.equal(assessProviderRequestAdmission({ payload: { ...payload(), n }, model, policy }).accepted, false, `n=${n}`);
+  }
+});
