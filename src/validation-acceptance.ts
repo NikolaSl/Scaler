@@ -60,17 +60,39 @@ export async function captureValidationSnapshot(cwd: string, state: ScalerState,
 async function fingerprintTaskRequirements(cwd: string, requirementIds: string[]): Promise<string> {
   if (requirementIds.length === 0) return fingerprintJson([]);
   const requirements = await loadPrdRequirements(cwd);
-  const byId = new Map(requirements.requirements.map((requirement) => [requirement.id, requirement]));
   const material = [...new Set(requirementIds)].sort().map((id) => {
-    const requirement = byId.get(id);
-    return requirement ? {
+    const matches = requirements.requirements.filter((candidate) => candidate?.id === id);
+    if (matches.length > 1) throw new Error(`Malformed runtime PRD requirements: duplicate linked requirement ${id}.`);
+    const requirement = matches[0];
+    if (requirement) {
+      assertValidRequirementContent(requirement, id);
+      return {
       id: requirement.id,
       statement: requirement.statement,
       title: requirement.title ?? null,
       source: requirement.source ?? null,
-    } : { id, missing: true };
+      };
+    }
+    return { id, missing: true };
   });
   return fingerprintJson(material);
+}
+
+function assertValidRequirementContent(requirement: unknown, expectedId: string): asserts requirement is {
+  id: string;
+  statement: string;
+  title?: string;
+  source?: string;
+} {
+  if (!requirement || typeof requirement !== "object") {
+    throw new Error(`Malformed runtime PRD requirement ${expectedId}: expected an object.`);
+  }
+  const candidate = requirement as Record<string, unknown>;
+  if (candidate.id !== expectedId || typeof candidate.statement !== "string"
+      || (candidate.title !== undefined && typeof candidate.title !== "string")
+      || (candidate.source !== undefined && typeof candidate.source !== "string")) {
+    throw new Error(`Malformed runtime PRD requirement ${expectedId}: id and statement must be strings; title and source must be strings when present.`);
+  }
 }
 
 export function fingerprintValidationResult(run: ValidationRunRecord): string {
