@@ -240,3 +240,84 @@ test("runTaskAgent removes cancellation listeners after normal completion", asyn
     assert.deepEqual(await loadWatchdogCleanupRecords(dir), []);
   });
 });
+
+const strictProviderPolicy = { requestTokenAllowance: 8_000, outputReserveTokens: 32, safetyMarginTokens: 1_024 };
+const providerPolicyEnvKeys = [
+  "SCALER_PROVIDER_ADMISSION", "SCALER_REQUEST_TOKEN_ALLOWANCE",
+  "SCALER_OUTPUT_RESERVE_TOKENS", "SCALER_REQUEST_MARGIN_TOKENS",
+] as const;
+
+async function withInheritedProviderPolicy<T>(fn: () => Promise<T>): Promise<T> {
+  const previous = Object.fromEntries(providerPolicyEnvKeys.map((key) => [key, process.env[key]]));
+  for (const key of providerPolicyEnvKeys) process.env[key] = "inherited-invalid-value";
+  try { return await fn(); } finally {
+    for (const key of providerPolicyEnvKeys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  }
+}
+
+const providerPolicyEchoScript = `#!/usr/bin/env node
+const keys = ${JSON.stringify(providerPolicyEnvKeys)};
+console.log(JSON.stringify({type:"test_policy",policy:Object.fromEntries(keys.filter(key => process.env[key] !== undefined).map(key=>[key,process.env[key]]))}));
+`;
+
+test("strict child invocation suppresses ambient resources and loads admission last even without tools", async () => {
+  const { getProviderAdmissionExtensionPath } = await import("../src/subagents.js");
+  for (const tools of [[], ["read"]]) {
+    const invocation = buildTaskAgentInvocation({ taskId: "T-strict", prompt: "Inspect.", tools, providerAdmission: strictProviderPolicy });
+    for (const flag of ["--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files"]) {
+      assert.ok(invocation.args.includes(flag), `missing ${flag}`);
+    }
+    const lastExtensionIndex = invocation.args.lastIndexOf("-e");
+    assert.ok(lastExtensionIndex >= 0);
+    assert.equal(invocation.args[lastExtensionIndex + 1], getProviderAdmissionExtensionPath());
+    if (tools.length === 0) assert.ok(invocation.args.includes("--no-tools"));
+    else assert.ok(invocation.args.includes("read"));
+  }
+});
+
+test("strict child invocation refuses additional extension configurations", () => {
+  assert.throws(() => buildTaskAgentInvocation({
+    taskId: "T-strict", prompt: "Inspect.", providerAdmission: strictProviderPolicy,
+    extensionPaths: ["./unverified-payload-rewriter.ts"],
+  }), /extension/i);
+});
+
+test("runTaskAgent transports only validated numeric provider policy and a strict marker", async () => {
+  await withInheritedProviderPolicy(async () => {
+    await withScript(providerPolicyEchoScript, async (script, dir) => {
+      const result = await runTaskAgent({ taskId: "T-strict", prompt: "Private prompt must not be an environment value", cwd: dir, providerAdmission: strictProviderPolicy }, { command: script });
+      assert.equal(result.exitCode, 0);
+      assert.deepEqual(result.stdoutEvents, [{ type: "test_policy", policy: {
+        SCALER_PROVIDER_ADMISSION: "strict",
+        SCALER_REQUEST_TOKEN_ALLOWANCE: "8000",
+        SCALER_OUTPUT_RESERVE_TOKENS: "32",
+        SCALER_REQUEST_MARGIN_TOKENS: "1024",
+      } }]);
+    });
+  });
+});
+
+test("runTaskAgent removes inherited provider policy for children without an explicit policy", async () => {
+  await withInheritedProviderPolicy(async () => {
+    await withScript(providerPolicyEchoScript, async (script, dir) => {
+      const result = await runTaskAgent({ taskId: "T-no-policy", prompt: "Inspect.", cwd: dir }, { command: script });
+      assert.equal(result.exitCode, 0);
+      assert.deepEqual(result.stdoutEvents, [{ type: "test_policy", policy: {} }]);
+    });
+  });
+});
+
+test("runTaskAgent refuses invalid provider policy before spawning", async () => {
+  await withScript('#!/bin/sh\necho launched > launched.txt\n', async (script, dir) => {
+    for (const requestTokenAllowance of [0, -1, NaN, Infinity, 1.5]) {
+      await assert.rejects(runTaskAgent({
+        taskId: "T-invalid-policy", prompt: "Inspect.", cwd: dir,
+        providerAdmission: { ...strictProviderPolicy, requestTokenAllowance },
+      }, { command: script }), /policy|allowance|positive|integer/i);
+    }
+    await assert.rejects(readFile(join(dir, "launched.txt")), { code: "ENOENT" });
+  });
+});
