@@ -545,11 +545,14 @@ function scanMarkdownIndent(line: string, startIndex = 0, startColumn = 0): { co
 
 function parseMarkdownListItem(
   line: string,
-  activeContentIndent?: number,
-): { contentIndent: number; contentIndex: number } | undefined {
+  contentIndents: number[],
+): { baseIndex: number; contentIndent: number; contentIndex: number } | undefined {
   const indent = scanMarkdownIndent(line);
-  const bases = activeContentIndent === undefined ? [0] : [activeContentIndent, 0];
-  for (const base of bases) {
+  const bases = [
+    ...contentIndents.map((base, baseIndex) => ({ base, baseIndex })).reverse(),
+    { base: 0, baseIndex: -1 },
+  ];
+  for (const { base, baseIndex } of bases) {
     const relativeIndent = indent.columns - base;
     if (relativeIndent < 0 || relativeIndent > 3) continue;
     const marker = line.slice(indent.index).match(/^(?:[-+*]|\d{1,9}[.)])/);
@@ -557,50 +560,77 @@ function parseMarkdownListItem(
     const markerEndIndex = indent.index + marker[0].length;
     const markerEndColumn = indent.columns + marker[0].length;
     if (markerEndIndex === line.length) {
-      return { contentIndent: markerEndColumn + 1, contentIndex: markerEndIndex };
+      return { baseIndex, contentIndent: markerEndColumn + 1, contentIndex: markerEndIndex };
     }
-    if (line[markerEndIndex] !== " ") continue;
-    const padding = line.slice(markerEndIndex).match(/^ +/)![0].length;
-    const effectivePadding = padding <= 4 ? padding : 1;
+    if (line[markerEndIndex] !== " " && line[markerEndIndex] !== "\t") continue;
+    const padding = scanMarkdownIndent(line, markerEndIndex, markerEndColumn);
+    const paddingColumns = padding.columns - markerEndColumn;
+    const effectivePadding = paddingColumns <= 4 ? paddingColumns : 1;
     return {
+      baseIndex,
       contentIndent: markerEndColumn + effectivePadding,
-      contentIndex: markerEndIndex + effectivePadding,
+      contentIndex: paddingColumns <= 4 ? padding.index : markerEndIndex + 1,
     };
   }
   return undefined;
 }
 
+function isMarkdownThematicBreak(line: string, contentIndents: number[]): boolean {
+  const indent = scanMarkdownIndent(line);
+  const allowed = [...contentIndents, 0].some((base) => {
+    const relativeIndent = indent.columns - base;
+    return relativeIndent >= 0 && relativeIndent <= 3;
+  });
+  if (!allowed) return false;
+  const rest = line.slice(indent.index);
+  return /^(?:\*[ \t]*){3,}$/.test(rest)
+    || /^(?:_[ \t]*){3,}$/.test(rest)
+    || /^(?:-[ \t]*){3,}$/.test(rest);
+}
+
 function extractMarkdownHeadingSection(content: string, path: string, selector: MarkdownHeadingSelector): string {
   const headings: Array<{ level: number; text: string; start: number }> = [];
   let fence: { marker: "`" | "~"; length: number; minIndent: number; maxIndent: number } | undefined;
-  let activeListIndent: number | undefined;
+  let listIndents: number[] = [];
+  let previousLineBlank = false;
   let offset = 0;
   while (offset < content.length) {
     const newline = content.indexOf("\n", offset);
     const end = newline === -1 ? content.length : newline + 1;
     const sourceLine = content.slice(offset, end);
     const line = sourceLine.replace(/\r?\n$/, "");
+    const lineBlank = line.trim() === "";
     const indent = scanMarkdownIndent(line);
     if (fence) {
-      if (fence.minIndent === 0 || line.trim() === "" || indent.columns >= fence.minIndent) {
+      if (fence.minIndent === 0 || lineBlank || indent.columns >= fence.minIndent) {
         const closing = new RegExp(`^${fence.marker === "`" ? "`" : "~"}{${fence.length},}[ \\t]*$`);
         if (indent.columns <= fence.maxIndent && closing.test(line.slice(indent.index))) fence = undefined;
+        previousLineBlank = lineBlank;
         offset = end;
         continue;
       }
       fence = undefined;
-      activeListIndent = undefined;
+      while (listIndents.length > 0 && indent.columns < listIndents[listIndents.length - 1]!) listIndents.pop();
     }
 
-    if (line.trim() !== "" && activeListIndent !== undefined && indent.columns < activeListIndent) {
-      activeListIndent = undefined;
+    const thematicBreak = isMarkdownThematicBreak(line, listIndents);
+    const listItem = thematicBreak ? undefined : parseMarkdownListItem(line, listIndents);
+    const rawBlock = line.slice(indent.index);
+    const startsBlock = thematicBreak
+      || listItem !== undefined
+      || /^#{1,6}(?:[ \t]|$)/.test(rawBlock)
+      || /^(?:`{3,}|~{3,})/.test(rawBlock);
+    if (listItem) {
+      listIndents = listIndents.slice(0, listItem.baseIndex + 1);
+      listIndents.push(listItem.contentIndent);
+    } else if (!lineBlank && (startsBlock || previousLineBlank)) {
+      while (listIndents.length > 0 && indent.columns < listIndents[listIndents.length - 1]!) listIndents.pop();
     }
-    const listItem = parseMarkdownListItem(line, activeListIndent);
-    if (listItem) activeListIndent = listItem.contentIndent;
     const fenceIndent = listItem
       ? scanMarkdownIndent(line, listItem.contentIndex, listItem.contentIndent)
       : indent;
-    const relativeFenceIndent = fenceIndent.columns - (activeListIndent ?? 0);
+    const containerIndent = listIndents[listIndents.length - 1] ?? 0;
+    const relativeFenceIndent = fenceIndent.columns - containerIndent;
     const fenceMatch = line.slice(fenceIndent.index).match(/^(`{3,}|~{3,})(.*)$/);
     const fenceMarker = relativeFenceIndent >= 0 && relativeFenceIndent <= 3 ? fenceMatch?.[1] : undefined;
     const fenceInfo = fenceMatch?.[2];
@@ -608,13 +638,13 @@ function extractMarkdownHeadingSection(content: string, path: string, selector: 
     const validFenceOpener = fenceMarker !== undefined
       && !(marker === "`" && fenceInfo!.includes("`"));
     if (validFenceOpener) {
-      const containerIndent = activeListIndent ?? 0;
       fence = {
         marker: marker!,
         length: fenceMarker!.length,
         minIndent: containerIndent,
         maxIndent: containerIndent + 3,
       };
+      previousLineBlank = false;
       offset = end;
       continue;
     }
@@ -623,6 +653,7 @@ function extractMarkdownHeadingSection(content: string, path: string, selector: 
       const text = (match[2] ?? "").replace(/[ \t]+#+[ \t]*$/, "").trim();
       headings.push({ level: match[1]!.length, text, start: offset });
     }
+    previousLineBlank = lineBlank;
     offset = end;
   }
 
