@@ -17,7 +17,7 @@ import {
   summarizeTaskAgentReportIngestion,
   type TaskAgentRunner,
 } from "./conductor.js";
-import { ensureTaskContextManifest, resolveTaskContextManifest, type ContextItem } from "./context.js";
+import { ensureTaskContextManifest, getRequiredContextDiagnostics, resolveTaskContextManifest, type ContextItem } from "./context.js";
 import {
   loadDebugReports,
   loadDebugRetries,
@@ -290,6 +290,16 @@ export async function runDebugNextApproachRetry(
     const runningTask = workingState.tasks.find((task) => task.id === selection.task.id) ?? selection.task;
     const manifest = await ensureTaskContextManifest(cwd, workingState, runningTask.id);
     const baseContext = await resolveTaskContextManifest(cwd, workingState, manifest);
+    const requiredContextDiagnostics = getRequiredContextDiagnostics(baseContext);
+    if (requiredContextDiagnostics.length > 0) {
+      const message = requiredContextDiagnostics.join(" ");
+      const retry = await upsertRetryRecord(cwd, buildRetryRecord(selection, "rejected", false, message));
+      await appendLogEvent(cwd, createLogEvent(workingState, {
+        eventType: "rejected_transition", summary: message, taskId: runningTask.id,
+        details: { admission: "required_context", diagnostics: requiredContextDiagnostics },
+      }));
+      return { accepted: false, message, status: "rejected", state: workingState, task: runningTask, retry };
+    }
     const retryContext = buildNextApproachContextItem(selection);
     const promptTokenBudget = resolveTaskPromptTokenBudget(options.tokenBudget, manifest.tokenBudget);
     let { prompt, resolvedContext } = buildTaskAgentPrompt({

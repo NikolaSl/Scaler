@@ -15,6 +15,7 @@ import { assessDebugRetryGate } from "./debug.js";
 import { assessGitStatusSafety } from "./git.js";
 import {
   ensureTaskContextManifest,
+  getRequiredContextDiagnostics,
   resolveContext,
   resolveTaskContextManifest,
   type ContextItem,
@@ -255,6 +256,17 @@ export async function runConductorStep(
     const runningTask = nextState.tasks.find((task) => task.id === selection.task!.id)!;
     const contextManifest = options.contextItems ? undefined : await ensureTaskContextManifest(cwd, nextState, runningTask.id);
     const contextItems = options.contextItems ?? (await resolveTaskContextManifest(cwd, nextState, contextManifest!));
+    const requiredContextDiagnostics = getRequiredContextDiagnostics(contextItems);
+    if (requiredContextDiagnostics.length > 0) {
+      const message = requiredContextDiagnostics.join(" ");
+      await appendLogEvent(cwd, createLogEvent(nextState, {
+        eventType: "rejected_transition",
+        summary: message,
+        taskId: runningTask.id,
+        details: { admission: "required_context", diagnostics: requiredContextDiagnostics },
+      }));
+      return { accepted: false, message, state: nextState, task: runningTask };
+    }
     const promptTokenBudget = resolveTaskPromptTokenBudget(options.tokenBudget, contextManifest?.tokenBudget);
     let { prompt, resolvedContext, compressionAssessment } = buildTaskAgentPrompt({
       state: nextState,

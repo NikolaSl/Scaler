@@ -29,6 +29,8 @@ export interface ContextItem {
   scope: ContextScope;
   exactness?: ContextExactness;
   estimatedTokens?: number;
+  available?: boolean;
+  diagnostic?: string;
 }
 
 export interface ContextResolverInput {
@@ -49,6 +51,12 @@ export interface ResolvedContext {
 
 export type ContextManifestSource = "inline" | "file" | "memory" | "state" | "task" | "prd_refs" | "validation_manifest";
 
+export interface MarkdownHeadingSelector {
+  kind: "markdown-heading";
+  heading: string;
+  maxChars?: number;
+}
+
 export interface TaskContextManifestItem {
   id: string;
   type: ContextItemType;
@@ -61,6 +69,7 @@ export interface TaskContextManifestItem {
   path?: string;
   memoryId?: string;
   taskId?: string;
+  selector?: MarkdownHeadingSelector;
 }
 
 export interface TaskContextManifest {
@@ -87,6 +96,7 @@ export interface ContextCandidate {
   content?: string;
   path?: string;
   memoryId?: string;
+  selector?: MarkdownHeadingSelector;
 }
 
 export interface ContextCandidateSearchOptions {
@@ -216,6 +226,10 @@ export async function saveTaskContextManifest(cwd: string, manifest: TaskContext
       path: item.path?.trim() || undefined,
       memoryId: item.memoryId?.trim() || undefined,
       taskId: item.taskId?.trim() || undefined,
+      selector: item.selector ? {
+        ...item.selector,
+        heading: item.selector.heading.trim(),
+      } : undefined,
     })),
   };
   validateTaskContextManifest(normalized);
@@ -245,7 +259,8 @@ export function formatTaskContextManifest(manifest: TaskContextManifest): string
   validateTaskContextManifest(manifest);
   const lines = [`Task context manifest: ${manifest.taskId} items=${manifest.items.length} tokenBudget=${manifest.tokenBudget ?? "default"}`];
   for (const item of manifest.items) {
-    lines.push(`- ${item.id}: ${item.source}/${item.type} ${item.priority} ${item.scope} exactness=${normalizeExactness(item.exactness, item.scope)} reason=${item.reason}`);
+    const selector = item.selector ? ` selector=${item.selector.kind}:${item.selector.heading}` : "";
+    lines.push(`- ${item.id}: ${item.source}/${item.type} ${item.priority} ${item.scope} exactness=${normalizeExactness(item.exactness, item.scope)}${selector} reason=${item.reason}`);
   }
   return lines.join("\n");
 }
@@ -279,6 +294,7 @@ export async function discoverSemanticContextCandidates(
       content: item.content,
       path: item.path,
       memoryId: item.memoryId,
+      selector: item.selector,
     });
   }
 
@@ -427,6 +443,7 @@ async function resolveManifestItem(
       priority: entry.priority,
       scope: entry.scope,
       exactness: normalizeExactness(entry.exactness, entry.scope),
+      available: true,
       content: await resolveManifestItemContent(cwd, state, manifest, entry),
     };
   } catch (error) {
@@ -437,6 +454,8 @@ async function resolveManifestItem(
       priority: entry.priority === "required" ? "required" : "optional",
       scope: "reference-only",
       exactness: "reference-only",
+      available: false,
+      diagnostic: (error as Error).message,
       content: `MISSING CONTEXT: ${entry.id}\nSource: ${entry.source}\nReason: ${(error as Error).message}`,
     };
   }
@@ -449,7 +468,7 @@ async function resolveManifestItemContent(
   entry: TaskContextManifestItem,
 ): Promise<string> {
   if (entry.source === "inline") return entry.content ?? "";
-  if (entry.source === "file") return await resolveFileContextContent(cwd, entry.path!, entry.scope);
+  if (entry.source === "file") return await resolveFileContextContent(cwd, entry.path!, entry.scope, entry.selector);
   if (entry.source === "memory") return (await retrieveMemory(cwd, entry.memoryId!, { scope: entry.scope })).content;
   if (entry.source === "state") return formatStateContext(state);
   if (entry.source === "task") return formatTaskContext(state, entry.taskId ?? manifest.taskId);
@@ -490,13 +509,64 @@ function formatPrdRefsContext(state: ScalerState, taskId: string): string {
   return refs.length > 0 ? `Runtime PRD refs for ${taskId}: ${refs.join(", ")}` : `Runtime PRD refs for ${taskId}: none`;
 }
 
-async function resolveFileContextContent(cwd: string, path: string, scope: ContextScope): Promise<string> {
+async function resolveFileContextContent(
+  cwd: string,
+  path: string,
+  scope: ContextScope,
+  selector?: MarkdownHeadingSelector,
+): Promise<string> {
   const content = await readFile(resolveContextPath(cwd, path), "utf8");
   if (scope === "full") return content;
   if (scope === "reference-only") return `File reference: ${path}`;
+  if (scope === "section") {
+    if (!selector) throw new Error(`File section selector is required for ${path}.`);
+    return extractMarkdownHeadingSection(content, path, selector);
+  }
   const maxChars = scope === "snippet" ? 2_400 : 3_200;
   if (content.length <= maxChars) return content;
   return [`File ${scope}: ${path}`, content.slice(0, maxChars), `... [truncated ${content.length - maxChars} chars; request full file if needed]`].join("\n");
+}
+
+function extractMarkdownHeadingSection(content: string, path: string, selector: MarkdownHeadingSelector): string {
+  const headings: Array<{ level: number; text: string; start: number }> = [];
+  let fence: { marker: "`" | "~"; length: number } | undefined;
+  let offset = 0;
+  while (offset < content.length) {
+    const newline = content.indexOf("\n", offset);
+    const end = newline === -1 ? content.length : newline + 1;
+    const sourceLine = content.slice(offset, end);
+    const line = sourceLine.replace(/\r?\n$/, "");
+    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    if (fence) {
+      const closing = new RegExp(`^ {0,3}${fence.marker === "`" ? "`" : "~"}{${fence.length},}[ \\t]*$`);
+      if (closing.test(line)) fence = undefined;
+      offset = end;
+      continue;
+    }
+    if (fenceMatch) {
+      fence = { marker: fenceMatch[1]![0] as "`" | "~", length: fenceMatch[1]!.length };
+      offset = end;
+      continue;
+    }
+    const match = line.match(/^ {0,3}(#{1,6})(?:[ \t]+(.*?)|[ \t]*)$/);
+    if (match) {
+      const text = (match[2] ?? "").replace(/[ \t]+#+[ \t]*$/, "").trim();
+      headings.push({ level: match[1]!.length, text, start: offset });
+    }
+    offset = end;
+  }
+
+  const matches = headings.filter((heading) => heading.text === selector.heading);
+  if (matches.length === 0) throw new Error(`Markdown heading not found in ${path}: ${selector.heading}`);
+  if (matches.length > 1) throw new Error(`Markdown heading is ambiguous in ${path}: ${selector.heading}`);
+  const selected = matches[0]!;
+  const following = headings.find((heading) => heading.start > selected.start && heading.level <= selected.level);
+  const section = content.slice(selected.start, following?.start ?? content.length);
+  const maxChars = selector.maxChars ?? 3_200;
+  if (section.length > maxChars) {
+    throw new Error(`Markdown section ${selector.heading} in ${path} is oversized: ${section.length}/${maxChars} characters.`);
+  }
+  return section;
 }
 
 async function discoverCandidateFilePaths(cwd: string, task: ScalerTaskState, changedPaths: string[]): Promise<string[]> {
@@ -545,6 +615,7 @@ function contextCandidateToManifestItem(candidate: ContextCandidate): TaskContex
     priority: candidate.priority,
     scope: candidate.scope,
     exactness: candidate.exactness,
+    selector: candidate.selector,
   } satisfies Omit<TaskContextManifestItem, "source">;
   if (candidate.memoryId) return { ...base, source: "memory", memoryId: candidate.memoryId };
   if (candidate.path) return { ...base, source: "file", path: candidate.path };
@@ -553,14 +624,17 @@ function contextCandidateToManifestItem(candidate: ContextCandidate): TaskContex
 
 function contextManifestItemMatchesCandidate(item: TaskContextManifestItem, candidate: ContextCandidate): boolean {
   if (candidate.memoryId && item.memoryId === candidate.memoryId) return true;
-  if (candidate.path && item.path === candidate.path) return true;
+  if (candidate.path && item.path === candidate.path
+      && JSON.stringify(item.selector ?? null) === JSON.stringify(candidate.selector ?? null)) return true;
   return Boolean(candidate.content && item.content === candidate.content);
 }
 
 function dedupeContextCandidates(candidates: ContextCandidate[]): ContextCandidate[] {
   const byKey = new Map<string, ContextCandidate>();
   for (const candidate of candidates) {
-    const key = candidate.memoryId ? `memory:${candidate.memoryId}` : candidate.path ? `path:${candidate.path}` : candidate.content ? `content:${candidate.content}` : candidate.id;
+    const key = candidate.memoryId ? `memory:${candidate.memoryId}`
+      : candidate.path ? `path:${candidate.path}:selector:${JSON.stringify(candidate.selector ?? null)}`
+      : candidate.content ? `content:${candidate.content}` : candidate.id;
     const existing = byKey.get(key);
     if (!existing || candidate.score > existing.score) byKey.set(key, candidate);
   }
@@ -828,7 +902,25 @@ function validateTaskContextManifestItem(item: TaskContextManifestItem, ids: Set
   if (!item.reason.trim()) throw new Error(`Task context item ${item.id} reason is required.`);
   if (item.source === "inline" && !item.content?.trim()) throw new Error(`Task context item ${item.id} inline content is required.`);
   if (item.source === "file" && !item.path?.trim()) throw new Error(`Task context item ${item.id} file path is required.`);
+  if (item.selector !== undefined) {
+    if (item.source !== "file" || item.scope !== "section") {
+      throw new Error(`Task context item ${item.id} selector requires file section scope.`);
+    }
+    if (item.selector.kind !== "markdown-heading" || !item.selector.heading?.trim()) {
+      throw new Error(`Task context item ${item.id} Markdown heading selector is invalid.`);
+    }
+    if (item.selector.maxChars !== undefined
+        && (!Number.isSafeInteger(item.selector.maxChars) || item.selector.maxChars <= 0)) {
+      throw new Error(`Task context item ${item.id} selector maxChars must be a positive finite integer.`);
+    }
+  }
   if (item.source === "memory" && !item.memoryId?.trim()) throw new Error(`Task context item ${item.id} memoryId is required.`);
+}
+
+export function getRequiredContextDiagnostics(items: ContextItem[]): string[] {
+  return items
+    .filter((item) => item.priority === "required" && item.available === false)
+    .map((item) => `Required context ${item.id} is unavailable: ${item.diagnostic ?? "unknown retrieval error"}`);
 }
 
 export function resolveContext(input: ContextResolverInput): ResolvedContext {
