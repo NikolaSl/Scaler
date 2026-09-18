@@ -372,3 +372,38 @@ This is bounded AC-10 evidence for explicitly declared local validation files.
 Undeclared dependencies, semantic declaration sufficiency, arbitrary trusted
 filesystem writers, non-software evidence and representative real/local-model
 outcome quality remain open. Do not mark P2 or SC-10 complete from this unit.
+
+## Unit F — Protect established policy before its first validation
+
+The refreshed P2 closure audit reproduced one remaining authority bypass. A
+system- or user-established validation manifest could be replaced through the
+public model manifest tool before any validation run existed. The weakened
+command then produced fresh passing evidence for output that still violated the
+task's stated Definition of Done. The existing guard covered exercised policies
+and an in-flight first validation, but treated the entire pre-run interval as
+model-owned.
+
+Keep the correction bounded to policy provenance and supported publication
+routes:
+
+1. Record whether the persisted manifest was established by the model, the
+   system, or an explicit local user command. Provenance is authorization
+   metadata, not a substitute for the policy fingerprint or validation receipt.
+2. Permit idempotent writes and refinement of a model-owned, unexercised draft.
+   Reject model replacement of a system/user-established manifest even before
+   its first run. Legacy manifests without provenance fail closed for material
+   model changes.
+3. Require the existing explicit user-command reason, revision and history for
+   a correction to an established manifest, including a correction made before
+   its first run.
+4. Apply the same preflight to manifest, task-update and planning routes so a
+   rejected change cannot partially publish task, plan or requirement state.
+5. Preserve the exercised task-contract guard. General provenance for every
+   pre-run task metadata field, semantic check sufficiency and arbitrary trusted
+   filesystem writers remain outside this unit.
+
+Regression controls must show the original strong command remains active and
+fails broken output, model-owned drafts can still be refined, and an authorized
+pre-run correction is versioned. Run the focused authority/tool/planning tests,
+then the full applicable build, unit, mock-integration and conformance gate and
+obtain fresh exact-head independent review.
