@@ -529,25 +529,34 @@ async function resolveFileContextContent(
 
 function extractMarkdownHeadingSection(content: string, path: string, selector: MarkdownHeadingSelector): string {
   const headings: Array<{ level: number; text: string; start: number }> = [];
-  let fence: { marker: "`" | "~"; length: number } | undefined;
+  let fence: { marker: "`" | "~"; length: number; minIndent: number; maxIndent: number } | undefined;
   let offset = 0;
   while (offset < content.length) {
     const newline = content.indexOf("\n", offset);
     const end = newline === -1 ? content.length : newline + 1;
     const sourceLine = content.slice(offset, end);
     const line = sourceLine.replace(/\r?\n$/, "");
-    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    const directFenceMatch = line.match(/^( {0,3})(`{3,}|~{3,})(.*)$/);
+    const listFenceMatch = line.match(/^( {0,3}(?:[-+*]|\d{1,9}[.)]) {1,4})( {0,3})(`{3,}|~{3,})(.*)$/);
     if (fence) {
-      const closing = new RegExp(`^ {0,3}${fence.marker === "`" ? "`" : "~"}{${fence.length},}[ \\t]*$`);
+      const closing = new RegExp(`^ {${fence.minIndent},${fence.maxIndent}}${fence.marker === "`" ? "`" : "~"}{${fence.length},}[ \\t]*$`);
       if (closing.test(line)) fence = undefined;
       offset = end;
       continue;
     }
-    const marker = fenceMatch?.[1]?.[0] as "`" | "~" | undefined;
-    const validFenceOpener = fenceMatch !== null
-      && !(marker === "`" && fenceMatch[2]!.includes("`"));
+    const fenceMarker = directFenceMatch?.[2] ?? listFenceMatch?.[3];
+    const fenceInfo = directFenceMatch?.[3] ?? listFenceMatch?.[4];
+    const marker = fenceMarker?.[0] as "`" | "~" | undefined;
+    const validFenceOpener = fenceMarker !== undefined
+      && !(marker === "`" && fenceInfo!.includes("`"));
     if (validFenceOpener) {
-      fence = { marker: fenceMatch[1]![0] as "`" | "~", length: fenceMatch[1]!.length };
+      const containerIndent = listFenceMatch?.[1].length ?? 0;
+      fence = {
+        marker: marker!,
+        length: fenceMarker!.length,
+        minIndent: containerIndent,
+        maxIndent: containerIndent + 3,
+      };
       offset = end;
       continue;
     }
