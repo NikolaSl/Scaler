@@ -590,6 +590,43 @@ test("planning cannot replace a preconfigured policy before creating its task", 
   }
 });
 
+test("planning can create a task that inherits a preconfigured policy without rewriting it", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "scaler-preconfigured-policy-inheritance-"));
+  try {
+    await saveState(dir, createDefaultState());
+    const manifest = await saveValidationManifest(dir, {
+      taskId: "T-INHERIT",
+      commands: [{ id: "unit", command: "node -e \"process.exit(1)\"", required: true }],
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    const result = await applyPlanningReport(dir, await loadState(dir), {
+      requirements: [],
+      plan: {
+        planVersion: 2,
+        status: "active",
+        tasks: [{
+          id: "T-INHERIT", title: "Inherit preconfigured policy", taskKind: "non_software",
+          atomicityRationale: "One independently testable result.", allowedPathPrefixes: ["result.txt"],
+          definitionOfDone: ["Task-level criterion without a manifest rewrite"], validationRefs: ["unit"],
+        }],
+      },
+    });
+
+    assert.equal(result.state.tasks[0]?.id, "T-INHERIT");
+    const inherited = await getValidationManifestForTask(dir, "T-INHERIT");
+    assert.equal(inherited.commands.length, 1);
+    assert.equal(inherited.commands[0]?.id, manifest.commands[0]?.id);
+    assert.equal(inherited.commands[0]?.command, manifest.commands[0]?.command);
+    assert.equal(inherited.commands[0]?.required, manifest.commands[0]?.required);
+    assert.equal(inherited.establishedAuthority, manifest.establishedAuthority);
+    assert.equal(inherited.definitionOfDone, undefined);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("planning cannot publish between first validation and policy authority checking", async () => {
   await withFailedPolicy(async (dir) => {
     const manifest = await getValidationManifestForTask(dir, "T-POLICY");

@@ -142,7 +142,7 @@ test("mock integration: validation gate policy blocks misordered dependency chec
       { cwd: dir, hasUI: false },
     );
     await commands.get("scaler-validation-add")?.handler(
-      "T-POLICY | expensive | node -e \"require('node:fs').writeFileSync('policy-should-not-run.txt','ran')\" | Expensive validation | required | unit | unit exits 0 | manifest:unit",
+      "T-POLICY | expensive | node -e \"require('node:fs').writeFileSync('policy-should-not-run.txt','ran')\" | Expensive validation | required | unit | unit exits 0 | manifest:unit | | | Add the second pre-run policy check",
       { cwd: dir, hasUI: false },
     );
 
