@@ -473,14 +473,16 @@ async function preflightExecutionPlanPolicyChanges(
     const existing = state.tasks.find((candidate) => candidate.id === task.id);
     if (!existing) {
       const manifest = manifests.find((candidate) => candidate.taskId === task.id);
-      if (!manifest) continue;
+      const writesManifest = Boolean(task.validationCommands?.length)
+        || task.outputPaths !== undefined
+        || task.validationInputPaths !== undefined;
+      if (!manifest || !writesManifest) continue;
       try {
         await assertValidationPolicyMutationAuthorized(cwd, {
           ...manifest,
           outputPaths: task.outputPaths ?? manifest.outputPaths,
           validationInputPaths: task.validationInputPaths ?? manifest.validationInputPaths,
           definitionOfDone: task.definitionOfDone ?? manifest.definitionOfDone,
-          qualityWaivers: task.qualityWaivers ?? manifest.qualityWaivers,
           commands: task.validationCommands?.length
             ? task.validationCommands.map((command) => ({ ...command, required: command.required ?? true }))
             : manifest.commands,
