@@ -537,15 +537,19 @@ function extractMarkdownHeadingSection(content: string, path: string, selector: 
     const sourceLine = content.slice(offset, end);
     const line = sourceLine.replace(/\r?\n$/, "");
     const directFenceMatch = line.match(/^( {0,3})(`{3,}|~{3,})(.*)$/);
-    const listFenceMatch = line.match(/^( {0,3}(?:[-+*]|\d{1,9}[.)]) {1,4})( {0,3})(`{3,}|~{3,})(.*)$/);
+    const listFenceMatch = line.match(/^( {0,3}(?:[-+*]|\d{1,9}[.)]) {1,4})(`{3,}|~{3,})(.*)$/);
     if (fence) {
-      const closing = new RegExp(`^ {${fence.minIndent},${fence.maxIndent}}${fence.marker === "`" ? "`" : "~"}{${fence.length},}[ \\t]*$`);
-      if (closing.test(line)) fence = undefined;
-      offset = end;
-      continue;
+      const leadingSpaces = line.match(/^ */)![0].length;
+      if (fence.minIndent === 0 || line.trim() === "" || leadingSpaces >= fence.minIndent) {
+        const closing = new RegExp(`^ {${fence.minIndent},${fence.maxIndent}}${fence.marker === "`" ? "`" : "~"}{${fence.length},}[ \\t]*$`);
+        if (closing.test(line)) fence = undefined;
+        offset = end;
+        continue;
+      }
+      fence = undefined;
     }
-    const fenceMarker = directFenceMatch?.[2] ?? listFenceMatch?.[3];
-    const fenceInfo = directFenceMatch?.[3] ?? listFenceMatch?.[4];
+    const fenceMarker = directFenceMatch?.[2] ?? listFenceMatch?.[2];
+    const fenceInfo = directFenceMatch?.[3] ?? listFenceMatch?.[3];
     const marker = fenceMarker?.[0] as "`" | "~" | undefined;
     const validFenceOpener = fenceMarker !== undefined
       && !(marker === "`" && fenceInfo!.includes("`"));
