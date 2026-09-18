@@ -15,6 +15,10 @@ import {
 
 export default function providerAdmissionExtension(pi: ExtensionAPI): void {
   const configured = readProviderAdmissionPolicyFromEnvironment();
+  // Pi compaction calls the provider stream directly and does not emit
+  // before_provider_request. The strict profile must cancel that alternate
+  // transport route rather than certify only the ordinary request path.
+  pi.on("session_before_compact", () => ({ cancel: true }));
   pi.on("before_provider_request", (event, ctx) => {
     const decision = configured.policy
       ? assessProviderRequestAdmission({ payload: event.payload, model: ctx.model, policy: configured.policy })

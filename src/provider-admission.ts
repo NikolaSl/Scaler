@@ -126,6 +126,9 @@ export function assessProviderRequestAdmission(input: ProviderAdmissionInput): P
   if (!isRecord(input.payload) || !Array.isArray(input.payload.messages) || input.payload.messages.length === 0) {
     return reject("invalid_payload", "Provider payload must contain a non-empty messages array.", modelDetails);
   }
+  if (hasUnsupportedTopLevelMode(input.payload)) {
+    return reject("unsupported_content", "Strict provider admission supports one text completion without audio configuration.", modelDetails);
+  }
   if (!input.payload.messages.every(isSupportedTextMessage)) {
     return reject("unsupported_content", "Strict provider admission supports text and tool-call messages only.", modelDetails);
   }
@@ -191,12 +194,22 @@ function reject(
 
 function isSupportedTextMessage(value: unknown): boolean {
   if (!isRecord(value) || typeof value.role !== "string") return false;
+  if (["audio", "image", "images", "image_url", "input_audio"].some((key) => Object.hasOwn(value, key))) return false;
   const content = value.content;
   if (typeof content === "string" || content === null) return true;
   if (!Array.isArray(content)) return false;
   return content.every((part) => isRecord(part)
     && (part.type === "text" || part.type === "input_text" || part.type === "output_text")
     && typeof part.text === "string");
+}
+
+function hasUnsupportedTopLevelMode(payload: Record<string, unknown>): boolean {
+  if (["audio", "image", "images", "image_url", "input_audio"].some((key) => Object.hasOwn(payload, key))) return true;
+  if (Object.hasOwn(payload, "n") && payload.n !== 1) return true;
+  if (!Object.hasOwn(payload, "modalities")) return false;
+  return !Array.isArray(payload.modalities)
+    || payload.modalities.length !== 1
+    || payload.modalities[0] !== "text";
 }
 
 function safeSum(...values: number[]): number | undefined {
