@@ -213,6 +213,16 @@ compatibility only. Updating that gate belongs to the later implementation phase
 revision 2 document integrity is checked separately during this change.
 # PLAN-106 continuation
 
+PLAN-117 extends validation receipt schema v3 with the current content of every
+runtime requirement referenced by a task. Changing a statement/title/source or
+resolving a previously missing reference invalidates the old receipt at existing
+acceptance boundaries; identical content upserts do not. Two baseline false
+completions, a stable control, legacy schema refusal and the reviewed unlinked-task
+fast path are covered. Gate: build, 718 unit, 67 mock integration and 7
+conformance/autopilot. This is partial
+SC-06/10/26/27 evidence; semantic coverage and integration acceptance remain
+open, so overall statuses are unchanged.
+
 PLAN-116 adds the current runtime PRD ledger to the final completion guard. An
 unlinked current requirement, a stale explicit link to a nonexistent task, or a
 computed status other than `validated` now blocks completion under the execution

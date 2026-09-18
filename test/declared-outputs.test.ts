@@ -70,19 +70,21 @@ for (const replacement of ["symlink", "file"] as const) {
   }));
 }
 
-test("declared-output snapshot advertises schema version 2", async () => fixture(false, async (dir) => {
-  assert.equal((await captureValidationSnapshot(dir, await loadState(dir), "T-OUT")).version, 2);
+test("validation snapshot advertises requirement-bound schema version 3", async () => fixture(false, async (dir) => {
+  assert.equal((await captureValidationSnapshot(dir, await loadState(dir), "T-OUT")).version, 3);
 }));
 
-test("version 1 receipt cannot be reused under declared-output snapshot semantics", async () => fixture(false, async (dir) => {
-  const run = await runTaskValidation(dir, await loadState(dir), "T-OUT");
-  assert.ok(run.receipt);
-  (run.receipt.snapshot as { version: number }).version = 1;
-  const skips = await loadCommitSkips(dir);
-  const result = await evaluateValidationGitAcceptance(dir, await loadState(dir), "T-OUT", run);
-  assert.equal(result.accepted, false, result.message);
-  assert.deepEqual(await loadCommitSkips(dir), skips);
-}));
+for (const version of [1, 2]) {
+  test(`version ${version} receipt cannot be reused under requirement-bound snapshot semantics`, async () => fixture(false, async (dir) => {
+    const run = await runTaskValidation(dir, await loadState(dir), "T-OUT");
+    assert.ok(run.receipt);
+    (run.receipt.snapshot as { version: number }).version = version;
+    const skips = await loadCommitSkips(dir);
+    const result = await evaluateValidationGitAcceptance(dir, await loadState(dir), "T-OUT", run);
+    assert.equal(result.accepted, false, result.message);
+    assert.deepEqual(await loadCommitSkips(dir), skips);
+  }));
+}
 async function fixture(git: boolean, fn: (dir: string) => Promise<void>) {
   const dir = await mkdtemp(join(tmpdir(), "scaler-declared-output-"));
   try {

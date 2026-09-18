@@ -13,6 +13,7 @@ import { captureValidationContext, checkAttemptEvidence } from "./attempt-eviden
 import { fingerprintTaskContract, fingerprintValidationPolicy } from "./attempt-identity.js";
 import { fingerprintJson } from "./fingerprints.js";
 import { fingerprintDeclaredOutputs } from "./output-artifacts.js";
+import { loadPrdRequirements } from "./prd.js";
 import { loadState } from "./state.js";
 import { loadTaskAttempts } from "./task-attempts.js";
 import type { ScalerState } from "./types.js";
@@ -21,7 +22,7 @@ import { getValidationManifestForTask, loadValidationRuns, type TaskValidationMa
 const exec = promisify(execFile);
 
 export interface ValidationSnapshot {
-  version: 2;
+  version: 3;
   runId: string;
   taskId: string;
   taskFingerprint: string;
@@ -29,6 +30,7 @@ export interface ValidationSnapshot {
   outputFingerprint: string | null;
   policyFingerprint: string;
   contextFingerprint: string;
+  requirementFingerprint: string;
   gitCandidateFingerprint: string | null;
   declaredOutputFingerprint: string | null;
 }
@@ -44,14 +46,74 @@ export async function captureValidationSnapshot(cwd: string, state: ScalerState,
   const attempt = task.attemptId ? (await loadTaskAttempts(cwd)).find((attempt) => attempt.id === task.attemptId) : undefined;
   const manifest = await getValidationManifestForTask(cwd, taskId);
   return {
-    version: 2, runId: state.runId, taskId,
+    version: 3, runId: state.runId, taskId,
     taskFingerprint: fingerprintTaskContract(task),
     attemptId: task.attemptId ?? null, outputFingerprint: attempt?.outputFingerprint ?? null,
     policyFingerprint: fingerprintValidationPolicy(manifest),
     contextFingerprint: await captureValidationContext(cwd, state, taskId),
+    requirementFingerprint: await fingerprintTaskRequirements(cwd, task.prdRefs ?? []),
     gitCandidateFingerprint: await fingerprintGitCandidate(cwd),
     declaredOutputFingerprint: await fingerprintDeclaredOutputs(cwd, manifest.outputPaths),
   };
+}
+
+async function fingerprintTaskRequirements(cwd: string, requirementIds: string[]): Promise<string> {
+  if (requirementIds.length === 0) return fingerprintJson([]);
+  const requirements = await loadPrdRequirements(cwd);
+  assertValidRequirementsCatalog(requirements);
+  const linkedIds = [...new Set(requirementIds)].sort();
+  const linkedIdSet = new Set(linkedIds);
+  const requirementsById = new Map<string, Record<string, unknown>>();
+  for (const candidate of requirements.requirements) {
+    const candidateId = candidate && typeof candidate === "object" ? candidate.id : undefined;
+    if (typeof candidateId !== "string" || !linkedIdSet.has(candidateId)) continue;
+    if (requirementsById.has(candidateId)) {
+      throw new Error(`Malformed runtime PRD requirements: duplicate linked requirement ${candidateId}.`);
+    }
+    requirementsById.set(candidateId, candidate);
+  }
+  const material = linkedIds.map((id) => {
+    const requirement = requirementsById.get(id);
+    if (requirement) {
+      assertValidRequirementContent(requirement, id);
+      return {
+        id: requirement.id,
+        statement: requirement.statement,
+        title: requirement.title ?? null,
+        source: requirement.source ?? null,
+      };
+    }
+    return { id, missing: true };
+  });
+  return fingerprintJson(material);
+}
+
+function assertValidRequirementsCatalog(catalog: unknown): asserts catalog is {
+  version: 1;
+  requirements: Array<Record<string, unknown>>;
+} {
+  if (!catalog || typeof catalog !== "object"
+      || (catalog as Record<string, unknown>).version !== 1
+      || !Array.isArray((catalog as Record<string, unknown>).requirements)) {
+    throw new Error("Malformed runtime PRD requirements: expected version 1 with a requirements array.");
+  }
+}
+
+function assertValidRequirementContent(requirement: unknown, expectedId: string): asserts requirement is {
+  id: string;
+  statement: string;
+  title?: string;
+  source?: string;
+} {
+  if (!requirement || typeof requirement !== "object") {
+    throw new Error(`Malformed runtime PRD requirement ${expectedId}: expected an object.`);
+  }
+  const candidate = requirement as Record<string, unknown>;
+  if (candidate.id !== expectedId || typeof candidate.statement !== "string"
+      || (candidate.title !== undefined && typeof candidate.title !== "string")
+      || (candidate.source !== undefined && typeof candidate.source !== "string")) {
+    throw new Error(`Malformed runtime PRD requirement ${expectedId}: id and statement must be strings; title and source must be strings when present.`);
+  }
 }
 
 export function fingerprintValidationResult(run: ValidationRunRecord): string {

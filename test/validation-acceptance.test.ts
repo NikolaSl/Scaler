@@ -114,6 +114,20 @@ test("current validation receipt permits an explicit unchanged candidate skip", 
   });
 });
 
+test("requirement fingerprint skips the PRD store only for tasks without requirement refs", async () => {
+  await fixture(async (dir) => {
+    await mkdir(join(dir, ".scaler", "prd"), { recursive: true });
+    await writeFile(join(dir, ".scaler", "prd", "requirements.json"), "not valid json");
+    const state = createDefaultState();
+    state.tasks = [{ id: "T-NO-PRD", status: "validating", updatedAt: state.updatedAt }];
+    const snapshot = await captureValidationSnapshot(dir, state, "T-NO-PRD");
+    assert.equal(snapshot.requirementFingerprint, fingerprintJson([]));
+
+    state.tasks[0]!.prdRefs = ["REQ-CORRUPT"];
+    await assert.rejects(captureValidationSnapshot(dir, state, "T-NO-PRD"), /JSON|position|token/i);
+  });
+});
+
 test("a persisted validated label without validation evidence is not commit authority", async () => {
   await fixture(async (dir) => {
     const state = createDefaultState();

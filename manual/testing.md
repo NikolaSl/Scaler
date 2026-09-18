@@ -380,3 +380,10 @@ nonexistent task, while retaining a linked, validated control. The staged
 integration fixture declares its `REQ-STAGE` task link explicitly. These checks
 establish structural final coverage only, not semantic linkage or cross-task
 integration adequacy.
+
+PLAN-117 additionally changes a linked requirement after validation and verifies
+that the old receipt cannot complete the run. A missing-to-present requirement
+reference is also rejected, while an identical content upsert remains current.
+Validation snapshot schema version 3 binds requirement id/statement/title/source;
+version 1 and 2 receipts require revalidation. This is version freshness, not
+proof that the selected requirement links or integration checks are sufficient.
