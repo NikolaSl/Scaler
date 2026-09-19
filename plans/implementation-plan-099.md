@@ -219,6 +219,14 @@ Two baseline failures and one positive control cover the new boundary. Build,
 not verify semantic link correctness, minimality, authority or cross-task
 integration adequacy; P2.3 and SC-10/26 remain incomplete.
 
+PLAN-117 binds validation receipt schema v3 to the current content of every
+runtime requirement referenced by the task. A changed statement/title/source or
+a missing-to-present reference invalidates old evidence across validation,
+commit/skip, dependency admission and completion; identical content rewrites do
+not. Two baseline false completions and the stable-content control pass. Build,
+718 unit, 67 mock integration and 7 conformance/autopilot checks pass. Semantic
+link sufficiency and requirement-level integration acceptance remain open.
+
 1. Add a regression for the concrete defect and observe failure on the prior code.
 2. Implement the smallest sufficient fix; preserve unrelated user changes.
 3. Run focused checks, then build/integration when the boundary warrants it.

@@ -13,7 +13,7 @@ import { test } from "node:test";
 import { runScalerAutomation } from "../src/autopilot.js";
 import { commitWithExecutionLock } from "../src/operations.js";
 import { acquireExecutionLock, releaseExecutionLock } from "../src/locks.js";
-import { getCommitSkipsPath, getValidationRunsPath } from "../src/paths.js";
+import { getCommitSkipsPath, getPrdRequirementsPath, getValidationRunsPath } from "../src/paths.js";
 import { upsertPrdRequirement } from "../src/prd.js";
 import { completeRunWithEvidence } from "../src/run-completion.js";
 import { advanceStageAfterReadyArtifact } from "../src/stage-advancement.js";
@@ -22,6 +22,7 @@ import { runAutonomousStageWorkflow } from "../src/stage-workflow.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { upsertStageArtifact } from "../src/stages.js";
 import type { ScalerState } from "../src/types.js";
+import { captureValidationSnapshot } from "../src/validation-acceptance.js";
 import { loadValidationRuns, runTaskValidation, saveValidationManifest } from "../src/validation.js";
 
 const exec = promisify(execFile);
@@ -182,6 +183,73 @@ test("completion accepts a current runtime requirement linked to validated task 
   const result = await completeRunWithEvidence(dir, await loadState(dir));
   assert.equal(result.accepted, true, result.message);
   assert.equal((await loadState(dir)).stage, "completed");
+}));
+
+test("completion rejects evidence for an earlier linked requirement statement", async () => fixture(async (dir, state) => {
+  state.tasks[0]!.prdRefs = ["REQ-CHANGE"];
+  await saveState(dir, state);
+  await upsertPrdRequirement(dir, { id: "REQ-CHANGE", statement: "Produce version one" });
+  assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
+  await upsertPrdRequirement(dir, { id: "REQ-CHANGE", statement: "Produce materially different version two" });
+  const result = await completeRunWithEvidence(dir, await loadState(dir));
+  assert.equal(result.accepted, false);
+  assert.match(result.message, /requirement|receipt|evidence|changed/i);
+  assert.equal((await loadState(dir)).stage, "execution");
+}));
+
+test("completion preserves evidence after an identical requirement-content upsert", async () => fixture(async (dir, state) => {
+  state.tasks[0]!.prdRefs = ["REQ-SAME"];
+  await saveState(dir, state);
+  const requirement = { id: "REQ-SAME", title: "Stable requirement", statement: "Produce the same output", source: "user" };
+  await upsertPrdRequirement(dir, requirement);
+  assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
+  await upsertPrdRequirement(dir, requirement);
+  const result = await completeRunWithEvidence(dir, await loadState(dir));
+  assert.equal(result.accepted, true, result.message);
+}));
+
+test("completion rejects evidence captured while a referenced requirement was missing", async () => fixture(async (dir, state) => {
+  state.tasks[0]!.prdRefs = ["REQ-LATE"];
+  await saveState(dir, state);
+  assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
+  await upsertPrdRequirement(dir, { id: "REQ-LATE", statement: "Requirement added after validation" });
+  const result = await completeRunWithEvidence(dir, await loadState(dir));
+  assert.equal(result.accepted, false);
+  assert.match(result.message, /requirement|receipt|evidence|changed/i);
+  assert.equal((await loadState(dir)).stage, "execution");
+}));
+
+for (const [description, requirements] of [
+  ["missing statement", [{ id: "REQ-BROKEN", createdAt: "", updatedAt: "" }]],
+  ["non-string statement", [{ id: "REQ-BROKEN", statement: 42, createdAt: "", updatedAt: "" }]],
+  ["non-string optional content", [{ id: "REQ-BROKEN", statement: "valid", title: {}, source: null, createdAt: "", updatedAt: "" }]],
+  ["duplicate identifier", [
+    { id: "REQ-BROKEN", statement: "first", createdAt: "", updatedAt: "" },
+    { id: "REQ-BROKEN", statement: "second", createdAt: "", updatedAt: "" },
+  ]],
+] as const) {
+  test(`validation snapshot rejects linked requirement with ${description}`, async () => fixture(async (dir, state) => {
+    state.tasks[0]!.prdRefs = ["REQ-BROKEN"];
+    await saveState(dir, state);
+    await upsertPrdRequirement(dir, { id: "REQ-BROKEN", statement: "Produce the declared output" });
+    await writeFile(getPrdRequirementsPath(dir), JSON.stringify({ version: 1, requirements }));
+    await assert.rejects(
+      captureValidationSnapshot(dir, state, "T-ONE"),
+      /requirement|malformed/i,
+    );
+  }));
+}
+
+test("validation snapshot rejects a malformed requirements document deterministically", async () => fixture(async (dir, state) => {
+  state.tasks[0]!.prdRefs = ["REQ-BROKEN"];
+  await saveState(dir, state);
+  await upsertPrdRequirement(dir, { id: "REQ-BROKEN", statement: "Produce the declared output" });
+  await writeFile(getPrdRequirementsPath(dir), JSON.stringify({ version: 1 }));
+
+  await assert.rejects(
+    captureValidationSnapshot(dir, state, "T-ONE"),
+    /Malformed runtime PRD requirements: expected version 1 with a requirements array/,
+  );
 }));
 
 test("two real task commits retain valid completion provenance across changed HEAD", async () => fixture(async (dir, state) => {
