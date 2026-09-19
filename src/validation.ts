@@ -494,6 +494,16 @@ function assertPersistedValidationManifestShape(candidate: unknown, index: numbe
     if (!command || typeof command !== "object" || Array.isArray(command)) {
       throw new Error(`Persisted validation manifest for ${taskId} is malformed: commands[${commandIndex}] must be an object.`);
     }
+    const persistedCommand = command as { id?: unknown; command?: unknown; required?: unknown };
+    if (typeof persistedCommand.id !== "string" || !persistedCommand.id.trim()) {
+      throw new Error(`Persisted validation manifest for ${taskId} is malformed: commands[${commandIndex}].id must be a non-empty string.`);
+    }
+    if (typeof persistedCommand.command !== "string" || !persistedCommand.command.trim()) {
+      throw new Error(`Persisted validation manifest for ${taskId} is malformed: commands[${commandIndex}].command must be a non-empty string.`);
+    }
+    if (typeof persistedCommand.required !== "boolean") {
+      throw new Error(`Persisted validation manifest for ${taskId} is malformed: commands[${commandIndex}].required must be a boolean.`);
+    }
   }
   return candidate as TaskValidationManifest;
 }
