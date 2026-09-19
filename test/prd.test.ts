@@ -191,6 +191,35 @@ test("explicit user amendment records immutable versions and rejects stale bases
   });
 });
 
+test("acceptance criteria reject exact duplicate ids hidden by Unicode collation", async () => {
+  await withTempDir(async (dir) => {
+    await upsertPrdRequirement(dir, { id: "REQ-UNICODE", statement: "Original requirement." });
+    const path = join(dir, ".scaler", "prd", "requirements.json");
+    const before = await readFile(path, "utf8");
+    const criterion = (id: string, statement: string) => ({
+      id,
+      statement,
+      validationTaskId: "T-UNICODE",
+      commandId: "integration",
+      participantTaskIds: ["T-UNICODE"],
+    });
+
+    await assert.rejects(() => amendPrdRequirement(dir, {
+      id: "REQ-UNICODE",
+      expectedRevision: 1,
+      reason: "Exercise exact duplicate detection independently of locale collation.",
+      changes: {
+        acceptanceCriteria: [
+          criterion("é", "First exact id."),
+          criterion("e\u0301", "Canonically equivalent but byte-distinct id."),
+          criterion("é", "Second exact id."),
+        ],
+      },
+    }), /duplicate id é/i);
+    assert.equal(await readFile(path, "utf8"), before);
+  });
+});
+
 test("serialized unrelated upserts cannot roll back an authorized amendment", async () => {
   await withTempDir(async (dir) => {
     await upsertPrdRequirement(dir, { id: "REQ-AMEND", statement: "Version one" });
