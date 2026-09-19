@@ -436,5 +436,7 @@ duplicate linked-id and indexed-lookup checks with Units A-F. Requirement
 fingerprints retain revision, acceptance criteria, both supported link directions
 and integration-participant freshness. Commit `64ccea6` adds coverage-only
 malformed and duplicate-link regressions so strict validation is not limited to
-task `prdRefs`. This reconciliation is pending the final phase gate and exact-head
-Copilot review; it is not a P2 completion claim.
+task `prdRefs`. The reconciled candidate passes the TypeScript build, 797 unit,
+67 mock integration and 7 conformance/autopilot checks. Exact-head independent
+and Copilot reviews remain required before merge; this is not a P2 completion
+claim or representative real-model evidence.
