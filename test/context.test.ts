@@ -450,6 +450,34 @@ for (const [name, prefix] of [
   });
 }
 
+for (const [name, prefix, section] of [
+  ["tab-suffixed closing fence", "", "## Target\n```\ncode\n```\t\n"],
+  ["mixed fence is not a closer", "", "## Target\n```\ncode\n```~\n## Fake\nSTILL_CODE\n```\n"],
+  ["vertical tab is not heading whitespace", "", "## Target\nbody\n##\u000bNotAHeading\nSTILL_TARGET\n"],
+  ["duplicate reference definitions", "[ref]: /target\n[ref]: /target\n\n", "## Target\ncontract\n"],
+] as const) {
+  test(`exact section honors CommonMark ${name}`, async () => {
+    await withTempDir(async (dir) => {
+      const state = createDefaultState();
+      await writeFile(join(dir, "reference.md"), prefix + section + "## Real\nNEXT\n", "utf8");
+      const manifest = {
+        version: 1 as const, taskId: "T-SECTION", createdAt: state.createdAt, updatedAt: state.createdAt,
+        items: [{ id: "target", type: "file" as const, reason: "Exact contract", priority: "required" as const,
+          scope: "section" as const, source: "file" as const, path: "reference.md",
+          selector: { kind: "markdown-heading", heading: "Target" } }],
+      };
+      const [item] = await resolveTaskContextManifest(dir, state, manifest);
+      assert.equal(item?.available, true);
+      assert.equal(item?.content, section);
+      if (name === "mixed fence is not a closer") {
+        manifest.items[0]!.selector.heading = "Fake";
+        const [fake] = await resolveTaskContextManifest(dir, state, manifest);
+        assert.equal(fake?.available, false);
+      }
+    });
+  });
+}
+
 for (const eol of ["\n", "\r\n", "\r"]) {
   test(`block token offsets preserve ${JSON.stringify(eol)} source and Unicode`, async () => {
     await withTempDir(async (dir) => {
