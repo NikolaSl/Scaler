@@ -325,6 +325,26 @@ for (const [description, requirements] of [
   }));
 }
 
+for (const [description, requirements] of [
+  ["malformed content", [{ id: "REQ-COVERAGE", createdAt: "", updatedAt: "" }]],
+  ["duplicate identifier", [
+    { id: "REQ-COVERAGE", statement: "first", createdAt: "", updatedAt: "" },
+    { id: "REQ-COVERAGE", statement: "second", createdAt: "", updatedAt: "" },
+  ]],
+] as const) {
+  test(`validation snapshot rejects coverage-only requirement with ${description}`, async () => fixture(async (dir, state) => {
+    await upsertPrdRequirement(dir, {
+      id: "REQ-COVERAGE", statement: "Produce the declared output", status: "pending", taskIds: ["T-ONE"],
+    });
+    await writeFile(getPrdRequirementsPath(dir), JSON.stringify({ version: 1, requirements }));
+
+    await assert.rejects(
+      captureValidationSnapshot(dir, state, "T-ONE"),
+      /requirement|malformed/i,
+    );
+  }));
+}
+
 test("validation snapshot rejects a malformed requirements document deterministically", async () => fixture(async (dir, state) => {
   state.tasks[0]!.prdRefs = ["REQ-BROKEN"];
   await saveState(dir, state);
