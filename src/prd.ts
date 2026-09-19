@@ -526,9 +526,17 @@ function normalizePrdRequirementsFile(requirements: RuntimePrdRequirementsFile):
   if (requirements?.version !== 1 || !Array.isArray(requirements.requirements)) {
     throw new Error("Malformed runtime PRD requirements: expected version 1 with a requirements array.");
   }
+  const normalized = requirements.requirements.map((requirement) => normalizeRuntimePrdRequirement(requirement));
+  const seenIds = new Set<string>();
+  for (const requirement of normalized) {
+    if (seenIds.has(requirement.id)) {
+      throw new Error(`Invalid runtime PRD requirements: duplicate id ${requirement.id}.`);
+    }
+    seenIds.add(requirement.id);
+  }
   return {
     version: 1,
-    requirements: requirements.requirements.map((requirement) => normalizeRuntimePrdRequirement(requirement)),
+    requirements: normalized,
   };
 }
 
