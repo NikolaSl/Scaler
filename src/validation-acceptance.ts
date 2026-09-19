@@ -80,17 +80,32 @@ async function fingerprintTaskRequirements(cwd: string, taskId: string, taskRequ
     .map((entry) => entry.requirementId)];
   if (requirementIds.length === 0) return fingerprintJson([]);
   const requirements = await loadPrdRequirements(cwd);
-  const byId = new Map(requirements.requirements.map((requirement) => [requirement.id, requirement]));
-  const material = [...new Set(requirementIds)].sort().map((id) => {
-    const requirement = byId.get(id);
-    return requirement ? {
-      id: requirement.id,
-      revision: requirement.revision ?? 1,
-      statement: requirement.statement,
-      title: requirement.title ?? null,
-      source: requirement.source ?? null,
-      acceptanceCriteria: requirement.acceptanceCriteria ?? [],
-    } : { id, missing: true };
+  assertValidRequirementsCatalog(requirements);
+  const linkedIds = [...new Set(requirementIds)].sort();
+  const linkedIdSet = new Set(linkedIds);
+  const requirementsById = new Map<string, Record<string, unknown>>();
+  for (const candidate of requirements.requirements) {
+    const candidateId = candidate && typeof candidate === "object" ? candidate.id : undefined;
+    if (typeof candidateId !== "string" || !linkedIdSet.has(candidateId)) continue;
+    if (requirementsById.has(candidateId)) {
+      throw new Error(`Malformed runtime PRD requirements: duplicate linked requirement ${candidateId}.`);
+    }
+    requirementsById.set(candidateId, candidate);
+  }
+  const material = linkedIds.map((id) => {
+    const requirement = requirementsById.get(id);
+    if (requirement) {
+      assertValidRequirementContent(requirement, id);
+      return {
+        id: requirement.id,
+        revision: requirement.revision ?? 1,
+        statement: requirement.statement,
+        title: requirement.title ?? null,
+        source: requirement.source ?? null,
+        acceptanceCriteria: requirement.acceptanceCriteria ?? [],
+      };
+    }
+    return { id, missing: true };
   });
   return fingerprintJson(material);
 }
@@ -153,6 +168,36 @@ function matchesValidation(summary: CommitValidationSummary, run: ValidationRunR
   return summary.runId === run.id && summary.status === "passed"
     && summary.commandCount === run.commandRuns.length
     && summary.createdAt === run.createdAt;
+}
+
+function assertValidRequirementsCatalog(catalog: unknown): asserts catalog is {
+  version: 1;
+  requirements: Array<Record<string, unknown>>;
+} {
+  if (!catalog || typeof catalog !== "object"
+      || (catalog as Record<string, unknown>).version !== 1
+      || !Array.isArray((catalog as Record<string, unknown>).requirements)) {
+    throw new Error("Malformed runtime PRD requirements: expected version 1 with a requirements array.");
+  }
+}
+
+function assertValidRequirementContent(requirement: unknown, expectedId: string): asserts requirement is {
+  id: string;
+  statement: string;
+  title?: string;
+  source?: string;
+  revision?: number;
+  acceptanceCriteria?: unknown[];
+} {
+  if (!requirement || typeof requirement !== "object") {
+    throw new Error(`Malformed runtime PRD requirement ${expectedId}: expected an object.`);
+  }
+  const candidate = requirement as Record<string, unknown>;
+  if (candidate.id !== expectedId || typeof candidate.statement !== "string"
+      || (candidate.title !== undefined && typeof candidate.title !== "string")
+      || (candidate.source !== undefined && typeof candidate.source !== "string")) {
+    throw new Error(`Malformed runtime PRD requirement ${expectedId}: id and statement must be strings; title and source must be strings when present.`);
+  }
 }
 
 export function fingerprintValidationResult(run: ValidationRunRecord): string {

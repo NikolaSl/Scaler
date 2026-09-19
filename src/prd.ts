@@ -524,7 +524,7 @@ export function normalizePrdAcceptanceCriteria(
 
 function normalizePrdRequirementsFile(requirements: RuntimePrdRequirementsFile): RuntimePrdRequirementsFile {
   if (requirements?.version !== 1 || !Array.isArray(requirements.requirements)) {
-    throw new Error("Invalid runtime PRD requirements file.");
+    throw new Error("Malformed runtime PRD requirements: expected version 1 with a requirements array.");
   }
   return {
     version: 1,
