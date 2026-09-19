@@ -450,6 +450,50 @@ for (const [name, prefix] of [
   });
 }
 
+for (const eol of ["\n", "\r\n", "\r"]) {
+  test(`block token offsets preserve ${JSON.stringify(eol)} source and Unicode`, async () => {
+    await withTempDir(async (dir) => {
+      const state = createDefaultState();
+      const section = ["## Target", "😀 Exact contract", "### Child", "Detail", ""].join(eol);
+      const source = ["# Intro", "😀 prefix", "", "[ref]: /target", "", ""].join(eol)
+        + section + ["Next", "----", "NOT_SELECTED", ""].join(eol);
+      await writeFile(join(dir, "reference.md"), source, "utf8");
+      const [item] = await resolveTaskContextManifest(dir, state, {
+        version: 1, taskId: "T-SECTION", createdAt: state.createdAt, updatedAt: state.createdAt,
+        items: [{ id: "target", type: "file", reason: "Exact contract", priority: "required",
+          scope: "section", source: "file", path: "reference.md",
+          selector: { kind: "markdown-heading", heading: "Target" } }],
+      });
+      assert.equal(item?.available, true);
+      assert.equal(item?.content, section);
+    });
+  });
+}
+
+for (const [name, source] of [
+  ["HTML comment", "<!--\n## Target\nFAKE\n-->\n"],
+  ["HTML block", "<div>\n## Target\nFAKE\n</div>\n\n"],
+  ["blockquote", "> ## Target\n> FAKE\n"],
+  ["list", "- ## Target\n  FAKE\n"],
+  ["indented code", "    ## Target\n    FAKE\n"],
+  ["setext heading", "Target\n------\n"],
+] as const) {
+  test(`document ATX selectors do not select ${name} content`, async () => {
+    await withTempDir(async (dir) => {
+      const state = createDefaultState();
+      await writeFile(join(dir, "reference.md"), source, "utf8");
+      const [item] = await resolveTaskContextManifest(dir, state, {
+        version: 1, taskId: "T-SECTION", createdAt: state.createdAt, updatedAt: state.createdAt,
+        items: [{ id: "target", type: "file", reason: "Exact contract", priority: "required",
+          scope: "section", source: "file", path: "reference.md",
+          selector: { kind: "markdown-heading", heading: "Target" } }],
+      });
+      assert.equal(item?.available, false);
+      assert.match(item?.content ?? "", /not found/i);
+    });
+  });
+}
+
 test("file section scope resolves the selected exact Markdown heading", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState();
