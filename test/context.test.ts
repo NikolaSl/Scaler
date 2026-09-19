@@ -454,7 +454,8 @@ for (const eol of ["\n", "\r\n", "\r"]) {
   test(`block token offsets preserve ${JSON.stringify(eol)} source and Unicode`, async () => {
     await withTempDir(async (dir) => {
       const state = createDefaultState();
-      const section = ["## Target", "😀 Exact contract", "### Child", "Detail", ""].join(eol);
+      // A blank line keeps Detail out of the following Setext heading's paragraph.
+      const section = ["## Target", "😀 Exact contract", "### Child", "Detail", "", ""].join(eol);
       const source = ["# Intro", "😀 prefix", "", "[ref]: /target", "", ""].join(eol)
         + section + ["Next", "----", "NOT_SELECTED", ""].join(eol);
       await writeFile(join(dir, "reference.md"), source, "utf8");
