@@ -440,3 +440,27 @@ task `prdRefs`. The reconciled candidate passes the TypeScript build, 797 unit,
 67 mock integration and 7 conformance/autopilot checks. Exact-head independent
 and Copilot reviews remain required before merge; this is not a P2 completion
 claim or representative real-model evidence.
+
+## Unit G — Recheck the validation basis after Git hooks
+
+Exact-head adversarial review found a remaining supported Git-route race. A
+trusted pre-commit or post-commit hook could rewrite a tracked file declared in
+`validationInputPaths` after validation had passed. The original commit path
+rechecked task outputs and Git safety, but could still publish the commit report
+and promote the task using evidence for the older checker bytes.
+
+Commit `40de514` first preserves two failing regressions for pre-commit and
+post-commit mutation. Commit `67bc5ed` makes the post-commit boundary explicit:
+after output verification, commit code reassesses Git safety and rechecks every
+validation receipt field except `gitCandidate`, which necessarily advances when
+the commit is created. Validation-basis, policy, task contract, PRD and
+integration evidence drift therefore refuse report publication and task
+promotion. The created Git commit is retained for diagnosis; SCALER does not
+reset or replay operator hooks.
+
+The exact published candidate passes the TypeScript build, 799 unit tests, 67
+mock integration tests and 7 conformance/autopilot checks. Fresh exact-head
+independent and Copilot reviews remain required before merge. This closes the
+reproduced supported-route race; it does not authenticate arbitrary trusted
+filesystem writers, make hooks transactional, or establish representative
+real/local-model outcome quality.

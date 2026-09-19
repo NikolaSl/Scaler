@@ -491,3 +491,19 @@ preconfigured manifests for tasks not yet in state, and a positive unchanged
 inheritance control. Final validation passes the TypeScript build, full unit
 suite, 67 mock integration tests and 7 conformance/autopilot checks; two
 independent GPT-6 Astra/high exact-head reviews report no remaining finding.
+
+PLAN-118 unit G adds adversarial pre-commit and post-commit hook coverage for
+declared validation-basis files. After a Git commit is created, SCALER rechecks
+task outputs, Git safety and the current validation receipt before publishing a
+commit report or promoting the task. The receipt comparison excludes only the
+Git candidate identity, because the successful commit itself advances that
+identity; checker bytes, policy, task contract, PRD and integration evidence
+must still match the validated snapshot.
+
+When a hook changes a declared checker, the resulting commit is intentionally
+kept for operator diagnosis, but acceptance is refused and no commit report is
+recorded. Run `node --test --import tsx test/validation-acceptance.test.ts` for
+the focused regression. The reconciled exact candidate passes the TypeScript
+build, 799 unit tests, 67 mock integration tests and 7 conformance/autopilot
+checks. These tests do not make arbitrary hooks transactional or authorize an
+automatic reset/replay.
