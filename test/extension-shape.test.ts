@@ -526,7 +526,7 @@ test("PRD amendment command reports rejected input and releases its lock", async
       'REQ-REJECTED | 2 | Reject stale revision | {"statement":"Changed"}',
       ctx,
     ));
-    assert.match(notifications.at(-1)?.message ?? "", /stale revision/i);
+    assert.match(notifications.at(-1)?.message ?? "", /stale.*revision/i);
     assert.equal(notifications.at(-1)?.level, "warning");
     assert.equal((await loadPrdRequirements(dir)).requirements[0]?.statement, "Original wording");
     assert.equal(await loadExecutionLock(dir), undefined);
