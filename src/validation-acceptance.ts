@@ -216,9 +216,36 @@ export async function verifyCurrentValidationReceipt(cwd: string, state: ScalerS
   return verifyValidationRunReceipt(cwd, state, taskId, run);
 }
 
+// Git commit necessarily changes HEAD and consumes the staged candidate. Recheck
+// every other receipt field after hooks before publishing accepted commit
+// evidence; committed output identity is checked separately against the commit.
+export async function verifyCurrentValidationReceiptAfterGitCommit(
+  cwd: string,
+  state: ScalerState,
+  taskId: string,
+): Promise<string[]> {
+  const run = (await loadValidationRuns(cwd)).find((run) => run.taskId === taskId);
+  return verifyValidationRunReceiptInternal(cwd, state, taskId, run, { ignoreGitCandidate: true });
+}
+
 // Also used before automatic acceptance, while the supervisor-produced record
 // is still in memory. This checks evidence, not caller authority or signatures.
-export async function verifyValidationRunReceipt(cwd: string, state: ScalerState, taskId: string, run: ValidationRunRecord | undefined): Promise<string[]> {
+export async function verifyValidationRunReceipt(
+  cwd: string,
+  state: ScalerState,
+  taskId: string,
+  run: ValidationRunRecord | undefined,
+): Promise<string[]> {
+  return verifyValidationRunReceiptInternal(cwd, state, taskId, run);
+}
+
+async function verifyValidationRunReceiptInternal(
+  cwd: string,
+  state: ScalerState,
+  taskId: string,
+  run: ValidationRunRecord | undefined,
+  options: { ignoreGitCandidate?: boolean } = {},
+): Promise<string[]> {
   const durable = await loadState(cwd);
   if (durable.runId !== state.runId || durable.revision !== state.revision) {
     return ["Validation receipt rejected: state changed or was not persisted; reload and revalidate."];
@@ -228,13 +255,24 @@ export async function verifyValidationRunReceipt(cwd: string, state: ScalerState
   diagnostics.push(...await checkAttemptEvidence(cwd, state, taskId));
   try {
     const current = await captureValidationSnapshot(cwd, state, taskId);
-    if (fingerprintJson(run.receipt.snapshot) !== fingerprintJson(current)) {
+    const expectedSnapshot = options.ignoreGitCandidate
+      ? withoutGitCandidate(run.receipt.snapshot)
+      : run.receipt.snapshot;
+    const currentSnapshot = options.ignoreGitCandidate
+      ? withoutGitCandidate(current)
+      : current;
+    if (fingerprintJson(expectedSnapshot) !== fingerprintJson(currentSnapshot)) {
       diagnostics.push("Validation receipt rejected: run, task, attempt, policy, context or candidate output changed.");
     }
   } catch (error) {
     diagnostics.push(`Validation receipt rejected: snapshot unavailable: ${String(error)}`);
   }
   return diagnostics;
+}
+
+function withoutGitCandidate(snapshot: ValidationSnapshot): Omit<ValidationSnapshot, "gitCandidateFingerprint"> {
+  const { gitCandidateFingerprint: _ignored, ...rest } = snapshot;
+  return rest;
 }
 
 // Integrity of historical command evidence only. Callers must additionally

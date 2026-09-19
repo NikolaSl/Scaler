@@ -11,7 +11,11 @@ import { verifyCommittedOutputs } from "./committed-outputs.js";
 import { logGitCommitAudit } from "./logging.js";
 import { getCommitReportsPath, getCommitSkipsPath, getGitBootstrapReportsPath } from "./paths.js";
 import { getValidationManifestForTask, loadValidationRuns, type ValidationRunRecord } from "./validation.js";
-import { verifyCurrentValidationReceipt, verifyValidationRunReceipt } from "./validation-acceptance.js";
+import {
+  verifyCurrentValidationReceipt,
+  verifyCurrentValidationReceiptAfterGitCommit,
+  verifyValidationRunReceipt,
+} from "./validation-acceptance.js";
 import type { ScalerState } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -271,6 +275,24 @@ export async function commitValidatedTask(
       message: `Commit ${commitHash} was created, but committed output verification failed: ${committedOutputDiagnostics.join(" ")} Reconcile and revalidate.`,
       commitHash,
       safety,
+    });
+  }
+  const postCommitSafety = await assessGitStatusSafety(cwd, allowedPathPrefixes);
+  if (postCommitSafety.status !== "clean" && postCommitSafety.status !== "runtime_only") {
+    return logCommitResult(cwd, state, taskId, {
+      accepted: false,
+      message: `Commit ${commitHash} was created, but Git hooks left new candidate changes: ${postCommitSafety.reason} Reconcile and revalidate.`,
+      commitHash,
+      safety: postCommitSafety,
+    });
+  }
+  const postCommitReceiptDiagnostics = await verifyCurrentValidationReceiptAfterGitCommit(cwd, state, taskId);
+  if (postCommitReceiptDiagnostics.length > 0) {
+    return logCommitResult(cwd, state, taskId, {
+      accepted: false,
+      message: `Commit ${commitHash} was created, but the validation basis changed after Git hooks: ${postCommitReceiptDiagnostics.join(" ")} Reconcile and revalidate.`,
+      commitHash,
+      safety: postCommitSafety,
     });
   }
   const report = await recordCommitReport(cwd, {
