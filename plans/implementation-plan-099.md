@@ -63,10 +63,14 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
 - Report meaningful published commits in Bulgarian with commit links, purpose,
   validation and next action. Group related commits when necessary; do not make
   empty reporting commits or repeatedly announce an unchanged pending review.
-- PRs #3-#20 are merged. PR #21 / PLAN-117 remains a prerequisite until its
-  current head passes either a completed Copilot review or the independent
-  exact-head fallback above. Prepare remaining P2 acceptance work on
-  `implementation/v2-p2-acceptance`; retain the existing PR #21 head.
+- PRs #3-#21 are merged. PR #21 / PLAN-117 merged on 2026-09-19 as
+  `cbf2b19fa7328d2ba7e40d7a6e8d90c47dc39d8c` after raw review commit-id
+  verification, resolved threads, independent review and a fresh full gate.
+  Prepare the coherent remaining-P2 PR from `implementation/v2-p2-acceptance`;
+  reconcile its older PR #21 base with the merged catalog-shape, duplicate-ID
+  and single-pass-index fixes before review. Preserve the phase's coverage-only
+  links, revision and integration-criteria binding when resolving that overlap.
+  Propagate the reviewed result into the dependent P3 branch, not the reverse.
 
 ### Renewed continuation policy (2026-09-19)
 

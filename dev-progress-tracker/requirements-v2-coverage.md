@@ -63,7 +63,9 @@ PLAN-121 closes the reproduced file-section prefix substitution: manifests carry
 an explicit Markdown-heading selector, exact retrieval includes nested headings
 and stops at the next peer/ancestor, and required unavailable selections block
 conductor/debug dispatch. The 72k-character fixture now dispatches the exact
-Target section rather than an unrelated 3,200-character prefix. Build, 833 unit,
+Target section rather than an unrelated 3,200-character prefix. Review-driven
+regressions replaced manual block tracking and an intermediate Marked lexer
+with CommonMark source positions. Build, 862 unit, 99 focused,
 67 mock integration and 7 conformance/autopilot checks pass. SC-07 remains
 Partial because source-version binding, broader selector kinds and automatic
 effective task splitting are not established.

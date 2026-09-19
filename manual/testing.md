@@ -299,8 +299,11 @@ section after a 72k-character unrelated prefix and proves that the actual worker
 prompt contains only the selected section (including nested headings), not the
 prefix or following peer section. Missing selectors/headings, ambiguous matches
 and oversized selected sections fail before runner, attempt, task-transition or
-spawn-budget effects. Fenced pseudo-headings, CRLF preservation and two selectors
-for one file are covered. Run
+spawn-budget effects. Fenced pseudo-headings, nested/lazy list containers,
+blockquote termination, ordered-list interruption, strict fence closing syntax,
+duplicate references, HTML/container exclusions and two selectors for one file
+are covered. Unicode and LF/CRLF/standalone-CR fixtures assert exact original
+substrings, including Setext section boundaries. Run
 `node --test --import tsx test/context.test.ts test/conductor.test.ts test/debug-retry.test.ts`.
 This is bounded ATX-heading retrieval, not AST/semantic retrieval or automatic
 task splitting.

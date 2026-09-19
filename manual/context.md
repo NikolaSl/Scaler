@@ -64,13 +64,21 @@ If a source cannot be resolved, SCALER preserves a structured unavailable
 items refuse conductor and debug-retry dispatch before attempt, task transition
 or spawned-agent accounting.
 
-File-backed `section` scope is exact Markdown ATX-heading retrieval, not prefix
-truncation. The selector must identify one unique heading outside fenced code.
+File-backed `section` scope is exact document-level Markdown ATX-heading retrieval,
+not prefix truncation. A pinned CommonMark parser distinguishes headings from code,
+HTML, blockquotes and lists; headings inside those containers are not selectable.
+Setext headings are not selectable but do end a preceding section at equal or
+higher level. The selector matches the unique raw heading text (including inline
+Markdown syntax), without rendering or semantic inference.
+Only ASCII spaces/tabs are trimmed from selectors and heading text. Unicode
+spacing characters (including NBSP) remain part of the exact heading identity.
 Retrieval includes its nested subsections and stops before the next equal-or-higher
 heading while preserving the original substring and line endings. Missing,
 ambiguous or oversized selections are unavailable; SCALER does not truncate them
 while claiming exactness. Two selectors may reference distinct sections of the
-same file.
+same file. CRLF, standalone CR and LF line endings are preserved in the returned
+substring. If a heading position cannot be mapped back to the original source,
+the context is unavailable rather than approximately selected.
 
 ## Final prompt admission
 

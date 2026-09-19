@@ -61,15 +61,19 @@ pseudo-heading as available. The new two-case regression fails on the previous
 implementation. Earlier fixes already covered nested/lazy/tab list containers;
 another partial block parser would repeat the same class of error.
 
-Replace manual fence/list tracking with the block lexer from `marked` 18.0.5,
-already present transitively through Pi, now declared as a pinned direct
-dependency. Select document-level ATX headings only, not headings inside list,
-blockquote, code or HTML blocks. Setext headings are not selectable. Preserve
-source offsets across CRLF/CR normalization and fail closed if lexer raw tokens
-do not reconstruct the normalized source. Use a fresh lexer with explicit
-options so host changes to global Markdown defaults cannot alter this boundary.
-Do not render HTML or use a renderer's rewritten content. Retain all previous
-regressions and rerun independent reviews and the full applicable gate.
+The first replacement used the existing transitive `marked` 18.0.5 block lexer.
+Independent reviews then reproduced four library-boundary defects: missed
+tab-suffixed fence closers, mixed-character false closers, vertical-tab pseudo
+headings, and omitted duplicate reference tokens. All four were captured as
+failing tests; this intermediate implementation is not the final candidate.
+
+Use pinned `commonmark` 0.31.2, the CommonMark reference parser, and its block
+source positions instead. Select document-level ATX headings only, not headings
+inside list, blockquote, code or HTML blocks. Setext headings are not selectable
+but bound preceding sections. Map source line numbers to original UTF-16 offsets
+across CRLF, CR and LF; never render HTML or return rewritten parser content.
+Each parse uses a fresh parser. All previous regressions remain in the suite.
+Reference: https://github.com/commonmark/commonmark.js (Node sourcepos API).
 
 This unit supports exact Markdown ATX-heading selection only. It does not add
 AST/function retrieval, semantic selector inference, embeddings, summaries,
@@ -93,3 +97,28 @@ section rather than the unrelated 3,200-character prefix. Build, 833 unit, 67
 mock integration and 7 conformance/autopilot checks pass; the focused
 context/conductor/debug set passes 70/70. Independent exact-head review remains
 required before this bounded unit is treated as complete.
+
+### Final implementation validation (2026-09-19)
+
+Candidate `9d09da77f4abe71bb7f840b2a97484ed376a2654` (local `435b8d4`;
+tree `d082b4b1db0534bed06ea8ef17bb506d18bc2e89`) passes TypeScript build,
+862 unit, 67 mock integration, 7 conformance and 99 focused context/conductor/
+debug-retry tests. All reproduced parser/library failures are fixed without
+removing earlier assertions. The new source-offset fixture initially failed
+because adjacent `Detail` and `Next` formed a multiline Setext heading; the
+fixture now explicitly separates those paragraphs. No production code was
+relaxed to satisfy that mistaken expectation. These are deterministic fixtures,
+not real-provider quality or tokenizer savings evidence.
+
+One final review finding showed Unicode trim collapsed distinct raw titles;
+three regressions now preserve NBSP/narrow-NBSP, including whitespace-only
+Unicode titles, through save/load and extraction. Both independent GPT-6
+Astra/high reviews inspected exact local `435b8d4` and reported no remaining
+finding. Reviewer A additionally exercised 729 mixed-line-ending cases and
+99 focused tests; reviewer B exercised 81 independent in-memory cases. These
+reviews cover the bounded implementation, not full P3 requirement completion.
+
+Remaining delivery work: reconcile the dependent phase branches with merged
+PR #21, and review/merge remaining P2 before
+the coherent P3 PR. No small PLAN-121 PR is opened. Broader source freshness,
+non-Markdown selectors and effective task splitting remain outside this unit.
