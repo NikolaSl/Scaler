@@ -116,6 +116,45 @@ test("manifest readers reject malformed commands before command updates", async 
   });
 });
 
+test("manifest readers reject persisted commands with missing required fields", async () => {
+  await withTempDir(async (dir) => {
+    await saveValidationManifest(dir, {
+      taskId: "T-CORRUPT",
+      commands: [],
+      createdAt: "",
+      updatedAt: "",
+    });
+    const indexPath = join(dir, ".scaler", "reports", "validation-manifests.json");
+    const malformedCommands = [
+      { command: "npm test", required: true },
+      { id: "unit", required: true },
+      { id: "unit", command: "npm test" },
+    ];
+
+    for (const command of malformedCommands) {
+      const bytes = `${JSON.stringify({
+        version: 1,
+        manifests: [{ taskId: "T-CORRUPT", commands: [command], createdAt: "", updatedAt: "" }],
+      })}\n`;
+      await writeFile(indexPath, bytes, "utf8");
+
+      await assert.rejects(
+        loadValidationManifests(dir),
+        /Persisted validation manifest for T-CORRUPT is malformed: commands\[0\]\.(id|command|required)/,
+      );
+      await assert.rejects(
+        upsertValidationManifestCommand(dir, {
+          taskId: "T-CORRUPT",
+          id: "unit",
+          command: "npm test",
+        }),
+        /Persisted validation manifest for T-CORRUPT is malformed: commands\[0\]\.(id|command|required)/,
+      );
+      assert.equal(await readFile(indexPath, "utf8"), bytes);
+    }
+  });
+});
+
 test("normalizeValidationGateKind maps common software and non-software aliases", () => {
   assert.equal(normalizeValidationGateKind("unit"), "unit_tests");
   assert.equal(normalizeValidationGateKind("build-compile"), "build_compile");
