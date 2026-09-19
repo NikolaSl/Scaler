@@ -478,6 +478,31 @@ for (const [name, prefix, section] of [
   });
 }
 
+for (const title of ["Target\u00a0", "Target\u202f", "\u00a0"]) {
+  test(`raw heading identity preserves Unicode whitespace ${JSON.stringify(title)}`, async () => {
+    await withTempDir(async (dir) => {
+      const state = createDefaultState();
+      const section = `## ${title}\nUNICODE_TITLE\n`;
+      await writeFile(join(dir, "reference.md"), section + "## Target\nASCII_TITLE\n", "utf8");
+      await saveTaskContextManifest(dir, {
+        version: 1, taskId: "T-SECTION", createdAt: state.createdAt, updatedAt: state.createdAt,
+        items: [{ id: "target", type: "file", reason: "Exact contract", priority: "required",
+          scope: "section", source: "file", path: "reference.md",
+          selector: { kind: "markdown-heading", heading: ` \t${title}\t ` } }],
+      });
+      const manifest = (await loadTaskContextManifest(dir, "T-SECTION"))!;
+      assert.equal(manifest.items[0]!.selector!.heading, title);
+      const [item] = await resolveTaskContextManifest(dir, state, manifest);
+      assert.equal(item?.available, true);
+      assert.equal(item?.content, section);
+      manifest.items[0]!.selector!.heading = "Target";
+      const [ascii] = await resolveTaskContextManifest(dir, state, manifest);
+      assert.equal(ascii?.available, true);
+      assert.equal(ascii?.content, "## Target\nASCII_TITLE\n");
+    });
+  });
+}
+
 for (const eol of ["\n", "\r\n", "\r"]) {
   test(`block token offsets preserve ${JSON.stringify(eol)} source and Unicode`, async () => {
     await withTempDir(async (dir) => {
