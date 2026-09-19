@@ -463,11 +463,39 @@ export function normalizeValidationGateKind(value: unknown): ValidationGateKind 
 export async function loadValidationManifests(cwd: string): Promise<TaskValidationManifest[]> {
   try {
     const raw = await readFile(getValidationManifestsPath(cwd), "utf8");
-    return (JSON.parse(raw) as ValidationManifestIndex).manifests;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Persisted validation manifest index is malformed: expected an object.");
+    }
+    const manifests = (parsed as { manifests?: unknown }).manifests;
+    if (!Array.isArray(manifests)) {
+      throw new Error("Persisted validation manifest index is malformed: manifests must be an array.");
+    }
+    return manifests.map((candidate, index) => assertPersistedValidationManifestShape(candidate, index));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
   }
+}
+
+function assertPersistedValidationManifestShape(candidate: unknown, index: number): TaskValidationManifest {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+    throw new Error(`Persisted validation manifest at index ${index} is malformed: expected an object.`);
+  }
+  const taskId = (candidate as { taskId?: unknown }).taskId;
+  if (typeof taskId !== "string" || !taskId.trim()) {
+    throw new Error(`Persisted validation manifest at index ${index} is malformed: taskId must be a non-empty string.`);
+  }
+  const commands = (candidate as { commands?: unknown }).commands;
+  if (!Array.isArray(commands)) {
+    throw new Error(`Persisted validation manifest for ${taskId} is malformed: commands must be an array.`);
+  }
+  for (const [commandIndex, command] of commands.entries()) {
+    if (!command || typeof command !== "object" || Array.isArray(command)) {
+      throw new Error(`Persisted validation manifest for ${taskId} is malformed: commands[${commandIndex}] must be an object.`);
+    }
+  }
+  return candidate as TaskValidationManifest;
 }
 
 function fingerprintPersistedValidationManifest(
