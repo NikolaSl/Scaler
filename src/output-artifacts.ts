@@ -47,7 +47,7 @@ export async function fingerprintDeclaredOutputs(cwd: string, declared: string[]
       const stat = await lstat(absolute);
       if (stat.isSymbolicLink()) outputs.push({ path, kind: "symlink", target: await readlink(absolute) });
       else if (stat.isFile()) {
-        outputs.push({ path, kind: "file", ...await fingerprintStableFile(absolute, stat) });
+        outputs.push({ path, kind: "file", ...await fingerprintStableFile(absolute, stat, "Declared output") });
       } else throw new Error(`Declared output ${path} is not a file, symlink or deletion.`);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -73,25 +73,29 @@ export async function fingerprintValidationInputs(cwd: string, declared: string[
     const absolute = join(cwd, path);
     const stat = await lstat(absolute);
     if (!stat.isFile()) throw new Error(`Validation input ${path} must be a regular file.`);
-    inputs.push({ path, kind: "file", ...await fingerprintStableFile(absolute, stat) });
+    inputs.push({ path, kind: "file", ...await fingerprintStableFile(absolute, stat, "Validation input") });
   }
   return fingerprintJson(inputs);
 }
 
-async function fingerprintStableFile(path: string, expected: Stats): Promise<{ executable: boolean; digest: string }> {
-  if (!constants.O_NOFOLLOW) throw new Error("Declared output capture requires a no-follow file-open capability.");
+async function fingerprintStableFile(
+  path: string,
+  expected: Stats,
+  subject: "Declared output" | "Validation input",
+): Promise<{ executable: boolean; digest: string }> {
+  if (!constants.O_NOFOLLOW) throw new Error(`${subject} capture requires a no-follow file-open capability.`);
   // Refuse a leaf symlink swap; nonblocking open also prevents a raced FIFO
   // from hanging before fstat can reject its type. Read bytes/mode from one fd.
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK).catch((error) => {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error(`Declared output changed before opening: ${path}`);
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error(`${subject} changed before opening: ${path}`);
     throw error;
   });
   try {
     const before = await file.stat();
-    if (!before.isFile() || !sameFile(expected, before)) throw new Error(`Declared output was replaced before reading: ${path}`);
+    if (!before.isFile() || !sameFile(expected, before)) throw new Error(`${subject} was replaced before reading: ${path}`);
     const hash = createHash("sha256");
     for await (const chunk of file.createReadStream({ autoClose: false })) hash.update(chunk);
-    if (!sameFile(before, await file.stat())) throw new Error(`Declared output changed while reading: ${path}`);
+    if (!sameFile(before, await file.stat())) throw new Error(`${subject} changed while reading: ${path}`);
     return { executable: (before.mode & 0o111) !== 0, digest: hash.digest("hex") };
   } finally { await file.close(); }
 }
