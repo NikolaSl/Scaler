@@ -238,8 +238,13 @@ export async function applyPrdRequirementUpserts(
   cwd: string,
   inputs: UpsertPrdRequirementInput[],
 ): Promise<RuntimePrdRequirement[]> {
-  if (inputs.length === 0) return [];
-  return withPrdRequirementsLock(cwd, async () => applyPrdRequirementUpsertsLocked(cwd, inputs));
+  return withPrdRequirementsLock(cwd, async () => {
+    if (inputs.length === 0) {
+      await loadPrdRequirementsUnlocked(cwd);
+      return [];
+    }
+    return applyPrdRequirementUpsertsLocked(cwd, inputs);
+  });
 }
 
 async function applyPrdRequirementUpsertsLocked(
