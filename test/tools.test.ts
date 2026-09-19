@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -132,6 +132,42 @@ test("validation manifest partial updates preserve established command order", a
     const manifest = await getValidationManifestForTask(dir, "T-ORDERED-MANIFEST");
     assert.deepEqual(manifest.commands.map((command) => command.id), ["test-first", "unit"]);
     assert.deepEqual(evaluateValidationManifestPolicy(manifest).diagnostics.filter((entry) => entry.severity === "failure"), []);
+  });
+});
+
+test("validation manifest tool reports malformed persisted commands without mutation", async () => {
+  await withTempDir(async (dir) => {
+    await saveValidationManifest(dir, {
+      taskId: "T-CORRUPT-MANIFEST",
+      commands: [],
+      createdAt: "",
+      updatedAt: "",
+    });
+    const indexPath = join(dir, ".scaler", "reports", "validation-manifests.json");
+    const bytes = `${JSON.stringify({
+      version: 1,
+      manifests: [{ taskId: "T-CORRUPT-MANIFEST", commands: [null], createdAt: "", updatedAt: "" }],
+    })}\n`;
+    await writeFile(indexPath, bytes, "utf8");
+    const registered = new Map<string, { execute: (...args: any[]) => Promise<any> }>();
+    registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<any> }) {
+      registered.set(definition.name, definition);
+    } } as never);
+
+    const result = await registered.get("scaler_validation_manifest_write")?.execute(
+      "manifest",
+      {
+        taskId: "T-CORRUPT-MANIFEST",
+        commands: [{ id: "unit", command: "npm test" }],
+      },
+      undefined,
+      undefined,
+      { cwd: dir },
+    );
+
+    assert.equal(result?.details.status, "rejected");
+    assert.match(result?.content[0]?.text ?? "", /Persisted validation manifest for T-CORRUPT-MANIFEST is malformed: commands/);
+    assert.equal(await readFile(indexPath, "utf8"), bytes);
   });
 });
 

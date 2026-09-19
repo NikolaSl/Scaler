@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -79,6 +79,40 @@ test("saveValidationManifest identifies a malformed persisted policy entry", asy
       }),
       /Persisted validation manifest for T-CORRUPT is malformed: commands must be an array/,
     );
+  });
+});
+
+test("manifest readers reject malformed commands before command updates", async () => {
+  await withTempDir(async (dir) => {
+    await saveValidationManifest(dir, {
+      taskId: "T-CORRUPT",
+      commands: [],
+      createdAt: "",
+      updatedAt: "",
+    });
+    const indexPath = join(dir, ".scaler", "reports", "validation-manifests.json");
+
+    for (const commands of [undefined, null, [null]]) {
+      const bytes = `${JSON.stringify({
+        version: 1,
+        manifests: [{ taskId: "T-CORRUPT", commands, createdAt: "", updatedAt: "" }],
+      })}\n`;
+      await writeFile(indexPath, bytes, "utf8");
+
+      await assert.rejects(
+        loadValidationManifests(dir),
+        /Persisted validation manifest for T-CORRUPT is malformed: commands/,
+      );
+      await assert.rejects(
+        upsertValidationManifestCommand(dir, {
+          taskId: "T-CORRUPT",
+          id: "unit",
+          command: "npm test",
+        }),
+        /Persisted validation manifest for T-CORRUPT is malformed: commands/,
+      );
+      assert.equal(await readFile(indexPath, "utf8"), bytes);
+    }
   });
 });
 
