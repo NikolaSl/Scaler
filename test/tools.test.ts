@@ -18,7 +18,7 @@ import { loadState } from "../src/state.js";
 import { loadTaskAgentReports } from "../src/task-reports.js";
 import { loadToolRequests, loadToolResults, loadToolSchemaRecords } from "../src/tool-requests.js";
 import { scalerToolNames, registerScalerTools } from "../src/tools.js";
-import { getValidationManifestForTask } from "../src/validation.js";
+import { getValidationManifestForTask, saveValidationManifest } from "../src/validation.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-tools-test-"));
@@ -63,6 +63,42 @@ test("registerScalerTools registers all tool definitions", () => {
   registerScalerTools(fakePi as never);
 
   assert.deepEqual(registered, [...scalerToolNames]);
+});
+
+test("validation manifest tool preserves commands omitted from a partial draft update", async () => {
+  await withTempDir(async (dir) => {
+    await saveValidationManifest(dir, {
+      taskId: "T-PARTIAL-MANIFEST",
+      commands: [
+        { id: "test-first", command: "node -e \"process.exit(0)\"", gate: "test_first", required: true },
+        { id: "unit", command: "node -e \"process.exit(1)\"", gate: "unit_tests", required: true },
+      ],
+      createdAt: "",
+      updatedAt: "",
+    }, { authority: "model" });
+    const registered = new Map<string, { execute: (...args: any[]) => Promise<any> }>();
+    registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<any> }) {
+      registered.set(definition.name, definition);
+    } } as never);
+
+    const result = await registered.get("scaler_validation_manifest_write")?.execute(
+      "manifest",
+      {
+        taskId: "T-PARTIAL-MANIFEST",
+        commands: [{ id: "test-first", command: "node -e \"process.exit(0)\"", description: "Updated" }],
+      },
+      undefined,
+      undefined,
+      { cwd: dir },
+    );
+
+    assert.equal(result?.details.status, "written");
+    const manifest = await getValidationManifestForTask(dir, "T-PARTIAL-MANIFEST");
+    assert.deepEqual(manifest.commands.map((command) => command.id), ["test-first", "unit"]);
+    assert.equal(manifest.commands[0]?.gate, "test_first");
+    assert.equal(manifest.commands[1]?.gate, "unit_tests");
+    assert.match(manifest.commands[1]?.command ?? "", /process\.exit\(1\)/);
+  });
 });
 
 test("scaler_task_create records stable audit summary when quality metadata is complete", async () => {
