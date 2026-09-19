@@ -20,8 +20,9 @@ Copilot review remains preferred when it executes, but on 2026-09-17 Nikola
 authorized an independent exact-head fallback after repeated accepted review
 requests produced no pending or completed review. On 2026-09-17 Nikola renewed
 the work for another 24 hours.
-The current unattended mutation deadline is `2026-09-18T18:58:05Z`
-(21:58:05 Europe/Sofia). This supersedes both earlier September 17 cutoffs.
+Nikola renewed autonomous work again on 2026-09-19 at 20:52:02Z.
+The current unattended mutation deadline is `2026-09-20T20:52:02Z`
+(23:52:02 Europe/Sofia). This supersedes all earlier cutoffs.
 Stop unattended mutations then and preserve a handoff unless Nikola extends
 or changes the instruction. No paid model spending or deployment is authorized.
 
@@ -66,6 +67,24 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   current head passes either a completed Copilot review or the independent
   exact-head fallback above. Prepare remaining P2 acceptance work on
   `implementation/v2-p2-acceptance`; retain the existing PR #21 head.
+
+### Renewed continuation policy (2026-09-19)
+
+The current scheduled instruction requires a completed Copilot review covering
+the exact merge candidate; independent reviews supplement, not replace, that
+gate for this window. Do not treat the historical fallback above as permission
+to skip the current gate. Verify the raw review `commit_id`, not only the
+normalized review summary. If a request is stuck, one bounded remove/re-add of
+`copilot-pull-request-reviewer[bot]` is permitted; API success is not evidence of
+execution. Preserve all branch protections and use expected-head merge commits.
+
+Continue coherent phase branches with separate logical commits, at most one PR
+in review and one next unit in preparation. Claim a bounded continuation marker
+after checking live agents, processes, worktrees and Git state; release it at
+handoff. Report published commit links, actual checks, blockers and next steps
+in Bulgarian on each scheduled run. Never imply continuous execution between
+runs or manufacture commits for reports. All delegated reviews remain GPT-6
+Astra/high or higher. Paid model calls and deployments remain out of scope.
 
 ## Architecture direction
 
