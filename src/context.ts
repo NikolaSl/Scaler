@@ -5,6 +5,7 @@
 
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
+import { Lexer } from "marked";
 import { getGitChangedPaths } from "./git.js";
 import { loadMemoryIndex, retrieveMemory, type MemoryEntry } from "./memory.js";
 import { loadExecutionPlan, type ExecutionPlanTask } from "./plans.js";
@@ -527,137 +528,39 @@ async function resolveFileContextContent(
   return [`File ${scope}: ${path}`, content.slice(0, maxChars), `... [truncated ${content.length - maxChars} chars; request full file if needed]`].join("\n");
 }
 
-function scanMarkdownIndent(line: string, startIndex = 0, startColumn = 0): { columns: number; index: number } {
-  let columns = startColumn;
-  let index = startIndex;
-  while (index < line.length) {
-    if (line[index] === " ") {
-      columns += 1;
-    } else if (line[index] === "\t") {
-      columns += 4 - (columns % 4);
-    } else {
-      break;
-    }
-    index += 1;
-  }
-  return { columns, index };
-}
-
-function parseMarkdownListItem(
-  line: string,
-  contentIndents: number[],
-): { baseIndex: number; contentIndent: number; contentIndex: number } | undefined {
-  const indent = scanMarkdownIndent(line);
-  const bases = [
-    ...contentIndents.map((base, baseIndex) => ({ base, baseIndex })).reverse(),
-    { base: 0, baseIndex: -1 },
-  ];
-  for (const { base, baseIndex } of bases) {
-    const relativeIndent = indent.columns - base;
-    if (relativeIndent < 0 || relativeIndent > 3) continue;
-    const marker = line.slice(indent.index).match(/^(?:[-+*]|\d{1,9}[.)])/);
-    if (!marker) continue;
-    const markerEndIndex = indent.index + marker[0].length;
-    const markerEndColumn = indent.columns + marker[0].length;
-    if (markerEndIndex === line.length) {
-      return { baseIndex, contentIndent: markerEndColumn + 1, contentIndex: markerEndIndex };
-    }
-    if (line[markerEndIndex] !== " " && line[markerEndIndex] !== "\t") continue;
-    const padding = scanMarkdownIndent(line, markerEndIndex, markerEndColumn);
-    const paddingColumns = padding.columns - markerEndColumn;
-    const effectivePadding = paddingColumns <= 4 ? paddingColumns : 1;
-    return {
-      baseIndex,
-      contentIndent: markerEndColumn + effectivePadding,
-      contentIndex: paddingColumns <= 4 ? padding.index : markerEndIndex + 1,
-    };
-  }
-  return undefined;
-}
-
-function isMarkdownThematicBreak(line: string, contentIndents: number[]): boolean {
-  const indent = scanMarkdownIndent(line);
-  const allowed = [...contentIndents, 0].some((base) => {
-    const relativeIndent = indent.columns - base;
-    return relativeIndent >= 0 && relativeIndent <= 3;
-  });
-  if (!allowed) return false;
-  const rest = line.slice(indent.index);
-  return /^(?:\*[ \t]*){3,}$/.test(rest)
-    || /^(?:_[ \t]*){3,}$/.test(rest)
-    || /^(?:-[ \t]*){3,}$/.test(rest);
-}
-
 function extractMarkdownHeadingSection(content: string, path: string, selector: MarkdownHeadingSelector): string {
-  const headings: Array<{ level: number; text: string; start: number }> = [];
-  let fence: { marker: "`" | "~"; length: number; minIndent: number; maxIndent: number } | undefined;
-  let listIndents: number[] = [];
-  let previousLineBlank = false;
-  let offset = 0;
-  while (offset < content.length) {
-    const newline = content.indexOf("\n", offset);
-    const end = newline === -1 ? content.length : newline + 1;
-    const sourceLine = content.slice(offset, end);
-    const line = sourceLine.replace(/\r?\n$/, "");
-    const lineBlank = line.trim() === "";
-    const indent = scanMarkdownIndent(line);
-    if (fence) {
-      if (fence.minIndent === 0 || lineBlank || indent.columns >= fence.minIndent) {
-        const closing = new RegExp(`^${fence.marker === "`" ? "`" : "~"}{${fence.length},}[ \\t]*$`);
-        if (indent.columns <= fence.maxIndent && closing.test(line.slice(indent.index))) fence = undefined;
-        previousLineBlank = lineBlank;
-        offset = end;
-        continue;
-      }
-      fence = undefined;
-      while (listIndents.length > 0 && indent.columns < listIndents[listIndents.length - 1]!) listIndents.pop();
+  // Block parsing must distinguish real headings from code/HTML/container text.
+  // Never render/rewrite the selected content: token offsets address the source.
+  const normalized = content.replace(/\r\n?/g, "\n");
+  const tokens = new Lexer({ gfm: false, pedantic: false }).lex(normalized);
+  const headings: Array<{ level: number; text: string; start: number; selectable: boolean }> = [];
+  let normalizedOffset = 0;
+  let sourceOffset = 0;
+  for (const token of tokens) {
+    if (!token.raw || !normalized.startsWith(token.raw, normalizedOffset)) {
+      throw new Error(`Cannot map Markdown blocks exactly in ${path}.`);
     }
-
-    const thematicBreak = isMarkdownThematicBreak(line, listIndents);
-    const listItem = thematicBreak ? undefined : parseMarkdownListItem(line, listIndents);
-    const rawBlock = line.slice(indent.index);
-    const startsBlock = thematicBreak
-      || listItem !== undefined
-      || /^#{1,6}(?:[ \t]|$)/.test(rawBlock)
-      || /^(?:`{3,}|~{3,})/.test(rawBlock);
-    if (listItem) {
-      listIndents = listIndents.slice(0, listItem.baseIndex + 1);
-      listIndents.push(listItem.contentIndent);
-    } else if (!lineBlank && (startsBlock || previousLineBlank)) {
-      while (listIndents.length > 0 && indent.columns < listIndents[listIndents.length - 1]!) listIndents.pop();
+    if (token.type === "heading") {
+      headings.push({
+        level: token.depth,
+        text: token.text,
+        start: sourceOffset,
+        selectable: /^ {0,3}#{1,6}(?:[ \t]|$)/.test(token.raw),
+      });
     }
-    const fenceIndent = listItem
-      ? scanMarkdownIndent(line, listItem.contentIndex, listItem.contentIndent)
-      : indent;
-    const containerIndent = listIndents[listIndents.length - 1] ?? 0;
-    const relativeFenceIndent = fenceIndent.columns - containerIndent;
-    const fenceMatch = line.slice(fenceIndent.index).match(/^(`{3,}|~{3,})(.*)$/);
-    const fenceMarker = relativeFenceIndent >= 0 && relativeFenceIndent <= 3 ? fenceMatch?.[1] : undefined;
-    const fenceInfo = fenceMatch?.[2];
-    const marker = fenceMarker?.[0] as "`" | "~" | undefined;
-    const validFenceOpener = fenceMarker !== undefined
-      && !(marker === "`" && fenceInfo!.includes("`"));
-    if (validFenceOpener) {
-      fence = {
-        marker: marker!,
-        length: fenceMarker!.length,
-        minIndent: containerIndent,
-        maxIndent: containerIndent + 3,
-      };
-      previousLineBlank = false;
-      offset = end;
-      continue;
+    // Marked normalizes CRLF and standalone CR. Advance over original UTF-16
+    // units in lockstep so the returned substring retains original line endings.
+    for (let i = 0; i < token.raw.length; i += 1) {
+      if (content[sourceOffset] === "\r" && content[sourceOffset + 1] === "\n") sourceOffset += 1;
+      sourceOffset += 1;
     }
-    const match = line.match(/^ {0,3}(#{1,6})(?:[ \t]+(.*?)|[ \t]*)$/);
-    if (match) {
-      const text = (match[2] ?? "").replace(/[ \t]+#+[ \t]*$/, "").trim();
-      headings.push({ level: match[1]!.length, text, start: offset });
-    }
-    previousLineBlank = lineBlank;
-    offset = end;
+    normalizedOffset += token.raw.length;
+  }
+  if (normalizedOffset !== normalized.length || sourceOffset !== content.length) {
+    throw new Error(`Cannot map Markdown blocks exactly in ${path}.`);
   }
 
-  const matches = headings.filter((heading) => heading.text === selector.heading);
+  const matches = headings.filter((heading) => heading.selectable && heading.text === selector.heading);
   if (matches.length === 0) throw new Error(`Markdown heading not found in ${path}: ${selector.heading}`);
   if (matches.length > 1) throw new Error(`Markdown heading is ambiguous in ${path}: ${selector.heading}`);
   const selected = matches[0]!;
