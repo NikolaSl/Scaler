@@ -171,6 +171,42 @@ test("validation manifest tool reports malformed persisted commands without muta
   });
 });
 
+test("validation manifest tool rejects malformed proposals without poisoning the index", async () => {
+  for (const params of [
+    { taskId: "T-BLANK-COMMAND", commands: [{ id: "unit", command: "   " }] },
+    { taskId: "T-BLANK-ID", commands: [{ id: "   ", command: "npm test" }] },
+    { taskId: "   ", commands: [{ id: "unit", command: "npm test" }] },
+  ]) {
+    await withTempDir(async (dir) => {
+      await saveValidationManifest(dir, {
+        taskId: "T-VALID",
+        commands: [{ id: "unit", command: "npm test", required: true }],
+        createdAt: "",
+        updatedAt: "",
+      });
+      const indexPath = join(dir, ".scaler", "reports", "validation-manifests.json");
+      const before = await readFile(indexPath, "utf8");
+      const registered = new Map<string, { execute: (...args: any[]) => Promise<any> }>();
+      registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<any> }) {
+        registered.set(definition.name, definition);
+      } } as never);
+
+      const result = await registered.get("scaler_validation_manifest_write")?.execute(
+        "manifest",
+        params,
+        undefined,
+        undefined,
+        { cwd: dir },
+      );
+
+      assert.equal(result?.details.status, "rejected");
+      assert.match(result?.content[0]?.text ?? "", /malformed: (taskId|commands\[\d+\]\.(id|command))/);
+      assert.equal(await readFile(indexPath, "utf8"), before);
+      assert.equal((await getValidationManifestForTask(dir, "T-VALID")).commands[0]?.command, "npm test");
+    });
+  }
+});
+
 test("scaler_task_create records stable audit summary when quality metadata is complete", async () => {
   await withTempDir(async (dir) => {
     const registered = new Map<string, { execute: (...args: any[]) => Promise<unknown> }>();
