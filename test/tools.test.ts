@@ -18,7 +18,7 @@ import { loadState } from "../src/state.js";
 import { loadTaskAgentReports } from "../src/task-reports.js";
 import { loadToolRequests, loadToolResults, loadToolSchemaRecords } from "../src/tool-requests.js";
 import { scalerToolNames, registerScalerTools } from "../src/tools.js";
-import { getValidationManifestForTask, saveValidationManifest } from "../src/validation.js";
+import { evaluateValidationManifestPolicy, getValidationManifestForTask, saveValidationManifest } from "../src/validation.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-tools-test-"));
@@ -98,6 +98,40 @@ test("validation manifest tool preserves commands omitted from a partial draft u
     assert.equal(manifest.commands[0]?.gate, "test_first");
     assert.equal(manifest.commands[1]?.gate, "unit_tests");
     assert.match(manifest.commands[1]?.command ?? "", /process\.exit\(1\)/);
+  });
+});
+
+test("validation manifest partial updates preserve established command order", async () => {
+  await withTempDir(async (dir) => {
+    await saveValidationManifest(dir, {
+      taskId: "T-ORDERED-MANIFEST",
+      commands: [
+        { id: "test-first", command: "node -e \"process.exit(0)\"", gate: "test_first", required: true },
+        { id: "unit", command: "node -e \"process.exit(0)\"", gate: "unit_tests", required: true },
+      ],
+      createdAt: "",
+      updatedAt: "",
+    });
+    const registered = new Map<string, { execute: (...args: any[]) => Promise<any> }>();
+    registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<any> }) {
+      registered.set(definition.name, definition);
+    } } as never);
+
+    const result = await registered.get("scaler_validation_manifest_write")?.execute(
+      "manifest",
+      {
+        taskId: "T-ORDERED-MANIFEST",
+        commands: [{ id: "unit", command: "node -e \"process.exit(0)\"" }],
+      },
+      undefined,
+      undefined,
+      { cwd: dir },
+    );
+
+    assert.equal(result?.details.status, "written");
+    const manifest = await getValidationManifestForTask(dir, "T-ORDERED-MANIFEST");
+    assert.deepEqual(manifest.commands.map((command) => command.id), ["test-first", "unit"]);
+    assert.deepEqual(evaluateValidationManifestPolicy(manifest).diagnostics.filter((entry) => entry.severity === "failure"), []);
   });
 });
 
