@@ -57,6 +57,31 @@ test("saveValidationManifest writes and replaces per-task manifest", async () =>
   });
 });
 
+test("saveValidationManifest identifies a malformed persisted policy entry", async () => {
+  await withTempDir(async (dir) => {
+    await saveValidationManifest(dir, {
+      taskId: "T-CORRUPT",
+      commands: [],
+      createdAt: "",
+      updatedAt: "",
+    });
+    await writeFile(join(dir, ".scaler", "reports", "validation-manifests.json"), `${JSON.stringify({
+      version: 1,
+      manifests: [{ taskId: "T-CORRUPT", createdAt: "", updatedAt: "" }],
+    })}\n`, "utf8");
+
+    await assert.rejects(
+      saveValidationManifest(dir, {
+        taskId: "T-CORRUPT",
+        commands: [],
+        createdAt: "",
+        updatedAt: "",
+      }),
+      /Persisted validation manifest for T-CORRUPT is malformed: commands must be an array/,
+    );
+  });
+});
+
 test("normalizeValidationGateKind maps common software and non-software aliases", () => {
   assert.equal(normalizeValidationGateKind("unit"), "unit_tests");
   assert.equal(normalizeValidationGateKind("build-compile"), "build_compile");
