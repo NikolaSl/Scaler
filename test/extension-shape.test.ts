@@ -15,6 +15,7 @@ import scalerExtension from "../src/index.js";
 import packagedScalerExtension from "../extensions/scaler/index.js";
 import { loadWatchdogHeartbeats } from "../src/watchdogs.js";
 import { readLogEvents } from "../src/logging.js";
+import { loadExecutionLock } from "../src/locks.js";
 import { getLogToolsDir } from "../src/paths.js";
 import { loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
@@ -490,6 +491,45 @@ test("explicit PRD amendment command applies an exact revision under the executi
     assert.equal(requirement?.revision, 2);
     assert.equal(requirement?.versionHistory?.[1]?.authority.kind, "user_command");
     assert.equal(requirement?.versionHistory?.[1]?.authority.reason, "User clarified the output");
+  });
+});
+
+test("PRD amendment command reports rejected input and releases its lock", async () => {
+  await withTempDir(async (dir) => {
+    await upsertPrdRequirement(dir, { id: "REQ-REJECTED", statement: "Original wording" });
+    const commands = new Map<string, { handler: (args: string | undefined, ctx: unknown) => Promise<void> }>();
+    const fakePi = {
+      on() {},
+      registerTool() {},
+      registerCommand(name: string, command: { handler: (args: string | undefined, ctx: unknown) => Promise<void> }) {
+        commands.set(name, command);
+      },
+    };
+    const notifications: Array<{ message: string; level: string }> = [];
+    scalerExtension(fakePi as never);
+    const amend = commands.get("scaler-prd-amend");
+    assert.ok(amend);
+    const ctx = {
+      cwd: dir,
+      hasUI: true,
+      ui: { notify: (message: string, level: string) => notifications.push({ message, level }) },
+    };
+
+    await assert.doesNotReject(() => amend.handler(
+      'REQ-REJECTED | 1 | Reject unknown fields | {"unexpected":"Changed"}',
+      ctx,
+    ));
+    assert.match(notifications.at(-1)?.message ?? "", /unknown.*field/i);
+    assert.equal(notifications.at(-1)?.level, "warning");
+
+    await assert.doesNotReject(() => amend.handler(
+      'REQ-REJECTED | 2 | Reject stale revision | {"statement":"Changed"}',
+      ctx,
+    ));
+    assert.match(notifications.at(-1)?.message ?? "", /stale revision/i);
+    assert.equal(notifications.at(-1)?.level, "warning");
+    assert.equal((await loadPrdRequirements(dir)).requirements[0]?.statement, "Original wording");
+    assert.equal(await loadExecutionLock(dir), undefined);
   });
 });
 
