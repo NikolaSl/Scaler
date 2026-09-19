@@ -52,6 +52,25 @@ Astra/high exact-head reviews before treating the unit as complete.
 
 ## Explicit limits
 
+### Review-driven implementation revision (2026-09-19)
+
+Independent exact-head review reproduced two additional false exact selections:
+a blockquote ending a list left a phantom list container, and an ordered marker
+other than `1` incorrectly interrupted a paragraph. Both exposed a fenced
+pseudo-heading as available. The new two-case regression fails on the previous
+implementation. Earlier fixes already covered nested/lazy/tab list containers;
+another partial block parser would repeat the same class of error.
+
+Replace manual fence/list tracking with the block lexer from `marked` 18.0.5,
+already present transitively through Pi, now declared as a pinned direct
+dependency. Select document-level ATX headings only, not headings inside list,
+blockquote, code or HTML blocks. Setext headings are not selectable. Preserve
+source offsets across CRLF/CR normalization and fail closed if lexer raw tokens
+do not reconstruct the normalized source. Use a fresh lexer with explicit
+options so host changes to global Markdown defaults cannot alter this boundary.
+Do not render HTML or use a renderer's rewritten content. Retain all previous
+regressions and rerun independent reviews and the full applicable gate.
+
 This unit supports exact Markdown ATX-heading selection only. It does not add
 AST/function retrieval, semantic selector inference, embeddings, summaries,
 automatic task splitting, model escalation or a second provider API. Fresh
