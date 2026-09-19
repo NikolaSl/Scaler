@@ -229,7 +229,7 @@ export async function saveTaskContextManifest(cwd: string, manifest: TaskContext
       taskId: item.taskId?.trim() || undefined,
       selector: item.selector ? {
         ...item.selector,
-        heading: item.selector.heading.trim(),
+        heading: trimMarkdownWhitespace(item.selector.heading),
       } : undefined,
     })),
   };
@@ -528,6 +528,10 @@ async function resolveFileContextContent(
   return [`File ${scope}: ${path}`, content.slice(0, maxChars), `... [truncated ${content.length - maxChars} chars; request full file if needed]`].join("\n");
 }
 
+function trimMarkdownWhitespace(text: string): string {
+  return text.replace(/^[ \t]+|[ \t]+$/g, "");
+}
+
 function extractMarkdownHeadingSection(content: string, path: string, selector: MarkdownHeadingSelector): string {
   // Parse block structure only to locate document headings. Never render or
   // rewrite the selected content: source line offsets address the original file.
@@ -546,7 +550,7 @@ function extractMarkdownHeadingSection(content: string, path: string, selector: 
     const atx = rawLine.match(/^ {0,3}(#{1,6})([ \t]+[^\r\n]*)?$/);
     headings.push({
       level: node.level,
-      text: (atx?.[2] ?? "").replace(/[ \t]+#+[ \t]*$/, "").trim(),
+      text: trimMarkdownWhitespace((atx?.[2] ?? "").replace(/[ \t]+#+[ \t]*$/, "")),
       start,
       selectable: atx !== null,
     });
@@ -902,7 +906,8 @@ function validateTaskContextManifestItem(item: TaskContextManifestItem, ids: Set
     if (item.source !== "file" || item.scope !== "section") {
       throw new Error(`Task context item ${item.id} selector requires file section scope.`);
     }
-    if (item.selector.kind !== "markdown-heading" || !item.selector.heading?.trim()) {
+    if (item.selector.kind !== "markdown-heading" || typeof item.selector.heading !== "string"
+        || !trimMarkdownWhitespace(item.selector.heading)) {
       throw new Error(`Task context item ${item.id} Markdown heading selector is invalid.`);
     }
     if (item.selector.maxChars !== undefined
