@@ -16,12 +16,9 @@ is a durable continuation record; scheduled execution is recorded separately.
 
 Nikola explicitly authorized autonomous implementation and merging PRs after
 review when there are no valid unresolved findings and applicable tests pass.
-Copilot review remains preferred when it executes, but on 2026-09-17 Nikola
-authorized an independent exact-head fallback after repeated accepted review
-requests produced no pending or completed review. On 2026-09-17 Nikola renewed
-the work for another 24 hours.
-The current unattended mutation deadline is `2026-09-18T18:58:05Z`
-(21:58:05 Europe/Sofia). This supersedes both earlier September 17 cutoffs.
+The current unattended mutation deadline is `2026-09-20T20:52:02Z`
+(23:52:02 Europe/Sofia). Nikola renewed this window on 2026-09-19; it supersedes
+all earlier cutoffs.
 Stop unattended mutations then and preserve a handoff unless Nikola extends
 or changes the instruction. No paid model spending or deployment is authorized.
 
@@ -33,22 +30,21 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   API; the login without `[bot]` is not the supported reviewer identity. An API
   success without a submitted review is not approval and must not stall useful
   implementation indefinitely.
-- If Copilot does not submit a current-head review, require primary-agent
-  self-review plus two independent GPT-6 Astra reviews at `high` or higher: one
-  correctness/maintainability review and one adversarial requirements/safety
-  review. Every reviewer must inspect the exact candidate head. Fix all valid
-  findings, rerun applicable checks, and repeat both independent reviews after
-  any code change. Record reviewer scope, findings and dispositions durably.
-- Silence from either fallback reviewer is not approval. Merge only when both
-  exact-head reviews complete with no valid unresolved finding and the primary
-  review agrees. Copilot findings received later are evaluated normally.
+- A completed Copilot review covering the exact candidate head is mandatory in
+  the current work window. Independent GPT-6 Astra reviews at `high` or higher
+  supplement it but do not replace it. Fix every valid finding, rerun applicable
+  checks, and re-review the changed head. Silence or an accepted API request is
+  not approval. A stuck request may be removed and re-added once as a bounded
+  recovery; verify the actual submitted review afterward.
 - Merge only the reviewed, tested head using an expected-head-SHA guard and a
   merge commit to preserve implementation history. Respect branch protection.
 - Keep paid model spending and deployment out of scope. Existing free-provider
   synthetic tests are permitted; do not disclose credentials.
 - Continuations must inspect current remote state before acting and avoid
-  overlapping work. Scheduling details are recorded separately; scheduling does
-  not guarantee execution tools or phase completion. Report concrete blockers.
+  overlapping work. Claim a checked, bounded ownership marker and release it at
+  handoff; marker age alone never proves that a live worker is dead. Scheduling
+  details are recorded separately and do not guarantee execution tools or phase
+  completion. Report concrete blockers.
 - Group subsequent work into coherent phase PRs: remaining P2, then P3, etc.
   Keep separate logical commits for planning, reproductions, implementation,
   tests, documentation and review fixes. A new plan does not require a new PR.
@@ -62,10 +58,10 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
 - Report meaningful published commits in Bulgarian with commit links, purpose,
   validation and next action. Group related commits when necessary; do not make
   empty reporting commits or repeatedly announce an unchanged pending review.
-- PRs #3-#20 are merged. PR #21 / PLAN-117 remains a prerequisite until its
-  current head passes either a completed Copilot review or the independent
-  exact-head fallback above. Prepare remaining P2 acceptance work on
-  `implementation/v2-p2-acceptance`; retain the existing PR #21 head.
+- PRs #3-#21 are merged. PR #21 merged as `cbf2b19` after an exact-head Copilot
+  review. Remaining P2 acceptance work is reconciled with that merge on
+  `implementation/v2-p2-acceptance`; publish one coherent P2 phase PR rather
+  than a PR per plan or defect.
 
 ## Architecture direction
 

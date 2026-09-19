@@ -394,6 +394,10 @@ Four baseline failures demonstrate false completion after changed/new explicit
 links and stale receipts after removed/retargeted links. Unchanged/idempotent and
 unrelated-task controls remain valid. Both directions feed the existing canonical
 requirement-content fingerprint; the schema and acceptance routes are unchanged.
+After PR #21 reconciliation, the same suite also refuses malformed content and
+duplicate linked identifiers reached only through coverage `taskIds`, as well as
+through task `prdRefs`. A malformed requirements document fails with a stable
+diagnostic rather than being treated as missing evidence.
 
 PLAN-118 unit B adds `test/requirement-integration.test.ts`. Two negative
 baselines show that linked component success previously allowed completion when
@@ -402,7 +406,9 @@ accept one exact required passing command, and reject the old integration receip
 after a component output changes and is independently reaccepted. Rerunning the
 named command restores completion. PRD, tool and stage-workflow tests also cover
 criterion normalization and preservation through all structured input paths.
-Snapshot schema version 4 requires older receipts to be revalidated.
+Snapshot schema version 4 introduced this integration identity. The current
+schema is version 5 because declared validation-input files are also bound; all
+older receipt versions require revalidation.
 Malformed or duplicate stage-provided criteria are refused before any PRD,
 catalog, stage-artifact or accepted audit write; malformed participant arrays are
 not silently narrowed.
