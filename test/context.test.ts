@@ -464,7 +464,7 @@ for (const [name, prefix, section] of [
         version: 1 as const, taskId: "T-SECTION", createdAt: state.createdAt, updatedAt: state.createdAt,
         items: [{ id: "target", type: "file" as const, reason: "Exact contract", priority: "required" as const,
           scope: "section" as const, source: "file" as const, path: "reference.md",
-          selector: { kind: "markdown-heading", heading: "Target" } }],
+          selector: { kind: "markdown-heading" as const, heading: "Target" } }],
       };
       const [item] = await resolveTaskContextManifest(dir, state, manifest);
       assert.equal(item?.available, true);

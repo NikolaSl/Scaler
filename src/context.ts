@@ -5,7 +5,7 @@
 
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
-import { Lexer } from "marked";
+import { Parser } from "commonmark";
 import { getGitChangedPaths } from "./git.js";
 import { loadMemoryIndex, retrieveMemory, type MemoryEntry } from "./memory.js";
 import { loadExecutionPlan, type ExecutionPlanTask } from "./plans.js";
@@ -529,35 +529,27 @@ async function resolveFileContextContent(
 }
 
 function extractMarkdownHeadingSection(content: string, path: string, selector: MarkdownHeadingSelector): string {
-  // Block parsing must distinguish real headings from code/HTML/container text.
-  // Never render/rewrite the selected content: token offsets address the source.
-  const normalized = content.replace(/\r\n?/g, "\n");
-  const tokens = new Lexer({ gfm: false, pedantic: false }).lex(normalized);
+  // Parse block structure only to locate document headings. Never render or
+  // rewrite the selected content: source line offsets address the original file.
+  const lineStarts = [0];
+  for (const match of content.matchAll(/\r\n|\r|\n/g)) lineStarts.push(match.index! + match[0].length);
+  const document = new Parser().parse(content);
   const headings: Array<{ level: number; text: string; start: number; selectable: boolean }> = [];
-  let normalizedOffset = 0;
-  let sourceOffset = 0;
-  for (const token of tokens) {
-    if (!token.raw || !normalized.startsWith(token.raw, normalizedOffset)) {
-      throw new Error(`Cannot map Markdown blocks exactly in ${path}.`);
+  for (let node = document.firstChild; node; node = node.next) {
+    if (node.type !== "heading") continue;
+    const line = node.sourcepos[0][0];
+    const start = lineStarts[line - 1];
+    if (start === undefined || !Number.isSafeInteger(line) || line < 1) {
+      throw new Error(`Cannot map Markdown heading exactly in ${path}.`);
     }
-    if (token.type === "heading") {
-      headings.push({
-        level: token.depth,
-        text: token.text,
-        start: sourceOffset,
-        selectable: /^ {0,3}#{1,6}(?:[ \t]|$)/.test(token.raw),
-      });
-    }
-    // Marked normalizes CRLF and standalone CR. Advance over original UTF-16
-    // units in lockstep so the returned substring retains original line endings.
-    for (let i = 0; i < token.raw.length; i += 1) {
-      if (content[sourceOffset] === "\r" && content[sourceOffset + 1] === "\n") sourceOffset += 1;
-      sourceOffset += 1;
-    }
-    normalizedOffset += token.raw.length;
-  }
-  if (normalizedOffset !== normalized.length || sourceOffset !== content.length) {
-    throw new Error(`Cannot map Markdown blocks exactly in ${path}.`);
+    const rawLine = content.slice(start, lineStarts[line] ?? content.length).replace(/[\r\n]+$/, "");
+    const atx = rawLine.match(/^ {0,3}(#{1,6})([ \t]+[^\r\n]*)?$/);
+    headings.push({
+      level: node.level,
+      text: (atx?.[2] ?? "").replace(/[ \t]+#+[ \t]*$/, "").trim(),
+      start,
+      selectable: atx !== null,
+    });
   }
 
   const matches = headings.filter((heading) => heading.selectable && heading.text === selector.heading);
