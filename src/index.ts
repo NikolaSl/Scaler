@@ -1761,11 +1761,17 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         return;
       }
 
-      const manifest = await upsertValidationManifestCommand(ctx.cwd, parsed, { authority: "user_command", reason: parsed.reason });
-      const saved = manifest.commands.find((command) => command.id === parsed.id);
-      const message = `Validation command saved: ${parsed.taskId}/${parsed.id} commands=${manifest.commands.length}${saved?.gate ? ` gate=${saved.gate}` : ""}`;
-      if (ctx.hasUI) ctx.ui.notify(message, "info");
-      else console.log(message);
+      try {
+        const manifest = await upsertValidationManifestCommand(ctx.cwd, parsed, { authority: "user_command", reason: parsed.reason });
+        const saved = manifest.commands.find((command) => command.id === parsed.id);
+        const message = `Validation command saved: ${parsed.taskId}/${parsed.id} commands=${manifest.commands.length}${saved?.gate ? ` gate=${saved.gate}` : ""}`;
+        if (ctx.hasUI) ctx.ui.notify(message, "info");
+        else console.log(message);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+      }
     },
   });
 

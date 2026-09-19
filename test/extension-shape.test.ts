@@ -512,7 +512,9 @@ test("validation-add reports a rejected policy amendment without escaping the co
     const notifications: Array<{ message: string; level: string }> = [];
     scalerExtension(fakePi as never);
 
-    await assert.doesNotReject(commands.get("scaler-validation-add")?.handler(
+    const validationAdd = commands.get("scaler-validation-add");
+    assert.ok(validationAdd);
+    await assert.doesNotReject(() => validationAdd.handler(
       'T-COMMAND-POLICY | unit | node -e "process.exit(0)"',
       {
         cwd: dir,
