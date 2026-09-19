@@ -470,6 +470,24 @@ export async function loadValidationManifests(cwd: string): Promise<TaskValidati
   }
 }
 
+function fingerprintPersistedValidationManifest(
+  manifest: TaskValidationManifest,
+  expectedTaskId: string,
+): string {
+  if (!Array.isArray(manifest.commands)) {
+    throw new Error(`Persisted validation manifest for ${expectedTaskId} is malformed: commands must be an array.`);
+  }
+  try {
+    return fingerprintValidationPolicy(manifest);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Persisted validation manifest for ${expectedTaskId} is malformed and cannot be fingerprinted: ${detail}`,
+      { cause: error },
+    );
+  }
+}
+
 export async function saveValidationManifest(
   cwd: string,
   manifest: TaskValidationManifest,
@@ -482,7 +500,10 @@ export async function saveValidationManifest(
     const persistedCurrent = manifests.find((candidate) => candidate.taskId === manifest.taskId);
     const current = persistedCurrent
       ?? await createDefaultValidationManifest(cwd, manifest.taskId);
-    const changed = fingerprintValidationPolicy(current) !== fingerprintValidationPolicy(normalized);
+    const currentFingerprint = persistedCurrent
+      ? fingerprintPersistedValidationManifest(persistedCurrent, manifest.taskId)
+      : fingerprintValidationPolicy(current);
+    const changed = currentFingerprint !== fingerprintValidationPolicy(normalized);
     const exercised = changed && await hasValidationRunForTask(cwd, manifest.taskId);
     await assertValidationPolicyMutationAuthorized(cwd, normalized, options, manifests, normalized);
     const authorizedAmendment = changed && options.authority === "user_command" && (persistedCurrent !== undefined || exercised);
