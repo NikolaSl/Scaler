@@ -471,38 +471,42 @@ export async function loadValidationManifests(cwd: string): Promise<TaskValidati
     if (!Array.isArray(manifests)) {
       throw new Error("Persisted validation manifest index is malformed: manifests must be an array.");
     }
-    return manifests.map((candidate, index) => assertPersistedValidationManifestShape(candidate, index));
+    return manifests.map((candidate, index) => assertValidationManifestShape(candidate, index));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
   }
 }
 
-function assertPersistedValidationManifestShape(candidate: unknown, index: number): TaskValidationManifest {
+function assertValidationManifestShape(
+  candidate: unknown,
+  index: number,
+  source: "Persisted" | "Proposed" = "Persisted",
+): TaskValidationManifest {
   if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
-    throw new Error(`Persisted validation manifest at index ${index} is malformed: expected an object.`);
+    throw new Error(`${source} validation manifest at index ${index} is malformed: expected an object.`);
   }
   const taskId = (candidate as { taskId?: unknown }).taskId;
   if (typeof taskId !== "string" || !taskId.trim()) {
-    throw new Error(`Persisted validation manifest at index ${index} is malformed: taskId must be a non-empty string.`);
+    throw new Error(`${source} validation manifest at index ${index} is malformed: taskId must be a non-empty string.`);
   }
   const commands = (candidate as { commands?: unknown }).commands;
   if (!Array.isArray(commands)) {
-    throw new Error(`Persisted validation manifest for ${taskId} is malformed: commands must be an array.`);
+    throw new Error(`${source} validation manifest for ${taskId} is malformed: commands must be an array.`);
   }
   for (const [commandIndex, command] of commands.entries()) {
     if (!command || typeof command !== "object" || Array.isArray(command)) {
-      throw new Error(`Persisted validation manifest for ${taskId} is malformed: commands[${commandIndex}] must be an object.`);
+      throw new Error(`${source} validation manifest for ${taskId} is malformed: commands[${commandIndex}] must be an object.`);
     }
     const persistedCommand = command as { id?: unknown; command?: unknown; required?: unknown };
     if (typeof persistedCommand.id !== "string" || !persistedCommand.id.trim()) {
-      throw new Error(`Persisted validation manifest for ${taskId} is malformed: commands[${commandIndex}].id must be a non-empty string.`);
+      throw new Error(`${source} validation manifest for ${taskId} is malformed: commands[${commandIndex}].id must be a non-empty string.`);
     }
     if (typeof persistedCommand.command !== "string" || !persistedCommand.command.trim()) {
-      throw new Error(`Persisted validation manifest for ${taskId} is malformed: commands[${commandIndex}].command must be a non-empty string.`);
+      throw new Error(`${source} validation manifest for ${taskId} is malformed: commands[${commandIndex}].command must be a non-empty string.`);
     }
     if (typeof persistedCommand.required !== "boolean") {
-      throw new Error(`Persisted validation manifest for ${taskId} is malformed: commands[${commandIndex}].required must be a boolean.`);
+      throw new Error(`${source} validation manifest for ${taskId} is malformed: commands[${commandIndex}].required must be a boolean.`);
     }
   }
   return candidate as TaskValidationManifest;
@@ -534,7 +538,11 @@ export async function saveValidationManifest(
   return withValidationPolicyLock(cwd, async () => {
     const manifests = await loadValidationManifests(cwd);
     const timestamp = new Date().toISOString();
-    let normalized = await normalizeValidationManifest(cwd, manifest, timestamp);
+    let normalized = assertValidationManifestShape(
+      await normalizeValidationManifest(cwd, manifest, timestamp),
+      0,
+      "Proposed",
+    );
     const persistedCurrent = manifests.find((candidate) => candidate.taskId === manifest.taskId);
     const current = persistedCurrent
       ?? await createDefaultValidationManifest(cwd, manifest.taskId);
