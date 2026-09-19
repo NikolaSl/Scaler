@@ -422,6 +422,34 @@ test("resolveTaskContextManifest preserves missing source entries as missing con
   });
 });
 
+for (const [name, prefix] of [
+  ["a blockquote ends a preceding list", "- item\n> quote\n  ```markdown\n"],
+  ["non-one ordered markers cannot interrupt a paragraph", "paragraph\n2. not a list\n   ```markdown\n"],
+] as const) {
+  test(`section retrieval ignores fenced headings after ${name}`, async () => {
+    await withTempDir(async (dir) => {
+      const state = createDefaultState();
+      await writeFile(join(dir, "reference.md"), `${prefix}## Target\nFENCED_FAKE\n  \`\`\`\n\n## Real\nREAL_CONTRACT\n## Next\nNEXT\n`, "utf8");
+      const manifest = {
+        version: 1 as const, taskId: "T-SECTION",
+        items: [{
+          id: "target", type: "file" as const, reason: "Exact Target contract", priority: "required" as const,
+          scope: "section" as const, source: "file" as const, path: "reference.md",
+          selector: { kind: "markdown-heading", heading: "Target" },
+        }],
+        createdAt: state.createdAt, updatedAt: state.createdAt,
+      };
+      const [missing] = await resolveTaskContextManifest(dir, state, manifest as never);
+      assert.equal(missing?.available, false);
+      assert.match(missing?.content ?? "", /not found/i);
+      manifest.items[0]!.selector.heading = "Real";
+      const [real] = await resolveTaskContextManifest(dir, state, manifest as never);
+      assert.equal(real?.available, true);
+      assert.equal(real?.content, "## Real\nREAL_CONTRACT\n");
+    });
+  });
+}
+
 test("file section scope resolves the selected exact Markdown heading", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState();
