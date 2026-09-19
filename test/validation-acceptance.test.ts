@@ -159,6 +159,48 @@ test("a no-op pre-commit hook preserves normal validated commit acceptance", asy
   });
 });
 
+async function prepareHookValidationInputCandidate(dir: string): Promise<void> {
+  await writeFile(join(dir, "check.cjs"), "const fs=require('fs'); if(fs.readFileSync('output.txt','utf8')!=='good') process.exit(1);\n");
+  await exec("git", ["add", "check.cjs"], { cwd: dir });
+  await exec("git", ["commit", "-m", "add validation input"], { cwd: dir });
+  const state = createDefaultState();
+  state.stage = "execution";
+  state.tasks = [{
+    id: "T-HOOK-INPUT", title: "Hook-bound validation input", status: "validating",
+    allowedPathPrefixes: ["output.txt"], updatedAt: state.updatedAt,
+  }];
+  await saveState(dir, state);
+  await writeFile(join(dir, "output.txt"), "good");
+  await saveValidationManifest(dir, {
+    taskId: "T-HOOK-INPUT",
+    outputPaths: ["output.txt"],
+    validationInputPaths: ["check.cjs"],
+    commands: [{ id: "check", command: "node check.cjs", required: true }],
+    createdAt: "",
+    updatedAt: "",
+  });
+  assert.equal((await runTaskValidation(dir, await loadState(dir), "T-HOOK-INPUT")).status, "passed");
+}
+
+for (const hookName of ["pre-commit", "post-commit"] as const) {
+  test(`commit refuses ${hookName} validation-input drift after validation`, async () => fixture(async (dir) => {
+    await prepareHookValidationInputCandidate(dir);
+    const beforeCommit = (await exec("git", ["rev-parse", "HEAD"], { cwd: dir })).stdout.trim();
+    const hook = join(dir, ".git", "hooks", hookName);
+    await writeFile(hook, "#!/bin/sh\nprintf 'process.exit(1);\\n' > check.cjs\n");
+    await chmod(hook, 0o755);
+
+    const result = await commitWithExecutionLock(dir, await loadState(dir), "T-HOOK-INPUT", ["output.txt"]);
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /validation basis|receipt|revalidat/i);
+    assert.deepEqual(await loadCommitReports(dir), []);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validating");
+    assert.notEqual((await exec("git", ["rev-parse", "HEAD"], { cwd: dir })).stdout.trim(), beforeCommit,
+      "The created commit remains available for diagnosis after acceptance refusal");
+    assert.equal(await readFile(join(dir, "check.cjs"), "utf8"), "process.exit(1);\n");
+  }));
+}
+
 test("current validation receipt permits an explicit unchanged candidate skip", async () => {
   await fixture(async (dir) => {
     const { state } = await validated(dir);
