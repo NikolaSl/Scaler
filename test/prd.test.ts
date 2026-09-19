@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -78,6 +78,36 @@ test("runtime PRD files save and load round trips", async () => {
     assert.equal((await loadPrdRequirements(dir)).requirements[0]?.id, "REQ-001");
     assert.equal((await loadPrdCoverage(dir)).entries[0]?.status, "pending");
     assert.equal((await loadPrdChanges(dir))[0]?.reason, "initial PRD");
+  });
+});
+
+test("runtime PRD loading rejects duplicate on-disk requirement ids before updates", async () => {
+  await withTempDir(async (dir) => {
+    await savePrdRequirements(dir, {
+      version: 1,
+      requirements: [{
+        id: "REQ-DUP",
+        statement: "Initial requirement.",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }],
+    });
+    const path = join(dir, ".scaler", "prd", "requirements.json");
+    const bytes = `${JSON.stringify({
+      version: 1,
+      requirements: [
+        { id: "REQ-DUP", statement: "First copy.", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
+        { id: "REQ-DUP", statement: "Second copy.", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
+      ],
+    })}\n`;
+    await writeFile(path, bytes, "utf8");
+
+    await assert.rejects(loadPrdRequirements(dir), /duplicate id REQ-DUP/i);
+    await assert.rejects(
+      applyPrdRequirementUpserts(dir, [{ id: "REQ-NEW", statement: "Must not be written." }]),
+      /duplicate id REQ-DUP/i,
+    );
+    assert.equal(await readFile(path, "utf8"), bytes);
   });
 });
 
