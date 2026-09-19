@@ -742,26 +742,36 @@ export function registerScalerTools(pi: ExtensionAPI): void {
       try {
         const existing = await getValidationManifestForTask(ctx.cwd, params.taskId);
         const existingCommands = new Map(existing.commands.map((command) => [command.id, command]));
-        const updatedCommandIds = new Set(params.commands.map((command) => command.id));
+        const commandUpdates = new Map(params.commands.map((command) => [command.id, command]));
+        const mergedCommands = existing.commands.map((current) => {
+          const command = commandUpdates.get(current.id);
+          if (!command) return current;
+          return {
+            ...current,
+            command: command.command,
+            description: command.description ?? current.description,
+            timeoutMs: command.timeoutMs ?? current.timeoutMs,
+            required: command.required ?? current.required ?? true,
+          };
+        });
+        const appendedIds = new Set<string>();
+        for (const command of params.commands) {
+          if (existingCommands.has(command.id) || appendedIds.has(command.id)) continue;
+          mergedCommands.push({
+            id: command.id,
+            command: command.command,
+            description: command.description,
+            timeoutMs: command.timeoutMs,
+            required: command.required ?? true,
+          });
+          appendedIds.add(command.id);
+        }
         const manifest = await saveValidationManifest(ctx.cwd, {
           ...existing,
           taskId: params.taskId,
           outputPaths: params.outputPaths ?? existing.outputPaths,
           validationInputPaths: params.validationInputPaths ?? existing.validationInputPaths,
-          commands: [
-            ...params.commands.map((command) => {
-              const current = existingCommands.get(command.id);
-              return {
-                ...current,
-                id: command.id,
-                command: command.command,
-                description: command.description ?? current?.description,
-                timeoutMs: command.timeoutMs ?? current?.timeoutMs,
-                required: command.required ?? current?.required ?? true,
-              };
-            }),
-            ...existing.commands.filter((command) => !updatedCommandIds.has(command.id)),
-          ],
+          commands: mergedCommands,
           createdAt: existing.createdAt,
           updatedAt: existing.updatedAt,
         }, { authority: "model" });
