@@ -76,3 +76,28 @@ direct adapter, dispatch through the current agent, attach strict provider
 admission to isolated execution, enforce result bounds, prove cost savings or
 local-model quality, or grant authority. A later unit must recompute and bind an
 assessment at the actual dispatch boundary before any route can be executed.
+
+## Implemented evidence
+
+`src/tool-routing.ts` now exposes a pure advisory assessment over runtime-owned
+evidence. It recommends `direct`, `current-agent`, `isolated` or `blocked`, but
+always returns `executionAuthorized: false`. Direct advice requires confirmed
+authority, exact validated arguments and a named deterministic adapter. Model
+routes reuse strict provider admission for each concrete payload leg and add
+only separately declared bounded context before comparing safe aggregate upper
+bounds.
+
+Leg roles make route completeness explicit: current-agent evidence requires a
+`request` leg, while isolated evidence requires exactly one `worker` and one
+`caller-continuation` leg. Unsupported roles, missing/duplicate roles, malformed
+policies, ids, enums, profiles or name arrays, unknown bounds and unsafe
+arithmetic all fail closed. Returned and persisted assessments normalize
+malformed evidence to compact primitives so rejected raw objects cannot leak
+through the audit path.
+
+`recordToolRouteAssessment` reloads the durable request, binds the decision to
+request/evidence hashes and records compact measurements without storing raw
+provider payloads or authorizing execution. Focused routing/provider/tool-request
+tests pass 63/63 after the review-driven regressions. The final full gate and
+exact-head review evidence are recorded in the phase handoff rather than treated
+as proof of AC-08 completion.

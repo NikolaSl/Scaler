@@ -74,7 +74,22 @@ refusal into provider traffic or suppress a successfully selected prompt.
 
 Processes launched by the SCALER agent runner are marked as children and preserve
 their explicitly selected tools; parent focus/catalog injection is not applied to
-them. This routing marker is not an authorization mechanism. The legacy focus
-policy still needs migration to the request-specific three-mode policy in SC-08.
+them. This routing marker is not an authorization mechanism.
 
-The current tool/MCP implementation covers catalog isolation, pre-snapshot parent active-tool focus, prompt-chain-safe selected instruction composition for the verified Pi host, selected-definition envelope identity, schema discovery, local MCP enumeration, isolated transactions/replay, closed replay approvals, bounded correction loops, and conservative parallel scheduling. Request-specific direct/current-agent/isolated route selection, direct execution adapters, isolated-agent provider admission and observed result-size accounting remain open. Future work may also improve cross-process ledger locking.
+SCALER can now compute internal request-specific route advice for `direct`,
+`current-agent`, `isolated` or `blocked`. The assessor uses the persisted request,
+the verified selected-tool profile and complete concrete provider payload legs;
+it does not treat the profile's canonical byte size as tokens or provider wire
+size. Current-agent evidence requires its request leg. Isolated evidence requires
+both the worker request and the caller continuation, and every leg must pass its
+own provider-envelope limit before aggregate overhead is compared. Unknown
+bounds and malformed evidence fail closed.
+
+Route advice is deliberately non-authorizing (`executionAuthorized: false`) and
+is not consumed by the executor. A direct recommendation requires authority,
+validated exact arguments and a named deterministic adapter; the installed host
+does not provide a generic adapter. The audit helper records hashes, reason codes
+and measurements without raw provider history or request arguments. Dispatch
+must later recompute and bind the assessment at the execution boundary.
+
+The current tool/MCP implementation covers catalog isolation, pre-snapshot parent active-tool focus, prompt-chain-safe selected instruction composition for the verified Pi host, selected-definition envelope identity, non-authorizing request-specific route assessment, schema discovery, local MCP enumeration, isolated transactions/replay, closed replay approvals, bounded correction loops, and conservative parallel scheduling. Route execution, direct adapters, dispatch-time reassessment, isolated-executor admission and observed result-size accounting remain open. Future work may also improve cross-process ledger locking.

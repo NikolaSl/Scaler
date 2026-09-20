@@ -75,10 +75,12 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   matrix before selecting the next bounded unit; do not infer phase completion
   from these isolated components. PLAN-123 corrects first-request active-tool
   timing in the installed host, binds the selected definitions to a measured
-  identity and fails closed on unsupported prompt composition. PLAN-124 is the
-  next bounded SC-08 prerequisite: a non-authorizing per-request route assessment
-  over complete concrete provider-envelope evidence. Route execution remains a
-  later unit; neither PLAN-123 nor PLAN-124 is AC-08 completion.
+  identity and fails closed on unsupported prompt composition. PLAN-124 adds a
+  non-authorizing per-request route assessment over complete concrete
+  provider-envelope evidence. It measures every route leg, requires explicit
+  current-agent or worker/continuation roles, fails closed on malformed runtime
+  evidence and records only compact advice. Route execution remains a later
+  unit; neither PLAN-123 nor PLAN-124 is AC-08 completion.
 
 ### Renewed continuation policy (2026-09-19)
 
