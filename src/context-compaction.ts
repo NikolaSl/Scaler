@@ -702,9 +702,10 @@ function formatMinimalContextItem(item: ContextItem, externalized?: Externalized
   if (externalized) {
     return [`- ${item.id}: externalized to memory ${externalized.memoryId} (${externalized.path}); reason=${item.reason}`];
   }
-  const header = `- ${item.id}: type=${item.type} priority=${item.priority} scope=${item.scope} exactness=${item.exactness ?? "exact"}; reason=${item.reason}`;
-  if (item.scope === "reference-only" || item.exactness === "reference-only") return [header, `  reference=${trimForSummary(item.content, 240)}`];
-  if (item.exactness === "exact") return [header, "  exact-content-begin", item.content, "  exact-content-end"];
+  const exactness = item.exactness ?? "exact";
+  const header = `- ${item.id}: type=${item.type} priority=${item.priority} scope=${item.scope} exactness=${exactness}; reason=${item.reason}`;
+  if (exactness === "exact") return [header, "  exact-content-begin", item.content, "  exact-content-end"];
+  if (item.scope === "reference-only" || exactness === "reference-only") return [header, `  reference=${trimForSummary(item.content, 240)}`];
   return [header, `  content=${trimForSummary(item.content, 1200)}`];
 }
 
