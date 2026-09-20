@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -20,7 +20,7 @@ import {
   shouldTriggerScalerCompaction,
 } from "../src/context-compaction.js";
 import { loadContextSplitRecords, recordContextSplitIfNeeded } from "../src/context-splits.js";
-import type { ResolvedContext } from "../src/context.js";
+import { ensureTaskContextManifest, saveTaskContextManifest, type ResolvedContext } from "../src/context.js";
 import { loadMemoryIndex } from "../src/memory.js";
 import { createDefaultState } from "../src/state.js";
 import type { ScalerState } from "../src/types.js";
@@ -134,11 +134,82 @@ test("fresh context handoff builds minimal prompt below split target", async () 
     assert.ok(result.record.estimatedTokens < result.record.previousEstimatedTokens);
     assert.match(result.prompt, /Fresh Minimal-Context Continuation/);
     assert.match(result.prompt, /Externalized exact\/summary refs/);
-    assert.ok(result.record.invocation?.args.includes("--no-tools"));
+    assert.equal(result.record.invocation, undefined);
 
     const records = await loadFreshContextHandoffRecords(dir);
     assert.equal(records[0]?.id, result.record.id);
     assert.match(formatFreshContextHandoffs(records), /Fresh context handoffs/);
+  });
+});
+
+test("fresh context handoff preserves complete required exact inline content", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTask();
+    const manifest = await ensureTaskContextManifest(dir, state, "T-COMPACT");
+    const exact = `BEGIN-EXACT\n${"x".repeat(1_400)}\nEND-EXACT`;
+    await saveTaskContextManifest(dir, {
+      ...manifest,
+      items: [...manifest.items, {
+        id: "required-inline-long",
+        type: "decision",
+        reason: "Exact current contract",
+        priority: "required",
+        scope: "full",
+        exactness: "exact",
+        source: "inline",
+        content: exact,
+      }],
+    });
+    const resolved = oversizedResolvedContext();
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: 2_000, contextWindowTokens: 2_000, largeItemThresholdTokens: 100 });
+    const split = await recordContextSplitIfNeeded(dir, state, "T-COMPACT", resolved, assessment, new Date("2026-01-01T00:00:03.000Z"));
+
+    const result = await prepareFreshContextHandoff(dir, state, { splitId: split!.id, now: new Date("2026-01-01T00:00:04.000Z") });
+
+    assert.equal(result.accepted, true);
+    assert.ok(result.prompt.includes(exact));
+    assert.match(result.prompt, /END-EXACT/);
+  });
+});
+
+test("fresh context handoff blocks changed externalized source before prompt publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTask();
+    const resolved = oversizedResolvedContext();
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: resolved.estimatedTokens, contextWindowTokens: 1_000, largeItemThresholdTokens: 100 });
+    const split = await recordContextSplitIfNeeded(dir, state, "T-COMPACT", resolved, assessment, new Date("2026-01-01T00:00:03.000Z"));
+    await writeFile(join(dir, split!.externalizedMemoryRefs[0]!.path), "tampered\n", "utf8");
+
+    const result = await prepareFreshContextHandoff(dir, state, { splitId: split!.id, now: new Date("2026-01-01T00:00:04.000Z") });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.prompt, "");
+    assert.equal(result.record.promptPath, "");
+    assert.match(result.record.diagnostics.join(" "), /externalized context source is unavailable or changed/i);
+  });
+});
+
+test("fresh context handoff execute refuses before runner without shared admission", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTask();
+    const resolved = oversizedResolvedContext();
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: resolved.estimatedTokens, contextWindowTokens: 1_000, largeItemThresholdTokens: 100 });
+    const split = await recordContextSplitIfNeeded(dir, state, "T-COMPACT", resolved, assessment, new Date("2026-01-01T00:00:03.000Z"));
+    let calls = 0;
+
+    const result = await prepareFreshContextHandoff(dir, state, {
+      splitId: split!.id,
+      execute: true,
+      now: new Date("2026-01-01T00:00:04.000Z"),
+    }, async () => {
+      calls += 1;
+      throw new Error("runner must not be called");
+    });
+
+    assert.equal(calls, 0);
+    assert.equal(result.accepted, false);
+    assert.equal(result.record.status, "blocked");
+    assert.match(result.record.diagnostics.join(" "), /conductor-equivalent attempt, provider and result admission/i);
   });
 });
 
