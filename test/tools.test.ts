@@ -370,6 +370,56 @@ test("scaler_tool_result records an unbound proposal without closing the request
   });
 });
 
+test("scaler_tool_result ignores an ambient execution id outside a child agent", async () => {
+  const previousChildAgent = process.env.SCALER_CHILD_AGENT;
+  const previousExecutionId = process.env.SCALER_TOOL_EXECUTION_ID;
+  delete process.env.SCALER_CHILD_AGENT;
+  process.env.SCALER_TOOL_EXECUTION_ID = "ambient-spoof";
+
+  try {
+    await withTempDir(async (dir) => {
+      const registered = new Map<string, { execute: (...args: any[]) => Promise<unknown> }>();
+      registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<unknown> }) { registered.set(definition.name, definition); } } as never);
+
+      await registered.get("scaler_tool_request")?.execute(
+        "tool-call",
+        { toolName: "docs_search", request: "Find widget docs.", taskId: "T-AMBIENT", allowedTools: ["read"] },
+        undefined,
+        undefined,
+        { cwd: dir },
+      );
+      const request = (await loadToolRequests(dir))[0];
+      assert.ok(request);
+
+      await registered.get("scaler_tool_result")?.execute(
+        "tool-result-call",
+        {
+          requestId: request.id,
+          status: "completed",
+          summary: "Found widget docs.",
+          outputs: { api: "Widget.create" },
+          evidenceRefs: ["docs:widgets"],
+          validationPerformed: ["checked schema"],
+        },
+        undefined,
+        undefined,
+        { cwd: dir },
+      );
+
+      const result = (await loadToolResults(dir))[0];
+      const updatedRequest = (await loadToolRequests(dir))[0];
+      assert.equal(result?.executionId, undefined);
+      assert.equal(result?.acceptanceStatus, "unbound");
+      assert.equal(updatedRequest?.status, "prepared");
+    });
+  } finally {
+    if (previousChildAgent === undefined) delete process.env.SCALER_CHILD_AGENT;
+    else process.env.SCALER_CHILD_AGENT = previousChildAgent;
+    if (previousExecutionId === undefined) delete process.env.SCALER_TOOL_EXECUTION_ID;
+    else process.env.SCALER_TOOL_EXECUTION_ID = previousExecutionId;
+  }
+});
+
 test("scaler_research_report records structured research", async () => {
   await withTempDir(async (dir) => {
     const registered = new Map<string, { execute: (...args: any[]) => Promise<unknown> }>();

@@ -31,6 +31,15 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
+async function buildHostSystemPrompt(options: unknown): Promise<string> {
+  const packageEntry = import.meta.resolve("@earendil-works/pi-coding-agent");
+  const moduleUrl = new URL("./core/system-prompt.js", packageEntry);
+  const hostModule = await import(moduleUrl.href) as { buildSystemPrompt?: (input: unknown) => string };
+  const builder = hostModule.buildSystemPrompt;
+  assert.equal(typeof builder, "function");
+  return builder!(options);
+}
+
 test("extension factory exports a function", () => {
   assert.equal(typeof scalerExtension, "function");
 });
@@ -283,10 +292,8 @@ test("extension context hook focuses parent tools and injects compact runtime ca
     const runtimeCtx = { cwd: dir, hasUI: false };
 
     scalerExtension(fakePi as never);
-    const now = new Date();
-    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     const systemPromptOptions = { cwd: dir, customPrompt: "system", selectedTools: [...activeTools] };
-    const systemPrompt = `system\nCurrent date: ${date}\nCurrent working directory: ${dir.replace(/\\/g, "/")}`;
+    const systemPrompt = await buildHostSystemPrompt(systemPromptOptions);
     await handlers.get("before_agent_start")?.({ type: "before_agent_start", prompt: "hello", systemPrompt, systemPromptOptions }, runtimeCtx);
     const result = await handlers.get("context")?.({ type: "context", messages: [{ role: "user", content: "hello" }] }, runtimeCtx) as { messages?: unknown[] } | undefined;
 

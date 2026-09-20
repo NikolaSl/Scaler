@@ -237,10 +237,12 @@ function validateContextSources(sources: FileContextSourceBinding[]): void {
       throw new Error(`Task attempt context source ${source.itemId} requires outputExemptible.`);
     }
     if (source.selector !== undefined) {
-      if (source.scope !== "section" || source.selector.kind !== "markdown-heading"
-        || typeof source.selector.heading !== "string" || !trimMarkdownHeadingWhitespace(source.selector.heading)
-        || (source.selector.maxChars !== undefined
-          && (!Number.isSafeInteger(source.selector.maxChars) || source.selector.maxChars <= 0))) {
+      const selector = source.selector;
+      if (typeof selector !== "object" || selector === null || Array.isArray(selector)
+        || source.scope !== "section" || selector.kind !== "markdown-heading"
+        || typeof selector.heading !== "string" || !trimMarkdownHeadingWhitespace(selector.heading)
+        || (selector.maxChars !== undefined
+          && (!Number.isSafeInteger(selector.maxChars) || selector.maxChars <= 0))) {
         throw new Error(`Task attempt context source ${source.itemId} has invalid selector.`);
       }
     }
