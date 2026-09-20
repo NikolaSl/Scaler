@@ -67,6 +67,11 @@ Each verified parent selection also produces a non-prompt-facing envelope profil
 
 Pi 0.80.3 rebuilds its private base prompt when active tools change but retains the earlier prompt value inside the current `before_agent_start` extension chain. SCALER therefore verifies the incoming prompt against Pi's installed builder, rebuilds it with only the selected snippets and guidelines, and returns that prompt to later extensions. A later extension may append ordinary instructions without restoring excluded tool material. If an earlier extension already rewrote the prompt, or the installed host builder cannot be reconciled, SCALER restores the prior tool set and aborts at `before_provider_request`; it does not discard unknown safety instructions or send a falsely narrowed request.
 
+That refusal remains active for retries and queued continuations until a fresh
+request-start lifecycle establishes a supported composition. Cancellation is
+performed before audit I/O; unavailable audit storage therefore cannot turn a
+refusal into provider traffic or suppress a successfully selected prompt.
+
 Processes launched by the SCALER agent runner are marked as children and preserve
 their explicitly selected tools; parent focus/catalog injection is not applied to
 them. This routing marker is not an authorization mechanism. The legacy focus

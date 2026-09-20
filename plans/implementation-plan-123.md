@@ -97,13 +97,20 @@ The request-start audit event records only the profile metadata and fingerprint,
 not the full schemas or guidelines. The compact requester catalog remains
 compact and does not expose those definitions.
 
+Prompt-composition refusal is latched across provider attempts and queued
+continuations until a fresh `before_agent_start` lifecycle successfully verifies
+a supported composition. Provider cancellation happens synchronously before
+state or audit I/O, and audit failures cannot suppress either the refusal or the
+successfully rebuilt selected prompt. Installed-host regressions exercise both
+audit-failure paths and a continuation without a new admission boundary.
+
 Candidate verification after the review fixes:
 
 - TypeScript build: passed;
-- unit: 907/907;
+- unit: 910/910;
 - mock integration: 67/67;
 - conformance/autopilot: 7/7;
-- focused extension, installed-host and tool-request selection: 55/55;
+- focused extension, installed-host and tool-request selection: 58/58;
 - `git diff --check`: passed.
 
 ## Explicit limits

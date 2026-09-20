@@ -27,7 +27,7 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-05 | Partial | Conductor/debug children now fail closed at both the rendered SCALER prompt and final OpenAI Chat Completions payload boundaries, including system/tool/history, output reserve, model window and compaction-route isolation. Exact tokenization, alternate providers, parent/other child routes, internal retries and observed-usage reconciliation remain open. | `src/prompt-admission.ts`, `src/provider-admission.ts`, `src/provider-admission-extension.ts`, `src/subagents.ts`, `src/conductor.ts`, `src/debug-retry.ts`, `test/provider-admission.test.ts`, `test/provider-admission-host.test.ts`, `test/subagents.test.ts` | [AC-05](../specs/acceptance-scenarios.md#ac-05) |
 | SC-06 | Partial | Validity labels and memory references exist; dependency-based freshness and invalidation unverified. | `src/memory.ts`, `src/context.ts` | [AC-06](../specs/acceptance-scenarios.md#ac-06) |
 | SC-07 | Partial | Exact Markdown-heading retrieval preserves source bytes and rejects missing, ambiguous or oversized required sections. Admitted file context is now byte-bound and revalidated before dispatch and result acceptance, including symlink, non-regular-file and exact-output boundaries. AST/function selectors and automatic effective splitting remain open. | `src/context.ts`, `src/attempt-execution.ts`, `src/conductor.ts`, `src/debug-retry.ts`, `test/context.test.ts`, `test/attempt-execution.test.ts`, `test/conductor.test.ts` | [AC-07](../specs/acceptance-scenarios.md#ac-07) |
-| SC-08 | Partial | Installed Pi now focuses the first provider request before its tool snapshot, excludes unselected schemas/instructions across supported prompt composition, fails closed on unreconcilable earlier rewrites, and records an unambiguous byte size/SHA-256 identity for the exact selected definitions. Request-specific direct/current-agent/isolated choice, full-envelope comparison, direct adapters, isolated-provider admission and observed result-size accounting remain open. | `src/tool-requests.ts`, `src/index.ts`, `test/tool-requests.test.ts`, `test/provider-admission-host.test.ts` | [AC-08](../specs/acceptance-scenarios.md#ac-08) |
+| SC-08 | Partial | Installed Pi now focuses the first provider request before its tool snapshot, excludes unselected schemas/instructions across supported prompt composition, and fails closed on unreconcilable earlier rewrites even across continuations or audit-I/O failure. It records an unambiguous byte size/SHA-256 identity for the exact selected definitions. Request-specific direct/current-agent/isolated choice, full-envelope comparison, direct adapters, isolated-provider admission and observed result-size accounting remain open. | `src/tool-requests.ts`, `src/index.ts`, `test/tool-requests.test.ts`, `test/provider-admission-host.test.ts` | [AC-08](../specs/acceptance-scenarios.md#ac-08) |
 | SC-09 | Not assessed | Model option exists; local-only envelope and end-to-end acceptance not demonstrated in this review. | `src/subagents.ts` | [AC-09](../specs/acceptance-scenarios.md#ac-09) |
 | SC-10 | Failed | Accepted status can be obtained without validation runs; evidence/version acceptance needs repair. | `src/validation.ts`, `src/tools.ts` | [AC-10](../specs/acceptance-scenarios.md#ac-10) |
 | SC-11 | Partial | Failure/attempt ledgers exist; revised combined retry/effect/validation criteria need verification. | `src/debug.ts`, `src/debug-retry.ts` | [AC-11](../specs/acceptance-scenarios.md#ac-11) |
@@ -49,6 +49,18 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-27 | Partial | Current named command evidence and participant identity gate declared integration criteria; revision-checked user amendments and immutable history prevent model-route criterion changes. Semantic necessity and non-software evidence remain open. | `src/prd.ts`, `src/run-completion.ts`, `test/requirement-integration.test.ts`, `test/prd.test.ts` | [AC-27](../specs/acceptance-scenarios.md#ac-27) |
 
 ## Implementation progress — PLAN-099
+
+PLAN-123 moves parent selected-tool focus ahead of the installed Pi provider
+snapshot and rebuilds the verified host prompt with only selected tool snippets
+and guidelines. A complete type-tagged identity covers selected names,
+descriptions, schemas, guidelines and source metadata without injecting that
+large evidence into the prompt. Unreconcilable earlier prompt changes restore
+the original tools and latch a provider refusal across retries/continuations;
+cancellation precedes fallible audit I/O, while audit failure cannot suppress a
+successfully rebuilt prompt. Build, 910 unit, 67 mock integration, 7
+conformance/autopilot and 58 focused checks pass. SC-08 remains Partial because
+the request-specific route decision, complete-envelope admission, direct
+adapter, isolated-agent admission and observed result-size accounting are open.
 
 PLAN-122 closes the reproduced stale file-context acceptance boundary. Every
 included file item carries a durable normalized source descriptor and complete
