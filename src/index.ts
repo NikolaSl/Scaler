@@ -276,7 +276,6 @@ export default function scalerExtension(pi: ExtensionAPI): void {
 
   pi.on("before_agent_start", async (event, ctx) => {
     if (isChildAgent) return undefined;
-    blockedParentPromptCompositions.delete(ctx.cwd);
     const state = await ensureState(ctx.cwd);
     const focus = applyParentToolFocus(ctx.cwd, state, pi, activeToolFocusSnapshots);
     if (focus) {
@@ -287,40 +286,53 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         const reason = error instanceof Error ? error.message : String(error);
         if (focus.applied) restoreParentToolFocus(ctx.cwd, pi, activeToolFocusSnapshots);
         blockedParentPromptCompositions.set(ctx.cwd, reason);
-        await logStateEvent(ctx.cwd, state, "SCALER parent tool focus refused", {
-          taskId: state.currentTaskId,
-          reason,
-          lifecycle: "before_agent_start",
-        });
+        try {
+          await logStateEvent(ctx.cwd, state, "SCALER parent tool focus refused", {
+            taskId: state.currentTaskId,
+            reason,
+            lifecycle: "before_agent_start",
+          });
+        } catch {
+          // Admission and refusal must not depend on audit storage availability.
+        }
         return undefined;
       }
       const envelopeProfile = buildRuntimeToolEnvelopeProfile(pi.getAllTools(), pi.getActiveTools(), {
         requestedToolNames: focus.active,
         selectionApisAvailable: true,
       });
-      await logStateEvent(ctx.cwd, state, focus.applied ? "SCALER parent tool focus applied" : "SCALER parent tool focus verified", {
-        taskId: state.currentTaskId,
-        previousActiveTools: focus.previous,
-        activeTools: focus.active,
-        lifecycle: "before_agent_start",
-        envelopeProfile,
-      });
+      blockedParentPromptCompositions.delete(ctx.cwd);
+      try {
+        await logStateEvent(ctx.cwd, state, focus.applied ? "SCALER parent tool focus applied" : "SCALER parent tool focus verified", {
+          taskId: state.currentTaskId,
+          previousActiveTools: focus.previous,
+          activeTools: focus.active,
+          lifecycle: "before_agent_start",
+          envelopeProfile,
+        });
+      } catch {
+        // The selected prompt must still reach the host when telemetry is unavailable.
+      }
       return { systemPrompt };
     }
+    blockedParentPromptCompositions.delete(ctx.cwd);
     return undefined;
   });
 
   pi.on("before_provider_request", async (_event, ctx) => {
     const reason = blockedParentPromptCompositions.get(ctx.cwd);
     if (!reason) return undefined;
-    blockedParentPromptCompositions.delete(ctx.cwd);
-    const state = await ensureState(ctx.cwd);
-    await logStateEvent(ctx.cwd, state, "SCALER parent provider request refused", {
-      taskId: state.currentTaskId,
-      reason,
-      lifecycle: "before_provider_request",
-    });
     ctx.abort();
+    try {
+      const state = await ensureState(ctx.cwd);
+      await logStateEvent(ctx.cwd, state, "SCALER parent provider request refused", {
+        taskId: state.currentTaskId,
+        reason,
+        lifecycle: "before_provider_request",
+      });
+    } catch {
+      // The refusal remains latched across continuations even if telemetry fails.
+    }
     return undefined;
   });
 
