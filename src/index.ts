@@ -114,7 +114,7 @@ import {
   validateStageArtifactReadiness,
 } from "./stages.js";
 import { formatStorageInventory, formatStorageMaintenanceReport, formatStorageMaintenanceSchedule, loadStorageMaintenanceSchedule, runScheduledStorageMaintenance, runStorageMaintenance, saveStorageInventory, scanScalerStorageInventory, updateStorageMaintenanceSchedule, type StorageMaintenancePolicy } from "./storage.js";
-import { buildRuntimeToolCatalog, createToolReplayApproval, formatKnownToolCatalog, formatMcpEnumerationRuns, formatMcpServerRecords, formatRuntimeToolCatalog, formatToolIterationPolicy, formatToolIterationRuns, formatToolReplayApprovals, formatToolSchedules, formatToolSchemaDiscoveryRuns, formatToolTransactions, loadMcpEnumerationRuns, loadMcpServerRecords, loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolSchedules, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, replayToolTransaction, revokeToolReplayApproval, runMcpServerEnumeration, runToolIterationWorkflow, runToolRequestAgent, runToolSchedule, runToolSchemaDiscoveryAgent, saveToolIterationPolicy, selectParentRequesterActiveTools, shouldApplyParentToolFocus } from "./tool-requests.js";
+import { buildRuntimeToolCatalog, buildRuntimeToolEnvelopeProfile, createToolReplayApproval, formatKnownToolCatalog, formatMcpEnumerationRuns, formatMcpServerRecords, formatRuntimeToolCatalog, formatToolIterationPolicy, formatToolIterationRuns, formatToolReplayApprovals, formatToolSchedules, formatToolSchemaDiscoveryRuns, formatToolTransactions, loadMcpEnumerationRuns, loadMcpServerRecords, loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolSchedules, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, replayToolTransaction, revokeToolReplayApproval, runMcpServerEnumeration, runToolIterationWorkflow, runToolRequestAgent, runToolSchedule, runToolSchemaDiscoveryAgent, saveToolIterationPolicy, selectParentRequesterActiveTools, shouldApplyParentToolFocus } from "./tool-requests.js";
 import { registerScalerTools } from "./tools.js";
 import { formatValidationChecklist, recordValidationChecklist, upsertValidationManifestCommand } from "./validation.js";
 import { runValidationDebugLoopWorkflow, selectTaskForValidationDebugLoop } from "./validation-debug-loop.js";
@@ -231,12 +231,17 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     if (isChildAgent) return undefined;
     const state = await ensureState(ctx.cwd);
     const focus = applyParentToolFocus(ctx.cwd, state, pi, activeToolFocusSnapshots);
-    if (focus?.applied) {
-      await logStateEvent(ctx.cwd, state, "SCALER parent tool focus applied", {
+    if (focus) {
+      const envelopeProfile = buildRuntimeToolEnvelopeProfile(pi.getAllTools(), pi.getActiveTools(), {
+        requestedToolNames: focus.active,
+        selectionApisAvailable: true,
+      });
+      await logStateEvent(ctx.cwd, state, focus.applied ? "SCALER parent tool focus applied" : "SCALER parent tool focus verified", {
         taskId: state.currentTaskId,
         previousActiveTools: focus.previous,
         activeTools: focus.active,
         lifecycle: "before_agent_start",
+        envelopeProfile,
       });
     }
     return undefined;

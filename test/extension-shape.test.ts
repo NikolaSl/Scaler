@@ -293,6 +293,14 @@ test("extension context hook focuses parent tools and injects compact runtime ca
     assert.doesNotMatch(injected, /SECRET_SCHEMA/);
     assert.doesNotMatch(injected, /SECRET_GUIDELINES/);
 
+    const focusEvent = (await readLogEvents(dir)).find((event) => event.summary === "SCALER parent tool focus applied");
+    const focusDetails = focusEvent?.details as { lifecycle?: string; envelopeProfile?: { footprint?: string; byteSize?: number | null; fingerprint?: string | null; toolNames?: string[] } } | undefined;
+    assert.equal(focusDetails?.lifecycle, "before_agent_start");
+    assert.equal(focusDetails?.envelopeProfile?.footprint, "selected");
+    assert.ok((focusDetails?.envelopeProfile?.byteSize ?? 0) > 0);
+    assert.match(focusDetails?.envelopeProfile?.fingerprint ?? "", /^[a-f0-9]{64}$/);
+    assert.deepEqual(focusDetails?.envelopeProfile?.toolNames, ["scaler_task_report", "scaler_tool_request"]);
+
     await handlers.get("turn_end")?.({ type: "turn_end", message: {}, toolResults: [] }, runtimeCtx);
     assert.deepEqual(activeTools, ["bash", "read", "scaler_tool_request", "scaler_task_report"]);
   });
