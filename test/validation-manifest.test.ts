@@ -36,6 +36,41 @@ test("loadValidationManifests returns empty list when missing", async () => {
   });
 });
 
+test("manifest readers reject unsupported index versions without rewriting", async () => {
+  await withTempDir(async (dir) => {
+    await saveValidationManifest(dir, {
+      taskId: "T-VALID",
+      commands: [{ id: "unit", command: "npm test", required: true }],
+      createdAt: "",
+      updatedAt: "",
+    });
+    const indexPath = join(dir, ".scaler", "reports", "validation-manifests.json");
+    const manifest = (await loadValidationManifests(dir))[0];
+
+    for (const version of [undefined, null, "1", 0, 2]) {
+      const index = version === undefined
+        ? { manifests: [manifest] }
+        : { version, manifests: [manifest] };
+      const bytes = `${JSON.stringify(index)}\n`;
+      await writeFile(indexPath, bytes, "utf8");
+
+      await assert.rejects(
+        loadValidationManifests(dir),
+        /Persisted validation manifest index is malformed: version must be 1/,
+      );
+      await assert.rejects(
+        upsertValidationManifestCommand(dir, {
+          taskId: "T-VALID",
+          id: "build",
+          command: "npm run build",
+        }),
+        /Persisted validation manifest index is malformed: version must be 1/,
+      );
+      assert.equal(await readFile(indexPath, "utf8"), bytes);
+    }
+  });
+});
+
 test("saveValidationManifest writes and replaces per-task manifest", async () => {
   await withTempDir(async (dir) => {
     await saveValidationManifest(dir, {
