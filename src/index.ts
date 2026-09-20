@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { BuildSystemPromptOptions, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { applyAdaptiveOrchestration, assessAdaptiveOrchestration, formatAdaptiveAssessment, startScalerRun } from "./adaptive.js";
 import { runScalerAutomation } from "./autopilot.js";
 import { formatBudgetStatus, getBudgetState, isBudgetUsageKey, persistBudgetDecision, setBudgetLimits, setBudgetUsage } from "./budgets.js";
@@ -123,6 +123,52 @@ import { formatWorkflowSummary, summarizeWorkflow } from "./workflow.js";
 
 type RuntimeToolAPI = Partial<Pick<ExtensionAPI, "getAllTools" | "getActiveTools" | "setActiveTools">>;
 
+type HostSystemPromptBuilder = (options: BuildSystemPromptOptions) => string;
+
+let hostSystemPromptBuilderPromise: Promise<HostSystemPromptBuilder> | undefined;
+
+async function loadHostSystemPromptBuilder(): Promise<HostSystemPromptBuilder> {
+  hostSystemPromptBuilderPromise ??= (async () => {
+    const packageEntry = import.meta.resolve("@earendil-works/pi-coding-agent");
+    const moduleUrl = new URL("./core/system-prompt.js", packageEntry);
+    const hostModule = await import(moduleUrl.href) as { buildSystemPrompt?: unknown };
+    if (typeof hostModule.buildSystemPrompt !== "function") {
+      throw new Error(`Pi host system-prompt builder is unavailable at ${moduleUrl.href}`);
+    }
+    return hostModule.buildSystemPrompt as HostSystemPromptBuilder;
+  })();
+  return hostSystemPromptBuilderPromise;
+}
+
+async function rebuildSelectedHostSystemPrompt(
+  incomingPrompt: string,
+  options: BuildSystemPromptOptions,
+  selectedToolNames: string[],
+  allTools: ReturnType<ExtensionAPI["getAllTools"]>,
+): Promise<string> {
+  const buildSystemPrompt = await loadHostSystemPromptBuilder();
+  const baseline = buildSystemPrompt(options);
+  if (baseline !== incomingPrompt) {
+    throw new Error("Pi system prompt was modified before SCALER tool selection; selected-envelope composition is unsupported for this request.");
+  }
+  const selected = new Set(selectedToolNames);
+  const selectedDefinitions = new Map(allTools.filter((tool) => selected.has(tool.name)).map((tool) => [tool.name, tool]));
+  if (selectedDefinitions.size !== selected.size) {
+    throw new Error("Pi selected-tool definitions changed while rebuilding the request system prompt.");
+  }
+  const toolSnippets = Object.fromEntries(Object.entries(options.toolSnippets ?? {}).filter(([name]) => selected.has(name)));
+  const promptGuidelines = selectedToolNames.flatMap((name) => {
+    const guidelines = selectedDefinitions.get(name)?.promptGuidelines;
+    return Array.isArray(guidelines) ? guidelines.filter((value): value is string => typeof value === "string") : [];
+  });
+  return buildSystemPrompt({
+    ...options,
+    selectedTools: selectedToolNames,
+    toolSnippets,
+    promptGuidelines,
+  });
+}
+
 function runtimeToolApisAvailable(ctx: RuntimeToolAPI): ctx is Required<RuntimeToolAPI> {
   return typeof ctx.getAllTools === "function" && typeof ctx.getActiveTools === "function" && typeof ctx.setActiveTools === "function";
 }
@@ -184,6 +230,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
 
   let lastAutoCompactKey: string | undefined;
   const activeToolFocusSnapshots = new Map<string, string[]>();
+  const blockedParentPromptCompositions = new Map<string, string>();
 
   pi.on("turn_end", async (event, ctx) => {
     const usage = extractProviderUsage([event]);
@@ -227,11 +274,26 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     return { compaction };
   });
 
-  pi.on("before_agent_start", async (_event, ctx) => {
+  pi.on("before_agent_start", async (event, ctx) => {
     if (isChildAgent) return undefined;
+    blockedParentPromptCompositions.delete(ctx.cwd);
     const state = await ensureState(ctx.cwd);
     const focus = applyParentToolFocus(ctx.cwd, state, pi, activeToolFocusSnapshots);
     if (focus) {
+      let systemPrompt: string;
+      try {
+        systemPrompt = await rebuildSelectedHostSystemPrompt(event.systemPrompt, event.systemPromptOptions, focus.active, pi.getAllTools());
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        if (focus.applied) restoreParentToolFocus(ctx.cwd, pi, activeToolFocusSnapshots);
+        blockedParentPromptCompositions.set(ctx.cwd, reason);
+        await logStateEvent(ctx.cwd, state, "SCALER parent tool focus refused", {
+          taskId: state.currentTaskId,
+          reason,
+          lifecycle: "before_agent_start",
+        });
+        return undefined;
+      }
       const envelopeProfile = buildRuntimeToolEnvelopeProfile(pi.getAllTools(), pi.getActiveTools(), {
         requestedToolNames: focus.active,
         selectionApisAvailable: true,
@@ -243,7 +305,22 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         lifecycle: "before_agent_start",
         envelopeProfile,
       });
+      return { systemPrompt };
     }
+    return undefined;
+  });
+
+  pi.on("before_provider_request", async (_event, ctx) => {
+    const reason = blockedParentPromptCompositions.get(ctx.cwd);
+    if (!reason) return undefined;
+    blockedParentPromptCompositions.delete(ctx.cwd);
+    const state = await ensureState(ctx.cwd);
+    await logStateEvent(ctx.cwd, state, "SCALER parent provider request refused", {
+      taskId: state.currentTaskId,
+      reason,
+      lifecycle: "before_provider_request",
+    });
+    ctx.abort();
     return undefined;
   });
 
