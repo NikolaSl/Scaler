@@ -64,13 +64,14 @@ current task/manifest, every selected historical minimal item, and each
 externalized artifact before prompt publication. Externalized identity is bound
 across the split reference, memory index tags/source/task, stored item/task/split/
 scope/exactness header and exact content hash; duplicate memory/path aliases are
-rejected. Required inline exact content is emitted byte-for-byte.
+rejected. Required inline exact content is emitted byte-for-byte, with explicit
+`exact` semantics taking precedence over a `reference-only` presentation scope.
 
 Malformed evidence returns fixed diagnostics, preserves an invalid handoff
 ledger for diagnosis and publishes no prompt. The legacy `execute` argument
 records a blocked handoff without invoking the injected runner or persisting an
-invocation. The focused context-compaction/context-split selection passes 24/24.
-The candidate gate passes the TypeScript build, `git diff --check`, 978/978
+invocation. The focused context-compaction/context-split selection passes 25/25.
+The candidate gate passes the TypeScript build, `git diff --check`, 979/979
 unit/component tests, 67/67 mock integration tests and 7/7
 conformance/autopilot checks. This evidence covers the repository-owned mock and
 conformance boundaries only; it does not establish production continuation

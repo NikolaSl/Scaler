@@ -55,9 +55,10 @@ execution defaults. Preparation now validates both ledger envelopes, the current
 task/manifest, every historical minimal item, and each externalized artifact's
 workspace path, regular-file identity, memory provenance, item/task/split/scope/
 exactness header, and content hash before prompt publication. Required inline
-exact bytes are never clipped. The legacy `execute` argument refuses before the
+exact bytes are never clipped, including when an explicit `exact` contract is
+paired with a `reference-only` presentation scope. The legacy `execute` argument refuses before the
 runner because this path lacks conductor-equivalent attempt, provider and result
-admission. Focused context-compaction/context-split coverage passes 24 checks.
+admission. Focused context-compaction/context-split coverage passes 25 checks.
 SC-07 and SC-08 remain Partial: this does not implement automatic effective
 splitting, a production continuation supplier, route execution, or savings and
 quality evidence.

@@ -377,7 +377,8 @@ savings or scale. SC-08/AC-08 remains partial.
 
 PLAN-128 revalidates fresh-context handoff evidence before prompt publication.
 Run `node --test --import tsx test/context-compaction.test.ts test/context-splits.test.ts`
-for exact-inline preservation plus malformed/foreign ledger, missing minimal
+for exact-inline preservation (including explicit exactness overriding a
+reference-only presentation scope) plus malformed/foreign ledger, missing minimal
 item, mutated/deleted/symlinked source, hash/header/alias substitution and legacy
 execute-refusal coverage. Preparation writes no prompt for invalid source or
 identity evidence, and malformed handoff evidence is preserved rather than
@@ -386,7 +387,7 @@ admission remains the only executable task-agent boundary. These checks do not
 prove automatic effective splitting, a live continuation supplier, route
 execution, local-model quality, savings or scale.
 
-The PLAN-128 candidate passes the TypeScript build, `git diff --check`, 978 unit
+The PLAN-128 candidate passes the TypeScript build, `git diff --check`, 979 unit
 and component tests, 67 mock integration tests and 7 conformance/autopilot
 checks. These are repository-owned gates; no paid or deployed model execution is
 claimed.
