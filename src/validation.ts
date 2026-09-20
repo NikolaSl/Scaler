@@ -565,6 +565,9 @@ export async function saveValidationManifest(
       if (proposedRevision !== currentRevision) {
         throw new Error(`Acceptance policy update rejected for ${manifest.taskId}: stale revision ${proposedRevision}; expected ${currentRevision}.`);
       }
+      if (currentRevision === Number.MAX_SAFE_INTEGER) {
+        throw new Error(`Acceptance policy update rejected for ${manifest.taskId}: revision ${currentRevision} cannot be incremented safely.`);
+      }
       normalized = {
         ...normalized,
         revision: currentRevision + 1,
