@@ -17,9 +17,10 @@ one from prior messages or treat PLAN-124 advice as authorization.
 
 1. Require an injected runtime envelope supplier for every isolated execution.
    The supplier is a function owned by the host integration, not model input or
-   persisted request data. Invoke it after the execution transaction is claimed
-   and immediately before the child runner.
-2. Give the supplier the runtime-owned request and execution identities. Require
+   persisted request data. Invoke it immediately before the atomic execution
+   claim; only a successful claim may reserve replay approval or call the child.
+2. Give the supplier the runtime-owned request identity and a newly allocated
+   execution identity. Require
    its snapshot to echo both identities and contain the complete live worker and
    caller-continuation provider legs plus the current selected-tool profile.
 3. Rebuild the request basis from the persisted tool request, recompute the
@@ -28,8 +29,9 @@ one from prior messages or treat PLAN-124 advice as authorization.
    parent supervisor owns the separate dispatch decision.
 4. Persist only compact admission identity and measurements on the transaction.
    Never persist provider payloads or accept a previously recorded assessment.
-5. Missing, throwing, malformed, foreign or stale supplier evidence rejects the
-   claimed transaction, releases request ownership and never calls the runner.
+5. Missing, throwing, malformed, foreign or stale supplier evidence records a
+   rejected transaction without acquiring request ownership and never calls the
+   runner. The atomic claim rechecks request and invocation identity afterward.
 6. Replay obtains a fresh snapshot for the new execution. Iteration and schedule
    thread the same supplier through every execution and cannot reuse a receipt.
 7. Revalidate the durable admission identity during result finalization. Changed
@@ -56,6 +58,24 @@ expected to refuse isolated dispatch. Preparation remains available.
 Run focused tool-routing/tool-request/ledger tests, then build, full unit, mock
 integration and conformance/autopilot gates. Two independent GPT-6 Astra/high
 reviews inspect the exact final head.
+
+## Implemented evidence
+
+- `runToolRequestAgent`, replay, iteration and schedule require fresh injected
+  evidence for every executable isolated dispatch. Preparation remains usable.
+- The host allocates a new execution identity, supplies a frozen compact basis,
+  clones the returned snapshot, rebuilds request evidence from the durable tool
+  request and accepts only an exact `isolated` PLAN-124 recomputation.
+- The worker model API/provider/id/context window and provider policy are bound
+  into the strict child invocation. The installed provider hook aborts before
+  transport if the live model differs from the parent-admitted identity.
+- Request and final strict-invocation fingerprints plus compact route/profile
+  fingerprints are persisted. Provider payloads and messages are not.
+- The atomic claim rechecks durable request and invocation identity before
+  reserving replay approval. Finalization rechecks the durable route receipt.
+- Focused tool-flow coverage is 116/116 and the separate multiprocess ledger
+  coverage is 6/6. Candidate gates pass: build, 956/956 unit/component,
+  67/67 mock integration and 7/7 conformance/autopilot checks.
 
 ## Explicit limits
 

@@ -345,6 +345,34 @@ route advice remains non-authorizing until dispatch-time provider evidence and
 caller-continuation identity have a trusted live supplier; these tests do not
 prove SC-08/AC-08, local-model quality, savings or scale.
 
+PLAN-127 adds the missing dispatch-time admission boundary. Every executable
+isolated tool run, replay, iteration step and schedule step must receive fresh
+host-owned worker and caller-continuation provider evidence bound to a newly
+allocated execution identity. SCALER rebuilds the request basis from its durable
+tool request, recomputes PLAN-124 routing and admits only the isolated route.
+Missing, throwing, malformed, foreign, stale or non-isolated evidence records a
+rejected transaction before runner invocation and without consuming replay
+approval. The claim then atomically rechecks the request and final strict child
+invocation before taking ownership.
+
+The admitted worker API/provider/model/context window is transported through
+strict provider admission. The installed Pi hook aborts before provider
+transport if the live model identity differs. Transactions retain only compact
+request, invocation, route-evidence and selected-profile fingerprints plus the
+overhead bound; they do not retain provider payloads or messages. Finalization
+rejects a result if the durable admission receipt is missing or changed.
+
+Run `node --test --import tsx test/provider-admission-host.test.ts test/subagents.test.ts test/tool-routing.test.ts test/tool-requests.test.ts test/integration/mock/tool-request-flow.test.ts` for the focused host, route, replay and result boundary, and
+`node --test --import tsx test/tool-ledger-concurrency.test.ts` for separate
+worker-process publication. The final candidate passes build, 956 unit/component
+tests, 67 mock integration tests and 7 conformance/autopilot checks.
+
+The installed command surface still cannot observe a trustworthy future caller
+continuation envelope, so execution fails closed there while preparation stays
+available. Synthetic evidence is limited to tests and does not establish a
+production supplier, route execution completeness, local-model quality, token
+savings or scale. SC-08/AC-08 remains partial.
+
 PLAN-113 requires declared `outputPaths` before automatic non-Git/clean/runtime
 commit skips or explicit commit skips can accept a task. A successful command
 may still have `status: passed` while `acceptance.accepted` is false; callers
