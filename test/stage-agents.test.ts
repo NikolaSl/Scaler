@@ -17,6 +17,7 @@ import {
   prepareStageAgentInvocation,
   recordStageAgentRun,
   runStageAgentStep,
+  type RunStageAgentOptions,
 } from "../src/stage-agents.js";
 import { createDefaultState } from "../src/state.js";
 import { loadStageArtifacts } from "../src/stages.js";
@@ -130,8 +131,8 @@ test("prepareStageAgentInvocation builds isolated Pi invocation", () => {
     command: "pi-test",
     tools: ["read", "write"],
     model: "test-model",
-    extensionPaths: [".pi/extensions/scaler"],
-  });
+    tokenBudget: 4_096,
+  } as RunStageAgentOptions);
 
   assert.equal(preparation.stage, "prd");
   assert.equal(preparation.invocation.command, "pi-test");
@@ -141,6 +142,15 @@ test("prepareStageAgentInvocation builds isolated Pi invocation", () => {
   assert.ok(preparation.invocation.args.includes("read,write"));
   assert.ok(preparation.invocation.args.includes("--model"));
   assert.ok(preparation.invocation.args.includes("test-model"));
+  assert.ok(preparation.invocation.args.includes("--no-extensions"));
+  assert.ok(preparation.invocation.args.includes("--no-skills"));
+  assert.ok(preparation.invocation.args.includes("--no-prompt-templates"));
+  assert.ok(preparation.invocation.args.includes("--no-context-files"));
+  assert.deepEqual(preparation.request.providerAdmission, {
+    requestTokenAllowance: 4_096,
+    outputReserveTokens: 1_024,
+    safetyMarginTokens: 1_024,
+  });
   assert.equal(preparation.request.taskId, "stage-prd");
   assert.match(preparation.prompt, /Persist the polished runtime PRD through `scaler_prd_write`/);
 });
@@ -182,6 +192,11 @@ test("runStageAgentStep prepares and executes under lock", async () => {
     assert.ok(request.tools?.includes("read"));
     assert.ok(request.tools?.includes("bash"));
     assert.ok(request.tools?.includes("scaler_planning_report"));
+    assert.deepEqual(request.providerAdmission, {
+      requestTokenAllowance: 8_000,
+      outputReserveTokens: 1_024,
+      safetyMarginTokens: 1_024,
+    });
     return {
       taskId: request.taskId,
       exitCode: 0,
@@ -200,6 +215,27 @@ test("runStageAgentStep prepares and executes under lock", async () => {
     ingested: false,
     reason: "No scaler_stage_artifact report found in stage-agent output.",
   });
+});
+
+test("runStageAgentStep refuses an oversized final prompt before runner or run-record publication", async () => {
+  const cwd = await tempDir();
+  const state = createDefaultState();
+  let runnerCalled = false;
+  const options = {
+    execute: true,
+    tokenBudget: 1,
+    extraInstructions: "x".repeat(8_000),
+  } as RunStageAgentOptions & { tokenBudget: number };
+
+  const result = await runStageAgentStep(cwd, state, "planning", options, async () => {
+    runnerCalled = true;
+    throw new Error("runner must not be called");
+  });
+
+  assert.equal(result.accepted, false);
+  assert.equal(runnerCalled, false);
+  assert.match(result.message, /final SCALER prompt refused/i);
+  assert.deepEqual(await loadStageAgentRunRecords(cwd), []);
 });
 
 test("runStageAgentStep ingests successful stage-agent artifact reports", async () => {
