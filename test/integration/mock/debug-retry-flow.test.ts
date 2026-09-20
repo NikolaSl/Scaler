@@ -9,13 +9,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { loadDebugAttempts, loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
-import { runDebugConductorLoop } from "../../../src/debug-conductor.js";
-import { runDebugNextApproachRetry, saveDebugRetryPolicy } from "../../../src/debug-retry.js";
+import { saveDebugRetryPolicy } from "../../../src/debug-retry.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { runValidationWithExecutionLock } from "../../../src/operations.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
 import { getValidationManifestForTask, saveValidationManifest, loadValidationRuns, runTaskValidation, upsertValidationManifestCommand } from "../../../src/validation.js";
+import { runDebugConductorLoop, runDebugNextApproachRetry } from "./provider-bound-helpers.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-debug-retry-integration-test-"));

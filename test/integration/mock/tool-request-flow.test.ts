@@ -18,9 +18,10 @@ import {
   loadToolResults, loadToolSchedules, loadToolSchemaDiscoveryRuns, loadToolTransactions, prepareToolRequest,
   recordToolResult, recordToolSchema, replayToolTransaction as replayToolTransactionRaw, runMcpServerEnumeration,
   runToolIterationWorkflow as runToolIterationWorkflowRaw, runToolRequestAgent as runToolRequestAgentRaw,
-  runToolSchedule as runToolScheduleRaw, runToolSchemaDiscoveryAgent, type ToolDispatchRouteEvidenceSupplier,
+  runToolSchedule as runToolScheduleRaw, type ToolDispatchRouteEvidenceSupplier,
 } from "../../../src/tool-requests.js";
 import { registerScalerTools } from "../../../src/tools.js";
+import { runToolSchemaDiscoveryAgent } from "./provider-bound-helpers.js";
 
 const execFileAsync = promisify(execFile);
 

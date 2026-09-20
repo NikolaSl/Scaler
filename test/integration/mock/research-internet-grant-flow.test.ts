@@ -12,12 +12,13 @@ import { test } from "node:test";
 import { promisify } from "node:util";
 import { readLogEvents } from "../../../src/logging.js";
 import { loadMemoryIndex } from "../../../src/memory.js";
-import { loadResearchAgentRunRecords, runResearchAgentStep } from "../../../src/research-agent.js";
+import { loadResearchAgentRunRecords } from "../../../src/research-agent.js";
 import { loadResearchReports, upsertResearchRequest } from "../../../src/research.js";
-import { loadResearchWebTransactions, runResearchWebWorkflow } from "../../../src/research-web.js";
+import { loadResearchWebTransactions } from "../../../src/research-web.js";
 import { createDefaultState, saveState } from "../../../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
 import { recordToolSchema } from "../../../src/tool-requests.js";
+import { runResearchAgentStep, runResearchWebWorkflow } from "./provider-bound-helpers.js";
 
 const execFileAsync = promisify(execFile);
 

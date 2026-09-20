@@ -22,14 +22,14 @@ import {
   saveExecutionPlan,
 } from "../../../src/plans.js";
 import { loadPrdRequirements, upsertPrdRequirement } from "../../../src/prd.js";
-import { loadReplanAgentRunRecords, runReplanAgentStep } from "../../../src/replan-agent.js";
+import { loadReplanAgentRunRecords } from "../../../src/replan-agent.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { loadStageAgentRunRecords } from "../../../src/stage-agents.js";
-import { runStageConductorLoop } from "../../../src/stage-conductor.js";
 import { loadStageArtifacts } from "../../../src/stages.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
 import type { ScalerState } from "../../../src/types.js";
 import { getValidationManifestForTask, runTaskValidation, saveValidationManifest, upsertValidationManifestCommand } from "../../../src/validation.js";
+import { runReplanAgentStep, runStageConductorLoop } from "./provider-bound-helpers.js";
 
 const execFileAsync = promisify(execFile);
 
