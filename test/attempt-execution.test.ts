@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -15,6 +15,7 @@ import { loadTaskAttempts } from "../src/task-attempts.js";
 import { saveValidationManifest, upsertValidationManifestCommand } from "../src/validation.js";
 import { buildTaskAgentPrompt } from "../src/conductor.js";
 import { resolveTaskContextManifest, saveTaskContextManifest } from "../src/context.js";
+import { getTaskAttemptsPath } from "../src/paths.js";
 
 async function fixture(fn: (dir: string) => Promise<void>) {
   const dir = await mkdtemp(join(tmpdir(), "scaler-attempt-execution-"));
@@ -35,6 +36,50 @@ async function admitted(dir: string) {
   const context = buildTaskAgentPrompt({ state, task: state.tasks[0]! }).resolvedContext;
   const attempt = await admitTaskExecution(dir, lock.lock.id, state, state.tasks[0]!, context, "test", []);
   return { state, lockId: lock.lock.id, context, attempt };
+}
+
+async function admittedFileContext(
+  dir: string,
+  options: {
+    path?: string;
+    content?: string | Uint8Array;
+    priority?: "required" | "optional";
+    tokenBudget?: number;
+    allowedPathPrefixes?: string[];
+    outputPaths?: string[];
+  } = {},
+) {
+  const path = options.path ?? "reference.md";
+  const state = createDefaultState();
+  state.stage = "execution";
+  state.tasks = [{
+    id: "T-1", status: "ready", title: "Context freshness",
+    allowedPathPrefixes: options.allowedPathPrefixes ?? ["result.txt"],
+    definitionOfDone: ["The attempt result is recorded."], updatedAt: state.updatedAt,
+  }];
+  await saveState(dir, state);
+  await saveValidationManifest(dir, {
+    taskId: "T-1", outputPaths: options.outputPaths ?? [], commands: [], createdAt: "", updatedAt: "",
+  });
+  if (path.includes("/")) await mkdir(join(dir, path.slice(0, path.lastIndexOf("/"))), { recursive: true });
+  await writeFile(join(dir, path), options.content ?? "ORIGINAL\n");
+  const manifest = await saveTaskContextManifest(dir, {
+    version: 1,
+    taskId: "T-1",
+    items: [{
+      id: "reference", type: "file", reason: "Immutable source",
+      priority: options.priority ?? "required", scope: "full", source: "file", path,
+    }],
+    createdAt: state.createdAt,
+    updatedAt: state.updatedAt,
+  });
+  const contextItems = await resolveTaskContextManifest(dir, state, manifest);
+  const context = buildTaskAgentPrompt({
+    state, task: state.tasks[0]!, contextItems, tokenBudget: options.tokenBudget,
+  }).resolvedContext;
+  const lock = await acquireExecutionLock(dir, { operation: "test", taskId: "T-1" });
+  const attempt = await admitTaskExecution(dir, lock.lock.id, state, state.tasks[0]!, context, "test", []);
+  return { state, lockId: lock.lock.id, attempt, context, path };
 }
 
 test("attempt recovery blocks an admission interrupted before the task snapshot is bound", async () => {
@@ -105,6 +150,76 @@ test("dispatch refuses file context changed after attempt admission", async () =
     assert.equal(closed?.outcome, "not_started");
     assert.equal(closed?.reportId, undefined);
     assert.equal((await loadState(dir)).tasks[0]?.status, "blocked");
+  });
+});
+
+test("file context freshness binds original bytes rather than decoded text", async () => {
+  await fixture(async (dir) => {
+    const initial = await admittedFileContext(dir, { content: Uint8Array.from([0xff]) });
+    await writeFile(join(dir, initial.path), Uint8Array.from([0xfe]));
+    await assert.rejects(
+      startTaskExecution(dir, initial.lockId, initial.state, initial.attempt),
+      /context.*changed.*reference\.md/i,
+    );
+  });
+});
+
+test("budget-omitted file context is not an attempt dependency", async () => {
+  await fixture(async (dir) => {
+    const initial = await admittedFileContext(dir, { priority: "optional", tokenBudget: 1 });
+    assert.deepEqual(initial.context.included, []);
+    assert.equal(initial.context.omitted[0]?.fileSource?.path, "reference.md");
+    assert.deepEqual(initial.attempt.contextSources, []);
+    await writeFile(join(dir, initial.path), "CHANGED\n", "utf8");
+    const started = await startTaskExecution(dir, initial.lockId, initial.state, initial.attempt);
+    assert.equal(started.attempt.status, "dispatching");
+  });
+});
+
+test("allowed write prefix alone does not exempt changed file context", async () => {
+  await fixture(async (dir) => {
+    const initial = await admittedFileContext(dir, {
+      path: "src/app.ts", allowedPathPrefixes: ["src"], outputPaths: ["src/other.ts"],
+    });
+    const started = await startTaskExecution(dir, initial.lockId, initial.state, initial.attempt);
+    await writeFile(join(dir, initial.path), "CHANGED\n", "utf8");
+    const checked = await checkTaskExecutionResult(dir, started.attempt, "T-1");
+    assert.match(checked.diagnostics.join(" "), /context.*changed.*src\/app\.ts/i);
+  });
+});
+
+test("durable context descriptor drift rejects a returning result", async () => {
+  await fixture(async (dir) => {
+    const initial = await admittedFileContext(dir);
+    const started = await startTaskExecution(dir, initial.lockId, initial.state, initial.attempt);
+    const path = getTaskAttemptsPath(dir);
+    const index = JSON.parse(await readFile(path, "utf8")) as {
+      attempts: Array<{ contextSources?: Array<{ contentFingerprint: string }> }>;
+    };
+    index.attempts[0]!.contextSources![0]!.contentFingerprint = `sha256:${"0".repeat(64)}`;
+    await writeFile(path, `${JSON.stringify(index, null, 2)}\n`, "utf8");
+    const checked = await checkTaskExecutionResult(dir, started.attempt, "T-1");
+    assert.match(checked.diagnostics.join(" "), /context source descriptors changed/i);
+  });
+});
+
+test("legacy open attempts without context coverage fail closed and remain recoverable", async () => {
+  await fixture(async (dir) => {
+    const initial = await admittedFileContext(dir);
+    const path = getTaskAttemptsPath(dir);
+    const index = JSON.parse(await readFile(path, "utf8")) as {
+      attempts: Array<{ contextSources?: unknown }>;
+    };
+    delete index.attempts[0]!.contextSources;
+    await writeFile(path, `${JSON.stringify(index, null, 2)}\n`, "utf8");
+    await assert.rejects(
+      startTaskExecution(dir, initial.lockId, initial.state, initial.attempt),
+      /context freshness coverage is missing/i,
+    );
+    await releaseExecutionLock(dir, initial.lockId);
+    const recovery = await reconcileInterruptedTaskAttempt(dir, initial.state);
+    assert.equal(recovery?.state.tasks[0]?.status, "blocked");
+    assert.equal((await loadTaskAttempts(dir))[0]?.outcome, "not_started");
   });
 });
 
