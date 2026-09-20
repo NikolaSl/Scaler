@@ -109,7 +109,14 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   externalized-source provenance without clipping exact bytes, while `execute`
   refuses before the runner until conductor-equivalent attempt, provider and
   result admission exist. It does not complete automatic effective splitting,
-  SC-07, SC-08 or AC-08.
+  SC-07, SC-08 or AC-08. PLAN-129 applies the existing prompt and provider
+  admission boundary to the shared stage-agent path. PLAN-130 then closes the
+  five reproduced remaining child-launch bypasses: research, diagnostic debug,
+  replanning, tool-schema discovery and explicit task spawn. Oversized or
+  malformed prompts now refuse before child dispatch and successful/prepared
+  run publication, and admitted requests carry the strict provider policy.
+  Parent interactive calls, provider-internal retries and alternate provider
+  payloads remain open; this is not SC-05/AC-05 completion.
 
 ### Renewed continuation policy (2026-09-19)
 

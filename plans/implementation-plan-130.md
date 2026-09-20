@@ -61,3 +61,23 @@ continuation supplier, bind an exact parent-selected provider/model identity or
 claim local-model quality, savings or scale. It establishes admission parity at
 the remaining child-launch boundaries; SC-04, SC-05, SC-07 and SC-08 therefore
 remain partial until their separate behavioral and real-host evidence exists.
+
+## Implemented evidence
+
+The three generated auxiliary prompts now use the shared final-prompt admission
+boundary before prompt audit, child-run publication or runner dispatch. Tool
+schema discovery and `scaler_spawn_task` use the same boundary before preparing
+or executing a child. Every admitted request carries the runtime-owned strict
+provider policy, so the rendered child invocation suppresses ambient resources
+and loads the provider-admission hook for the final live envelope.
+
+Focused regressions cover all five bypasses, exact-boundary and one-token-under
+decisions, malformed allowances, zero audit/run publication on auxiliary-agent
+refusal, preserved research/tool contracts and strict prepare-mode invocation.
+The candidate gate passes build, `git diff --check`, 1,003/1,003 unit/component
+tests, 67/67 mock integration tests and 7/7 conformance/autopilot checks.
+
+This evidence closes the reproduced child-launch admission gaps only. Parent
+interactive model calls, provider-internal retries, alternate provider payloads,
+exact tokenization and observed-usage reconciliation remain open, so SC-05 and
+AC-05 are not claimed complete.

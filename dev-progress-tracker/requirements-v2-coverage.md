@@ -24,7 +24,7 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-02 | Partial | Task fields/report contracts exist; complete versioned attempt/executor contract not established. | `src/types.ts`, `src/tasks.ts`, `src/task-reports.ts` | [AC-02](../specs/acceptance-scenarios.md#ac-02) |
 | SC-03 | Partial | Dependencies and plans exist; minimal/incremental planning and all admission guards need scenario coverage. | `src/plans.ts`, `src/conductor.ts` | [AC-03](../specs/acceptance-scenarios.md#ac-03) |
 | SC-04 | Failed | English keyword classifier routes 'What is Docker?' to level 4 and a complex Bulgarian request to level 1. | `src/adaptive.ts` | [AC-04](../specs/acceptance-scenarios.md#ac-04) |
-| SC-05 | Partial | Conductor/debug children now fail closed at both the rendered SCALER prompt and final OpenAI Chat Completions payload boundaries, including system/tool/history, output reserve, model window and compaction-route isolation. Exact tokenization, alternate providers, parent/other child routes, internal retries and observed-usage reconciliation remain open. | `src/prompt-admission.ts`, `src/provider-admission.ts`, `src/provider-admission-extension.ts`, `src/subagents.ts`, `src/conductor.ts`, `src/debug-retry.ts`, `test/provider-admission.test.ts`, `test/provider-admission-host.test.ts`, `test/subagents.test.ts` | [AC-05](../specs/acceptance-scenarios.md#ac-05) |
+| SC-05 | Partial | Conductor, debug retry, stage, research, diagnostic debug, replanning, schema-discovery and explicit-spawn children now fail closed at both the rendered SCALER prompt and final OpenAI Chat Completions payload boundaries, including system/tool/history, output reserve, model window and compaction-route isolation. Exact tokenization, alternate providers, parent calls, internal retries and observed-usage reconciliation remain open. | `src/prompt-admission.ts`, `src/provider-admission.ts`, `src/provider-admission-extension.ts`, `src/subagents.ts`, `src/conductor.ts`, `src/debug-retry.ts`, `src/stage-agents.ts`, `src/debug-agent.ts`, `src/replan-agent.ts`, `src/research-agent.ts`, `src/tool-requests.ts`, `src/tools.ts`, `test/provider-admission.test.ts`, `test/provider-admission-host.test.ts`, `test/prompt-admission.test.ts`, `test/subagents.test.ts` | [AC-05](../specs/acceptance-scenarios.md#ac-05) |
 | SC-06 | Partial | Validity labels and memory references exist; dependency-based freshness and invalidation unverified. | `src/memory.ts`, `src/context.ts` | [AC-06](../specs/acceptance-scenarios.md#ac-06) |
 | SC-07 | Partial | Exact Markdown-heading retrieval preserves source bytes and rejects missing, ambiguous or oversized required sections. Admitted file context is now byte-bound and revalidated before dispatch and result acceptance, including symlink, non-regular-file and exact-output boundaries. AST/function selectors and automatic effective splitting remain open. | `src/context.ts`, `src/attempt-execution.ts`, `src/conductor.ts`, `src/debug-retry.ts`, `test/context.test.ts`, `test/attempt-execution.test.ts`, `test/conductor.test.ts` | [AC-07](../specs/acceptance-scenarios.md#ac-07) |
 | SC-08 | Partial | Installed Pi binds the selected tool envelope before its first provider snapshot. Request-specific assessment compares direct/current-agent/isolated evidence; isolated execution now recomputes that assessment at dispatch, binds the exact worker/provider/model and caller-continuation evidence, limits transport/result bytes and accepts one execution-bound proposal only after a successful parent-observed outcome. The installed command blocks without a trustworthy future continuation supplier. Direct/current-agent adapters, a production continuation supplier and the complete three-route scenario remain open. | `src/tool-routing.ts`, `src/tool-requests.ts`, `src/index.ts`, `test/tool-routing.test.ts`, `test/tool-requests.test.ts`, `test/provider-admission-host.test.ts` | [AC-08](../specs/acceptance-scenarios.md#ac-08) |
@@ -49,6 +49,18 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-27 | Partial | Current named command evidence and participant identity gate declared integration criteria; revision-checked user amendments and immutable history prevent model-route criterion changes. Semantic necessity and non-software evidence remain open. | `src/prd.ts`, `src/run-completion.ts`, `test/requirement-integration.test.ts`, `test/prd.test.ts` | [AC-27](../specs/acceptance-scenarios.md#ac-27) |
 
 ## Implementation progress — PLAN-099
+
+PLAN-130 closes the remaining reproduced child-launch prompt/provider admission
+bypasses after PLAN-129 protected the shared stage-agent path. Research,
+diagnostic debug, replanning, tool-schema discovery and explicit task spawn now
+refuse malformed or oversized final prompts before runner dispatch and
+successful/prepared child-run publication. Admitted requests carry the strict
+provider policy into the installed host. Exact-boundary, one-token-under,
+malformed allowance, no-audit/run-record refusal and prepare/execute controls
+pass. Candidate gate: build, 1,003 unit/component, 67 mock integration and 7
+conformance/autopilot checks. SC-05 remains Partial because parent calls,
+alternate provider payloads, internal retries, exact tokenization and observed
+usage reconciliation remain open.
 
 PLAN-125 through PLAN-127 close the unsafe isolated-execution prerequisites
 without claiming the complete three-route scenario. Results are

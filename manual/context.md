@@ -113,9 +113,11 @@ whose summary request bypasses `before_provider_request` in Pi 0.80.3.
 The provider gate currently supports only the installed Pi 0.80.3 OpenAI Chat
 Completions text/tool shape. Alternate APIs, image/audio and multiple-completion
 payloads fail closed. The byte bound can conservatively reject a request that an
-exact tokenizer would admit. Parent interactive calls, other child routes,
-provider-internal retries and reconciliation against observed usage remain
-later P3 work.
+exact tokenizer would admit. Conductor, debug retry, stage agents, research,
+diagnostic debug, replanning, tool-schema discovery and explicit task spawns now
+attach this strict policy after early final-prompt admission. Parent interactive
+calls, provider-internal retries and reconciliation against observed usage
+remain later P3 work.
 
 ## Missing-context lifecycle
 
