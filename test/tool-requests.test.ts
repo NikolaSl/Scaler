@@ -410,7 +410,7 @@ test("runToolSchedule executes parallel then serial requests with structured res
     const result = await runToolSchedule(dir, state, { execute: true, parallelism: 2 }, async (request) => {
       order.push(request.taskId);
       const requestId = request.taskId.replace(/^tool-/, "");
-      await recordToolResult(dir, state, { requestId, status: "completed", summary: `Completed ${requestId}`, outputs: { ok: true } });
+      await recordToolResult(dir, state, { requestId, executionId: request.executionId, status: "completed", summary: `Completed ${requestId}`, outputs: { ok: true } });
       return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
     }, new Date("2026-01-01T00:00:00.000Z"));
 
@@ -532,6 +532,7 @@ test("runToolRequestAgent recognizes structured scaler_tool_result closure", asy
     const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
       await recordToolResult(dir, state, {
         requestId: prepared.record!.id,
+        executionId: request.executionId,
         status: "completed",
         summary: `Completed ${request.taskId}`,
         outputs: { refs: ["docs:widget"] },
@@ -577,6 +578,24 @@ test("runToolRequestAgent rejects a completed result when the child process fail
   });
 });
 
+test("runToolRequestAgent durably blocks a thrown runner outcome", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async () => {
+      throw new Error("synthetic spawn failure");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.transaction?.status, "blocked");
+    assert.equal(result.transaction?.runExitCode, 1);
+    assert.match(result.transaction?.stderrSummary ?? "", /synthetic spawn failure/);
+    assert.equal((await loadToolRequests(dir))[0]?.status, "blocked");
+  });
+});
+
 test("runToolRequestAgent accepts only a result bound to its execution", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
@@ -602,6 +621,46 @@ test("runToolRequestAgent accepts only a result bound to its execution", async (
   });
 });
 
+test("runToolRequestAgent refuses a concurrent execution claim for one request", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    assert.ok(prepared.record);
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    let releaseFirst!: () => void;
+    const release = new Promise<void>((resolve) => { releaseFirst = resolve; });
+
+    const first = runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+      markStarted();
+      await release;
+      await recordToolResult(dir, state, {
+        requestId: prepared.record!.id,
+        executionId: request.executionId,
+        status: "completed",
+        summary: "First execution completed.",
+        outputs: { ok: true },
+      });
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+    await started;
+    let secondRunnerCalled = false;
+    const second = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+      secondRunnerCalled = true;
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+    releaseFirst();
+    const completed = await first;
+
+    assert.equal(second.accepted, false);
+    assert.equal(second.transaction?.status, "rejected");
+    assert.match(second.message, /already has active execution/);
+    assert.equal(secondRunnerCalled, false);
+    assert.equal(completed.accepted, true);
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
+  });
+});
+
 test("runToolRequestAgent treats free-form or missing structured result as incomplete", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
@@ -622,8 +681,8 @@ test("runToolRequestAgent treats free-form or missing structured result as incom
     }));
 
     assert.equal(result.accepted, false);
-    assert.equal(result.transaction?.status, "missing_result");
-    assert.equal((await loadToolRequests(dir))[0]?.status, "prepared");
+    assert.equal(result.transaction?.status, "blocked");
+    assert.equal((await loadToolRequests(dir))[0]?.status, "blocked");
     assert.equal((await loadToolResults(dir)).length, 0);
   });
 });
@@ -658,13 +717,15 @@ test("replayToolTransaction executes persisted invocation and recognizes structu
       timedOut: false,
       aborted: false,
     }));
-    assert.equal(original.transaction?.status, "missing_result");
+    assert.equal(original.transaction?.status, "blocked");
+    const approval = await createToolReplayApproval(dir, state, { transactionId: original.transaction!.id, reason: "Explicit retry after ambiguous result" });
 
-    const replay = await replayToolTransaction(dir, state, { transactionId: original.transaction!.id, execute: true }, async (request) => {
+    const replay = await replayToolTransaction(dir, state, { transactionId: original.transaction!.id, execute: true, approvalId: approval.id }, async (request) => {
       assert.match(request.prompt, /Tool request id:/);
       assert.deepEqual(request.tools, ["docs_search", "read"]);
       await recordToolResult(dir, state, {
         requestId: prepared.record!.id,
+        executionId: request.executionId,
         status: "completed",
         summary: "Found docs.",
         outputs: { refs: ["docs-widget"] },
@@ -686,7 +747,7 @@ test("replayToolTransaction refuses execute for closed requests", async () => {
     const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
     assert.ok(prepared.record);
     const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
-      await recordToolResult(dir, state, { requestId: prepared.record!.id, status: "completed", summary: "Done.", outputs: { ok: true } });
+      await recordToolResult(dir, state, { requestId: prepared.record!.id, executionId: request.executionId, status: "completed", summary: "Done.", outputs: { ok: true } });
       return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
     });
 
@@ -705,7 +766,7 @@ test("tool replay approvals can be created, listed, revoked, and validated", asy
     const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
     assert.ok(prepared.record);
     const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
-      await recordToolResult(dir, state, { requestId: prepared.record!.id, status: "completed", summary: "Done.", outputs: { ok: true } });
+      await recordToolResult(dir, state, { requestId: prepared.record!.id, executionId: request.executionId, status: "completed", summary: "Done.", outputs: { ok: true } });
       return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
     });
     assert.ok(original.transaction);
@@ -735,14 +796,14 @@ test("replayToolTransaction executes closed requests only with a matching approv
     const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
     assert.ok(prepared.record);
     const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
-      await recordToolResult(dir, state, { requestId: prepared.record!.id, status: "completed", summary: "Done.", outputs: { ok: true } });
+      await recordToolResult(dir, state, { requestId: prepared.record!.id, executionId: request.executionId, status: "completed", summary: "Done.", outputs: { ok: true } });
       return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
     });
     assert.ok(original.transaction);
     const approval = await createToolReplayApproval(dir, state, { transactionId: original.transaction.id, reason: "Second pass" });
 
     const approved = await replayToolTransaction(dir, state, { transactionId: original.transaction.id, execute: true, approvalId: approval.id }, async (request) => {
-      await recordToolResult(dir, state, { requestId: prepared.record!.id, status: "completed", summary: "Replay done.", outputs: { replay: true } });
+      await recordToolResult(dir, state, { requestId: prepared.record!.id, executionId: request.executionId, status: "completed", summary: "Replay done.", outputs: { replay: true } });
       return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
     });
 
@@ -778,8 +839,8 @@ test("replayToolTransaction treats replay prose without result as missing_result
     }));
 
     assert.equal(replay.accepted, false);
-    assert.equal(replay.transaction?.status, "missing_result");
-    assert.equal((await loadToolRequests(dir))[0]?.status, "prepared");
+    assert.equal(replay.transaction?.status, "blocked");
+    assert.equal((await loadToolRequests(dir))[0]?.status, "blocked");
   });
 });
 
@@ -813,7 +874,7 @@ test("runToolIterationWorkflow prepares a bounded iteration run", async () => {
   });
 });
 
-test("runToolIterationWorkflow replays missing structured results until closure", async () => {
+test("runToolIterationWorkflow blocks after an ambiguous missing result without automatic replay", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
@@ -822,15 +883,6 @@ test("runToolIterationWorkflow replays missing structured results until closure"
 
     const result = await runToolIterationWorkflow(dir, state, { requestId: prepared.record.id, execute: true, maxIterations: 3 }, async (request) => {
       calls += 1;
-      if (calls === 2) {
-        await recordToolResult(dir, state, {
-          requestId: prepared.record!.id,
-          status: "completed",
-          summary: "Found docs after replay.",
-          outputs: { refs: ["docs:widget"] },
-          validationPerformed: ["checked replay output"],
-        });
-      }
       return {
         taskId: request.taskId,
         exitCode: 0,
@@ -841,17 +893,18 @@ test("runToolIterationWorkflow replays missing structured results until closure"
       };
     });
 
-    assert.equal(result.accepted, true);
-    assert.equal(result.run?.status, "completed");
-    assert.equal(result.run?.steps.length, 2);
-    assert.deepEqual(result.run?.steps.map((step) => step.action), ["run", "replay"]);
-    assert.deepEqual(result.run?.steps.map((step) => step.transactionStatus), ["missing_result", "completed"]);
-    assert.equal((await loadToolRequests(dir))[0]?.status, "completed");
-    assert.equal((await loadToolTransactions(dir)).length, 2);
+    assert.equal(result.accepted, false);
+    assert.equal(result.run?.status, "rejected");
+    assert.equal(result.run?.steps.length, 1);
+    assert.deepEqual(result.run?.steps.map((step) => step.action), ["run"]);
+    assert.deepEqual(result.run?.steps.map((step) => step.transactionStatus), ["blocked"]);
+    assert.equal((await loadToolRequests(dir))[0]?.status, "blocked");
+    assert.equal((await loadToolTransactions(dir)).length, 1);
+    assert.equal(calls, 1);
   });
 });
 
-test("runToolIterationWorkflow records exhaustion after capped missing results", async () => {
+test("runToolIterationWorkflow stops after the first ambiguous missing result", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
@@ -867,14 +920,14 @@ test("runToolIterationWorkflow records exhaustion after capped missing results",
     }));
 
     assert.equal(result.accepted, false);
-    assert.equal(result.run?.status, "exhausted");
-    assert.equal(result.run?.steps.length, 2);
-    assert.deepEqual(result.run?.steps.map((step) => step.action), ["run", "replay"]);
-    assert.equal((await loadToolRequests(dir))[0]?.status, "prepared");
+    assert.equal(result.run?.status, "rejected");
+    assert.equal(result.run?.steps.length, 1);
+    assert.deepEqual(result.run?.steps.map((step) => step.action), ["run"]);
+    assert.equal((await loadToolRequests(dir))[0]?.status, "blocked");
   });
 });
 
-test("recordToolResult stores structured results and closes the request", async () => {
+test("recordToolResult stores an unbound proposal without closing the request", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     const prepared = await prepareToolRequest(dir, state, {
@@ -899,11 +952,12 @@ test("recordToolResult stores structured results and closes the request", async 
     assert.equal(result.toolName, "docs_search");
     assert.equal(result.taskId, "T-TOOL");
     assert.equal(result.status, "completed");
+    assert.equal(result.acceptanceStatus, "unbound");
     assert.deepEqual(result.evidenceRefs, ["docs:widgets"]);
     assert.equal((await loadToolResults(dir))[0]?.id, result.id);
     const requests = await loadToolRequests(dir);
-    assert.equal(requests[0]?.status, "completed");
-    assert.equal(requests[0]?.updatedAt, "2026-01-01T00:00:01.000Z");
+    assert.equal(requests[0]?.status, "prepared");
+    assert.equal(requests[0]?.updatedAt, undefined);
   });
 });
 

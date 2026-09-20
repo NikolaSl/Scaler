@@ -152,6 +152,22 @@ test("runTaskAgent marks children so host hooks preserve their selected tools", 
   });
 });
 
+test("runTaskAgent supplies only the runtime-owned tool execution identity", async () => {
+  await withScript('#!/bin/sh\nprintf \'{"execution":"%s"}\\n\' "$SCALER_TOOL_EXECUTION_ID"\n', async (script, dir) => {
+    const previous = process.env.SCALER_TOOL_EXECUTION_ID;
+    process.env.SCALER_TOOL_EXECUTION_ID = "ambient-spoof";
+    try {
+      const bound = await runTaskAgent({ taskId: "T-bound", executionId: "execution-123", prompt: "ignored", cwd: dir }, { command: script });
+      const unbound = await runTaskAgent({ taskId: "T-unbound", prompt: "ignored", cwd: dir }, { command: script });
+      assert.deepEqual(bound.stdoutEvents, [{ execution: "execution-123" }]);
+      assert.deepEqual(unbound.stdoutEvents, [{ execution: "" }]);
+    } finally {
+      if (previous === undefined) delete process.env.SCALER_TOOL_EXECUTION_ID;
+      else process.env.SCALER_TOOL_EXECUTION_ID = previous;
+    }
+  });
+});
+
 test("runTaskAgent reports timeout diagnostics", async () => {
   await withScript("#!/bin/sh\nsleep 0.2\n", async (script, dir) => {
     const result = await runTaskAgent({ taskId: "T-005", prompt: "ignored", cwd: dir }, { command: script, timeoutMs: 10 });

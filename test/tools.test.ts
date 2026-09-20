@@ -329,7 +329,7 @@ test("scaler_tool_schema records discovered tool metadata", async () => {
   });
 });
 
-test("scaler_tool_result records structured result and updates request", async () => {
+test("scaler_tool_result records an unbound proposal without closing the request", async () => {
   await withTempDir(async (dir) => {
     const registered = new Map<string, { execute: (...args: any[]) => Promise<unknown> }>();
     registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<unknown> }) { registered.set(definition.name, definition); } } as never);
@@ -364,7 +364,8 @@ test("scaler_tool_result records structured result and updates request", async (
     const budgets = getBudgetState(await loadState(dir));
     assert.equal(result?.requestId, request.id);
     assert.equal(result?.status, "completed");
-    assert.equal(updatedRequest?.status, "completed");
+    assert.equal(result?.acceptanceStatus, "unbound");
+    assert.equal(updatedRequest?.status, "prepared");
     assert.equal(budgets.usage.toolCalls, 2);
   });
 });

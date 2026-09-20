@@ -59,7 +59,7 @@ test("mock integration: MCP enumeration records local server declarations", asyn
   });
 });
 
-test("mock integration: tool schedule executes safe parallel batch and serial risky request", async () => {
+test("mock integration: tool schedule executes all guarded requests sequentially", async () => {
   await withTempRepo(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     await recordToolSchema(dir, state, { toolName: "docs_search", source: "mock", riskLevel: "low", description: "Read-only docs search." });
@@ -70,7 +70,7 @@ test("mock integration: tool schedule executes safe parallel batch and serial ri
 
     const result = await runToolSchedule(dir, state, { execute: true, parallelism: 2 }, async (request) => {
       const requestId = request.taskId.replace(/^tool-/, "");
-      await recordToolResult(dir, state, { requestId, status: "completed", summary: `Completed ${requestId}`, outputs: { ok: true } });
+      await recordToolResult(dir, state, { requestId, executionId: request.executionId, status: "completed", summary: `Completed ${requestId}`, outputs: { ok: true } });
       return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
     });
 
@@ -160,16 +160,18 @@ test("mock integration: tool transaction execution requires structured scaler_to
       aborted: false,
     }));
     assert.equal(missing.accepted, false);
-    assert.equal(missing.transaction?.status, "missing_result");
-    assert.equal((await loadToolRequests(dir))[0]?.status, "prepared");
+    assert.equal(missing.transaction?.status, "blocked");
+    assert.equal((await loadToolRequests(dir))[0]?.status, "blocked");
+    const approval = await createToolReplayApproval(dir, state, { transactionId: missing.transaction!.id, reason: "Explicit retry after ambiguous result" });
 
-    const completed = await replayToolTransaction(dir, state, { transactionId: missing.transaction!.id, execute: true }, async (request) => {
+    const completed = await replayToolTransaction(dir, state, { transactionId: missing.transaction!.id, execute: true, approvalId: approval.id }, async (request) => {
       assert.match(request.prompt, /scaler_tool_result/);
       assert.match(request.prompt, /Required format: JSON with fields apiNames and refs/);
       assert.match(request.prompt, /Search project docs with a query argument/);
       assert.match(request.prompt, /schemaRef=schema:mcp-search-v1/);
       await recordToolResult(dir, state, {
         requestId: prepared.record!.id,
+        executionId: request.executionId,
         status: "completed",
         summary: "Widget lifecycle API located.",
         outputs: { apiNames: ["Widget.create", "Widget.destroy"], refs: ["docs:widget-lifecycle"] },
@@ -187,11 +189,11 @@ test("mock integration: tool transaction execution requires structured scaler_to
     const transactions = await loadToolTransactions(dir);
     assert.equal(transactions[0]?.status, "completed");
     assert.equal(transactions[0]?.replayOfTransactionId, missing.transaction?.id);
-    assert.equal(transactions[1]?.status, "missing_result");
+    assert.equal(transactions[1]?.status, "blocked");
     assert.equal(transactions[0]?.resultId, completed.resultRecord?.id);
 
     const events = await readLogEvents(dir);
-    assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("Tool transaction missing structured result")));
+    assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("Tool transaction blocked")));
     assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("Tool transaction replay completed")));
   });
 });
@@ -213,6 +215,7 @@ test("mock integration: closed tool replay requires explicit approval and consum
     const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
       await recordToolResult(dir, state, {
         requestId: prepared.record!.id,
+        executionId: request.executionId,
         status: "completed",
         summary: "Widget lifecycle API located.",
         outputs: { apiNames: ["Widget.create"], refs: ["docs:widget-lifecycle"] },
@@ -231,6 +234,7 @@ test("mock integration: closed tool replay requires explicit approval and consum
       assert.match(request.prompt, /Required format: JSON with fields apiNames and refs/);
       await recordToolResult(dir, state, {
         requestId: prepared.record!.id,
+        executionId: request.executionId,
         status: "completed",
         summary: "Widget lifecycle API validated by replay.",
         outputs: { apiNames: ["Widget.create", "Widget.destroy"], refs: ["docs:widget-lifecycle", "docs:widget-cleanup"] },
@@ -253,7 +257,7 @@ test("mock integration: closed tool replay requires explicit approval and consum
   });
 });
 
-test("mock integration: tool iteration workflow corrects missing structured result with replay", async () => {
+test("mock integration: tool iteration workflow blocks an ambiguous missing result", async () => {
   await withTempRepo(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     await recordToolSchema(dir, state, {
@@ -281,16 +285,6 @@ test("mock integration: tool iteration workflow corrects missing structured resu
       calls += 1;
       assert.match(request.prompt, /scaler_tool_result/);
       assert.match(request.prompt, /schemaRef=mcp-search-v1|schema:mcp-search-v1/);
-      if (calls === 2) {
-        await recordToolResult(dir, state, {
-          requestId: prepared.record!.id,
-          status: "completed",
-          summary: "Widget lifecycle API located after replay.",
-          outputs: { apiNames: ["Widget.create", "Widget.destroy"], refs: ["docs:widget-lifecycle"] },
-          evidenceRefs: ["docs:widget-lifecycle"],
-          validationPerformed: ["checked requested requiredFormat"],
-        });
-      }
       return {
         taskId: request.taskId,
         exitCode: 0,
@@ -301,18 +295,18 @@ test("mock integration: tool iteration workflow corrects missing structured resu
       };
     });
 
-    assert.equal(result.accepted, true);
-    assert.equal(result.run?.status, "completed");
-    assert.deepEqual(result.run?.steps.map((step) => step.action), ["run", "replay"]);
-    assert.deepEqual(result.run?.steps.map((step) => step.transactionStatus), ["missing_result", "completed"]);
-    assert.equal((await loadToolIterationRuns(dir))[0]?.status, "completed");
-    assert.equal((await loadToolRequests(dir))[0]?.status, "completed");
+    assert.equal(result.accepted, false);
+    assert.equal(result.run?.status, "rejected");
+    assert.deepEqual(result.run?.steps.map((step) => step.action), ["run"]);
+    assert.deepEqual(result.run?.steps.map((step) => step.transactionStatus), ["blocked"]);
+    assert.equal((await loadToolIterationRuns(dir))[0]?.status, "rejected");
+    assert.equal((await loadToolRequests(dir))[0]?.status, "blocked");
     const transactions = await loadToolTransactions(dir);
-    assert.equal(transactions.length, 2);
-    assert.equal(transactions[0]?.status, "completed");
-    assert.equal(transactions[1]?.status, "missing_result");
+    assert.equal(transactions.length, 1);
+    assert.equal(transactions[0]?.status, "blocked");
+    assert.equal(calls, 1);
     const events = await readLogEvents(dir);
-    assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("Tool iteration completed")));
+    assert.ok(events.some((event) => event.eventType === "tool" && event.summary.startsWith("Tool transaction blocked")));
   });
 });
 
@@ -381,12 +375,13 @@ test("mock integration: scaler_tool_request persists rich metadata and isolated 
     const updatedRequest = (await loadToolRequests(dir))[0];
     assert.equal(resultRecord?.requestId, record.id);
     assert.equal(resultRecord?.status, "completed");
+    assert.equal(resultRecord?.acceptanceStatus, "unbound");
     assert.deepEqual(resultRecord?.validationPerformed, ["checked requested requiredFormat"]);
-    assert.equal(updatedRequest?.status, "completed");
+    assert.equal(updatedRequest?.status, "prepared");
 
     assert.equal(getBudgetState(await loadState(dir)).usage.toolCalls, 2);
     const events = await readLogEvents(dir);
     assert.ok(events.some((event) => event.eventType === "tool" && event.summary === "Tool request prepared: docs_search"));
-    assert.ok(events.some((event) => event.eventType === "tool" && event.summary === "Tool result recorded: docs_search completed"));
+    assert.ok(events.some((event) => event.eventType === "tool" && event.summary === "Tool result proposal recorded: docs_search completed"));
   });
 });

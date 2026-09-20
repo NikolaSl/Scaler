@@ -18,6 +18,7 @@ import type { TaskAttemptBinding } from "./task-attempts.js";
 export interface TaskAgentRequest {
   taskId: string;
   prompt: string;
+  executionId?: string;
   cwd?: string;
   tools?: string[];
   noTools?: boolean;
@@ -141,6 +142,7 @@ export async function runTaskAgent(
   }
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");
   const environment: NodeJS.ProcessEnv = { ...process.env, SCALER_CHILD_AGENT: "1" };
+  delete environment.SCALER_TOOL_EXECUTION_ID;
   for (const key of providerAdmissionEnvironmentKeys) delete environment[key];
   if (request.providerAdmission) {
     environment.SCALER_PROVIDER_ADMISSION = "strict";
@@ -148,6 +150,7 @@ export async function runTaskAgent(
     environment.SCALER_OUTPUT_RESERVE_TOKENS = String(request.providerAdmission.outputReserveTokens);
     environment.SCALER_REQUEST_MARGIN_TOKENS = String(request.providerAdmission.safetyMarginTokens);
   }
+  if (request.executionId) environment.SCALER_TOOL_EXECUTION_ID = request.executionId;
 
   return await new Promise<TaskAgentRunResult>((resolve, reject) => {
     const child = spawn(invocation.command, invocation.args, {

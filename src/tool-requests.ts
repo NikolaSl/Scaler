@@ -10,7 +10,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { getMcpServersPath, getToolCatalogPath, getToolIterationPolicyPath, getToolIterationRunsPath, getToolReplayApprovalsPath, getToolRequestsIndexPath, getToolResultsPath, getToolSchedulesPath, getToolSchemaDiscoveryRunsPath, getToolTransactionsPath } from "./paths.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
-import { buildTaskAgentInvocation, runTaskAgent, type RunTaskAgentOptions, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, runTaskAgent, type RunTaskAgentOptions, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { assessToolRoute, type ToolRouteAssessment, type ToolRouteAssessmentInput } from "./tool-routing.js";
 import type { ScalerState } from "./types.js";
 
@@ -100,6 +100,7 @@ export type ToolScheduleStepMode = "parallel" | "serial";
 
 export interface ToolRequestRecord {
   id: string;
+  activeExecutionId?: string;
   taskId?: string;
   requesterAgentId?: string;
   toolName: string;
@@ -152,6 +153,7 @@ export interface ToolSchemaRecord {
 
 export interface ToolResultInput {
   requestId: string;
+  executionId?: string;
   status: ToolResultStatus | string;
   summary: string;
   outputs?: unknown;
@@ -183,6 +185,9 @@ export interface ToolTransactionRecord {
 export interface ToolResultRecord {
   id: string;
   requestId: string;
+  executionId?: string;
+  acceptanceStatus: "proposed" | "accepted" | "rejected" | "unbound";
+  acceptanceMessage?: string;
   taskId?: string;
   toolName: string;
   status: ToolResultStatus;
@@ -1070,12 +1075,7 @@ export async function runToolSchedule(
 
   const executedSteps: ToolScheduleStepRecord[] = [];
   const parallelSteps = steps.filter((step) => step.mode === "parallel");
-  for (let index = 0; index < parallelSteps.length; index += parallelism) {
-    const batch = parallelSteps.slice(index, index + parallelism);
-    const results = await Promise.all(batch.map((step) => runToolRequestAgent(cwd, state, { requestId: step.requestId, execute: true, timeoutMs: options.timeoutMs, command: options.command }, runner)));
-    executedSteps.push(...results.map((result, resultIndex) => toolScheduleExecutedStep(batch[resultIndex]!, result)));
-  }
-  for (const step of steps.filter((candidate) => candidate.mode === "serial")) {
+  for (const step of steps) {
     const result = await runToolRequestAgent(cwd, state, { requestId: step.requestId, execute: true, timeoutMs: options.timeoutMs, command: options.command }, runner);
     executedSteps.push(toolScheduleExecutedStep(step, result));
   }
@@ -1083,9 +1083,9 @@ export async function runToolSchedule(
   const schedule = await recordToolSchedule(cwd, {
     status,
     executed: true,
-    parallelism,
+    parallelism: 1,
     steps: executedSteps,
-    message: `Tool schedule ${status}: parallel=${parallelSteps.length} serial=${steps.length - parallelSteps.length}`,
+    message: `Tool schedule ${status} sequentially: requests=${steps.length}; advisory_parallel=${parallelSteps.length}`,
   }, now);
   await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: schedule.message, details: { schedule } }));
   return { accepted: status === "completed", message: schedule.message, schedule };
@@ -1152,7 +1152,7 @@ export async function runToolSchemaDiscoveryAgent(
   const existingRecords = await loadToolSchemaRecords(cwd);
   const prompt = buildToolSchemaDiscoveryPrompt(toolName, existingRecords, options.tools ?? []);
   const allowedTools = uniqueNonEmpty(["scaler_tool_schema", ...(options.tools ?? [])]);
-  const agentRequest = {
+  const agentRequest: TaskAgentRequest = {
     taskId: `tool-schema-${toolName}`,
     prompt,
     tools: allowedTools,
@@ -1225,7 +1225,7 @@ export async function runToolRequestAgent(
   }
 
   const prompt = buildToolAgentPrompt(request, await loadToolSchemaRecords(cwd));
-  const agentRequest = {
+  const agentRequest: TaskAgentRequest = {
     taskId: `tool-${request.id}`,
     prompt,
     tools: request.allowedTools,
@@ -1244,7 +1244,15 @@ export async function runToolRequestAgent(
     return { accepted: true, message: transaction.message, request, prompt, invocation, transaction };
   }
 
-  const runResult = await runner(agentRequest, { timeoutMs: options.timeoutMs, command: options.command } satisfies RunTaskAgentOptions);
+  const claim = await beginToolExecution(cwd, request, invocation);
+  if (!claim.accepted) {
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: claim.transaction.message, taskId: request.taskId, details: { transaction: claim.transaction } }));
+    return { accepted: false, message: claim.transaction.message, request: claim.request, prompt, invocation, transaction: claim.transaction };
+  }
+  const execution = claim.transaction;
+  agentRequest.executionId = execution.id;
+  const beforeResultIds = new Set((await loadToolResults(cwd)).map((record) => record.id));
+  const runResult = await runToolAgentWithOutcome(agentRequest, { timeoutMs: options.timeoutMs, command: options.command }, runner);
   if (runResult.usage) {
     await recordProviderUsageBudget(cwd, state, runResult.usage, {
       source: "tool-agent-run",
@@ -1253,22 +1261,11 @@ export async function runToolRequestAgent(
       agentType: "tool",
     });
   }
-  const updatedRequest = (await loadToolRequests(cwd)).find((candidate) => candidate.id === request.id) ?? request;
-  const resultRecord = (await loadToolResults(cwd)).find((candidate) => candidate.requestId === request.id);
-  const status: ToolTransactionStatus = resultRecord && updatedRequest.status !== "prepared" ? updatedRequest.status : "missing_result";
-  const transaction = await recordToolTransaction(cwd, updatedRequest, {
-    status,
-    executed: true,
-    invocation,
-    runResult,
-    resultId: resultRecord?.id,
-    message: status === "missing_result"
-      ? `Tool transaction missing structured result: ${request.id}`
-      : `Tool transaction completed: ${request.id} ${status}`,
-  });
+  const finalized = await finalizeToolExecution(cwd, request, execution, runResult, beforeResultIds, false);
+  const { request: updatedRequest, resultRecord, transaction } = finalized;
   await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: transaction.message, taskId: request.taskId, details: { transaction, runResult, resultRecord } }));
   return {
-    accepted: status !== "missing_result",
+    accepted: finalized.accepted,
     message: transaction.message,
     request: updatedRequest,
     prompt,
@@ -1356,6 +1353,11 @@ export async function runToolIterationWorkflow(
 
     const afterRequest = (await loadToolRequests(cwd)).find((candidate) => candidate.id === request.id) ?? currentRequest;
     currentRequest = afterRequest;
+    if (!result.accepted) {
+      finalStatus = "rejected";
+      message = result.message;
+      break;
+    }
     if (afterRequest.status !== "prepared") {
       finalStatus = mapToolRequestStatusToIterationStatus(afterRequest.status);
       message = `Tool iteration completed: request ${request.id} ${afterRequest.status}`;
@@ -1445,8 +1447,15 @@ export async function replayToolTransaction(
     }
   }
 
+  const claim = await beginToolExecution(cwd, request, invocation, original.id);
+  if (!claim.accepted) {
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: claim.transaction.message, taskId: request.taskId, details: { transaction: claim.transaction, original } }));
+    return { accepted: false, message: claim.transaction.message, original, request: claim.request, prompt: replayRequest.prompt, invocation, transaction: claim.transaction };
+  }
+  const execution = claim.transaction;
+  replayRequest.executionId = execution.id;
   const beforeResultIds = new Set((await loadToolResults(cwd)).map((record) => record.id));
-  const runResult = await runner(replayRequest, { timeoutMs: options.timeoutMs, command: options.command ?? original.invocation.command } satisfies RunTaskAgentOptions);
+  const runResult = await runToolAgentWithOutcome(replayRequest, { timeoutMs: options.timeoutMs, command: options.command ?? original.invocation.command }, runner);
   if (runResult.usage) {
     await recordProviderUsageBudget(cwd, state, runResult.usage, {
       source: "tool-replay-run",
@@ -1455,24 +1464,12 @@ export async function replayToolTransaction(
       agentType: "tool-replay",
     });
   }
-  const updatedRequest = (await loadToolRequests(cwd)).find((candidate) => candidate.id === request.id) ?? request;
-  const resultRecord = (await loadToolResults(cwd)).find((candidate) => candidate.requestId === request.id && !beforeResultIds.has(candidate.id));
-  const status: ToolTransactionStatus = resultRecord && updatedRequest.status !== "prepared" ? updatedRequest.status : "missing_result";
-  const transaction = await recordToolTransaction(cwd, updatedRequest, {
-    status,
-    executed: true,
-    invocation,
-    runResult,
-    resultId: resultRecord?.id,
-    replayOfTransactionId: original.id,
-    message: status === "missing_result"
-      ? `Tool transaction replay missing structured result: ${original.id}`
-      : `Tool transaction replay completed: ${original.id} ${status}`,
-  });
+  const finalized = await finalizeToolExecution(cwd, request, execution, runResult, beforeResultIds, request.status !== "prepared");
+  const { request: updatedRequest, resultRecord, transaction } = finalized;
   const consumedApproval = approval ? await consumeToolReplayApproval(cwd, approval, transaction.id) : undefined;
   await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: transaction.message, taskId: request.taskId, details: { transaction, original, runResult, resultRecord, approval: consumedApproval } }));
   return {
-    accepted: status !== "missing_result",
+    accepted: finalized.accepted,
     message: transaction.message,
     original,
     request: updatedRequest,
@@ -1507,6 +1504,11 @@ export async function recordToolResult(cwd: string, state: ScalerState, input: T
     const record: ToolResultRecord = {
       id: randomUUID(),
       requestId: request.id,
+      executionId: input.executionId?.trim() || undefined,
+      acceptanceStatus: input.executionId?.trim() ? "proposed" : "unbound",
+      acceptanceMessage: input.executionId?.trim()
+        ? "Awaiting parent process-outcome and execution-binding checks."
+        : "Unbound result cannot satisfy an isolated execution.",
       taskId: request.taskId,
       toolName: request.toolName,
       status,
@@ -1519,15 +1521,13 @@ export async function recordToolResult(cwd: string, state: ScalerState, input: T
       createdAt: now.toISOString(),
     };
 
-    const updatedRequests = requests.map((candidate) => candidate.id === request.id ? { ...candidate, status, updatedAt: record.createdAt } : candidate);
     const results = await loadToolResults(cwd);
-    await writeToolRequestIndex(cwd, updatedRequests);
     await writeToolResultIndex(cwd, [record, ...results]);
     await appendLogEvent(
       cwd,
       createLogEvent(state, {
         eventType: "tool",
-        summary: `Tool result recorded: ${record.toolName} ${record.status}`,
+        summary: `Tool result proposal recorded: ${record.toolName} ${record.status}`,
         taskId: record.taskId,
         outputRefs: [record.id, record.requestId],
         details: { record },
@@ -1867,6 +1867,140 @@ async function selectRunnableToolRequest(cwd: string, requestId?: string): Promi
   return prepared.sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0];
 }
 
+async function runToolAgentWithOutcome(
+  request: TaskAgentRequest,
+  options: RunTaskAgentOptions,
+  runner: typeof runTaskAgent,
+): Promise<TaskAgentRunResult> {
+  try {
+    return await runner(request, options);
+  } catch (error) {
+    return {
+      taskId: request.taskId,
+      exitCode: 1,
+      stdoutEvents: [],
+      stderr: `Tool runner failed before a successful process outcome was observed: ${error instanceof Error ? error.message : String(error)}`,
+      timedOut: false,
+      aborted: false,
+    };
+  }
+}
+
+async function beginToolExecution(
+  cwd: string,
+  request: ToolRequestRecord,
+  invocation: TaskAgentInvocation,
+  replayOfTransactionId?: string,
+): Promise<{ accepted: boolean; request: ToolRequestRecord; transaction: ToolTransactionRecord }> {
+  return withToolLedgerWriteQueue(cwd, async () => {
+    const requests = await loadToolRequests(cwd);
+    const transactions = await loadToolTransactions(cwd);
+    const currentRequest = requests.find((candidate) => candidate.id === request.id);
+    const timestamp = new Date().toISOString();
+    const refusal = !currentRequest
+      ? `request ${request.id} disappeared before dispatch`
+      : currentRequest.status !== request.status
+        ? `request status changed from ${request.status} to ${currentRequest.status} before dispatch`
+        : currentRequest.activeExecutionId
+          ? `request ${request.id} already has active execution ${currentRequest.activeExecutionId}`
+          : undefined;
+    const transaction: ToolTransactionRecord = {
+      id: randomUUID(),
+      requestId: request.id,
+      taskId: request.taskId,
+      toolName: request.toolName,
+      status: refusal ? "rejected" : "prepared",
+      executed: !refusal,
+      invocation,
+      replayOfTransactionId,
+      message: refusal
+        ? `Tool transaction dispatch rejected: ${refusal}.`
+        : `${replayOfTransactionId ? "Tool transaction replay execution" : "Tool execution"} prepared: ${request.id}`,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    const claimedRequest = refusal || !currentRequest
+      ? currentRequest ?? request
+      : { ...currentRequest, activeExecutionId: transaction.id, updatedAt: timestamp };
+    if (!refusal && currentRequest) {
+      await writeToolRequestIndex(cwd, requests.map((candidate) => candidate.id === currentRequest.id ? claimedRequest : candidate));
+    }
+    await writeToolTransactionIndex(cwd, [transaction, ...transactions]);
+    return { accepted: !refusal, request: claimedRequest, transaction };
+  });
+}
+
+async function finalizeToolExecution(
+  cwd: string,
+  request: ToolRequestRecord,
+  execution: ToolTransactionRecord,
+  runResult: TaskAgentRunResult,
+  beforeResultIds: Set<string>,
+  preserveClosedRequestOnFailure: boolean,
+): Promise<{
+  accepted: boolean;
+  status: ToolTransactionStatus;
+  request: ToolRequestRecord;
+  transaction: ToolTransactionRecord;
+  resultRecord?: ToolResultRecord;
+}> {
+  return withToolLedgerWriteQueue(cwd, async () => {
+    const requests = await loadToolRequests(cwd);
+    const results = await loadToolResults(cwd);
+    const transactions = await loadToolTransactions(cwd);
+    const currentRequest = requests.find((candidate) => candidate.id === request.id);
+    const freshResults = results.filter((candidate) => candidate.requestId === request.id && !beforeResultIds.has(candidate.id));
+    const boundResults = freshResults.filter((candidate) => candidate.executionId === execution.id);
+    const processSucceeded = runResult.exitCode === 0 && !runResult.timedOut && !runResult.aborted;
+    const requestUnchanged = currentRequest?.status === request.status && currentRequest.activeExecutionId === execution.id;
+    const accepted = processSucceeded && requestUnchanged && boundResults.length === 1;
+    const resultRecord = accepted ? boundResults[0] : undefined;
+    const status: ToolTransactionStatus = accepted ? resultRecord!.status : "blocked";
+    const failureReason = !processSucceeded
+      ? `process outcome exit=${runResult.exitCode} timedOut=${runResult.timedOut} aborted=${runResult.aborted}`
+      : !requestUnchanged
+        ? `request or active execution changed from ${request.status}/${execution.id} to ${currentRequest?.status ?? "missing"}/${currentRequest?.activeExecutionId ?? "none"}`
+        : boundResults.length === 0
+          ? "no fresh result matched the execution identity"
+          : `expected one execution-bound result, received ${boundResults.length}`;
+    const timestamp = new Date().toISOString();
+    const updatedResults = results.map((candidate): ToolResultRecord => {
+      if (!freshResults.some((fresh) => fresh.id === candidate.id)) return candidate;
+      const isAccepted = accepted && candidate.id === resultRecord!.id;
+      return {
+        ...candidate,
+        acceptanceStatus: isAccepted ? "accepted" : "rejected",
+        acceptanceMessage: isAccepted
+          ? `Accepted by parent execution ${execution.id} after successful process completion.`
+          : `Rejected by parent execution ${execution.id}: ${failureReason}.`,
+      };
+    });
+    const updatedRequest: ToolRequestRecord = accepted
+      ? { ...currentRequest!, status: resultRecord!.status, activeExecutionId: undefined, updatedAt: timestamp }
+      : preserveClosedRequestOnFailure && currentRequest && currentRequest.status !== "prepared"
+        ? { ...currentRequest, activeExecutionId: undefined, updatedAt: timestamp }
+        : { ...(currentRequest ?? request), status: "blocked", activeExecutionId: undefined, updatedAt: timestamp };
+    const message = accepted
+      ? `${execution.replayOfTransactionId ? "Tool transaction replay" : "Tool transaction"} completed: ${request.id} ${status}`
+      : `${execution.replayOfTransactionId ? "Tool transaction replay" : "Tool transaction"} blocked: ${request.id}; ${failureReason}`;
+    const transaction: ToolTransactionRecord = {
+      ...execution,
+      status,
+      runExitCode: runResult.exitCode,
+      stdoutEventCount: runResult.stdoutEvents.length,
+      stderrSummary: summarizeOutput(runResult.stderr),
+      resultId: resultRecord?.id,
+      usage: runResult.usage,
+      message,
+      updatedAt: timestamp,
+    };
+    await writeToolResultIndex(cwd, updatedResults);
+    if (currentRequest) await writeToolRequestIndex(cwd, requests.map((candidate) => candidate.id === updatedRequest.id ? updatedRequest : candidate));
+    await writeToolTransactionIndex(cwd, transactions.map((candidate) => candidate.id === execution.id ? transaction : candidate));
+    return { accepted, status, request: updatedRequest, transaction, resultRecord };
+  });
+}
+
 async function recordToolTransaction(
   cwd: string,
   request: ToolRequestRecord,
@@ -1906,7 +2040,7 @@ async function recordToolTransaction(
   return record;
 }
 
-function reconstructReplayTaskRequest(transaction: ToolTransactionRecord, cwd: string): { taskId: string; prompt: string; tools: string[]; cwd: string } {
+function reconstructReplayTaskRequest(transaction: ToolTransactionRecord, cwd: string): TaskAgentRequest {
   const prompt = transaction.invocation.args[transaction.invocation.args.length - 1] ?? "";
   const toolsArgIndex = transaction.invocation.args.indexOf("--tools");
   const tools = toolsArgIndex >= 0 ? uniqueNonEmpty((transaction.invocation.args[toolsArgIndex + 1] ?? "").split(",")) : [];
