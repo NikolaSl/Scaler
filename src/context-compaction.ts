@@ -299,7 +299,8 @@ export async function prepareFreshContextHandoff(
     return await recordBlockedFreshHandoff(cwd, state, split, "Fresh handoff required current context is unavailable.", now, existingHandoffs);
   }
   const missingHistoricalMinimal = split.minimalContextItemIds.filter((id) =>
-    !resolvedItems.some((item) => item.id === id) && !split.externalizedMemoryRefs.some((ref) => ref.itemId === id));
+    !resolvedItems.some((item) => item.id === id && item.available !== false)
+      && !split.externalizedMemoryRefs.some((ref) => ref.itemId === id));
   if (missingHistoricalMinimal.length > 0) {
     return await recordBlockedFreshHandoff(cwd, state, split, "Fresh handoff historical minimal context is unavailable.", now, existingHandoffs);
   }
@@ -618,24 +619,27 @@ async function recordBlockedFreshHandoff(
   now: Date,
   existingHandoffs: FreshContextHandoffRecord[],
 ): Promise<FreshContextHandoffResult> {
+  const splitId = isNonEmptyString(split.id) ? split.id : "invalid-split";
+  const taskId = isNonEmptyString(split.taskId) ? split.taskId : "unknown";
   const record: FreshContextHandoffRecord = {
-    ...buildBlockedHandoffRecord(split.id, split.taskId, diagnostic, now),
-    previousEstimatedTokens: Number.isSafeInteger(split.estimatedTokens) ? split.estimatedTokens : 0,
-    activeContextLimitTokens: Number.isSafeInteger(split.activeContextLimitTokens) ? split.activeContextLimitTokens : 0,
-    externalizedMemoryRefs: Array.isArray(split.externalizedMemoryRefs) ? split.externalizedMemoryRefs : [],
+    ...buildBlockedHandoffRecord(splitId, taskId, diagnostic, now),
+    previousEstimatedTokens: isNonNegativeSafeInteger(split.estimatedTokens) ? split.estimatedTokens : 0,
+    activeContextLimitTokens: isNonNegativeSafeInteger(split.activeContextLimitTokens) ? split.activeContextLimitTokens : 0,
+    externalizedMemoryRefs: Array.isArray(split.externalizedMemoryRefs)
+      && split.externalizedMemoryRefs.every(isExternalizedContextRef) ? split.externalizedMemoryRefs : [],
   };
   await writeFreshContextHandoffRecords(cwd, [record, ...existingHandoffs]);
   await appendLogEvent(cwd, createLogEvent(state, {
     eventType: "agent",
-    summary: `Blocked fresh context handoff for ${split.taskId}`,
-    taskId: split.taskId,
+    summary: `Blocked fresh context handoff for ${record.taskId}`,
+    taskId: record.taskId,
     agentId: record.id,
     agentType: "task-fresh-context",
-    inputRefs: [split.id],
+    inputRefs: [record.splitId],
     outputRefs: [record.id],
     details: record,
   }, now));
-  return { accepted: false, message: `Blocked fresh context handoff ${record.id} for ${split.taskId}`, record, prompt: "" };
+  return { accepted: false, message: `Blocked fresh context handoff ${record.id} for ${record.taskId}`, record, prompt: "" };
 }
 
 function pathIsWithin(root: string, candidate: string): boolean {
