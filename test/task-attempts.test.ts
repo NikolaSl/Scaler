@@ -83,3 +83,32 @@ test("task attempt loading fails closed on malformed durable identity", async ()
     await assert.rejects(loadTaskAttempts(dir), /requires runId|Invalid stored/);
   });
 });
+
+for (const selector of [null, "markdown-heading", [], 42]) {
+  test(`task attempt loading rejects non-object context selector ${JSON.stringify(selector)}`, async () => {
+    await withDirectory(async (dir) => {
+      const reports = join(dir, ".scaler", "reports");
+      await mkdir(reports, { recursive: true });
+      const now = "2026-01-01T00:00:00.000Z";
+      await writeFile(join(reports, "task-attempts.json"), JSON.stringify({
+        version: 1,
+        attempts: [{
+          id: "bad-selector",
+          ...admission(),
+          contextSources: [{
+            itemId: "reference",
+            path: "reference.md",
+            scope: "section",
+            selector,
+            contentFingerprint: fingerprintJson({ content: "exact" }),
+            outputExemptible: false,
+          }],
+          status: "admitted",
+          createdAt: now,
+          updatedAt: now,
+        }],
+      }));
+      await assert.rejects(loadTaskAttempts(dir), /context source reference has invalid selector/i);
+    });
+  });
+}
