@@ -497,6 +497,47 @@ test("runToolSchedule executes guarded requests sequentially even when paralleli
   });
 });
 
+test("runToolSchedule requires a fresh route snapshot for every dispatch", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs A.", riskLevel: "low" });
+    await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs B.", riskLevel: "low" });
+    let cached: Awaited<ReturnType<ToolDispatchRouteEvidenceSupplier>> | undefined;
+    let supplierCalls = 0;
+    let runnerCalls = 0;
+
+    const result = await runToolScheduleRaw(dir, state, {
+      execute: true,
+      routeEvidenceSupplier: async (basis) => {
+        supplierCalls += 1;
+        cached ??= await admittedRouteEvidenceSupplier(basis);
+        return cached;
+      },
+    }, async (request) => {
+      runnerCalls += 1;
+      const requestId = request.taskId.replace(/^tool-/, "");
+      await recordToolResult(dir, state, {
+        requestId,
+        executionId: request.executionId,
+        status: "completed",
+        summary: "Completed first request.",
+        outputs: { ok: true },
+      });
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.schedule.status, "partial");
+    assert.equal(supplierCalls, 2);
+    assert.equal(runnerCalls, 1);
+    assert.deepEqual(result.schedule.steps.map((step) => step.transactionStatus), ["completed", "rejected"]);
+    const requests = await loadToolRequests(dir);
+    assert.equal(requests.filter((request) => request.status === "completed").length, 1);
+    assert.equal(requests.filter((request) => request.status === "prepared").length, 1);
+    assert.equal(requests.every((request) => request.activeExecutionId === undefined), true);
+  });
+});
+
 test("buildToolAgentPrompt includes request and excludes unrelated tools", () => {
   const prompt = buildToolAgentPrompt({
     id: "REQ-001",
@@ -584,6 +625,59 @@ test("runToolRequestAgent refuses isolated dispatch without a live route evidenc
     assert.equal(runnerCalled, false);
     assert.match(result.message, /route evidence supplier/i);
     assert.equal((await loadToolRequests(dir))[0]?.status, "prepared");
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
+  });
+});
+
+test("runToolRequestAgent sanitizes throwing supplier failures before durable audit", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    assert.ok(prepared.record);
+    let runnerCalled = false;
+
+    const result = await runToolRequestAgentRaw(dir, state, {
+      requestId: prepared.record.id,
+      execute: true,
+      routeEvidenceSupplier: async () => {
+        throw new Error("SECRET-PROVIDER-PAYLOAD");
+      },
+    }, async (request) => {
+      runnerCalled = true;
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(runnerCalled, false);
+    assert.equal(result.message, "Tool transaction dispatch rejected: live route evidence supplier failed.");
+    assert.doesNotMatch(JSON.stringify(await loadToolTransactions(dir)), /SECRET-PROVIDER-PAYLOAD/);
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
+  });
+});
+
+test("runToolRequestAgent rejects incomplete isolated route evidence before claim", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    assert.ok(prepared.record);
+    let runnerCalled = false;
+
+    const result = await runToolRequestAgentRaw(dir, state, {
+      requestId: prepared.record.id,
+      execute: true,
+      routeEvidenceSupplier: async (basis) => {
+        const snapshot = await admittedRouteEvidenceSupplier(basis);
+        snapshot.evidence.isolated = { available: true, legs: [] };
+        return snapshot;
+      },
+    }, async (request) => {
+      runnerCalled = true;
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(runnerCalled, false);
+    assert.match(result.message, /recommended blocked/i);
     assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
   });
 });
@@ -1428,6 +1522,60 @@ test("replayToolTransaction obtains fresh live admission before consuming approv
     assert.equal(consumed?.status, "consumed");
     assert.equal(consumed?.uses, 1);
     assert.deepEqual(consumed?.consumedByTransactionIds, [replayed.transaction?.id]);
+  });
+});
+
+test("replayToolTransaction refuses a persisted invocation after current request drift", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "docs_search",
+      request: "Original request.",
+      allowedTools: ["read", "bash"],
+    });
+    assert.ok(prepared.record);
+    const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+      await recordToolResult(dir, state, {
+        requestId: prepared.record!.id,
+        executionId: request.executionId,
+        status: "completed",
+        summary: "Done.",
+        outputs: { ok: true },
+      });
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
+    });
+    assert.ok(original.transaction);
+    const requests = await loadToolRequests(dir);
+    await writeFile(getToolRequestsIndexPath(dir), `${JSON.stringify({
+      version: 1,
+      requests: requests.map((request) => request.id === prepared.record!.id
+        ? { ...request, request: "Narrowed request.", allowedTools: ["read"] }
+        : request),
+    }, null, 2)}\n`, "utf8");
+    const approval = await createToolReplayApproval(dir, state, { transactionId: original.transaction.id, reason: "Recheck changed request" });
+    let supplierCalls = 0;
+    let runnerCalled = false;
+
+    const replayed = await replayToolTransactionRaw(dir, state, {
+      transactionId: original.transaction.id,
+      execute: true,
+      approvalId: approval.id,
+      routeEvidenceSupplier: async (basis) => {
+        supplierCalls += 1;
+        return admittedRouteEvidenceSupplier(basis);
+      },
+    }, async (request) => {
+      runnerCalled = true;
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
+    });
+
+    assert.equal(replayed.accepted, false);
+    assert.equal(supplierCalls, 0);
+    assert.equal(runnerCalled, false);
+    assert.match(replayed.message, /persisted invocation no longer matches/i);
+    const unconsumed = (await loadToolReplayApprovals(dir))[0];
+    assert.equal(unconsumed?.status, "active");
+    assert.equal(unconsumed?.uses, 0);
   });
 });
 

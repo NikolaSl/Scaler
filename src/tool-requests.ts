@@ -1536,6 +1536,23 @@ export async function replayToolTransaction(
   }
 
   const limits = copyToolExecutionLimits(DEFAULT_TOOL_EXECUTION_LIMITS);
+  const currentPrompt = buildToolAgentPrompt(request, await loadToolSchemaRecords(cwd));
+  const replayBasisMatchesCurrentRequest = replayRequest.taskId === `tool-${request.id}`
+    && replayRequest.prompt === currentPrompt
+    && replayRequest.cwd === cwd
+    && JSON.stringify(replayRequest.tools ?? []) === JSON.stringify(request.allowedTools);
+  if (!replayBasisMatchesCurrentRequest) {
+    const transaction = await recordToolTransaction(cwd, request, {
+      status: "rejected",
+      executed: false,
+      invocation,
+      limits,
+      replayOfTransactionId: original.id,
+      message: "Tool transaction replay dispatch rejected: persisted invocation no longer matches the current request basis.",
+    });
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: transaction.message, taskId: request.taskId, details: { transaction, original } }));
+    return { accepted: false, message: transaction.message, original, request, prompt: replayRequest.prompt, invocation, transaction };
+  }
   const admission = await prepareToolDispatchAdmission(
     request,
     replayRequest,
@@ -2066,8 +2083,8 @@ async function prepareToolDispatchAdmission(
   let snapshot: ToolDispatchRouteSnapshot;
   try {
     snapshot = structuredClone(await supplier(basis));
-  } catch (error) {
-    return refuse(`live route evidence supplier failed: ${error instanceof Error ? error.message : String(error)}`);
+  } catch {
+    return refuse("live route evidence supplier failed");
   }
   if (!isPlainObject(snapshot)
     || snapshot.version !== 1

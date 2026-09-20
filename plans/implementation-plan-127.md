@@ -45,15 +45,17 @@ expected to refuse isolated dispatch. Preparation remains available.
 - execute without a supplier rejects before runner invocation and releases the
   request;
 - exact fresh worker and caller-continuation evidence admits one isolated run;
-- wrong request/execution identity, malformed profile, missing leg, provider
-  overflow, non-isolated recommendation and supplier failure reject;
+- wrong request/execution identity, missing legs, non-isolated recommendation
+  and supplier failure reject at dispatch; malformed profiles and provider
+  overflow remain covered by the underlying route assessor;
 - a persisted PLAN-124 assessment cannot substitute for live evidence;
 - mutation/removal of the durable admission before finalization rejects an
   otherwise successful child result;
-- replay calls the supplier with the new execution identity; iteration and
-  schedule cannot bypass the supplier or reuse an earlier snapshot;
-- audit/transaction records contain compact fingerprints and measurements, not
-  raw prompts, tool arguments, provider payloads or model messages.
+- replay calls the supplier with the new execution identity, schedule rejects
+  snapshot reuse, and iteration dispatches through the same required boundary;
+- the new route-admission receipt contains compact fingerprints and measurements,
+  not supplier provider payloads or model messages. Existing transaction replay
+  identity continues to retain the child invocation and rendered prompt.
 
 Run focused tool-routing/tool-request/ledger tests, then build, full unit, mock
 integration and conformance/autopilot gates. Two independent GPT-6 Astra/high
@@ -69,12 +71,14 @@ reviews inspect the exact final head.
 - The worker model API/provider/id/context window and provider policy are bound
   into the strict child invocation. The installed provider hook aborts before
   transport if the live model differs from the parent-admitted identity.
-- Request and final strict-invocation fingerprints plus compact route/profile
-  fingerprints are persisted. Provider payloads and messages are not.
+- The route-admission receipt persists request and final strict-invocation
+  fingerprints plus compact route/profile fingerprints. Supplier provider
+  payloads and messages are not added to that receipt; the existing transaction
+  still retains its replay invocation and rendered prompt.
 - The atomic claim rechecks durable request and invocation identity before
   reserving replay approval. Finalization rechecks the durable route receipt.
-- Focused tool-flow coverage is 116/116 and the separate multiprocess ledger
-  coverage is 6/6. Candidate gates pass: build, 956/956 unit/component,
+- Focused tool-flow coverage is 120/120 and the separate multiprocess ledger
+  coverage is 6/6. Candidate gates pass: build, 960/960 unit/component,
   67/67 mock integration and 7/7 conformance/autopilot checks.
 
 ## Explicit limits

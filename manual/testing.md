@@ -357,14 +357,16 @@ invocation before taking ownership.
 
 The admitted worker API/provider/model/context window is transported through
 strict provider admission. The installed Pi hook aborts before provider
-transport if the live model identity differs. Transactions retain only compact
-request, invocation, route-evidence and selected-profile fingerprints plus the
-overhead bound; they do not retain provider payloads or messages. Finalization
-rejects a result if the durable admission receipt is missing or changed.
+transport if the live model identity differs. The new route-admission receipt
+retains compact request, invocation, route-evidence and selected-profile
+fingerprints plus the overhead bound; it does not add supplier provider payloads
+or messages. The existing transaction record still retains its replay invocation
+and rendered child prompt. Finalization rejects a result if the durable admission
+receipt is missing or changed.
 
 Run `node --test --import tsx test/provider-admission-host.test.ts test/subagents.test.ts test/tool-routing.test.ts test/tool-requests.test.ts test/integration/mock/tool-request-flow.test.ts` for the focused host, route, replay and result boundary, and
 `node --test --import tsx test/tool-ledger-concurrency.test.ts` for separate
-worker-process publication. The final candidate passes build, 956 unit/component
+worker-process publication. The final candidate passes build, 960 unit/component
 tests, 67 mock integration tests and 7 conformance/autopilot checks.
 
 The installed command surface still cannot observe a trustworthy future caller
