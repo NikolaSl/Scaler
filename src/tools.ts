@@ -12,6 +12,8 @@ import { logToolAudit } from "./logging.js";
 import { applyPlanningReport, type ExecutionPlanStatus } from "./plans.js";
 import { formatMemorySearchResults, retrieveMemory, searchMemory, writeMemory, type MemoryValidity } from "./memory.js";
 import { recordProviderUsageBudget } from "./provider-usage.js";
+import { requireTaskPromptAdmission, TaskPromptAdmissionError } from "./prompt-admission.js";
+import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
 import {
   createPrdVersionSnapshot,
   loadPrdRequirements,
@@ -153,6 +155,7 @@ export interface SpawnTaskToolParams {
   model?: string;
   execute?: boolean;
   timeoutMs?: number;
+  tokenBudget?: number;
 }
 
 const SpawnTaskParams = Type.Object({
@@ -162,6 +165,7 @@ const SpawnTaskParams = Type.Object({
   model: Type.Optional(Type.String()),
   execute: Type.Optional(Type.Boolean({ description: "Execute the task agent instead of only preparing invocation." })),
   timeoutMs: Type.Optional(Type.Number({ description: "Task-agent timeout in milliseconds." })),
+  tokenBudget: Type.Optional(Type.Number({ description: "Maximum admitted final child-prompt tokens." })),
 });
 
 const ToolRequestParams = Type.Object({
@@ -854,12 +858,24 @@ export async function prepareOrRunSpawnTask(
   signal?: AbortSignal,
   runner: typeof runTaskAgent = runTaskAgent,
 ): Promise<{ text: string; summary: string; details: unknown }> {
+  let promptAdmission;
+  try {
+    promptAdmission = requireTaskPromptAdmission(params.prompt, params.tokenBudget);
+  } catch (error) {
+    if (!(error instanceof TaskPromptAdmissionError)) throw error;
+    return {
+      text: error.message,
+      summary: `Task spawn refused: ${params.taskId}`,
+      details: { status: "refused", promptAdmission: error.decision },
+    };
+  }
   const request = {
     taskId: params.taskId,
     prompt: params.prompt,
     tools: params.tools,
     model: params.model,
     cwd,
+    providerAdmission: createStrictProviderAdmissionPolicy(promptAdmission.tokenBudget),
   };
   const invocation = buildTaskAgentInvocation(request);
 
@@ -867,7 +883,7 @@ export async function prepareOrRunSpawnTask(
     return {
       text: `Task spawn prepared: ${params.taskId}`,
       summary: `Task spawn prepared: ${params.taskId}`,
-      details: { status: "prepared", invocation },
+      details: { status: "prepared", invocation, promptAdmission },
     };
   }
 
@@ -880,7 +896,7 @@ export async function prepareOrRunSpawnTask(
     return {
       text: lock.message,
       summary: `Task spawn refused: ${params.taskId}`,
-      details: { status: "locked", invocation, existingLock: lock.existingLock },
+      details: { status: "locked", invocation, existingLock: lock.existingLock, promptAdmission },
     };
   }
 
@@ -898,7 +914,7 @@ export async function prepareOrRunSpawnTask(
     return {
       text: `Task spawn executed: ${params.taskId} exit=${runResult.exitCode}`,
       summary: `Task spawn executed: ${params.taskId}`,
-      details: { status: runResult.exitCode === 0 ? "executed" : "failed", invocation, result: runResult },
+      details: { status: runResult.exitCode === 0 ? "executed" : "failed", invocation, result: runResult, promptAdmission },
     };
   } finally {
     await releaseExecutionLock(cwd, lock.lock.id);

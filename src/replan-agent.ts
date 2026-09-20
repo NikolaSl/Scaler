@@ -22,6 +22,8 @@ import {
   type ReplanRequest,
 } from "./plans.js";
 import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdCoverageSummary, type RuntimePrdRequirementsFile } from "./prd.js";
+import { requireTaskPromptAdmission, TaskPromptAdmissionError, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
+import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
@@ -42,12 +44,14 @@ export interface ReplanAgentInvocationOptions {
   appendSystemPromptPath?: string;
   extensionPaths?: string[];
   command?: string;
+  tokenBudget?: number;
 }
 
 export interface ReplanAgentPreparation {
   prompt: string;
   request: TaskAgentRequest;
   invocation: TaskAgentInvocation;
+  promptAdmission: TaskPromptAdmissionDecision;
 }
 
 export interface RunReplanAgentOptions extends ReplanAgentInvocationOptions {
@@ -97,6 +101,7 @@ export interface ReplanAgentStepResult {
   runResult?: TaskAgentRunResult;
   runRecord?: ReplanAgentRunRecord;
   ingestion?: ReplanProposalIngestionResult;
+  promptAdmission?: TaskPromptAdmissionDecision;
 }
 
 export type ReplanAgentRunner = typeof runTaskAgent;
@@ -176,6 +181,7 @@ export function prepareReplanAgentInvocation(
   options: ReplanAgentInvocationOptions = {},
 ): ReplanAgentPreparation {
   const prompt = buildReplanAgentPrompt(input);
+  const promptAdmission = requireTaskPromptAdmission(prompt, options.tokenBudget);
   const request: TaskAgentRequest = {
     taskId: "replan-agent",
     prompt,
@@ -184,9 +190,10 @@ export function prepareReplanAgentInvocation(
     model: options.model,
     appendSystemPromptPath: options.appendSystemPromptPath,
     extensionPaths: options.extensionPaths,
+    providerAdmission: createStrictProviderAdmissionPolicy(promptAdmission.tokenBudget),
   };
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");
-  return { prompt, request, invocation };
+  return { prompt, request, invocation, promptAdmission };
 }
 
 export async function runReplanAgentStep(
@@ -203,7 +210,17 @@ export async function runReplanAgentStep(
 
   try {
     const context = await loadReplanAgentContext(cwd, state, options.extraInstructions);
-    const preparation = prepareReplanAgentInvocation(cwd, context, options);
+    let preparation: ReplanAgentPreparation;
+    try {
+      preparation = prepareReplanAgentInvocation(cwd, context, options);
+    } catch (error) {
+      if (!(error instanceof TaskPromptAdmissionError)) throw error;
+      return {
+        accepted: false,
+        message: error.message,
+        promptAdmission: error.decision,
+      };
+    }
     await logAgentPromptAudit(cwd, state, {
       agentType: "replan",
       agentId: "replan-agent",
@@ -238,6 +255,7 @@ export async function runReplanAgentStep(
       runResult,
       runRecord,
       ingestion,
+      promptAdmission: preparation.promptAdmission,
     };
   } finally {
     await releaseExecutionLock(cwd, lock.lock.id);

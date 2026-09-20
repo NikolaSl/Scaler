@@ -22,6 +22,8 @@ import {
 } from "./debug.js";
 import { getDebugAgentRunsPath } from "./paths.js";
 import { loadReplanRequests } from "./plans.js";
+import { requireTaskPromptAdmission, TaskPromptAdmissionError, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
+import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { formatResearchSummary, loadResearchReports, loadResearchRequests } from "./research.js";
 import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
@@ -45,6 +47,7 @@ export interface DebugAgentInvocationOptions {
   appendSystemPromptPath?: string;
   extensionPaths?: string[];
   command?: string;
+  tokenBudget?: number;
 }
 
 export interface RunDebugAgentOptions extends DebugAgentInvocationOptions {
@@ -59,6 +62,7 @@ export interface DebugAgentPreparation {
   request: TaskAgentRequest;
   invocation: TaskAgentInvocation;
   task: ScalerTaskState;
+  promptAdmission: TaskPromptAdmissionDecision;
 }
 
 export interface DebugReportExtractionResult {
@@ -105,6 +109,7 @@ export interface DebugAgentStepResult {
   runRecord?: DebugAgentRunRecord;
   ingestion?: DebugReportIngestionResult;
   task?: ScalerTaskState;
+  promptAdmission?: TaskPromptAdmissionDecision;
 }
 
 export type DebugAgentRunner = typeof runTaskAgent;
@@ -180,6 +185,7 @@ export function prepareDebugAgentInvocation(
   options: DebugAgentInvocationOptions = {},
 ): DebugAgentPreparation {
   const prompt = buildDebugAgentPrompt(input);
+  const promptAdmission = requireTaskPromptAdmission(prompt, options.tokenBudget);
   const request: TaskAgentRequest = {
     taskId: `debug-agent-${input.task.id}`,
     prompt,
@@ -188,9 +194,10 @@ export function prepareDebugAgentInvocation(
     model: options.model,
     appendSystemPromptPath: options.appendSystemPromptPath,
     extensionPaths: options.extensionPaths,
+    providerAdmission: createStrictProviderAdmissionPolicy(promptAdmission.tokenBudget),
   };
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");
-  return { prompt, request, invocation, task: input.task };
+  return { prompt, request, invocation, task: input.task, promptAdmission };
 }
 
 export async function runDebugAgentStep(
@@ -213,7 +220,18 @@ export async function runDebugAgentStep(
       return { accepted: false, message: detail };
     }
 
-    const preparation = prepareDebugAgentInvocation(cwd, context, options);
+    let preparation: DebugAgentPreparation;
+    try {
+      preparation = prepareDebugAgentInvocation(cwd, context, options);
+    } catch (error) {
+      if (!(error instanceof TaskPromptAdmissionError)) throw error;
+      return {
+        accepted: false,
+        message: error.message,
+        task: context.task,
+        promptAdmission: error.decision,
+      };
+    }
     await logAgentPromptAudit(cwd, state, {
       agentType: "debug",
       agentId: context.task.id,
@@ -252,6 +270,7 @@ export async function runDebugAgentStep(
       runRecord,
       ingestion,
       task: context.task,
+      promptAdmission: preparation.promptAdmission,
     };
   } finally {
     await releaseExecutionLock(cwd, lock.lock.id);

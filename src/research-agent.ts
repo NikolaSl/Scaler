@@ -10,6 +10,8 @@ import { logAgentPromptAudit, logStructuredReportAudit } from "./logging.js";
 import { loadExecutionPlan, summarizeExecutionPlan, formatExecutionPlanSummary, type ExecutionPlanArtifact } from "./plans.js";
 import { getResearchAgentRunsPath } from "./paths.js";
 import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdCoverageSummary, type RuntimePrdRequirementsFile } from "./prd.js";
+import { requireTaskPromptAdmission, TaskPromptAdmissionError, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
+import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import {
   formatResearchSummary,
@@ -45,6 +47,7 @@ export interface ResearchAgentInvocationOptions {
   appendSystemPromptPath?: string;
   extensionPaths?: string[];
   command?: string;
+  tokenBudget?: number;
 }
 
 export interface RunResearchAgentOptions extends ResearchAgentInvocationOptions {
@@ -59,6 +62,7 @@ export interface ResearchAgentPreparation {
   request: TaskAgentRequest;
   invocation: TaskAgentInvocation;
   researchRequest: ResearchRequest;
+  promptAdmission: TaskPromptAdmissionDecision;
 }
 
 export interface ResearchReportExtractionResult {
@@ -103,6 +107,7 @@ export interface ResearchAgentStepResult {
   runRecord?: ResearchAgentRunRecord;
   ingestion?: ResearchReportIngestionResult;
   researchRequest?: ResearchRequest;
+  promptAdmission?: TaskPromptAdmissionDecision;
 }
 
 export type ResearchAgentRunner = typeof runTaskAgent;
@@ -184,6 +189,7 @@ export function prepareResearchAgentInvocation(
 ): ResearchAgentPreparation {
   const grantedTools = resolveResearchAgentGrantedTools(input.request, options);
   const prompt = buildResearchAgentPrompt({ ...input, grantedTools, allowInternet: options.allowInternet });
+  const promptAdmission = requireTaskPromptAdmission(prompt, options.tokenBudget);
   const request: TaskAgentRequest = {
     taskId: `research-agent-${input.request.id}`,
     prompt,
@@ -192,9 +198,10 @@ export function prepareResearchAgentInvocation(
     model: options.model,
     appendSystemPromptPath: options.appendSystemPromptPath,
     extensionPaths: options.extensionPaths,
+    providerAdmission: createStrictProviderAdmissionPolicy(promptAdmission.tokenBudget),
   };
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");
-  return { prompt, request, invocation, researchRequest: input.request };
+  return { prompt, request, invocation, researchRequest: input.request, promptAdmission };
 }
 
 export function resolveResearchAgentGrantedTools(request: ResearchRequest, options: ResearchAgentInvocationOptions = {}): string[] {
@@ -233,7 +240,18 @@ export async function runResearchAgentStep(
       const detail = options.requestId ? `No open research request found for ${options.requestId}.` : "No open research request found.";
       return { accepted: false, message: detail };
     }
-    const preparation = prepareResearchAgentInvocation(cwd, context, options);
+    let preparation: ResearchAgentPreparation;
+    try {
+      preparation = prepareResearchAgentInvocation(cwd, context, options);
+    } catch (error) {
+      if (!(error instanceof TaskPromptAdmissionError)) throw error;
+      return {
+        accepted: false,
+        message: error.message,
+        researchRequest: context.request,
+        promptAdmission: error.decision,
+      };
+    }
     await logAgentPromptAudit(cwd, state, {
       agentType: "research",
       agentId: context.request.id,
@@ -272,6 +290,7 @@ export async function runResearchAgentStep(
       runRecord,
       ingestion,
       researchRequest: context.request,
+      promptAdmission: preparation.promptAdmission,
     };
   } finally {
     await releaseExecutionLock(cwd, lock.lock.id);
