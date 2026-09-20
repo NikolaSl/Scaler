@@ -233,6 +233,9 @@ function validateContextSources(sources: FileContextSourceBinding[]): void {
     if (!fingerprintPattern.test(source.contentFingerprint)) {
       throw new Error(`Task attempt context source ${source.itemId} requires valid contentFingerprint.`);
     }
+    if (typeof source.outputExemptible !== "boolean") {
+      throw new Error(`Task attempt context source ${source.itemId} requires outputExemptible.`);
+    }
     if (source.selector !== undefined) {
       if (source.scope !== "section" || source.selector.kind !== "markdown-heading"
         || typeof source.selector.heading !== "string" || !source.selector.heading.trim()
@@ -248,9 +251,10 @@ function validateContextSources(sources: FileContextSourceBinding[]): void {
 }
 
 function cloneContextSource(source: FileContextSourceBinding): FileContextSourceBinding {
+  const { selector, ...rest } = source;
   return {
-    ...source,
-    ...(source.selector ? { selector: { ...source.selector } } : {}),
+    ...rest,
+    ...(selector ? { selector: { ...selector } } : {}),
   };
 }
 

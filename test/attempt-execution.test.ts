@@ -4,7 +4,8 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -47,6 +48,7 @@ async function admittedFileContext(
     tokenBudget?: number;
     allowedPathPrefixes?: string[];
     outputPaths?: string[];
+    writeSource?: boolean;
   } = {},
 ) {
   const path = options.path ?? "reference.md";
@@ -61,8 +63,10 @@ async function admittedFileContext(
   await saveValidationManifest(dir, {
     taskId: "T-1", outputPaths: options.outputPaths ?? [], commands: [], createdAt: "", updatedAt: "",
   });
-  if (path.includes("/")) await mkdir(join(dir, path.slice(0, path.lastIndexOf("/"))), { recursive: true });
-  await writeFile(join(dir, path), options.content ?? "ORIGINAL\n");
+  if (options.writeSource !== false) {
+    if (path.includes("/")) await mkdir(join(dir, path.slice(0, path.lastIndexOf("/"))), { recursive: true });
+    await writeFile(join(dir, path), options.content ?? "ORIGINAL\n");
+  }
   const manifest = await saveTaskContextManifest(dir, {
     version: 1,
     taskId: "T-1",
@@ -168,7 +172,7 @@ test("budget-omitted file context is not an attempt dependency", async () => {
   await fixture(async (dir) => {
     const initial = await admittedFileContext(dir, { priority: "optional", tokenBudget: 1 });
     assert.deepEqual(initial.context.included, []);
-    assert.equal(initial.context.omitted[0]?.fileSource?.path, "reference.md");
+    assert.equal(initial.context.omitted[0]?.fileSource, undefined);
     assert.deepEqual(initial.attempt.contextSources, []);
     await writeFile(join(dir, initial.path), "CHANGED\n", "utf8");
     const started = await startTaskExecution(dir, initial.lockId, initial.state, initial.attempt);
@@ -185,6 +189,63 @@ test("allowed write prefix alone does not exempt changed file context", async ()
     await writeFile(join(dir, initial.path), "CHANGED\n", "utf8");
     const checked = await checkTaskExecutionResult(dir, started.attempt, "T-1");
     assert.match(checked.diagnostics.join(" "), /context.*changed.*src\/app\.ts/i);
+  });
+});
+
+for (const symlinkKind of ["leaf", "ancestor"] as const) {
+  test(`exact output exemption rejects ${symlinkKind} symlink-backed context`, async () => {
+    await fixture(async (dir) => {
+      let contextPath: string;
+      let referentPath: string;
+      if (symlinkKind === "leaf") {
+        await mkdir(join(dir, "src"), { recursive: true });
+        referentPath = "reference.md";
+        contextPath = "src/app.ts";
+        await writeFile(join(dir, referentPath), "ORIGINAL\n", "utf8");
+        await symlink("../reference.md", join(dir, contextPath));
+      } else {
+        await mkdir(join(dir, "real"), { recursive: true });
+        referentPath = "real/app.ts";
+        contextPath = "linked/app.ts";
+        await writeFile(join(dir, referentPath), "ORIGINAL\n", "utf8");
+        await symlink("real", join(dir, "linked"));
+      }
+      const initial = await admittedFileContext(dir, {
+        path: contextPath,
+        writeSource: false,
+        allowedPathPrefixes: [contextPath.split("/")[0]!],
+        outputPaths: [contextPath],
+      });
+      assert.equal(initial.attempt.contextSources?.[0]?.outputExemptible, false);
+      const started = await startTaskExecution(dir, initial.lockId, initial.state, initial.attempt);
+      await writeFile(join(dir, referentPath), "CHANGED\n", "utf8");
+      const checked = await checkTaskExecutionResult(dir, started.attempt, "T-1");
+      assert.match(checked.diagnostics.join(" "), /context.*changed/i);
+    });
+  });
+}
+
+test("FIFO replacement fails context freshness without blocking", async () => {
+  await fixture(async (dir) => {
+    const initial = await admittedFileContext(dir);
+    const path = join(dir, initial.path);
+    await rm(path);
+    execFileSync("mkfifo", [path]);
+    let writer: Promise<void> | undefined;
+    const unblock = setTimeout(() => {
+      writer = writeFile(path, "late writer\n");
+    }, 500);
+    const startedAt = Date.now();
+    try {
+      await assert.rejects(
+        startTaskExecution(dir, initial.lockId, initial.state, initial.attempt),
+        /context.*(missing|unreadable).*reference\.md/i,
+      );
+      assert.ok(Date.now() - startedAt < 400, "FIFO verification must fail before a writer appears");
+    } finally {
+      clearTimeout(unblock);
+      if (writer) await writer;
+    }
   });
 });
 

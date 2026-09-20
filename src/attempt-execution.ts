@@ -180,7 +180,8 @@ function mutableDeclaredContextOutputs(
   return new Set(sources
     .filter((source) => {
       const projectPath = projectRelativeContextPath(cwd, source.path);
-      return projectPath !== undefined && outputs.has(projectPath) && taskPathMatches(projectPath, allowedPathPrefixes);
+      return source.outputExemptible && projectPath !== undefined
+        && outputs.has(projectPath) && taskPathMatches(projectPath, allowedPathPrefixes);
     })
     .map((source) => source.path));
 }
