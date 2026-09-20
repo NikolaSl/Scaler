@@ -213,6 +213,23 @@ test("fresh context handoff execute refuses before runner without shared admissi
   });
 });
 
+test("fresh context handoff uses the current manifest allowance", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTask();
+    const resolved = oversizedResolvedContext();
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: resolved.estimatedTokens, contextWindowTokens: 1_000, largeItemThresholdTokens: 100 });
+    const split = await recordContextSplitIfNeeded(dir, state, "T-COMPACT", resolved, assessment, new Date("2026-01-01T00:00:03.000Z"));
+    const manifest = await ensureTaskContextManifest(dir, state, "T-COMPACT");
+    await saveTaskContextManifest(dir, { ...manifest, tokenBudget: 100 });
+
+    const result = await prepareFreshContextHandoff(dir, state, { splitId: split!.id, now: new Date("2026-01-01T00:00:04.000Z") });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.record.activeContextLimitTokens, 100);
+    assert.match(result.record.diagnostics.join(" "), /current target 100/i);
+  });
+});
+
 test("automatic compaction trigger uses SCALER target ratio", () => {
   const state = stateWithTask();
   const decision = shouldTriggerScalerCompaction({ tokens: 7_700, contextWindow: 10_000, percent: 77 });

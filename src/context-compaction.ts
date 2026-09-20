@@ -3,11 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { createHash } from "node:crypto";
+import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createCompressionPolicy } from "./compression.js";
-import { ensureTaskContextManifest, resolveTaskContextManifest, type ContextItem } from "./context.js";
+import { ensureTaskContextManifest, getRequiredContextDiagnostics, resolveTaskContextManifest, type ContextItem, type TaskContextManifest } from "./context.js";
 import { loadContextSplitRecords, type ContextSplitRecord, type ExternalizedContextRef } from "./context-splits.js";
+import { fingerprintJson } from "./fingerprints.js";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { loadMemoryIndex } from "./memory.js";
 import { loadExecutionPlan, summarizeExecutionPlan } from "./plans.js";
@@ -17,7 +19,7 @@ import {
   getContextHandoffsPath,
 } from "./paths.js";
 import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements } from "./prd.js";
-import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
+import { runTaskAgent, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
 
 export interface ScalerCompactionPreparationLike {
@@ -105,6 +107,10 @@ export interface FreshContextHandoffRecord {
   activeContextLimitTokens: number;
   shrinkTargetPassed: boolean;
   externalizedMemoryRefs: ExternalizedContextRef[];
+  splitFingerprint?: string;
+  manifestFingerprint?: string;
+  promptFingerprint?: string;
+  sourceFingerprints?: string[];
   invocation?: TaskAgentInvocation;
   exitCode?: number;
   diagnostics: string[];
@@ -247,6 +253,10 @@ export async function prepareFreshContextHandoff(
   input: FreshContextHandoffInput = {},
   runner: FreshContextHandoffRunner = runTaskAgent,
 ): Promise<FreshContextHandoffResult> {
+  // Execution deliberately remains unavailable until this route is wired through
+  // conductor-equivalent attempt, provider and result admission. Keep the runner
+  // injectable so older callers/tests remain source-compatible, but never call it.
+  void runner;
   const now = input.now ?? new Date();
   const split = await selectContextSplit(cwd, input);
   if (!split) {
@@ -256,32 +266,52 @@ export async function prepareFreshContextHandoff(
   }
 
   const task = state.tasks.find((candidate) => candidate.id === split.taskId);
-  const prompt = await buildFreshContextHandoffPrompt(cwd, state, split, task);
+  const splitDiagnostic = validateFreshContextSplit(split, task);
+  if (splitDiagnostic) return await recordBlockedFreshHandoff(cwd, state, split, splitDiagnostic, now);
+
+  let manifest: TaskContextManifest;
+  let resolvedItems: ContextItem[];
+  try {
+    manifest = await ensureTaskContextManifest(cwd, state, split.taskId);
+    resolvedItems = await resolveTaskContextManifest(cwd, state, manifest);
+  } catch {
+    return await recordBlockedFreshHandoff(cwd, state, split, "Fresh handoff current context manifest is invalid.", now);
+  }
+  const requiredDiagnostics = getRequiredContextDiagnostics(resolvedItems);
+  if (requiredDiagnostics.length > 0) {
+    return await recordBlockedFreshHandoff(cwd, state, split, "Fresh handoff required current context is unavailable.", now);
+  }
+  const missingHistoricalExact = split.exactRefs.filter((id) =>
+    !resolvedItems.some((item) => item.id === id) && !split.externalizedMemoryRefs.some((ref) => ref.itemId === id));
+  if (missingHistoricalExact.length > 0) {
+    return await recordBlockedFreshHandoff(cwd, state, split, "Fresh handoff required historical exact context is unavailable.", now);
+  }
+  let externalizedSourcesValid = false;
+  try {
+    externalizedSourcesValid = await verifyExternalizedContextRefs(cwd, split, resolvedItems);
+  } catch {
+    externalizedSourcesValid = false;
+  }
+  if (!externalizedSourcesValid) {
+    return await recordBlockedFreshHandoff(cwd, state, split, "Fresh handoff externalized context source is unavailable or changed.", now);
+  }
+
+  const prompt = buildFreshContextHandoffPrompt(state, split, task, resolvedItems);
   const estimatedTokens = estimateTextTokens(prompt);
-  const shrinkTargetPassed = estimatedTokens <= split.activeContextLimitTokens && estimatedTokens < split.estimatedTokens;
+  const currentLimit = manifest.tokenBudget ?? split.activeContextLimitTokens;
+  const effectiveLimit = Math.min(split.activeContextLimitTokens, currentLimit);
+  const shrinkTargetPassed = estimatedTokens <= effectiveLimit && estimatedTokens < split.estimatedTokens;
   const diagnostics = shrinkTargetPassed
-    ? [`Fresh handoff prompt shrank from ${split.estimatedTokens} to ${estimatedTokens} tokens (target ${split.activeContextLimitTokens}).`]
-    : [`Fresh handoff prompt estimate ${estimatedTokens} does not satisfy shrink target ${split.activeContextLimitTokens} from previous ${split.estimatedTokens}.`];
+    ? [`Fresh handoff prompt shrank from ${split.estimatedTokens} to ${estimatedTokens} tokens (target ${effectiveLimit}).`]
+    : [`Fresh handoff prompt estimate ${estimatedTokens} does not satisfy current target ${effectiveLimit} from previous ${split.estimatedTokens}.`];
   const id = `HANDOFF-${now.getTime()}`;
   const promptPath = join(".scaler", "context", "handoffs", `${id}.md`);
   await mkdir(getContextHandoffPromptsDir(cwd), { recursive: true });
   await writeFile(join(cwd, promptPath), `${prompt}\n`, "utf8");
 
-  const invocation = buildTaskAgentInvocation({ cwd, taskId: split.taskId, prompt, tools: input.tools, model: input.model });
-  let runResult: TaskAgentRunResult | undefined;
-  if (input.execute && shrinkTargetPassed) {
-    runResult = await runner({ cwd, taskId: split.taskId, prompt, tools: input.tools, model: input.model }, { timeoutMs: input.timeoutMs });
-  }
-
-  const status: FreshContextHandoffRecord["status"] = input.execute
-    ? !shrinkTargetPassed
-      ? "blocked"
-      : runResult?.exitCode === 0
-        ? "executed"
-        : "failed"
-    : shrinkTargetPassed
-      ? "prepared"
-      : "blocked";
+  const executionDiagnostic = "Fresh handoff execution requires conductor-equivalent attempt, provider and result admission.";
+  if (input.execute) diagnostics.push(executionDiagnostic);
+  const status: FreshContextHandoffRecord["status"] = shrinkTargetPassed && !input.execute ? "prepared" : "blocked";
   const record: FreshContextHandoffRecord = {
     id,
     splitId: split.id,
@@ -290,18 +320,20 @@ export async function prepareFreshContextHandoff(
     promptPath,
     estimatedTokens,
     previousEstimatedTokens: split.estimatedTokens,
-    activeContextLimitTokens: split.activeContextLimitTokens,
+    activeContextLimitTokens: effectiveLimit,
     shrinkTargetPassed,
     externalizedMemoryRefs: split.externalizedMemoryRefs ?? [],
-    invocation,
-    exitCode: runResult?.exitCode,
+    splitFingerprint: fingerprintJson(split),
+    manifestFingerprint: fingerprintJson(JSON.parse(JSON.stringify(manifest)) as unknown),
+    promptFingerprint: fingerprintJson(prompt),
+    sourceFingerprints: split.externalizedMemoryRefs.map((ref) => `sha256:${ref.sha256}`),
     diagnostics,
     createdAt: now.toISOString(),
   };
   await writeFreshContextHandoffRecords(cwd, [record, ...(await loadFreshContextHandoffRecords(cwd))]);
   await appendLogEvent(cwd, createLogEvent(state, {
     eventType: "agent",
-    summary: `${input.execute ? "Executed" : "Prepared"} fresh context handoff for ${split.taskId}`,
+    summary: `${status === "prepared" ? "Prepared" : "Blocked"} fresh context handoff for ${split.taskId}`,
     taskId: split.taskId,
     agentId: id,
     agentType: "task-fresh-context",
@@ -311,11 +343,11 @@ export async function prepareFreshContextHandoff(
   }, now));
 
   return {
-    accepted: status === "prepared" || status === "executed",
+    accepted: status === "prepared",
     message: `${status === "blocked" ? "Blocked" : input.execute ? "Executed" : "Prepared"} fresh context handoff ${id} for ${split.taskId}`,
     record,
     prompt,
-    runResult,
+    runResult: undefined,
   };
 }
 
@@ -419,16 +451,16 @@ async function buildScalerCompactionSummary(
   return clampSummaryToTarget(lines.join("\n"), input.activeContextLimitTokens);
 }
 
-async function buildFreshContextHandoffPrompt(
-  cwd: string,
+function buildFreshContextHandoffPrompt(
   state: ScalerState,
   split: ContextSplitRecord,
   task: ScalerTaskState | undefined,
-): Promise<string> {
-  const manifest = await ensureTaskContextManifest(cwd, state, split.taskId);
-  const resolvedItems = await resolveTaskContextManifest(cwd, state, manifest);
+  resolvedItems: ContextItem[],
+): string {
   const itemMap = new Map(resolvedItems.map((item) => [item.id, item]));
-  const minimalItems = split.minimalContextItemIds.map((id) => itemMap.get(id)).filter((item): item is ContextItem => Boolean(item));
+  const requiredItems = resolvedItems.filter((item) => item.priority === "required");
+  const selectedItems = split.minimalContextItemIds.map((id) => itemMap.get(id)).filter((item): item is ContextItem => Boolean(item));
+  const minimalItems = [...new Map([...requiredItems, ...selectedItems].map((item) => [item.id, item])).values()];
   const externalized = new Map((split.externalizedMemoryRefs ?? []).map((ref) => [ref.itemId, ref]));
   const lines = [
     "# SCALER Fresh Minimal-Context Continuation",
@@ -479,12 +511,125 @@ async function selectContextSplit(cwd: string, input: FreshContextHandoffInput):
   return splits[0];
 }
 
+function validateFreshContextSplit(split: ContextSplitRecord, task: ScalerTaskState | undefined): string | undefined {
+  if (!task || task.id !== split.taskId) return "Fresh handoff task identity is unavailable or changed.";
+  if (!isNonEmptyString(split.id) || !isNonEmptyString(split.taskId)
+      || !isPositiveSafeInteger(split.estimatedTokens)
+      || !isPositiveSafeInteger(split.activeContextLimitTokens)
+      || !Number.isSafeInteger(split.overByTokens) || split.overByTokens < 0
+      || split.estimatedTokens <= split.activeContextLimitTokens
+      || split.overByTokens !== split.estimatedTokens - split.activeContextLimitTokens
+      || !areStringArrays(split.includedItemIds, split.exactRefs, split.summaryOkRefs,
+        split.referenceOnlyRefs, split.externalizeRefs, split.minimalContextItemIds, split.recommendations)
+      || !Array.isArray(split.externalizedMemoryRefs)
+      || !split.externalizedMemoryRefs.every(isExternalizedContextRef)) {
+    return "Fresh handoff split evidence is malformed.";
+  }
+  return undefined;
+}
+
+async function verifyExternalizedContextRefs(
+  cwd: string,
+  split: ContextSplitRecord,
+  resolvedItems: ContextItem[],
+): Promise<boolean> {
+  const memory = await loadMemoryIndex(cwd);
+  const items = new Map(resolvedItems.map((item) => [item.id, item]));
+  const root = await realpath(cwd);
+  for (const ref of split.externalizedMemoryRefs) {
+    try {
+      if (!isNonEmptyString(ref.itemId) || !isNonEmptyString(ref.memoryId) || !isNonEmptyString(ref.path)
+          || !/^[0-9a-f]{64}$/.test(ref.sha256)
+          || !isPositiveSafeInteger(ref.originalTokens) || !isPositiveSafeInteger(ref.replacementTokens)
+          || ref.itemId !== split.externalizeRefs.find((id) => id === ref.itemId)) return false;
+      const entry = memory.entries.find((candidate) => candidate.id === ref.memoryId);
+      if (!entry || entry.path !== ref.path || entry.taskId !== split.taskId
+          || entry.source !== `context-split:${split.id}` || entry.validity !== "active") return false;
+      const absolute = isAbsolute(ref.path) ? resolve(ref.path) : resolve(cwd, ref.path);
+      if (!pathIsWithin(root, absolute)) return false;
+      const stats = await lstat(absolute);
+      if (!stats.isFile() || stats.isSymbolicLink()) return false;
+      const resolved = await realpath(absolute);
+      if (!pathIsWithin(root, resolved)) return false;
+      const raw = await readFile(resolved, "utf8");
+      const marker = "\n## Content\n\n";
+      const markerIndex = raw.indexOf(marker);
+      if (markerIndex < 0) return false;
+      const storedContent = raw.slice(markerIndex + marker.length, raw.endsWith("\n") ? -1 : undefined);
+      if (createHash("sha256").update(storedContent).digest("hex") !== ref.sha256) return false;
+      const current = items.get(ref.itemId);
+      if (current) {
+        if (current.available === false || current.scope !== ref.scope || (current.exactness ?? "exact") !== ref.exactness
+            || createHash("sha256").update(current.content).digest("hex") !== ref.sha256) return false;
+      }
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function recordBlockedFreshHandoff(
+  cwd: string,
+  state: ScalerState,
+  split: ContextSplitRecord,
+  diagnostic: string,
+  now: Date,
+): Promise<FreshContextHandoffResult> {
+  const record: FreshContextHandoffRecord = {
+    ...buildBlockedHandoffRecord(split.id, split.taskId, diagnostic, now),
+    previousEstimatedTokens: Number.isSafeInteger(split.estimatedTokens) ? split.estimatedTokens : 0,
+    activeContextLimitTokens: Number.isSafeInteger(split.activeContextLimitTokens) ? split.activeContextLimitTokens : 0,
+    externalizedMemoryRefs: Array.isArray(split.externalizedMemoryRefs) ? split.externalizedMemoryRefs : [],
+  };
+  await writeFreshContextHandoffRecords(cwd, [record, ...(await loadFreshContextHandoffRecords(cwd))]);
+  await appendLogEvent(cwd, createLogEvent(state, {
+    eventType: "agent",
+    summary: `Blocked fresh context handoff for ${split.taskId}`,
+    taskId: split.taskId,
+    agentId: record.id,
+    agentType: "task-fresh-context",
+    inputRefs: [split.id],
+    outputRefs: [record.id],
+    details: record,
+  }, now));
+  return { accepted: false, message: `Blocked fresh context handoff ${record.id} for ${split.taskId}`, record, prompt: "" };
+}
+
+function pathIsWithin(root: string, candidate: string): boolean {
+  const offset = relative(root, candidate);
+  return offset === "" || (!offset.startsWith("..") && !isAbsolute(offset));
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function areStringArrays(...values: unknown[]): boolean {
+  return values.every((value) => Array.isArray(value) && value.every(isNonEmptyString));
+}
+
+function isExternalizedContextRef(value: unknown): value is ExternalizedContextRef {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const ref = value as Partial<ExternalizedContextRef>;
+  return isNonEmptyString(ref.itemId) && isNonEmptyString(ref.memoryId) && isNonEmptyString(ref.path)
+    && isNonEmptyString(ref.exactness) && isNonEmptyString(ref.scope)
+    && isPositiveSafeInteger(ref.originalTokens) && isPositiveSafeInteger(ref.replacementTokens)
+    && typeof ref.sha256 === "string" && /^[0-9a-f]{64}$/.test(ref.sha256)
+    && typeof ref.createdAt === "string" && Number.isFinite(Date.parse(ref.createdAt));
+}
+
 function formatMinimalContextItem(item: ContextItem, externalized?: ExternalizedContextRef): string[] {
   if (externalized) {
     return [`- ${item.id}: externalized to memory ${externalized.memoryId} (${externalized.path}); reason=${item.reason}`];
   }
   const header = `- ${item.id}: type=${item.type} priority=${item.priority} scope=${item.scope} exactness=${item.exactness ?? "exact"}; reason=${item.reason}`;
   if (item.scope === "reference-only" || item.exactness === "reference-only") return [header, `  reference=${trimForSummary(item.content, 240)}`];
+  if (item.exactness === "exact") return [header, "  exact-content-begin", item.content, "  exact-content-end"];
   return [header, `  content=${trimForSummary(item.content, 1200)}`];
 }
 
