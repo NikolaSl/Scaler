@@ -393,6 +393,23 @@ and component tests, 67 mock integration tests and 7 conformance/autopilot
 checks. These are repository-owned gates; no paid or deployed model execution is
 claimed.
 
+PLAN-132 binds every strict child launch to one trusted exact host model
+identity. Run `node --test --import tsx test/provider-admission-host.test.ts test/extension-shape.test.ts test/tools.test.ts test/tool-requests.test.ts test/stage-workflow.test.ts test/debug-conductor.test.ts`
+for installed-host and nested-flow coverage, then the complete unit, mock
+integration and conformance gates. The regressions cover missing/malformed and
+conflicting identity, duplicate model ids under different providers, explicit
+provider/model CLI selection, final-hook drift, host-owned explicit spawn,
+nested fan-out propagation and refusal before attempts or other execution-side
+publication. Mock integration workflows use one descriptor-preserving synthetic
+host binding so they exercise the production admission path instead of bypassing
+it.
+
+These checks execute no paid model and establish selection integrity only. They
+do not configure a local profile, prove model eligibility or quality, admit
+parent interactive calls, cover provider-internal retries, complete the three
+tool routes, or demonstrate savings and scale. SC-05/25 remain Partial and
+SC-09 remains Not assessed.
+
 PLAN-113 requires declared `outputPaths` before automatic non-Git/clean/runtime
 commit skips or explicit commit skips can accept a task. A successful command
 may still have `status: passed` while `acceptance.accepted` is false; callers

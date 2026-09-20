@@ -122,7 +122,13 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   retry, stage agents and isolated tool execution/replay. Callers cannot disable
   it with the legacy opt-in flag; malformed or sparse runtime grants also return
   structured refusal before attempt, budget, run-record or execution-claim
-  publication.
+  publication. PLAN-132 then makes the exact host-selected API/provider/model/
+  context-window identity mandatory for every strict child. The same trusted
+  identity renders explicit `--provider` and `--model` selectors, is transported
+  to the final provider hook, and fingerprints task attempts. Missing,
+  malformed or conflicting identity refuses before dispatch or execution-side
+  publication; model-authored explicit-spawn selectors cannot override it.
+  Isolated-tool dispatch retains its fresher supplier-owned binding.
   Parent interactive calls, provider-internal retries and alternate provider
   payloads remain open; this is not SC-05/AC-05 completion.
 
