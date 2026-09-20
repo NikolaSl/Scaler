@@ -600,7 +600,12 @@ function canonicalizeEnvelopeValue(value: unknown, ancestors = new Set<object>()
   if (ancestors.has(value)) throw new Error("cyclic value");
   ancestors.add(value);
   try {
-    if (Array.isArray(value)) return `a:[${value.map((item) => canonicalizeEnvelopeValue(item, ancestors)).join(",")}]`;
+    if (Array.isArray(value)) {
+      const items = Array.from({ length: value.length }, (_, index) => Object.prototype.hasOwnProperty.call(value, index)
+        ? canonicalizeEnvelopeValue(value[index], ancestors)
+        : "h");
+      return `a:[${items.join(",")}]`;
+    }
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) throw new Error("non-plain object");
     if (Object.getOwnPropertySymbols(value).length > 0) throw new Error("symbol keys");
