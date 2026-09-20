@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createDefaultState } from "../src/state.js";
+import * as toolRequestsModule from "../src/tool-requests.js";
 import {
   buildRuntimeToolCatalog,
   buildToolAgentPrompt,
@@ -131,6 +132,62 @@ test("runtime tool catalog omits schemas and selects requester-safe active tools
   assert.equal(shouldApplyParentToolFocus(state), false);
   state.currentTaskId = "T-TOOLS";
   assert.equal(shouldApplyParentToolFocus(state), true);
+});
+
+test("runtime tool envelope profile binds selected definitions and fails closed without selection proof", () => {
+  type Profile = { footprint: string; toolNames: string[]; byteSize: number | null; fingerprint: string | null; reason?: string };
+  type Builder = (
+    tools: Array<{ name: string; description?: string; parameters?: unknown; promptGuidelines?: unknown; sourceInfo?: unknown }>,
+    active: string[],
+    selection?: { requestedToolNames?: string[]; selectionApisAvailable?: boolean },
+  ) => Profile;
+  const buildProfile = (toolRequestsModule as unknown as { buildRuntimeToolEnvelopeProfile?: Builder }).buildRuntimeToolEnvelopeProfile;
+  assert.equal(typeof buildProfile, "function", "PLAN-123 requires a measured runtime tool envelope profile");
+  if (!buildProfile) return;
+
+  const small = [{
+    name: "docs_search",
+    description: "Search docs",
+    parameters: { type: "object", properties: { query: { type: "string", description: "short" } } },
+    promptGuidelines: ["Use an exact query."],
+    sourceInfo: { type: "mcp", server: "docs" },
+  }];
+  const selected = { requestedToolNames: ["docs_search"], selectionApisAvailable: true };
+  const smallProfile = buildProfile(small, ["docs_search"], selected);
+  const largeProfile = buildProfile([{ ...small[0], parameters: { type: "object", description: "x".repeat(50_000) } }], ["docs_search"], selected);
+  assert.equal(smallProfile.footprint, "selected");
+  assert.deepEqual(smallProfile.toolNames, ["docs_search"]);
+  assert.ok((smallProfile.byteSize ?? 0) > 0);
+  assert.ok((largeProfile.byteSize ?? 0) > (smallProfile.byteSize ?? 0) + 49_000);
+  assert.notEqual(largeProfile.fingerprint, smallProfile.fingerprint);
+
+  const reordered = buildProfile([{
+    name: "docs_search",
+    description: "Search docs",
+    parameters: { properties: { query: { description: "short", type: "string" } }, type: "object" },
+    promptGuidelines: ["Use an exact query."],
+    sourceInfo: { server: "docs", type: "mcp" },
+  }], ["docs_search"], selected);
+  assert.equal(reordered.fingerprint, smallProfile.fingerprint, "object key insertion order must not change identity");
+  assert.equal(reordered.byteSize, smallProfile.byteSize);
+
+  for (const changed of [
+    [{ ...small[0], description: "Search private docs" }],
+    [{ ...small[0], promptGuidelines: ["Use an exact query.", "Never guess."] }],
+    [{ ...small[0], sourceInfo: { type: "mcp", server: "docs-v2" } }],
+  ]) {
+    assert.notEqual(buildProfile(changed, ["docs_search"], selected).fingerprint, smallProfile.fingerprint);
+  }
+
+  const wholeCatalog = buildProfile(small, ["docs_search"]);
+  assert.equal(wholeCatalog.footprint, "whole-catalog");
+  const unavailable = buildProfile(small, ["docs_search"], { requestedToolNames: ["docs_search"], selectionApisAvailable: false });
+  assert.equal(unavailable.footprint, "unknown");
+  assert.equal(unavailable.byteSize, null);
+  assert.equal(unavailable.fingerprint, null);
+  const mismatched = buildProfile(small, [], selected);
+  assert.equal(mismatched.footprint, "unknown");
+  assert.equal(mismatched.fingerprint, null);
 });
 
 test("recordToolSchema persists discovered metadata and merges latest catalog entry", async () => {
