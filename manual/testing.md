@@ -308,6 +308,23 @@ substrings, including Setext section boundaries. Run
 This is bounded ATX-heading retrieval, not AST/semantic retrieval or automatic
 task splitting.
 
+PLAN-122 binds every admitted file-backed context item to the complete source
+bytes used to render it. The durable attempt stores normalized path, scope,
+selector, byte fingerprint and exact-output eligibility. Sources are re-read
+before dispatch and before accepting the worker report. Missing, changed,
+replaced, symlink-backed or non-regular sources fail closed before successful
+report persistence, validation accounting or completion evidence. A direct
+regular file may change after dispatch only when it is an exact declared output
+inside the existing write scope; an allowed-prefix match alone is insufficient.
+Budget-omitted and inline context retain their prior behavior.
+
+Run `node --test --import tsx test/context.test.ts test/attempt-execution.test.ts test/conductor.test.ts test/debug-retry.test.ts test/task-attempts.test.ts`.
+The regressions include selected-section ambiguity, deletion, byte-level drift,
+descriptor tampering, legacy open attempts, exact-output controls, leaf and
+ancestor symlinks, and FIFO replacement. This check is not a filesystem
+transaction or authenticated writer attribution: change-and-restore and a race
+after the final read remain explicit limitations.
+
 PLAN-113 requires declared `outputPaths` before automatic non-Git/clean/runtime
 commit skips or explicit commit skips can accept a task. A successful command
 may still have `status: passed` while `acceptance.accepted` is false; callers

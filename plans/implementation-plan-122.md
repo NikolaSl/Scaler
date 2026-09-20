@@ -88,6 +88,40 @@ the full unit suite, mock integration and conformance/autopilot gates.
 Two independent GPT-6 Astra/high reviews must inspect the exact candidate head
 and the adversarial selector cases before this unit is complete.
 
+## Implemented result
+
+File-backed context now carries a durable descriptor containing its normalized
+manifest path, scope, selector, complete source-byte fingerprint and whether the
+source is a direct regular project file eligible for the exact-output exception.
+The descriptor participates in admitted input identity and is persisted on the
+attempt. Admission, pre-dispatch and returned-report acceptance re-read the
+source through a non-blocking file descriptor and reject missing, non-regular,
+replaced or changed files before any successful result is persisted.
+
+The post-dispatch exception is deliberately narrower than path authorization:
+it applies only to an exact declared output whose initial source had no symlink
+leaf or ancestor and was a direct regular project file. Symlink-backed output
+context therefore cannot escape freshness checking by changing its referent.
+Budget-omitted context does not retain a source binding and continues to be
+excluded from admitted prompt identity.
+
+Regression coverage includes the planned full-file, selected-section,
+newly-ambiguous-section, deleted-source, unrelated-file, inline-only,
+exact-output and allowed-prefix cases. Additional adversarial cases cover byte
+identity, normalized paths, descriptor tampering, legacy open attempts, leaf
+and ancestor symlinks, and FIFO replacement without blocking. Review findings
+for symlink referent drift and FIFO hangs were reproduced and fixed in
+`423b8c12f54af662fde0d113e9f14ced018f8290`.
+
+Focused verification:
+
+`node --test --import tsx test/context.test.ts test/attempt-execution.test.ts test/conductor.test.ts test/debug-retry.test.ts test/task-attempts.test.ts`
+
+The merge candidate still requires the full build, unit, mock-integration and
+conformance gate plus two clean independent exact-head reviews. PLAN-122 remains
+a bounded filesystem freshness check, not authenticated file provenance or a
+transactional snapshot.
+
 ## Explicit limits
 
 This unit covers file-backed task-context manifest items only. It does not add

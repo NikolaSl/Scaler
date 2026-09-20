@@ -66,9 +66,14 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
 - PRs #3-#22 are merged. The coherent remaining-P2 PR #22 merged on 2026-09-20
   as `55bfcc034cb0b570be144f549c040e731ee89e4c` after raw exact-head review
   commit-id verification for `95c5ea6fe0bdf2cc5ba5e84ca09866a2a68fece8`,
-  resolved threads, two independent reviews and a full gate. Reconcile this
-  reviewed P2 result into `implementation/v2-p3-context-economy` before further
-  P3 implementation. PLAN-122 is the next bounded unit.
+  resolved threads, two independent reviews and a full gate. P3 is reconciled
+  with that result. PLAN-119 through PLAN-121 cover SCALER prompt admission,
+  provider-envelope admission and exact Markdown-section retrieval. PLAN-122
+  binds admitted file context to its source bytes across dispatch and result
+  acceptance, including exact-output, symlink and non-regular-file boundaries.
+  After its exact-head gate and reviews, reassess the remaining P3 acceptance
+  matrix before selecting the next bounded unit; do not infer phase completion
+  from these isolated components.
 
 ### Renewed continuation policy (2026-09-19)
 
