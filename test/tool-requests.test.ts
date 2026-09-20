@@ -16,6 +16,7 @@ import {
   buildToolAgentPrompt,
   buildToolSchemaDiscoveryPrompt,
   createToolReplayApproval,
+  DEFAULT_TOOL_EXECUTION_LIMITS,
   formatDiscoveredToolCatalog,
   formatMcpEnumerationRuns,
   formatMcpServerRecords,
@@ -548,6 +549,91 @@ test("runToolRequestAgent recognizes structured scaler_tool_result closure", asy
     assert.equal(result.resultRecord?.acceptanceStatus, "accepted");
     assert.equal((await loadToolRequests(dir))[0]?.status, "completed");
     assert.equal((await loadToolTransactions(dir))[0]?.resultId, result.resultRecord?.id);
+  });
+});
+
+test("runToolRequestAgent rejects a completed proposal after child output overflow", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+      await recordToolResult(dir, state, {
+        requestId: prepared.record!.id,
+        executionId: request.executionId,
+        status: "completed",
+        summary: "Claimed completion before overflowing output.",
+        outputs: { ok: true },
+      });
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+        stdoutBytes: DEFAULT_TOOL_EXECUTION_LIMITS.stdoutBytes + 1,
+        stderrBytes: 0,
+        outputLimitExceeded: "stdout" as const,
+      };
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.transaction?.status, "blocked");
+    assert.equal(result.transaction?.outputLimitExceeded, "stdout");
+    assert.equal((await loadToolResults(dir))[0]?.acceptanceStatus, "rejected");
+  });
+});
+
+test("recordToolResult rejects a proposal above the runtime-owned serialized byte limit", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    assert.ok(prepared.record);
+
+    const run = runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+      await assert.rejects(recordToolResult(dir, state, {
+        requestId: prepared.record!.id,
+        executionId: request.executionId,
+        status: "completed",
+        summary: "Oversized result.",
+        outputs: "x".repeat(DEFAULT_TOOL_EXECUTION_LIMITS.resultBytes),
+      }), /serialized result.*limit/i);
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
+    });
+
+    const result = await run;
+    assert.equal(result.accepted, false);
+    assert.equal(result.transaction?.status, "blocked");
+    assert.deepEqual(await loadToolResults(dir), []);
+  });
+});
+
+test("finalization rechecks durable result bytes and transaction limits", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+      await recordToolResult(dir, state, {
+        requestId: prepared.record!.id,
+        executionId: request.executionId,
+        status: "completed",
+        summary: "Initially bounded.",
+        outputs: { ok: true },
+      });
+      const results = await loadToolResults(dir);
+      results[0]!.outputs = "x".repeat(DEFAULT_TOOL_EXECUTION_LIMITS.resultBytes);
+      await writeFile(join(dir, ".scaler", "tool-requests", "results.json"), `${JSON.stringify({ version: 1, results }, null, 2)}\n`, "utf8");
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.transaction?.status, "blocked");
+    assert.match(result.message, /result.*limit/i);
+    assert.equal((await loadToolResults(dir))[0]?.acceptanceStatus, "rejected");
   });
 });
 

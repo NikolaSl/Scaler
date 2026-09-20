@@ -257,6 +257,69 @@ test("runTaskAgent removes cancellation listeners after normal completion", asyn
   });
 });
 
+test("runTaskAgent enforces raw stdout bytes before decoding or parsing", async () => {
+  const script = `#!/usr/bin/env node
+const bytes = Buffer.from("f09f99820a", "hex");
+process.stdout.write(bytes.subarray(0, 2));
+setTimeout(() => process.stdout.write(bytes.subarray(2)), 5);
+`;
+  await withScript(script, async (command, dir) => {
+    const exact = await runTaskAgent(
+      { taskId: "T-output-exact", prompt: "ignored", cwd: dir },
+      { command, outputLimits: { stdoutBytes: 5, stderrBytes: 32 }, timeoutMs: 2_000 },
+    );
+    assert.equal(exact.exitCode, 0);
+    assert.equal(exact.stdoutBytes, 5);
+    assert.equal(exact.outputLimitExceeded, undefined);
+    assert.deepEqual(exact.stdoutEvents, [{ type: "unparsed", text: "🙂\n" }]);
+
+    const over = await runTaskAgent(
+      { taskId: "T-output-over", prompt: "ignored", cwd: dir },
+      { command, outputLimits: { stdoutBytes: 4, stderrBytes: 32 }, timeoutMs: 2_000 },
+    );
+    assert.equal(over.exitCode, 125);
+    assert.equal(over.stdoutBytes, 5);
+    assert.equal(over.outputLimitExceeded, "stdout");
+  });
+});
+
+test("runTaskAgent bounds newline-free stdout and stderr floods", async () => {
+  const stdoutScript = "#!/usr/bin/env node\nprocess.stdout.write('x'.repeat(257));\n";
+  await withScript(stdoutScript, async (command, dir) => {
+    const result = await runTaskAgent(
+      { taskId: "T-stdout-flood", prompt: "ignored", cwd: dir },
+      { command, outputLimits: { stdoutBytes: 256, stderrBytes: 64 }, timeoutMs: 2_000 },
+    );
+    assert.equal(result.outputLimitExceeded, "stdout");
+    assert.equal(result.stdoutBytes, 257);
+    assert.equal(result.exitCode, 125);
+  });
+
+  const stderrScript = "#!/usr/bin/env node\nprocess.stderr.write('e'.repeat(65));\n";
+  await withScript(stderrScript, async (command, dir) => {
+    const result = await runTaskAgent(
+      { taskId: "T-stderr-flood", prompt: "ignored", cwd: dir },
+      { command, outputLimits: { stdoutBytes: 256, stderrBytes: 64 }, timeoutMs: 2_000 },
+    );
+    assert.equal(result.outputLimitExceeded, "stderr");
+    assert.equal(result.stderrBytes, 65);
+    assert.equal(result.exitCode, 125);
+    assert.ok(Buffer.byteLength(result.stderr, "utf8") < 256);
+  });
+});
+
+test("runTaskAgent refuses invalid runtime output limits before spawn", async () => {
+  await withScript("#!/bin/sh\necho launched > launched.txt\n", async (command, dir) => {
+    for (const stdoutBytes of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      await assert.rejects(runTaskAgent(
+        { taskId: "T-invalid-output-limit", prompt: "ignored", cwd: dir },
+        { command, outputLimits: { stdoutBytes, stderrBytes: 64 } },
+      ), /output limit|positive safe integer/i);
+    }
+    await assert.rejects(readFile(join(dir, "launched.txt")), { code: "ENOENT" });
+  });
+});
+
 const strictProviderPolicy = { requestTokenAllowance: 8_000, outputReserveTokens: 32, safetyMarginTokens: 1_024 };
 const providerPolicyEnvKeys = [
   "SCALER_PROVIDER_ADMISSION", "SCALER_REQUEST_TOKEN_ALLOWANCE",
