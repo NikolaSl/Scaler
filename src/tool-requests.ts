@@ -576,31 +576,38 @@ export function buildRuntimeToolCatalog(
 function normalizeEnvelopeToolNames(names: string[]): string[] | undefined {
   const normalized = names.map((name) => name.trim());
   if (normalized.some((name) => name.length === 0) || new Set(normalized).size !== normalized.length) return undefined;
-  return normalized.sort((left, right) => left.localeCompare(right));
+  return normalized.sort(compareEnvelopeStrings);
+}
+
+function compareEnvelopeStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function sameEnvelopeToolNames(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((name, index) => name === right[index]);
 }
 
-function canonicalizeEnvelopeValue(value: unknown, ancestors = new Set<object>()): unknown {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+function canonicalizeEnvelopeValue(value: unknown, ancestors = new Set<object>()): string {
+  if (value === null) return "n";
+  if (typeof value === "string") return `s:${JSON.stringify(value)}`;
+  if (typeof value === "boolean") return value ? "b:1" : "b:0";
   if (typeof value === "number") {
     if (!Number.isFinite(value)) throw new Error("non-finite number");
-    return Object.is(value, -0) ? 0 : value;
+    return `d:${JSON.stringify(Object.is(value, -0) ? 0 : value)}`;
   }
-  if (value === undefined) return { $scalerType: "undefined" };
+  if (value === undefined) return "u";
   if (typeof value !== "object") throw new Error(`unsupported ${typeof value}`);
   if (ancestors.has(value)) throw new Error("cyclic value");
   ancestors.add(value);
   try {
-    if (Array.isArray(value)) return value.map((item) => canonicalizeEnvelopeValue(item, ancestors));
+    if (Array.isArray(value)) return `a:[${value.map((item) => canonicalizeEnvelopeValue(item, ancestors)).join(",")}]`;
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) throw new Error("non-plain object");
     if (Object.getOwnPropertySymbols(value).length > 0) throw new Error("symbol keys");
-    return Object.fromEntries(Object.keys(value as Record<string, unknown>)
-      .sort((left, right) => left.localeCompare(right))
-      .map((key) => [key, canonicalizeEnvelopeValue((value as Record<string, unknown>)[key], ancestors)]));
+    const entries = Object.keys(value as Record<string, unknown>)
+      .sort(compareEnvelopeStrings)
+      .map((key) => `${JSON.stringify(key)}:${canonicalizeEnvelopeValue((value as Record<string, unknown>)[key], ancestors)}`);
+    return `o:{${entries.join(",")}}`;
   } finally {
     ancestors.delete(value);
   }
@@ -647,7 +654,7 @@ export function buildRuntimeToolEnvelopeProfile(
   }
 
   try {
-    const canonical = JSON.stringify(canonicalizeEnvelopeValue({
+    const canonical = canonicalizeEnvelopeValue({
       version: 1,
       footprint,
       tools: selectedDefinitions.map((tool) => ({
@@ -657,7 +664,7 @@ export function buildRuntimeToolEnvelopeProfile(
         promptGuidelines: tool.promptGuidelines,
         sourceInfo: tool.sourceInfo,
       })),
-    }));
+    });
     const bytes = Buffer.from(canonical, "utf8");
     return {
       version: 1,
