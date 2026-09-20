@@ -45,6 +45,20 @@ function candidate(
   };
 }
 
+function isolatedCandidate(
+  workerPayload: unknown,
+  continuationPayload: unknown = payload(50),
+  model = model32k,
+): ToolRouteModelCandidateInput {
+  return {
+    available: true,
+    legs: [
+      { id: "worker", role: "worker", payload: workerPayload, model, policy, additionalContextBytes: 0, repeatCount: 1 },
+      { id: "caller-continuation", role: "caller-continuation", payload: continuationPayload, model, policy, additionalContextBytes: 0, repeatCount: 1 },
+    ],
+  } as unknown as ToolRouteModelCandidateInput;
+}
+
 function baseInput(overrides: Partial<ToolRouteAssessmentInput> = {}): ToolRouteAssessmentInput {
   return {
     request: {
@@ -58,7 +72,7 @@ function baseInput(overrides: Partial<ToolRouteAssessmentInput> = {}): ToolRoute
     authority: "allowed",
     direct: { exactArgumentsAvailable: false, argumentsValidated: false },
     currentAgent: candidate(payload(100)),
-    isolated: candidate(payload(500)),
+    isolated: isolatedCandidate(payload(500)),
     ...overrides,
   };
 }
@@ -128,10 +142,10 @@ test("isolated route requires every worker and caller-continuation leg to fit", 
   const isolated: ToolRouteModelCandidateInput = {
     available: true,
     legs: [
-      { id: "worker", payload: payload(100), model: model8k, policy, additionalContextBytes: 0, repeatCount: 1 },
-      { id: "caller-continuation", payload: payload(7_900), model: model8k, policy, additionalContextBytes: 200, repeatCount: 1 },
+      { id: "worker", role: "worker", payload: payload(100), model: model8k, policy, additionalContextBytes: 0, repeatCount: 1 },
+      { id: "caller-continuation", role: "caller-continuation", payload: payload(7_900), model: model8k, policy, additionalContextBytes: 200, repeatCount: 1 },
     ],
-  };
+  } as unknown as ToolRouteModelCandidateInput;
   const result = assessToolRoute(baseInput({
     currentAgent: { available: false, legs: [] },
     isolated,
@@ -145,15 +159,15 @@ test("isolated route requires every worker and caller-continuation leg to fit", 
 test("least measured overhead wins and ties prefer the current agent", () => {
   const currentWins = assessToolRoute(baseInput({
     currentAgent: candidate(payload(100)),
-    isolated: candidate(payload(1_000)),
+    isolated: isolatedCandidate(payload(1_000)),
   }));
   const isolatedWins = assessToolRoute(baseInput({
     currentAgent: candidate(payload(1_000)),
-    isolated: candidate(payload(100)),
+    isolated: isolatedCandidate(payload(100), payload(10)),
   }));
   const tie = assessToolRoute(baseInput({
     currentAgent: candidate(payload(100)),
-    isolated: candidate(payload(100)),
+    isolated: isolatedCandidate(payload(100), payload(10)),
   }));
 
   assert.equal(currentWins.route, "current-agent");
@@ -165,11 +179,90 @@ test("a documented isolation requirement excludes a cheaper current-agent route"
   const result = assessToolRoute(baseInput({
     isolationRequirement: "evidence-independence",
     currentAgent: candidate(payload(100)),
-    isolated: candidate(payload(1_000)),
+    isolated: isolatedCandidate(payload(1_000)),
   }));
 
   assert.equal(result.route, "isolated");
   assert.equal(result.reasonCode, "isolation-required");
+});
+
+test("isolated evidence fails closed unless worker and caller-continuation roles are both present", () => {
+  const workerOnly = assessToolRoute(baseInput({
+    currentAgent: { available: false, legs: [] },
+    isolated: {
+      available: true,
+      legs: [{ id: "worker", role: "worker", payload: payload(100), model: model32k, policy, additionalContextBytes: 0, repeatCount: 1 }],
+    } as unknown as ToolRouteModelCandidateInput,
+  }));
+  const duplicateWorker = assessToolRoute(baseInput({
+    currentAgent: { available: false, legs: [] },
+    isolated: {
+      available: true,
+      legs: [
+        { id: "worker-1", role: "worker", payload: payload(100), model: model32k, policy, additionalContextBytes: 0, repeatCount: 1 },
+        { id: "worker-2", role: "worker", payload: payload(100), model: model32k, policy, additionalContextBytes: 0, repeatCount: 1 },
+      ],
+    } as unknown as ToolRouteModelCandidateInput,
+  }));
+
+  assert.equal(workerOnly.route, "blocked");
+  assert.ok(workerOnly.isolated.reasonCodes.includes("caller-continuation-leg-missing"));
+  assert.equal(duplicateWorker.route, "blocked");
+  assert.ok(duplicateWorker.isolated.reasonCodes.includes("duplicate-leg-role:worker"));
+});
+
+test("malformed runtime evidence returns blocked advice instead of throwing or becoming feasible", () => {
+  const malformedCandidates = [
+    { available: true, legs: [null] },
+    { available: true, legs: [{ id: "request", role: "request", payload: payload(100), model: model32k, additionalContextBytes: 0, repeatCount: 1 }] },
+    { available: true, legs: [{ role: "request", payload: payload(100), model: model32k, policy, additionalContextBytes: 0, repeatCount: 1 }] },
+  ];
+  for (const currentAgent of malformedCandidates) {
+    const result = assessToolRoute(baseInput({
+      currentAgent: currentAgent as unknown as ToolRouteModelCandidateInput,
+      isolated: { available: false, legs: [] },
+    }));
+    assert.equal(result.route, "blocked");
+    assert.equal(result.currentAgent.feasible, false);
+  }
+
+  const invalidProfile = assessToolRoute(baseInput({
+    profile: { ...profile, footprint: "unverified" } as unknown as RuntimeToolEnvelopeProfile,
+  }));
+  const nonArrayNames = assessToolRoute(baseInput({
+    profile: { ...profile, toolNames: "docs_search" } as unknown as RuntimeToolEnvelopeProfile,
+  }));
+  const invalidIsolation = assessToolRoute(baseInput({
+    isolationRequirement: "bad" as ToolRouteAssessmentInput["isolationRequirement"],
+  }));
+  assert.equal(invalidProfile.reasonCode, "invalid-tool-profile");
+  assert.equal(nonArrayNames.reasonCode, "invalid-tool-profile");
+  assert.equal(invalidIsolation.reasonCode, "invalid-assessment-evidence");
+});
+
+test("assessment output normalizes malformed evidence and never echoes raw objects", () => {
+  const result = assessToolRoute(baseInput({
+    authority: { rawRequest: "REQUEST_SENTINEL" } as unknown as ToolRouteAssessmentInput["authority"],
+    profile: { ...profile, fingerprint: { rawArguments: "ARGUMENTS_SENTINEL" } } as unknown as RuntimeToolEnvelopeProfile,
+    currentAgent: {
+      available: true,
+      legs: [{
+        id: "request",
+        role: "request",
+        payload: payload(100),
+        model: model32k,
+        policy,
+        additionalContextBytes: { rawProviderHistory: "HISTORY_SENTINEL" },
+        repeatCount: 1,
+      }],
+    } as unknown as ToolRouteModelCandidateInput,
+  }));
+
+  assert.equal(result.route, "blocked");
+  assert.equal(result.authority, "unknown");
+  assert.equal(result.profileFingerprint, null);
+  const serialized = JSON.stringify(result);
+  assert.doesNotMatch(serialized, /REQUEST_SENTINEL|ARGUMENTS_SENTINEL|HISTORY_SENTINEL/);
 });
 
 test("unknown bounds stay distinct from known zero and malformed arithmetic fails closed", () => {
