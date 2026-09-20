@@ -155,6 +155,62 @@ test("manifest readers reject persisted commands with missing required fields", 
   });
 });
 
+test("manifest revisions must be positive safe integers before read or write", async () => {
+  await withTempDir(async (dir) => {
+    await saveValidationManifest(dir, {
+      taskId: "T-VALID",
+      commands: [{ id: "unit", command: "npm test", required: true }],
+      createdAt: "",
+      updatedAt: "",
+    });
+    const indexPath = join(dir, ".scaler", "reports", "validation-manifests.json");
+    const validBytes = await readFile(indexPath, "utf8");
+
+    for (const revision of ["1", 0, -1, 1.5, null]) {
+      const bytes = `${JSON.stringify({
+        version: 1,
+        manifests: [{
+          taskId: "T-CORRUPT",
+          revision,
+          commands: [{ id: "unit", command: "npm test", required: true }],
+          createdAt: "",
+          updatedAt: "",
+        }],
+      })}\n`;
+      await writeFile(indexPath, bytes, "utf8");
+
+      await assert.rejects(
+        loadValidationManifests(dir),
+        /Persisted validation manifest for T-CORRUPT is malformed: revision/,
+      );
+      await assert.rejects(
+        upsertValidationManifestCommand(dir, {
+          taskId: "T-CORRUPT",
+          id: "unit",
+          command: "npm test",
+        }),
+        /Persisted validation manifest for T-CORRUPT is malformed: revision/,
+      );
+      assert.equal(await readFile(indexPath, "utf8"), bytes);
+    }
+
+    await writeFile(indexPath, validBytes, "utf8");
+    for (const [index, revision] of [0, -1, 1.5, "1", Number.MAX_SAFE_INTEGER + 1].entries()) {
+      await assert.rejects(
+        saveValidationManifest(dir, {
+          taskId: `T-PROPOSED-${index}`,
+          revision: revision as never,
+          commands: [{ id: "unit", command: "npm test", required: true }],
+          createdAt: "",
+          updatedAt: "",
+        }),
+        /Proposed validation manifest for T-PROPOSED-\d+ is malformed: revision/,
+      );
+      assert.equal(await readFile(indexPath, "utf8"), validBytes);
+    }
+  });
+});
+
 test("normalizeValidationGateKind maps common software and non-software aliases", () => {
   assert.equal(normalizeValidationGateKind("unit"), "unit_tests");
   assert.equal(normalizeValidationGateKind("build-compile"), "build_compile");
