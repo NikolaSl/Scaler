@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -27,7 +27,7 @@ const policyEnv = {
 
 // All provider traffic is replaced before creating the SDK session. No live
 // credentials, endpoints, command providers or global resource discovery are used.
-async function runInstalledHost(systemCharacters: number, extensions: ExtensionFactory[] = [], options: { autoCompaction?: boolean; activeTask?: boolean; largeUnselectedTool?: boolean; reemitBeforeStartPrompt?: boolean; rewriteBeforeScaler?: boolean; defaultSystemPrompt?: boolean } = {}) {
+async function runInstalledHost(systemCharacters: number, extensions: ExtensionFactory[] = [], options: { autoCompaction?: boolean; activeTask?: boolean; largeUnselectedTool?: boolean; reemitBeforeStartPrompt?: boolean; rewriteBeforeScaler?: boolean; defaultSystemPrompt?: boolean; failScalerAuditBeforeStart?: boolean; failScalerAuditBeforeProvider?: boolean; queueFollowUpAfterAbort?: boolean } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "scaler-provider-host-test-"));
   const savedFetch = globalThis.fetch;
   const savedEnv = Object.fromEntries(Object.keys(policyEnv).map((key) => [key, process.env[key]]));
@@ -90,7 +90,29 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
         ...(options.rewriteBeforeScaler ? [((pi) => {
           pi.on("before_agent_start", (event) => ({ systemPrompt: `EARLIER_SAFETY_PROMPT\n${event.systemPrompt}` }));
         }) satisfies ExtensionFactory] : []),
+        ...(options.failScalerAuditBeforeStart ? [((pi) => {
+          pi.on("before_agent_start", async () => {
+            const eventLog = join(dir, ".scaler", "logs", "events.jsonl");
+            await rm(eventLog, { recursive: true, force: true });
+            await mkdir(eventLog, { recursive: true });
+          });
+        }) satisfies ExtensionFactory] : []),
         ...(options.autoCompaction ? [] : [scalerExtension]),
+        ...(options.failScalerAuditBeforeProvider ? [((pi) => {
+          pi.on("before_agent_start", async () => {
+            const eventLog = join(dir, ".scaler", "logs", "events.jsonl");
+            await rm(eventLog, { recursive: true, force: true });
+            await mkdir(eventLog, { recursive: true });
+          });
+        }) satisfies ExtensionFactory] : []),
+        ...(options.queueFollowUpAfterAbort ? [((pi) => {
+          let queued = false;
+          pi.on("agent_end", () => {
+            if (queued) return;
+            queued = true;
+            pi.sendMessage({ customType: "test-follow-up", content: "Continue after refusal.", display: false }, { deliverAs: "followUp" });
+          });
+        }) satisfies ExtensionFactory] : []),
         ...(options.largeUnselectedTool ? [((pi) => {
           pi.registerTool({
             name: "large_unselected",
@@ -186,6 +208,43 @@ test("installed Pi refuses an unreconcilable earlier system-prompt rewrite", asy
   assert.equal(result.fetchCalls, 0, "unsupported prompt composition must stop before transport");
   assert.equal(result.stopReason, "aborted");
   assert.deepEqual(result.activeToolNames, ["read", "large_unselected", "scaler_tool_request", "scaler_task_report"]);
+});
+
+test("installed Pi preserves selected prompt composition when focus audit logging fails", async () => {
+  const result = await runInstalledHost(40, [], {
+    activeTask: true,
+    largeUnselectedTool: true,
+    defaultSystemPrompt: true,
+    failScalerAuditBeforeStart: true,
+  });
+  assert.equal(result.fetchCalls, 1);
+  const transported = JSON.stringify(result.payload);
+  assert.doesNotMatch(transported, /LARGE_UNSELECTED_SCHEMA/);
+  assert.doesNotMatch(transported, /LARGE_UNSELECTED_GUIDELINE/);
+  assert.doesNotMatch(transported, /LARGE_UNSELECTED_SNIPPET/);
+});
+
+test("installed Pi refuses transport before fallible refusal audit logging", async () => {
+  const result = await runInstalledHost(40, [], {
+    activeTask: true,
+    largeUnselectedTool: true,
+    rewriteBeforeScaler: true,
+    defaultSystemPrompt: true,
+    failScalerAuditBeforeProvider: true,
+  });
+  assert.equal(result.fetchCalls, 0, "audit failure must not bypass an established refusal");
+  assert.equal(result.stopReason, "aborted");
+});
+
+test("installed Pi keeps prompt-composition refusal latched across continuations", async () => {
+  const result = await runInstalledHost(40, [], {
+    activeTask: true,
+    largeUnselectedTool: true,
+    rewriteBeforeScaler: true,
+    defaultSystemPrompt: true,
+    queueFollowUpAfterAbort: true,
+  });
+  assert.equal(result.fetchCalls, 0, "a continuation without a fresh admission boundary must remain blocked");
 });
 
 test("installed Pi auto-compaction bypasses provider-request hooks without the strict profile", async () => {
