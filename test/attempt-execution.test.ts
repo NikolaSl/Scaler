@@ -49,6 +49,7 @@ async function admittedFileContext(
     allowedPathPrefixes?: string[];
     outputPaths?: string[];
     writeSource?: boolean;
+    selectorHeading?: string;
   } = {},
 ) {
   const path = options.path ?? "reference.md";
@@ -72,7 +73,10 @@ async function admittedFileContext(
     taskId: "T-1",
     items: [{
       id: "reference", type: "file", reason: "Immutable source",
-      priority: options.priority ?? "required", scope: "full", source: "file", path,
+      priority: options.priority ?? "required", scope: options.selectorHeading === undefined ? "full" : "section", source: "file", path,
+      selector: options.selectorHeading === undefined
+        ? undefined
+        : { kind: "markdown-heading", heading: options.selectorHeading },
     }],
     createdAt: state.createdAt,
     updatedAt: state.updatedAt,
@@ -84,6 +88,19 @@ async function admittedFileContext(
   const lock = await acquireExecutionLock(dir, { operation: "test", taskId: "T-1" });
   const attempt = await admitTaskExecution(dir, lock.lock.id, state, state.tasks[0]!, context, "test", []);
   return { state, lockId: lock.lock.id, attempt, context, path };
+}
+
+for (const heading of ["\u00a0", "\u202f"]) {
+  test(`attempt admission preserves Markdown heading whitespace semantics for U+${heading.codePointAt(0)!.toString(16).toUpperCase()}`, async () => {
+    await fixture(async (dir) => {
+      const initial = await admittedFileContext(dir, {
+        content: `## ${heading}\nSELECTED\n`,
+        selectorHeading: heading,
+      });
+      assert.equal(initial.attempt.contextSources?.[0]?.selector?.heading, heading);
+      assert.match(initial.context.text, /SELECTED/);
+    });
+  });
 }
 
 test("attempt recovery blocks an admission interrupted before the task snapshot is bound", async () => {

@@ -734,6 +734,57 @@ test("runToolRequestAgent recomputes route and refuses a non-isolated recommenda
   });
 });
 
+test("runToolRequestAgent requires the caller continuation to reserve the bounded result", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "docs_search",
+      request: "Find widget docs.",
+      allowedTools: ["read"],
+    });
+    assert.ok(prepared.record);
+    let runnerCalled = false;
+    const payload = {
+      model: "synthetic",
+      messages: [{ role: "user", content: "bounded" }],
+      max_completion_tokens: 1_024,
+    };
+    const model = { api: "openai-completions", provider: "synthetic", id: "synthetic-4m", contextWindow: 4_000_000 };
+    const policy = { requestTokenAllowance: 4_000_000, outputReserveTokens: 1_024, safetyMarginTokens: 1_024 };
+
+    const result = await runToolRequestAgent(dir, state, {
+      requestId: prepared.record.id,
+      execute: true,
+      routeEvidenceSupplier: (basis) => ({
+        version: 1,
+        requestId: basis.requestId,
+        executionId: basis.executionId,
+        evidence: {
+          profile: { version: 1, footprint: "selected", toolNames: [...basis.toolNames], byteSize: 64, fingerprint: "a".repeat(64) },
+          authority: "allowed",
+          direct: { exactArgumentsAvailable: false, argumentsValidated: false },
+          currentAgent: { available: false, legs: [] },
+          isolated: {
+            available: true,
+            legs: [
+              { id: "worker", role: "worker", payload, model, policy, additionalContextBytes: 0, repeatCount: 1 },
+              { id: "caller-continuation", role: "caller-continuation", payload, model, policy, additionalContextBytes: 0, repeatCount: 1 },
+            ],
+          },
+          isolationRequirement: "capability",
+        },
+      }),
+    }, async (request) => {
+      runnerCalled = true;
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(runnerCalled, false);
+    assert.match(result.message, /caller continuation.*result reserve/i);
+  });
+});
+
 test("runToolRequestAgent recognizes structured scaler_tool_result closure", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
