@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -14,6 +14,7 @@ import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { loadTaskAttempts } from "../src/task-attempts.js";
 import { saveValidationManifest, upsertValidationManifestCommand } from "../src/validation.js";
 import { buildTaskAgentPrompt } from "../src/conductor.js";
+import { resolveTaskContextManifest, saveTaskContextManifest } from "../src/context.js";
 
 async function fixture(fn: (dir: string) => Promise<void>) {
   const dir = await mkdtemp(join(tmpdir(), "scaler-attempt-execution-"));
@@ -52,6 +53,58 @@ test("attempt interruption checks ownership before mutating state", async () => 
     await assert.rejects(interruptTaskExecution(dir, "not-owner", initial.attempt.id, ["stop"]), /execution lock/);
     assert.equal((await loadState(dir)).tasks[0]?.status, "ready");
     assert.equal((await loadTaskAttempts(dir))[0]?.status, "admitted");
+  });
+});
+
+test("dispatch refuses file context changed after attempt admission", async () => {
+  await fixture(async (dir) => {
+    const state = createDefaultState();
+    state.stage = "execution";
+    state.tasks = [{
+      id: "T-1", status: "ready", title: "Context freshness",
+      allowedPathPrefixes: ["result.txt"], definitionOfDone: ["The attempt result is recorded."],
+      updatedAt: state.updatedAt,
+    }];
+    await saveState(dir, state);
+    await saveValidationManifest(dir, { taskId: "T-1", outputPaths: [], commands: [], createdAt: "", updatedAt: "" });
+    await writeFile(join(dir, "reference.md"), "ORIGINAL\n", "utf8");
+    const manifest = await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-1",
+      items: [{
+        id: "reference", type: "file", reason: "Immutable source", priority: "required",
+        scope: "full", source: "file", path: "reference.md",
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.updatedAt,
+    });
+    const contextItems = await resolveTaskContextManifest(dir, state, manifest);
+    const context = buildTaskAgentPrompt({ state, task: state.tasks[0]!, contextItems }).resolvedContext;
+    const lock = await acquireExecutionLock(dir, { operation: "test", taskId: "T-1" });
+    const attempt = await admitTaskExecution(dir, lock.lock.id, state, state.tasks[0]!, context, "test", []);
+
+    await writeFile(join(dir, "reference.md"), "CHANGED\n", "utf8");
+    await assert.rejects(
+      startTaskExecution(dir, lock.lock.id, state, attempt),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /context.*(changed|stale).*reference\.md/i);
+        for (const identity of ["T-1", "reference", "reference.md"]) {
+          assert.ok(error.message.includes(identity), error.message);
+        }
+        return true;
+      },
+    );
+    assert.equal((await loadState(dir)).tasks[0]?.status, "ready");
+    assert.equal((await loadTaskAttempts(dir))[0]?.status, "admitted");
+    await interruptTaskExecution(dir, lock.lock.id, attempt.id, [
+      "Context source reference.md changed for T-1/reference.",
+    ]);
+    const [closed] = await loadTaskAttempts(dir);
+    assert.equal(closed?.status, "failed");
+    assert.equal(closed?.outcome, "not_started");
+    assert.equal(closed?.reportId, undefined);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "blocked");
   });
 });
 

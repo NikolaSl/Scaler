@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -427,6 +427,93 @@ test("runConductorStep dispatches the selected exact Markdown section", async ()
     assert.match(dispatchedPrompt, /EXACT_TARGET_CONTRACT/);
     assert.match(dispatchedPrompt, /NESTED_TARGET_DETAIL/);
     assert.doesNotMatch(dispatchedPrompt, /UNRELATED_PREFIX|DO_NOT_INCLUDE_NEXT/);
+  });
+});
+
+test("runConductorStep rejects a result after selected file context becomes ambiguous", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    const source = "# Target\nORIGINAL\n# Other\nTAIL\n";
+    await writeFile(join(dir, "reference.md"), source, "utf8");
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-001",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
+      await writeFile(join(dir, "reference.md"), `${source}# Target\nSECOND\n`, "utf8");
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [completedTaskReport(request)],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
+
+    assert.equal(result.accepted, false, "a returned result must not use stale selected file context");
+    assert.match(result.message, /context.*(changed|stale).*reference\.md/i);
+    assert.deepEqual(await loadTaskAgentReports(dir), []);
+    assert.deepEqual(await loadValidationHandoffs(dir), []);
+    const [attempt] = await loadTaskAttempts(dir);
+    assert.equal(attempt?.status, "interrupted");
+    assert.equal(attempt?.outcome, "unknown");
+    assert.equal(attempt?.reportId, undefined);
+    assert.equal(attempt?.outputFingerprint, undefined);
+    assert.equal(attempt?.validationContextFingerprint, undefined);
+    assert.notEqual((await loadState(dir)).tasks[0]?.status, "validated");
+  });
+});
+
+test("runConductorStep permits an admitted file to change only as an exact declared task output", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    await mkdir(join(dir, "src"), { recursive: true });
+    await writeFile(join(dir, "src", "app.ts"), "export const value = 1;\n", "utf8");
+    await saveValidationManifest(dir, {
+      taskId: "T-001",
+      outputPaths: ["src/app.ts"],
+      acceptanceCriteria: ["The synthetic task report is handed to validation."],
+      commands: [],
+      createdAt: "",
+      updatedAt: "",
+    });
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-001",
+      items: [{
+        id: "implementation", type: "file", reason: "Implementation being changed", priority: "required",
+        scope: "full", source: "file", path: "src/app.ts",
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
+      await writeFile(join(dir, "src", "app.ts"), "export const value = 2;\n", "utf8");
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [completedTaskReport(request)],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
+
+    assert.equal(result.accepted, true, result.message);
+    assert.equal((await loadTaskAgentReports(dir)).length, 1);
+    assert.equal((await loadValidationHandoffs(dir)).length, 1);
   });
 });
 
