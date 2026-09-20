@@ -15,6 +15,7 @@ import type { RuntimeToolEnvelopeProfile } from "./tool-requests.js";
 export type ToolRoute = "direct" | "current-agent" | "isolated" | "blocked";
 export type ToolRouteAuthority = "allowed" | "denied" | "unknown";
 export type ToolIsolationRequirement = "capability" | "focus" | "evidence-independence";
+export type ToolRouteModelLegRole = "request" | "worker" | "caller-continuation";
 
 export interface ToolRouteRequestBasis {
   requestId: string;
@@ -32,6 +33,7 @@ export interface ToolRouteDirectEvidence {
 
 export interface ToolRouteModelLegInput {
   id: string;
+  role: ToolRouteModelLegRole;
   payload: unknown;
   model: ProviderAdmissionModel;
   policy: ProviderAdmissionPolicy;
@@ -108,34 +110,47 @@ const unavailableCandidate = (reasonCode: string): ToolRouteCandidateAssessment 
 });
 
 export function assessToolRoute(input: ToolRouteAssessmentInput): ToolRouteAssessment {
-  const direct = assessDirect(input.direct);
-  const currentAgent = assessModelCandidate(input.currentAgent);
-  const isolated = assessModelCandidate(input.isolated);
-  const requestFingerprint = fingerprintValue(input.request);
+  const rawInput: Record<string, unknown> = isRecord(input as unknown)
+    ? input as unknown as Record<string, unknown>
+    : {};
+  const rawRequest = rawInput.request;
+  const rawProfile = rawInput.profile;
+  const rawAuthority = rawInput.authority;
+  const rawIsolationRequirement = rawInput.isolationRequirement;
+  const authority = normalizeAuthority(rawAuthority);
+  const isolationRequirement = normalizeIsolationRequirement(rawIsolationRequirement);
+  const direct = assessDirect(rawInput.direct);
+  const currentAgent = assessModelCandidate(rawInput.currentAgent, "current-agent");
+  const isolated = assessModelCandidate(rawInput.isolated, "isolated");
+  const requestFingerprint = fingerprintValue(rawRequest);
   const evidenceFingerprint = fingerprintValue(input);
   const base = {
     version: 1 as const,
     executionAuthorized: false as const,
-    requestId: typeof input.request?.requestId === "string" ? input.request.requestId : "",
+    requestId: isRecord(rawRequest) && typeof rawRequest.requestId === "string" ? rawRequest.requestId : "",
     requestFingerprint,
     evidenceFingerprint,
-    profileFingerprint: input.profile?.fingerprint ?? null,
-    authority: input.authority,
-    isolationRequirement: input.isolationRequirement,
+    profileFingerprint: normalizeFingerprint(isRecord(rawProfile) ? rawProfile.fingerprint : undefined),
+    authority,
+    isolationRequirement,
     direct,
     currentAgent,
     isolated,
   };
 
-  if (!requestFingerprint || !evidenceFingerprint || !validRequestBasis(input.request)) {
+  if (!requestFingerprint
+    || !evidenceFingerprint
+    || !validRequestBasis(rawRequest)
+    || !isKnownAuthority(rawAuthority)
+    || !isValidIsolationRequirement(rawIsolationRequirement)) {
     return blocked(base, "invalid-assessment-evidence");
   }
-  if (input.authority !== "allowed") return blocked(base, `authority-${input.authority}`);
-  if (!validProfile(input.profile, input.request.toolNames)) {
-    return blocked(base, input.profile?.footprint === "unknown" ? "tool-profile-unknown" : "invalid-tool-profile");
+  if (authority !== "allowed") return blocked(base, `authority-${authority}`);
+  if (!validProfile(rawProfile, rawRequest.toolNames)) {
+    return blocked(base, isRecord(rawProfile) && rawProfile.footprint === "unknown" ? "tool-profile-unknown" : "invalid-tool-profile");
   }
 
-  const authorizedDirect = assessDirect(input.direct, true);
+  const authorizedDirect = assessDirect(rawInput.direct, true);
   base.direct = authorizedDirect;
   if (authorizedDirect.feasible) {
     return {
@@ -146,7 +161,7 @@ export function assessToolRoute(input: ToolRouteAssessmentInput): ToolRouteAsses
     };
   }
 
-  if (input.isolationRequirement) {
+  if (isolationRequirement) {
     return isolated.feasible
       ? {
           ...base,
@@ -198,13 +213,14 @@ function blocked(
   return { ...base, route: "blocked", reasonCode, selectedEstimatedOverheadUpperBound: null };
 }
 
-function assessDirect(evidence: ToolRouteDirectEvidence | undefined, authorityConfirmed = false): ToolRouteDirectAssessment {
+function assessDirect(evidence: unknown, authorityConfirmed = false): ToolRouteDirectAssessment {
+  const record = isRecord(evidence) ? evidence : undefined;
   const reasons: string[] = [];
   if (!authorityConfirmed) reasons.push("authority-not-confirmed");
-  if (evidence?.exactArgumentsAvailable !== true) reasons.push("exact-arguments-unavailable");
-  if (evidence?.argumentsValidated !== true) reasons.push("arguments-not-validated");
-  const adapterId = typeof evidence?.adapterId === "string" && evidence.adapterId.trim().length > 0
-    ? evidence.adapterId.trim()
+  if (record?.exactArgumentsAvailable !== true) reasons.push("exact-arguments-unavailable");
+  if (record?.argumentsValidated !== true) reasons.push("arguments-not-validated");
+  const adapterId = typeof record?.adapterId === "string" && record.adapterId.trim().length > 0
+    ? record.adapterId.trim()
     : undefined;
   if (!adapterId) reasons.push("direct-adapter-unavailable");
   return {
@@ -216,34 +232,42 @@ function assessDirect(evidence: ToolRouteDirectEvidence | undefined, authorityCo
   };
 }
 
-function assessModelCandidate(candidate: ToolRouteModelCandidateInput | undefined): ToolRouteCandidateAssessment {
-  if (!candidate) return unavailableCandidate("candidate-evidence-missing");
+function assessModelCandidate(candidate: unknown, route: "current-agent" | "isolated"): ToolRouteCandidateAssessment {
+  if (!isRecord(candidate)) return unavailableCandidate("candidate-evidence-missing");
   if (candidate.available !== true) return unavailableCandidate("candidate-capability-unavailable");
   if (!Array.isArray(candidate.legs) || candidate.legs.length === 0) return unavailableCandidate("candidate-legs-missing");
 
   const reasonCodes: string[] = [];
   const legs: ToolRouteLegAssessment[] = [];
   const seenIds = new Set<string>();
+  const seenRoles = new Set<ToolRouteModelLegRole>();
   let total = 0;
   let modelCallCount = 0;
   let aggregateValid = true;
 
-  for (const leg of candidate.legs) {
-    const id = typeof leg?.id === "string" && leg.id.trim().length > 0 ? leg.id.trim() : "invalid-leg";
+  for (const [index, rawLeg] of candidate.legs.entries()) {
+    const leg = isRecord(rawLeg) ? rawLeg : {};
+    const id = typeof leg.id === "string" && leg.id.trim().length > 0 ? leg.id.trim() : `invalid-leg-${index + 1}`;
+    const role = normalizeLegRole(leg.role);
     let reasonCode = "accepted";
-    if (seenIds.has(id)) reasonCode = "duplicate-leg-id";
+    if (!(typeof leg.id === "string" && leg.id.trim().length > 0)) reasonCode = "invalid-leg-id";
+    else if (!role || !roleAllowedForRoute(role, route)) reasonCode = "invalid-leg-role";
+    else if (seenIds.has(id)) reasonCode = "duplicate-leg-id";
+    else if (seenRoles.has(role)) reasonCode = `duplicate-leg-role:${role}`;
     seenIds.add(id);
-    const provider = assessProviderRequestAdmission({ payload: leg?.payload, model: leg?.model, policy: leg?.policy });
+    if (role) seenRoles.add(role);
+    const provider = safelyAssessProviderRequest(leg.payload, leg.model, leg.policy);
     let requiredPerCall: number | null = null;
     let aggregate: number | null = null;
-    const repeatCount = isPositiveSafeInteger(leg?.repeatCount) ? leg.repeatCount : null;
+    const repeatCount = isPositiveSafeInteger(leg.repeatCount) ? leg.repeatCount : null;
+    const additionalContextBytes = isNonNegativeSafeInteger(leg.additionalContextBytes) ? leg.additionalContextBytes : null;
 
-    if (reasonCode === "accepted" && leg?.additionalContextBytes === null) reasonCode = "additional-context-unknown";
-    else if (reasonCode === "accepted" && !isNonNegativeSafeInteger(leg?.additionalContextBytes)) reasonCode = "invalid-additional-context";
+    if (reasonCode === "accepted" && leg.additionalContextBytes === null) reasonCode = "additional-context-unknown";
+    else if (reasonCode === "accepted" && !isNonNegativeSafeInteger(leg.additionalContextBytes)) reasonCode = "invalid-additional-context";
     else if (reasonCode === "accepted" && repeatCount === null) reasonCode = "invalid-repeat-count";
     else if (reasonCode === "accepted" && !provider.accepted) reasonCode = `provider-${provider.code}`;
     else if (reasonCode === "accepted") {
-      requiredPerCall = safeAdd(provider.requiredEnvelopeTokensUpperBound as number, leg.additionalContextBytes as number) ?? null;
+      requiredPerCall = safeAdd(provider.requiredEnvelopeTokensUpperBound as number, additionalContextBytes as number) ?? null;
       if (requiredPerCall === null) reasonCode = "envelope-overflow";
       else if (requiredPerCall > (provider.effectiveLimitTokens as number)) reasonCode = "additional-context-exceeds-limit";
       else {
@@ -273,10 +297,20 @@ function assessModelCandidate(candidate: ToolRouteModelCandidateInput | undefine
       reasonCode,
       repeatCount,
       provider,
-      additionalContextBytes: leg?.additionalContextBytes ?? null,
+      additionalContextBytes,
       requiredPerCallUpperBound: requiredPerCall,
       aggregateUpperBound: aggregate,
     });
+  }
+
+  const requiredRoles: ToolRouteModelLegRole[] = route === "current-agent"
+    ? ["request"]
+    : ["worker", "caller-continuation"];
+  for (const role of requiredRoles) {
+    if (!seenRoles.has(role)) {
+      reasonCodes.push(`${role}-leg-missing`);
+      aggregateValid = false;
+    }
   }
 
   return {
@@ -288,16 +322,19 @@ function assessModelCandidate(candidate: ToolRouteModelCandidateInput | undefine
   };
 }
 
-function validRequestBasis(request: ToolRouteRequestBasis): boolean {
-  if (!request || typeof request.requestId !== "string" || request.requestId.trim().length === 0) return false;
+function validRequestBasis(request: unknown): request is ToolRouteRequestBasis {
+  if (!isRecord(request) || typeof request.requestId !== "string" || request.requestId.trim().length === 0) return false;
   if (!Array.isArray(request.toolNames) || request.toolNames.length === 0) return false;
   const normalized = normalizeNames(request.toolNames);
   return normalized !== undefined && normalized.length === request.toolNames.length;
 }
 
-function validProfile(profile: RuntimeToolEnvelopeProfile, requestedToolNames: string[]): boolean {
-  if (!profile || profile.version !== 1 || profile.footprint === "unknown") return false;
+function validProfile(profile: unknown, requestedToolNames: string[]): profile is RuntimeToolEnvelopeProfile {
+  if (!isRecord(profile)
+    || profile.version !== 1
+    || (profile.footprint !== "selected" && profile.footprint !== "whole-catalog")) return false;
   if (!isNonNegativeSafeInteger(profile.byteSize) || typeof profile.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(profile.fingerprint)) return false;
+  if (!Array.isArray(profile.toolNames)) return false;
   const profileNames = normalizeNames(profile.toolNames);
   const requested = normalizeNames(requestedToolNames);
   if (!profileNames || !requested) return false;
@@ -305,7 +342,8 @@ function validProfile(profile: RuntimeToolEnvelopeProfile, requestedToolNames: s
   return requested.every((name) => available.has(name));
 }
 
-function normalizeNames(values: unknown[]): string[] | undefined {
+function normalizeNames(values: unknown): string[] | undefined {
+  if (!Array.isArray(values)) return undefined;
   const normalized: string[] = [];
   const seen = new Set<string>();
   for (const value of values) {
@@ -316,6 +354,51 @@ function normalizeNames(values: unknown[]): string[] | undefined {
     normalized.push(name);
   }
   return normalized;
+}
+
+function normalizeAuthority(value: unknown): ToolRouteAuthority {
+  return isKnownAuthority(value) ? value : "unknown";
+}
+
+function isKnownAuthority(value: unknown): value is ToolRouteAuthority {
+  return value === "allowed" || value === "denied" || value === "unknown";
+}
+
+function normalizeIsolationRequirement(value: unknown): ToolIsolationRequirement | undefined {
+  return value === "capability" || value === "focus" || value === "evidence-independence" ? value : undefined;
+}
+
+function isValidIsolationRequirement(value: unknown): boolean {
+  return value === undefined || normalizeIsolationRequirement(value) !== undefined;
+}
+
+function normalizeLegRole(value: unknown): ToolRouteModelLegRole | undefined {
+  return value === "request" || value === "worker" || value === "caller-continuation" ? value : undefined;
+}
+
+function roleAllowedForRoute(role: ToolRouteModelLegRole, route: "current-agent" | "isolated"): boolean {
+  return route === "current-agent" ? role === "request" : role === "worker" || role === "caller-continuation";
+}
+
+function normalizeFingerprint(value: unknown): string | null {
+  return typeof value === "string" && /^[a-f0-9]{64}$/.test(value) ? value : null;
+}
+
+function safelyAssessProviderRequest(payload: unknown, model: unknown, policy: unknown): ProviderAdmissionDecision {
+  if (!isRecord(policy)) return invalidProviderDecision("Provider admission policy evidence is missing or malformed.");
+  try {
+    return assessProviderRequestAdmission({
+      payload,
+      model: isRecord(model) ? model : undefined,
+      policy: policy as unknown as ProviderAdmissionPolicy,
+    });
+  } catch {
+    return invalidProviderDecision("Provider admission evidence could not be assessed safely.");
+  }
+}
+
+function invalidProviderDecision(message: string): ProviderAdmissionDecision {
+  return { accepted: false, code: "invalid_policy", message, estimator: "serialized_utf8_bytes_upper_bound" };
 }
 
 function safeAdd(left: number, right: number): number | undefined {
@@ -334,6 +417,10 @@ function isPositiveSafeInteger(value: unknown): value is number {
 
 function isNonNegativeSafeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function fingerprintValue(value: unknown): string | null {

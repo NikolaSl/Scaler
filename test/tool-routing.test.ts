@@ -41,7 +41,7 @@ function candidate(
 ): ToolRouteModelCandidateInput {
   return {
     available: true,
-    legs: [{ id: "request", payload: requestPayload, model, policy, additionalContextBytes, repeatCount }],
+    legs: [{ id: "request", role: "request", payload: requestPayload, model, policy, additionalContextBytes, repeatCount }],
   };
 }
 
@@ -166,8 +166,8 @@ test("least measured overhead wins and ties prefer the current agent", () => {
     isolated: isolatedCandidate(payload(100), payload(10)),
   }));
   const tie = assessToolRoute(baseInput({
-    currentAgent: candidate(payload(100)),
-    isolated: isolatedCandidate(payload(100), payload(10)),
+    currentAgent: candidate(payload(100), model32k, 0, 2),
+    isolated: isolatedCandidate(payload(100), payload(100)),
   }));
 
   assert.equal(currentWins.route, "current-agent");
@@ -208,7 +208,7 @@ test("isolated evidence fails closed unless worker and caller-continuation roles
   assert.equal(workerOnly.route, "blocked");
   assert.ok(workerOnly.isolated.reasonCodes.includes("caller-continuation-leg-missing"));
   assert.equal(duplicateWorker.route, "blocked");
-  assert.ok(duplicateWorker.isolated.reasonCodes.includes("duplicate-leg-role:worker"));
+  assert.ok(duplicateWorker.isolated.reasonCodes.some((reason) => reason.endsWith("duplicate-leg-role:worker")));
 });
 
 test("malformed runtime evidence returns blocked advice instead of throwing or becoming feasible", () => {
@@ -232,11 +232,15 @@ test("malformed runtime evidence returns blocked advice instead of throwing or b
   const nonArrayNames = assessToolRoute(baseInput({
     profile: { ...profile, toolNames: "docs_search" } as unknown as RuntimeToolEnvelopeProfile,
   }));
+  const nonArrayRequestNames = assessToolRoute(baseInput({
+    request: { ...baseInput().request, toolNames: "docs_search" } as unknown as ToolRouteAssessmentInput["request"],
+  }));
   const invalidIsolation = assessToolRoute(baseInput({
     isolationRequirement: "bad" as ToolRouteAssessmentInput["isolationRequirement"],
   }));
   assert.equal(invalidProfile.reasonCode, "invalid-tool-profile");
   assert.equal(nonArrayNames.reasonCode, "invalid-tool-profile");
+  assert.equal(nonArrayRequestNames.reasonCode, "invalid-assessment-evidence");
   assert.equal(invalidIsolation.reasonCode, "invalid-assessment-evidence");
 });
 
@@ -358,6 +362,27 @@ test("runtime-owned route assessment records compact advice without payloads or 
     assert.match(JSON.stringify(lastEvent), /Tool route assessment recorded/);
     assert.doesNotMatch(JSON.stringify(lastEvent), /PROVIDER_HISTORY_SENTINEL/);
     assert.doesNotMatch(JSON.stringify(lastEvent), /Find public routing documentation/);
+
+    const malformed = await recordToolRouteAssessment(dir, state, prepared.record!.id, {
+      ...evidence,
+      authority: { rawRequest: "REQUEST_SENTINEL" } as unknown as ToolRouteAssessmentInput["authority"],
+      profile: { ...profile, fingerprint: { rawArguments: "ARGUMENTS_SENTINEL" } } as unknown as RuntimeToolEnvelopeProfile,
+      currentAgent: {
+        available: true,
+        legs: [{
+          id: "request",
+          role: "request",
+          payload: payload(100),
+          model: model32k,
+          policy,
+          additionalContextBytes: { rawProviderHistory: "HISTORY_SENTINEL" },
+          repeatCount: 1,
+        }],
+      } as unknown as ToolRouteModelCandidateInput,
+    });
+    assert.equal(malformed.assessment?.route, "blocked");
+    const malformedEvents = await readFile(join(dir, ".scaler", "logs", "events.jsonl"), "utf8");
+    assert.doesNotMatch(malformedEvents, /REQUEST_SENTINEL|ARGUMENTS_SENTINEL|HISTORY_SENTINEL/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
