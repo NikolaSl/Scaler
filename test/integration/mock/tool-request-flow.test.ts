@@ -71,7 +71,7 @@ test("mock integration: tool schedule executes all guarded requests sequentially
     const result = await runToolSchedule(dir, state, { execute: true, parallelism: 2 }, async (request) => {
       const requestId = request.taskId.replace(/^tool-/, "");
       await recordToolResult(dir, state, { requestId, executionId: request.executionId, status: "completed", summary: `Completed ${requestId}`, outputs: { ok: true } });
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
 
     assert.equal(result.accepted, true);
@@ -104,7 +104,7 @@ test("mock integration: schema discovery probe feeds later request and transacti
         evidenceRefs: ["docs_mcp_search"],
         discoveredByAgentId: request.taskId,
       });
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
 
     assert.equal(discovery.accepted, true);
@@ -158,6 +158,8 @@ test("mock integration: tool transaction execution requires structured scaler_to
       stderr: "",
       timedOut: false,
       aborted: false,
+      stdoutBytes: 0,
+      stderrBytes: 0,
     }));
     assert.equal(missing.accepted, false);
     assert.equal(missing.transaction?.status, "blocked");
@@ -178,7 +180,7 @@ test("mock integration: tool transaction execution requires structured scaler_to
         evidenceRefs: ["docs:widget-lifecycle"],
         validationPerformed: ["checked requested requiredFormat"],
       });
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
 
     assert.equal(completed.accepted, true);
@@ -221,7 +223,7 @@ test("mock integration: closed tool replay requires explicit approval and consum
         outputs: { apiNames: ["Widget.create"], refs: ["docs:widget-lifecycle"] },
         validationPerformed: ["checked requested requiredFormat"],
       });
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
     assert.ok(original.transaction);
 
@@ -241,7 +243,7 @@ test("mock integration: closed tool replay requires explicit approval and consum
         evidenceRefs: ["docs:widget-cleanup"],
         validationPerformed: ["checked replay output"],
       });
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
 
     assert.equal(approved.accepted, true);
@@ -292,6 +294,8 @@ test("mock integration: tool iteration workflow blocks an ambiguous missing resu
         stderr: "",
         timedOut: false,
         aborted: false,
+        stdoutBytes: 0,
+        stderrBytes: 0,
       };
     });
 
