@@ -190,6 +190,30 @@ test("runtime tool envelope profile binds selected definitions and fails closed 
   assert.equal(mismatched.fingerprint, null);
 });
 
+test("runtime tool envelope profile rejects malformed definitions without ambiguous canonical sentinels", () => {
+  const selected = { requestedToolNames: ["docs_search"], selectionApisAvailable: true };
+  const omitted = toolRequestsModule.buildRuntimeToolEnvelopeProfile([{ name: "docs_search" }], ["docs_search"], selected);
+  const sentinelShaped = toolRequestsModule.buildRuntimeToolEnvelopeProfile([{
+    name: "docs_search",
+    parameters: { $scalerType: "undefined" },
+  }], ["docs_search"], selected);
+  assert.notEqual(omitted.fingerprint, sentinelShaped.fingerprint, "an actual schema object must not collide with an omitted field marker");
+
+  const cyclic: Record<string, unknown> = {};
+  cyclic.self = cyclic;
+  for (const profile of [
+    toolRequestsModule.buildRuntimeToolEnvelopeProfile([{ name: "docs_search", parameters: cyclic }], ["docs_search"], selected),
+    toolRequestsModule.buildRuntimeToolEnvelopeProfile([{ name: "docs_search" }, { name: "docs_search" }], ["docs_search"], selected),
+    toolRequestsModule.buildRuntimeToolEnvelopeProfile([{ name: "other" }], ["docs_search"], selected),
+    toolRequestsModule.buildRuntimeToolEnvelopeProfile([{ name: "docs_search", parameters: { maximum: Number.POSITIVE_INFINITY } }], ["docs_search"], selected),
+  ]) {
+    assert.equal(profile.footprint, "unknown");
+    assert.equal(profile.byteSize, null);
+    assert.equal(profile.fingerprint, null);
+    assert.ok(profile.reason);
+  }
+});
+
 test("recordToolSchema persists discovered metadata and merges latest catalog entry", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
