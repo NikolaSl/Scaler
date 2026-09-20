@@ -577,15 +577,14 @@ export async function verifyFileContextSources(
   cwd: string,
   taskId: string,
   sources: FileContextSourceBinding[],
-  ignoredPaths: ReadonlySet<string> = new Set(),
+  contentMutablePaths: ReadonlySet<string> = new Set(),
 ): Promise<string[]> {
   const diagnostics: string[] = [];
   for (const source of sources) {
-    if (ignoredPaths.has(source.path)) continue;
     try {
       const current = await readStableContextFile(cwd, source.path);
       const fingerprint = fingerprintFileBytes(current.bytes);
-      if (fingerprint !== source.contentFingerprint
+      if ((!contentMutablePaths.has(source.path) && fingerprint !== source.contentFingerprint)
         || (source.outputExemptible && !current.outputExemptible)) {
         diagnostics.push(`Task ${taskId} context source ${source.itemId} changed or became stale: ${source.path}.`);
       }
@@ -611,7 +610,7 @@ async function readStableContextFile(
   path: string,
 ): Promise<{ bytes: Buffer; outputExemptible: boolean }> {
   const absolute = resolveContextPath(cwd, path);
-  const direct = await directProjectFileStat(cwd, path);
+  const directBefore = await directProjectFileStat(cwd, path);
   const file = await open(absolute, constants.O_RDONLY | constants.O_NONBLOCK);
   try {
     const before = await file.stat();
@@ -619,9 +618,11 @@ async function readStableContextFile(
     const bytes = await file.readFile();
     const after = await file.stat();
     if (!sameFile(before, after)) throw new Error(`Context source changed while reading: ${path}`);
+    const directAfter = await directProjectFileStat(cwd, path);
     return {
       bytes,
-      outputExemptible: direct !== undefined && sameFile(direct, before),
+      outputExemptible: directBefore !== undefined && sameFile(directBefore, before)
+        && directAfter !== undefined && sameFile(directAfter, after),
     };
   } finally {
     await file.close();

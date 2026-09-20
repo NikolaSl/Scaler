@@ -6,6 +6,8 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import fsPromises from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -206,6 +208,92 @@ test("allowed write prefix alone does not exempt changed file context", async ()
     await writeFile(join(dir, initial.path), "CHANGED\n", "utf8");
     const checked = await checkTaskExecutionResult(dir, started.attempt, "T-1");
     assert.match(checked.diagnostics.join(" "), /context.*changed.*src\/app\.ts/i);
+  });
+});
+
+test("result acceptance permits content changes to a direct regular declared output", async () => {
+  await fixture(async (dir) => {
+    const initial = await admittedFileContext(dir, {
+      path: "src/app.ts", allowedPathPrefixes: ["src"], outputPaths: ["src/app.ts"],
+    });
+    const started = await startTaskExecution(dir, initial.lockId, initial.state, initial.attempt);
+    await writeFile(join(dir, initial.path), "CHANGED\n", "utf8");
+    assert.deepEqual((await checkTaskExecutionResult(dir, started.attempt, "T-1")).diagnostics, []);
+  });
+});
+
+test("result acceptance rejects a declared output ancestor symlink raced after direct stat", async (t) => {
+  await fixture(async (dir) => {
+    const initial = await admittedFileContext(dir, {
+      path: "src/app.ts", allowedPathPrefixes: ["src"], outputPaths: ["src/app.ts"],
+    });
+    const started = await startTaskExecution(dir, initial.lockId, initial.state, initial.attempt);
+    await writeFile(join(dir, initial.path), "CHANGED\n", "utf8");
+
+    const ancestor = join(dir, "src");
+    const original = fsPromises.lstat;
+    let swapped = false;
+    t.mock.method(fsPromises, "lstat", (async (path: string) => {
+      const stat = await original(path);
+      if (path === ancestor && !swapped) {
+        swapped = true;
+        await rename(ancestor, join(dir, "real"));
+        await symlink("real", ancestor);
+      }
+      return stat;
+    }) as typeof fsPromises.lstat);
+    syncBuiltinESMExports();
+    try {
+      const checked = await checkTaskExecutionResult(dir, started.attempt, "T-1");
+      assert.equal(swapped, true);
+      assert.match(checked.diagnostics.join(" "), /context.*(changed|stale|missing|unreadable).*app\.ts/i);
+    } finally {
+      t.mock.restoreAll();
+      syncBuiltinESMExports();
+    }
+  });
+});
+
+for (const symlinkKind of ["leaf", "ancestor"] as const) {
+  test(`result acceptance rejects declared output changed from regular file to ${symlinkKind} symlink`, async () => {
+    await fixture(async (dir) => {
+      const contextPath = symlinkKind === "leaf" ? "src/app.ts" : "linked/app.ts";
+      const initial = await admittedFileContext(dir, {
+        path: contextPath,
+        allowedPathPrefixes: [contextPath.split("/")[0]!],
+        outputPaths: [contextPath],
+      });
+      const started = await startTaskExecution(dir, initial.lockId, initial.state, initial.attempt);
+
+      if (symlinkKind === "leaf") {
+        await writeFile(join(dir, "reference.md"), "CHANGED\n", "utf8");
+        await rm(join(dir, contextPath));
+        await symlink("../reference.md", join(dir, contextPath));
+      } else {
+        await rename(join(dir, "linked"), join(dir, "real"));
+        await symlink("real", join(dir, "linked"));
+      }
+
+      const checked = await checkTaskExecutionResult(dir, started.attempt, "T-1");
+      assert.match(checked.diagnostics.join(" "), /context.*(changed|stale|missing|unreadable).*app\.ts/i);
+    });
+  });
+}
+
+test("result acceptance rejects declared output changed from regular file to FIFO without blocking", async () => {
+  await fixture(async (dir) => {
+    const initial = await admittedFileContext(dir, {
+      path: "src/app.ts", allowedPathPrefixes: ["src"], outputPaths: ["src/app.ts"],
+    });
+    const started = await startTaskExecution(dir, initial.lockId, initial.state, initial.attempt);
+    const path = join(dir, initial.path);
+    await rm(path);
+    execFileSync("mkfifo", [path]);
+
+    const startedAt = Date.now();
+    const checked = await checkTaskExecutionResult(dir, started.attempt, "T-1");
+    assert.match(checked.diagnostics.join(" "), /context.*(changed|stale|missing|unreadable).*app\.ts/i);
+    assert.ok(Date.now() - startedAt < 400, "FIFO verification must fail without waiting for a writer");
   });
 });
 
