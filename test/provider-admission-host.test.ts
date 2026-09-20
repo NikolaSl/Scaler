@@ -91,7 +91,8 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
     ({ session } = await createAgentSession({
       cwd: dir, agentDir: join(dir, "agent"), authStorage,
       modelRegistry: ModelRegistry.inMemory(authStorage), model, settingsManager,
-      sessionManager: SessionManager.inMemory(dir), resourceLoader: loader, tools: options.autoCompaction ? [] : ["read"],
+      sessionManager: SessionManager.inMemory(dir), resourceLoader: loader,
+      tools: options.autoCompaction ? [] : options.activeTask ? ["read", "scaler_tool_request", "scaler_task_report"] : ["read"],
     }));
     session.subscribe((event) => {
       if (event.type === "compaction_end" && event.aborted) compactionCancelled = true;
