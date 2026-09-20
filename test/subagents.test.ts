@@ -308,6 +308,19 @@ test("runTaskAgent bounds newline-free stdout and stderr floods", async () => {
   });
 });
 
+test("runTaskAgent reports all raw bytes observed in the chunk that crosses the cap", async () => {
+  const script = "#!/usr/bin/env node\nprocess.stdout.write(Buffer.alloc(1024, 120));\n";
+  await withScript(script, async (command, dir) => {
+    const result = await runTaskAgent(
+      { taskId: "T-observed-output", prompt: "ignored", cwd: dir },
+      { command, outputLimits: { stdoutBytes: 8, stderrBytes: 64 }, timeoutMs: 2_000 },
+    );
+    assert.equal(result.outputLimitExceeded, "stdout");
+    assert.equal(result.stdoutBytes, 1024);
+    assert.equal(result.exitCode, 125);
+  });
+});
+
 test("runTaskAgent refuses invalid runtime output limits before spawn", async () => {
   await withScript("#!/bin/sh\necho launched > launched.txt\n", async (command, dir) => {
     for (const stdoutBytes of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
