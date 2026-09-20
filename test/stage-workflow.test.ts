@@ -12,6 +12,7 @@ import { loadExecutionPlan, saveExecutionPlan } from "../src/plans.js";
 import { loadCurrentPrd, loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
 import { loadResearchReports, loadResearchRequests } from "../src/research.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
+import { loadStageArtifacts } from "../src/stages.js";
 import {
   deriveKnowledgeResearchRequests,
   ingestPrdWriteReport,
@@ -278,6 +279,42 @@ test("runAutonomousStageWorkflow executes PRD, Stage II research merge, and plan
     assert.equal((await loadStageWorkflowRunRecords(dir)).length, 1);
   });
 });
+
+for (const stopReason of ["aborted", "error"] as const) {
+  test(`runAutonomousStageWorkflow rejects supplemental PRD from a zero-exit terminal ${stopReason}`, async () => {
+    await withTempDir(async (dir) => {
+      const state = createState("prd");
+      await saveState(dir, state);
+
+      const result = await runAutonomousStageWorkflow(dir, state, { execute: true, maxSteps: 1 }, {
+        stage: async (request) => ({
+          taskId: request.taskId,
+          exitCode: 0,
+          stdoutEvents: [
+            {
+              type: "scaler_prd_write",
+              content: "# Must not be published",
+              requirements: [{ id: "REQ-REJECT", statement: "Reject failed stage output." }],
+            },
+            { type: "message_end", message: { role: "assistant", stopReason } },
+          ],
+          stderr: "",
+          timedOut: false,
+          aborted: false,
+        }),
+      });
+
+      assert.equal(result.accepted, false);
+      assert.equal(result.stopReason, "step_rejected");
+      assert.equal(result.finalState.stage, "prd");
+      assert.equal(result.steps[0]?.stageAgent?.runRecord?.status, "failed");
+      assert.deepEqual(result.steps[0]?.supplemental, {});
+      assert.equal(await loadCurrentPrd(dir), "");
+      assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+      assert.deepEqual(await loadStageArtifacts(dir), []);
+    });
+  });
+}
 
 async function replanRunner(request: TaskAgentRequest): Promise<TaskAgentRunResult> {
   assert.equal(request.taskId, "replan-agent");
