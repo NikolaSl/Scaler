@@ -583,8 +583,10 @@ export async function verifyFileContextSources(
   for (const source of sources) {
     if (ignoredPaths.has(source.path)) continue;
     try {
-      const fingerprint = fingerprintFileBytes((await readStableContextFile(cwd, source.path)).bytes);
-      if (fingerprint !== source.contentFingerprint) {
+      const current = await readStableContextFile(cwd, source.path);
+      const fingerprint = fingerprintFileBytes(current.bytes);
+      if (fingerprint !== source.contentFingerprint
+        || (source.outputExemptible && !current.outputExemptible)) {
         diagnostics.push(`Task ${taskId} context source ${source.itemId} changed or became stale: ${source.path}.`);
       }
     } catch (error) {
