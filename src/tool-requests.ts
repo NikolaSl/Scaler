@@ -2109,6 +2109,14 @@ async function prepareToolDispatchAdmission(
   }
 
   const isolated = isPlainObject(snapshot.evidence.isolated) ? snapshot.evidence.isolated : undefined;
+  const callerContinuation = Array.isArray(isolated?.legs)
+    ? isolated.legs.find((leg) => isPlainObject(leg) && leg.role === "caller-continuation")
+    : undefined;
+  if (!isPlainObject(callerContinuation)
+    || !Number.isSafeInteger(callerContinuation.additionalContextBytes)
+    || (callerContinuation.additionalContextBytes as number) < limits.resultBytes) {
+    return refuse("caller continuation does not include the runtime-owned result reserve");
+  }
   const worker = Array.isArray(isolated?.legs)
     ? isolated.legs.find((leg) => isPlainObject(leg) && leg.role === "worker")
     : undefined;

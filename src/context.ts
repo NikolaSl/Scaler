@@ -241,7 +241,7 @@ export async function saveTaskContextManifest(cwd: string, manifest: TaskContext
       taskId: item.taskId?.trim() || undefined,
       selector: item.selector ? {
         ...item.selector,
-        heading: trimMarkdownWhitespace(item.selector.heading),
+        heading: trimMarkdownHeadingWhitespace(item.selector.heading),
       } : undefined,
     })),
   };
@@ -648,7 +648,7 @@ function sameFile(first: Stats, second: Stats): boolean {
     && first.size === second.size && first.mtimeMs === second.mtimeMs && first.ctimeMs === second.ctimeMs;
 }
 
-function trimMarkdownWhitespace(text: string): string {
+export function trimMarkdownHeadingWhitespace(text: string): string {
   return text.replace(/^[ \t]+|[ \t]+$/g, "");
 }
 
@@ -670,7 +670,7 @@ function extractMarkdownHeadingSection(content: string, path: string, selector: 
     const atx = rawLine.match(/^ {0,3}(#{1,6})([ \t]+[^\r\n]*)?$/);
     headings.push({
       level: node.level,
-      text: trimMarkdownWhitespace((atx?.[2] ?? "").replace(/[ \t]+#+[ \t]*$/, "")),
+      text: trimMarkdownHeadingWhitespace((atx?.[2] ?? "").replace(/[ \t]+#+[ \t]*$/, "")),
       start,
       selectable: atx !== null,
     });
@@ -1027,7 +1027,7 @@ function validateTaskContextManifestItem(item: TaskContextManifestItem, ids: Set
       throw new Error(`Task context item ${item.id} selector requires file section scope.`);
     }
     if (item.selector.kind !== "markdown-heading" || typeof item.selector.heading !== "string"
-        || !trimMarkdownWhitespace(item.selector.heading)) {
+        || !trimMarkdownHeadingWhitespace(item.selector.heading)) {
       throw new Error(`Task context item ${item.id} Markdown heading selector is invalid.`);
     }
     if (item.selector.maxChars !== undefined
