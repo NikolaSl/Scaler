@@ -283,6 +283,7 @@ test("extension context hook focuses parent tools and injects compact runtime ca
     const runtimeCtx = { cwd: dir, hasUI: false };
 
     scalerExtension(fakePi as never);
+    await handlers.get("before_agent_start")?.({ type: "before_agent_start", prompt: "hello", systemPrompt: "system", systemPromptOptions: {} }, runtimeCtx);
     const result = await handlers.get("context")?.({ type: "context", messages: [{ role: "user", content: "hello" }] }, runtimeCtx) as { messages?: unknown[] } | undefined;
 
     assert.deepEqual(activeTools, ["scaler_task_report", "scaler_tool_request"]);
