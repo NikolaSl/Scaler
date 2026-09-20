@@ -11,6 +11,7 @@ import { appendLogEvent, createLogEvent } from "./logging.js";
 import { getMcpServersPath, getToolCatalogPath, getToolIterationPolicyPath, getToolIterationRunsPath, getToolReplayApprovalsPath, getToolRequestsIndexPath, getToolResultsPath, getToolSchedulesPath, getToolSchemaDiscoveryRunsPath, getToolTransactionsPath } from "./paths.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { buildTaskAgentInvocation, runTaskAgent, type RunTaskAgentOptions, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
+import { assessToolRoute, type ToolRouteAssessment, type ToolRouteAssessmentInput } from "./tool-routing.js";
 import type { ScalerState } from "./types.js";
 
 export type ToolRiskLevel = "low" | "medium" | "high" | "destructive" | "external" | "secret" | "unknown";
@@ -301,6 +302,14 @@ export interface ToolRequestPrepareResult {
   record?: ToolRequestRecord;
   prompt?: string;
   invocation?: TaskAgentInvocation;
+}
+
+export type ToolRouteRuntimeEvidence = Omit<ToolRouteAssessmentInput, "request">;
+
+export interface ToolRouteAssessmentRecordResult {
+  recorded: boolean;
+  message: string;
+  assessment?: ToolRouteAssessment;
 }
 
 export interface ToolRequestRunOptions {
@@ -717,6 +726,52 @@ export async function loadToolRequests(cwd: string): Promise<ToolRequestRecord[]
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
   }
+}
+
+export async function recordToolRouteAssessment(
+  cwd: string,
+  state: ScalerState,
+  requestId: string,
+  evidence: ToolRouteRuntimeEvidence,
+): Promise<ToolRouteAssessmentRecordResult> {
+  const request = (await loadToolRequests(cwd)).find((candidate) => candidate.id === requestId);
+  if (!request) {
+    const message = `Tool route assessment rejected: request ${requestId} was not found.`;
+    await appendLogEvent(cwd, createLogEvent(state, {
+      eventType: "tool",
+      summary: message,
+      details: { requestId, executionAuthorized: false },
+    }));
+    return { recorded: false, message };
+  }
+
+  const assessment = assessToolRoute({
+    ...evidence,
+    request: {
+      requestId: request.id,
+      taskId: request.taskId,
+      toolNames: request.allowedTools,
+      content: {
+        toolName: request.toolName,
+        request: request.request,
+        requesterAgentId: request.requesterAgentId,
+        contextSummary: request.contextSummary,
+        expectedOutput: request.expectedOutput,
+        requiredFormat: request.requiredFormat,
+        riskLevel: request.riskLevel,
+        permissionRequirement: request.permissionRequirement,
+        safetyNotes: request.safetyNotes,
+      },
+    },
+  });
+  const message = `Tool route assessment recorded: ${request.id} recommendation=${assessment.route} authorized=no`;
+  await appendLogEvent(cwd, createLogEvent(state, {
+    eventType: "tool",
+    summary: message,
+    taskId: request.taskId,
+    details: { assessment },
+  }));
+  return { recorded: true, message, assessment };
 }
 
 export async function loadToolResults(cwd: string): Promise<ToolResultRecord[]> {
