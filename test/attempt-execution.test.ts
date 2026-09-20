@@ -6,6 +6,8 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import fsPromises from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -217,6 +219,38 @@ test("result acceptance permits content changes to a direct regular declared out
     const started = await startTaskExecution(dir, initial.lockId, initial.state, initial.attempt);
     await writeFile(join(dir, initial.path), "CHANGED\n", "utf8");
     assert.deepEqual((await checkTaskExecutionResult(dir, started.attempt, "T-1")).diagnostics, []);
+  });
+});
+
+test("result acceptance rejects a declared output ancestor symlink raced after direct stat", async (t) => {
+  await fixture(async (dir) => {
+    const initial = await admittedFileContext(dir, {
+      path: "src/app.ts", allowedPathPrefixes: ["src"], outputPaths: ["src/app.ts"],
+    });
+    const started = await startTaskExecution(dir, initial.lockId, initial.state, initial.attempt);
+    await writeFile(join(dir, initial.path), "CHANGED\n", "utf8");
+
+    const ancestor = join(dir, "src");
+    const original = fsPromises.lstat;
+    let swapped = false;
+    t.mock.method(fsPromises, "lstat", (async (path: string) => {
+      const stat = await original(path);
+      if (path === ancestor && !swapped) {
+        swapped = true;
+        await rename(ancestor, join(dir, "real"));
+        await symlink("real", ancestor);
+      }
+      return stat;
+    }) as typeof fsPromises.lstat);
+    syncBuiltinESMExports();
+    try {
+      const checked = await checkTaskExecutionResult(dir, started.attempt, "T-1");
+      assert.equal(swapped, true);
+      assert.match(checked.diagnostics.join(" "), /context.*(changed|stale|missing|unreadable).*app\.ts/i);
+    } finally {
+      t.mock.restoreAll();
+      syncBuiltinESMExports();
+    }
   });
 });
 
