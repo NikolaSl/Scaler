@@ -7,7 +7,7 @@ replanning prompts without the final prompt-size admission used by conductor and
 debug retry. It also omits strict provider admission from the child request.
 A large generated stage prompt can therefore reach the runner with
 `providerAdmission` absent, allowing the installed host to compose and send an
-unbounded or differently-modelled provider request.
+provider request whose complete live envelope was never admitted.
 
 This is an active shared path, so it precedes optional route expansion and model
 quality work.
@@ -25,8 +25,9 @@ quality work.
 4. Preserve stage tool selection, prepare mode, structured artifact ingestion,
    usage accounting and execution-lock ownership. A refusal must call no runner
    and publish no successful/prepared stage-agent run.
-5. Keep provider payload validation and live-model identity enforcement in the
-   installed provider hook; do not duplicate its estimator in the stage runner.
+5. Keep provider payload validation and enforcement of the actual live model's
+   supported API and context window in the installed provider hook; do not
+   duplicate its estimator in the stage runner.
 
 ## Test-first evidence
 
@@ -47,4 +48,6 @@ Two independent GPT-6 Astra/high reviews inspect the exact final tree.
 This unit does not classify task complexity, prove planning proportionality,
 automatically split tasks, implement missing direct/current-agent adapters,
 wire a production continuation supplier, or claim local-model quality, savings
-or scale. Those P3 acceptance rows remain partial.
+or scale. The stage path also does not yet bind an exact parent-selected provider
+and model identity; strict admission evaluates whichever supported live model is
+actually selected. Those P3 acceptance rows remain partial.
