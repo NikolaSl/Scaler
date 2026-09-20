@@ -51,3 +51,25 @@ parent-selected provider/model, admit parent interactive calls, classify task
 complexity, implement automatic splitting, complete the three-route scenario or
 claim local-model quality, savings or scale. SC-05, SC-08, SC-09 and SC-25 remain
 partial until their separate behavioral and real-host evidence exists.
+
+## Implemented evidence
+
+Strict loaded-tool admission is now intrinsic to `buildTaskAgentInvocation`;
+the legacy caller flag cannot disable it. The boundary accepts only dense
+string arrays for strict grants, returns a structured admission error for
+malformed or sparse runtime input, preserves explicit no-tools behavior and
+keeps non-strict invocation behavior unchanged.
+
+Stage agents return structured refusal without prompt audit or run publication.
+Conductor and debug-retry preflight the same rule before attempt creation and
+spawned-agent budget publication. Isolated tool execution and replay apply the
+gate before an execution claim or replay-approval reservation. Executable test
+fixtures use only Pi built-ins or SCALER tools; discovery and prepare-only
+fixtures continue to retain external tool metadata without claiming that an
+adapter is loaded.
+
+Candidate validation passes TypeScript build, 1,014/1,014 unit/component tests,
+67/67 mock integration tests, 7/7 conformance/autopilot tests and 169/169
+focused tests. Two independent GPT-6 Astra/high reviews found no remaining
+issues after malformed-grant hardening. These results prove the bounded
+fail-closed parity only; the explicit limits above remain unchanged.

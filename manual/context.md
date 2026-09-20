@@ -120,10 +120,13 @@ calls, provider-internal retries and reconciliation against observed usage
 remain later P3 work.
 
 Strict child launches can currently activate only Pi built-in tools and SCALER
-tools loaded by the isolated child profile. Browser, MCP and other external
-extension tool grants are rejected before preparation or dispatch when that
-profile cannot load them. SCALER does not claim those tools are available in a
-child prompt; a trusted external-capability loading adapter remains future work.
+tools loaded by the isolated child profile. The shared strict invocation
+boundary rejects browser, MCP and other external-extension grants—and malformed
+or sparse runtime grant lists—before preparation, attempt/budget publication or
+dispatch when that profile cannot load them. This applies to task, debug-retry,
+stage and isolated-tool children as well as the auxiliary launch paths. SCALER
+does not claim those tools are available in a child prompt; a trusted
+external-capability loading adapter remains future work.
 
 ## Missing-context lifecycle
 

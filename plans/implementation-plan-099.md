@@ -117,7 +117,12 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   run publication, and admitted requests carry the strict provider policy.
   Unsupported browser/MCP/custom extension grants also refuse rather than being
   promised to a child whose isolated loader cannot provide them; a trusted
-  external-capability adapter remains open.
+  external-capability adapter remains open. PLAN-131 makes that loaded-tool
+  check intrinsic to every strict child invocation, including conductor, debug
+  retry, stage agents and isolated tool execution/replay. Callers cannot disable
+  it with the legacy opt-in flag; malformed or sparse runtime grants also return
+  structured refusal before attempt, budget, run-record or execution-claim
+  publication.
   Parent interactive calls, provider-internal retries and alternate provider
   payloads remain open; this is not SC-05/AC-05 completion.
 
