@@ -89,6 +89,38 @@ for (const replacement of ["symlink", "file"] as const) {
   }));
 }
 
+test("validation input hashing identifies raced files as validation inputs", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "scaler-validation-input-race-"));
+  try {
+    const target = join(dir, "check.cjs");
+    await writeFile(target, "process.exit(0);\n");
+    const original = fsPromises.lstat;
+    let swapped = false;
+    t.mock.method(fsPromises, "lstat", (async (path: string) => {
+      const stat = await original(path);
+      if (path === target && !swapped) {
+        swapped = true;
+        await fsPromises.rename(target, join(dir, "old-check.cjs"));
+        await writeFile(target, "process.exit(1);\n");
+      }
+      return stat;
+    }) as typeof fsPromises.lstat);
+    syncBuiltinESMExports();
+    try {
+      await assert.rejects(
+        fingerprintValidationInputs(dir, ["check.cjs"]),
+        (error: Error) => /Validation input/.test(error.message) && !/Declared output/.test(error.message),
+      );
+      assert.equal(swapped, true);
+    } finally {
+      t.mock.restoreAll();
+      syncBuiltinESMExports();
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("validation snapshot advertises validation-input-bound schema version 5", async () => fixture(false, async (dir) => {
   assert.equal((await captureValidationSnapshot(dir, await loadState(dir), "T-OUT")).version, 5);
 }));

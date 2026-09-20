@@ -1658,30 +1658,36 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         else console.log(message);
         return;
       }
-      const allowedKeys = new Set(["statement", "title", "source", "acceptanceCriteria"]);
-      const unknownKeys = Object.keys(parsed.changes).filter((key) => !allowedKeys.has(key));
-      if (unknownKeys.length > 0) throw new Error(`Unknown runtime PRD amendment fields: ${unknownKeys.join(", ")}.`);
-      const lock = await acquireExecutionLock(ctx.cwd, {
-        operation: "prd_amend",
-        reason: `User-authorized amendment for ${parsed.requirementId}: ${parsed.reason}`,
-      });
-      if (!lock.acquired) {
-        if (ctx.hasUI) ctx.ui.notify(lock.message, "warning");
-        else console.log(lock.message);
-        return;
-      }
       try {
-        const requirement = await amendPrdRequirement(ctx.cwd, {
-          id: parsed.requirementId,
-          expectedRevision: parsed.expectedRevision,
-          reason: parsed.reason,
-          changes: parsed.changes as AmendPrdRequirementInput["changes"],
+        const allowedKeys = new Set(["statement", "title", "source", "acceptanceCriteria"]);
+        const unknownKeys = Object.keys(parsed.changes).filter((key) => !allowedKeys.has(key));
+        if (unknownKeys.length > 0) throw new Error(`Unknown runtime PRD amendment fields: ${unknownKeys.join(", ")}.`);
+        const lock = await acquireExecutionLock(ctx.cwd, {
+          operation: "prd_amend",
+          reason: `User-authorized amendment for ${parsed.requirementId}: ${parsed.reason}`,
         });
-        const message = `Runtime PRD requirement amended: ${requirement.id} revision=${requirement.revision}`;
-        if (ctx.hasUI) ctx.ui.notify(message, "info");
+        if (!lock.acquired) {
+          if (ctx.hasUI) ctx.ui.notify(lock.message, "warning");
+          else console.log(lock.message);
+          return;
+        }
+        try {
+          const requirement = await amendPrdRequirement(ctx.cwd, {
+            id: parsed.requirementId,
+            expectedRevision: parsed.expectedRevision,
+            reason: parsed.reason,
+            changes: parsed.changes as AmendPrdRequirementInput["changes"],
+          });
+          const message = `Runtime PRD requirement amended: ${requirement.id} revision=${requirement.revision}`;
+          if (ctx.hasUI) ctx.ui.notify(message, "info");
+          else console.log(message);
+        } finally {
+          await releaseExecutionLock(ctx.cwd, lock.lock.id);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
         else console.log(message);
-      } finally {
-        await releaseExecutionLock(ctx.cwd, lock.lock.id);
       }
     },
   });
@@ -1761,11 +1767,17 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         return;
       }
 
-      const manifest = await upsertValidationManifestCommand(ctx.cwd, parsed, { authority: "user_command", reason: parsed.reason });
-      const saved = manifest.commands.find((command) => command.id === parsed.id);
-      const message = `Validation command saved: ${parsed.taskId}/${parsed.id} commands=${manifest.commands.length}${saved?.gate ? ` gate=${saved.gate}` : ""}`;
-      if (ctx.hasUI) ctx.ui.notify(message, "info");
-      else console.log(message);
+      try {
+        const manifest = await upsertValidationManifestCommand(ctx.cwd, parsed, { authority: "user_command", reason: parsed.reason });
+        const saved = manifest.commands.find((command) => command.id === parsed.id);
+        const message = `Validation command saved: ${parsed.taskId}/${parsed.id} commands=${manifest.commands.length}${saved?.gate ? ` gate=${saved.gate}` : ""}`;
+        if (ctx.hasUI) ctx.ui.notify(message, "info");
+        else console.log(message);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+      }
     },
   });
 

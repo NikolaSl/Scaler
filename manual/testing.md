@@ -433,6 +433,10 @@ Four baseline failures demonstrate false completion after changed/new explicit
 links and stale receipts after removed/retargeted links. Unchanged/idempotent and
 unrelated-task controls remain valid. Both directions feed the existing canonical
 requirement-content fingerprint; the schema and acceptance routes are unchanged.
+After PR #21 reconciliation, the same suite also refuses malformed content and
+duplicate linked identifiers reached only through coverage `taskIds`, as well as
+through task `prdRefs`. A malformed requirements document fails with a stable
+diagnostic rather than being treated as missing evidence.
 
 PLAN-118 unit B adds `test/requirement-integration.test.ts`. Two negative
 baselines show that linked component success previously allowed completion when
@@ -441,7 +445,9 @@ accept one exact required passing command, and reject the old integration receip
 after a component output changes and is independently reaccepted. Rerunning the
 named command restores completion. PRD, tool and stage-workflow tests also cover
 criterion normalization and preservation through all structured input paths.
-Snapshot schema version 4 requires older receipts to be revalidated.
+Snapshot schema version 4 introduced this integration identity. The current
+schema is version 5 because declared validation-input files are also bound; all
+older receipt versions require revalidation.
 Malformed or duplicate stage-provided criteria are refused before any PRD,
 catalog, stage-artifact or accepted audit write; malformed participant arrays are
 not silently narrowed.
@@ -524,3 +530,19 @@ preconfigured manifests for tasks not yet in state, and a positive unchanged
 inheritance control. Final validation passes the TypeScript build, full unit
 suite, 67 mock integration tests and 7 conformance/autopilot checks; two
 independent GPT-6 Astra/high exact-head reviews report no remaining finding.
+
+PLAN-118 unit G adds adversarial pre-commit and post-commit hook coverage for
+declared validation-basis files. After a Git commit is created, SCALER rechecks
+task outputs, Git safety and the current validation receipt before publishing a
+commit report or promoting the task. The receipt comparison excludes only the
+Git candidate identity, because the successful commit itself advances that
+identity; checker bytes, policy, task contract, PRD and integration evidence
+must still match the validated snapshot.
+
+When a hook changes a declared checker, the resulting commit is intentionally
+kept for operator diagnosis, but acceptance is refused and no commit report is
+recorded. Run `node --test --import tsx test/validation-acceptance.test.ts` for
+the focused regression. The reconciled exact candidate passes the TypeScript
+build, 799 unit tests, 67 mock integration tests and 7 conformance/autopilot
+checks. These tests do not make arbitrary hooks transactional or authorize an
+automatic reset/replay.

@@ -2,8 +2,8 @@
 
 ## Scope and delivery
 
-This phase branch builds on PR #21 / PLAN-117 and must not merge before that
-prerequisite. Nikola requested coherent phase PRs with separate logical commits,
+This phase branch builds on merged PR #21 / PLAN-117 (`cbf2b19`). Nikola
+requested coherent phase PRs with separate logical commits,
 not a new PR per small plan or fix. Keep this plan incremental; refine each next
 unit from a concrete failure and the revised acceptance scenarios.
 
@@ -153,7 +153,8 @@ remain open.
 
 ## Review-delivery diagnostic
 
-PR #21 remains unchanged at `dda6f7cd4502d0b57a8a79ba7fc88a3f2440674b`.
+Historical diagnostic: PR #21 was then at
+`dda6f7cd4502d0b57a8a79ba7fc88a3f2440674b`.
 The REST reviews endpoint confirms the only Copilot review belongs to the older
 `a951522b305c5ccb89405a3677672f65081870b7` commit. A diagnostic re-request with
 the documented bot login succeeded, but a subsequent REST requested-reviewers
@@ -300,13 +301,12 @@ task-only authorized command edits do not yet have the manifest's version-histor
 format; semantic necessity and non-software evidence remain separate work. No
 paid or real-model execution or deployment was used.
 
-Next: preserve this bounded result on the same phase branch, then review the
-remaining P2 closure matrix before advancing to P3. PR #21 remains unchanged and
-unmerged. The 2026-09-17T22:07Z scheduled instruction repeats a mandatory Copilot
-gate despite the earlier direct-user fallback authorization; this continuation
-does not merge under that conflict. Keep independent review evidence available
-without weakening branch protections or treating an accepted API request as a
-submitted review.
+Historical handoff: preserve this bounded result on the same phase branch, then
+review the remaining P2 closure matrix before advancing to P3. At that time PR
+#21 was unchanged and unmerged. It subsequently merged as `cbf2b19`; the current
+policy again requires an exact-head Copilot review, with independent review only
+as supplementary evidence. Never treat an accepted review request as a submitted
+review.
 
 ## Unit E — Bind executable validation-basis files
 
@@ -428,3 +428,39 @@ reviews reported no remaining actionable issue, and the final TypeScript build,
 full unit suite, 67 mock integration tests and 7 conformance/autopilot checks
 pass. This is bounded policy-authority evidence, not semantic validation
 sufficiency, complete task-field provenance, or representative model quality.
+
+## Reconciliation after PR #21
+
+Merge commit `36a86e8` reconciles PR #21's strict malformed-catalog/content,
+duplicate linked-id and indexed-lookup checks with Units A-F. Requirement
+fingerprints retain revision, acceptance criteria, both supported link directions
+and integration-participant freshness. Commit `64ccea6` adds coverage-only
+malformed and duplicate-link regressions so strict validation is not limited to
+task `prdRefs`. The reconciled candidate passes the TypeScript build, 797 unit,
+67 mock integration and 7 conformance/autopilot checks. Exact-head independent
+and Copilot reviews remain required before merge; this is not a P2 completion
+claim or representative real-model evidence.
+
+## Unit G — Recheck the validation basis after Git hooks
+
+Exact-head adversarial review found a remaining supported Git-route race. A
+trusted pre-commit or post-commit hook could rewrite a tracked file declared in
+`validationInputPaths` after validation had passed. The original commit path
+rechecked task outputs and Git safety, but could still publish the commit report
+and promote the task using evidence for the older checker bytes.
+
+Commit `40de514` first preserves two failing regressions for pre-commit and
+post-commit mutation. Commit `67bc5ed` makes the post-commit boundary explicit:
+after output verification, commit code reassesses Git safety and rechecks every
+validation receipt field except `gitCandidate`, which necessarily advances when
+the commit is created. Validation-basis, policy, task contract, PRD and
+integration evidence drift therefore refuse report publication and task
+promotion. The created Git commit is retained for diagnosis; SCALER does not
+reset or replay operator hooks.
+
+The exact published candidate passes the TypeScript build, 799 unit tests, 67
+mock integration tests and 7 conformance/autopilot checks. Fresh exact-head
+independent and Copilot reviews remain required before merge. This closes the
+reproduced supported-route race; it does not authenticate arbitrary trusted
+filesystem writers, make hooks transactional, or establish representative
+real/local-model outcome quality.

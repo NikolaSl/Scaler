@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -78,6 +78,36 @@ test("runtime PRD files save and load round trips", async () => {
     assert.equal((await loadPrdRequirements(dir)).requirements[0]?.id, "REQ-001");
     assert.equal((await loadPrdCoverage(dir)).entries[0]?.status, "pending");
     assert.equal((await loadPrdChanges(dir))[0]?.reason, "initial PRD");
+  });
+});
+
+test("runtime PRD loading rejects duplicate on-disk requirement ids before updates", async () => {
+  await withTempDir(async (dir) => {
+    await savePrdRequirements(dir, {
+      version: 1,
+      requirements: [{
+        id: "REQ-DUP",
+        statement: "Initial requirement.",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }],
+    });
+    const path = join(dir, ".scaler", "prd", "requirements.json");
+    const bytes = `${JSON.stringify({
+      version: 1,
+      requirements: [
+        { id: "REQ-DUP", statement: "First copy.", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
+        { id: "REQ-DUP", statement: "Second copy.", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
+      ],
+    })}\n`;
+    await writeFile(path, bytes, "utf8");
+
+    await assert.rejects(loadPrdRequirements(dir), /duplicate id REQ-DUP/i);
+    await assert.rejects(
+      applyPrdRequirementUpserts(dir, [{ id: "REQ-NEW", statement: "Must not be written." }]),
+      /duplicate id REQ-DUP/i,
+    );
+    assert.equal(await readFile(path, "utf8"), bytes);
   });
 });
 
@@ -158,6 +188,35 @@ test("explicit user amendment records immutable versions and rejects stale bases
       id: "REQ-AMEND", expectedRevision: 1, reason: "Stale overwrite", changes: { acceptanceCriteria: [] },
     }), /stale.*expected revision 1.*current revision 2/i);
     assert.deepEqual(await loadPrdRequirements(dir), beforeStale);
+  });
+});
+
+test("acceptance criteria reject exact duplicate ids hidden by Unicode collation", async () => {
+  await withTempDir(async (dir) => {
+    await upsertPrdRequirement(dir, { id: "REQ-UNICODE", statement: "Original requirement." });
+    const path = join(dir, ".scaler", "prd", "requirements.json");
+    const before = await readFile(path, "utf8");
+    const criterion = (id: string, statement: string) => ({
+      id,
+      statement,
+      validationTaskId: "T-UNICODE",
+      commandId: "integration",
+      participantTaskIds: ["T-UNICODE"],
+    });
+
+    await assert.rejects(() => amendPrdRequirement(dir, {
+      id: "REQ-UNICODE",
+      expectedRevision: 1,
+      reason: "Exercise exact duplicate detection independently of locale collation.",
+      changes: {
+        acceptanceCriteria: [
+          criterion("é", "First exact id."),
+          criterion("e\u0301", "Canonically equivalent but byte-distinct id."),
+          criterion("é", "Second exact id."),
+        ],
+      },
+    }), /duplicate id é/i);
+    assert.equal(await readFile(path, "utf8"), before);
   });
 });
 

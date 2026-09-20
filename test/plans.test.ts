@@ -277,6 +277,35 @@ test("planning report rejects an invalid plan before requirement ledger writes",
   });
 });
 
+test("planning report rejects a duplicate persisted catalog before publishing an empty-requirements plan", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await saveState(dir, state);
+    await upsertPrdRequirement(dir, { id: "REQ-DUP", statement: "Initial requirement." });
+    await writeFile(join(dir, ".scaler", "prd", "requirements.json"), `${JSON.stringify({
+      version: 1,
+      requirements: [
+        { id: "REQ-DUP", statement: "First copy.", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
+        { id: "REQ-DUP", statement: "Second copy.", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
+      ],
+    })}\n`, "utf8");
+
+    await assert.rejects(() => applyPlanningReport(dir, state, {
+      id: "PLAN-CORRUPT-CATALOG",
+      requirements: [],
+      plan: {
+        planVersion: 1,
+        status: "active",
+        tasks: [validPlanTask("T-MUST-NOT-PUBLISH", "Must not publish")],
+      },
+    }), /duplicate id REQ-DUP/i);
+
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual(await loadPlanningReports(dir), []);
+    assert.deepEqual((await loadState(dir)).tasks, []);
+  });
+});
+
 test("planning report rejects unreadable validation inputs before any publication", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));

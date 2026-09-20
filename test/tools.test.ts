@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -18,7 +18,7 @@ import { loadState } from "../src/state.js";
 import { loadTaskAgentReports } from "../src/task-reports.js";
 import { loadToolRequests, loadToolResults, loadToolSchemaRecords } from "../src/tool-requests.js";
 import { scalerToolNames, registerScalerTools } from "../src/tools.js";
-import { getValidationManifestForTask } from "../src/validation.js";
+import { evaluateValidationManifestPolicy, getValidationManifestForTask, saveValidationManifest } from "../src/validation.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-tools-test-"));
@@ -63,6 +63,148 @@ test("registerScalerTools registers all tool definitions", () => {
   registerScalerTools(fakePi as never);
 
   assert.deepEqual(registered, [...scalerToolNames]);
+});
+
+test("validation manifest tool preserves commands omitted from a partial draft update", async () => {
+  await withTempDir(async (dir) => {
+    await saveValidationManifest(dir, {
+      taskId: "T-PARTIAL-MANIFEST",
+      commands: [
+        { id: "test-first", command: "node -e \"process.exit(0)\"", gate: "test_first", required: true },
+        { id: "unit", command: "node -e \"process.exit(1)\"", gate: "unit_tests", required: true },
+      ],
+      createdAt: "",
+      updatedAt: "",
+    }, { authority: "model" });
+    const registered = new Map<string, { execute: (...args: any[]) => Promise<any> }>();
+    registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<any> }) {
+      registered.set(definition.name, definition);
+    } } as never);
+
+    const result = await registered.get("scaler_validation_manifest_write")?.execute(
+      "manifest",
+      {
+        taskId: "T-PARTIAL-MANIFEST",
+        commands: [{ id: "test-first", command: "node -e \"process.exit(0)\"", description: "Updated" }],
+      },
+      undefined,
+      undefined,
+      { cwd: dir },
+    );
+
+    assert.equal(result?.details.status, "written");
+    const manifest = await getValidationManifestForTask(dir, "T-PARTIAL-MANIFEST");
+    assert.deepEqual(manifest.commands.map((command) => command.id), ["test-first", "unit"]);
+    assert.equal(manifest.commands[0]?.gate, "test_first");
+    assert.equal(manifest.commands[1]?.gate, "unit_tests");
+    assert.match(manifest.commands[1]?.command ?? "", /process\.exit\(1\)/);
+  });
+});
+
+test("validation manifest partial updates preserve established command order", async () => {
+  await withTempDir(async (dir) => {
+    await saveValidationManifest(dir, {
+      taskId: "T-ORDERED-MANIFEST",
+      commands: [
+        { id: "test-first", command: "node -e \"process.exit(0)\"", gate: "test_first", required: true },
+        { id: "unit", command: "node -e \"process.exit(0)\"", gate: "unit_tests", required: true },
+      ],
+      createdAt: "",
+      updatedAt: "",
+    });
+    const registered = new Map<string, { execute: (...args: any[]) => Promise<any> }>();
+    registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<any> }) {
+      registered.set(definition.name, definition);
+    } } as never);
+
+    const result = await registered.get("scaler_validation_manifest_write")?.execute(
+      "manifest",
+      {
+        taskId: "T-ORDERED-MANIFEST",
+        commands: [{ id: "unit", command: "node -e \"process.exit(0)\"" }],
+      },
+      undefined,
+      undefined,
+      { cwd: dir },
+    );
+
+    assert.equal(result?.details.status, "written");
+    const manifest = await getValidationManifestForTask(dir, "T-ORDERED-MANIFEST");
+    assert.deepEqual(manifest.commands.map((command) => command.id), ["test-first", "unit"]);
+    assert.deepEqual(evaluateValidationManifestPolicy(manifest).diagnostics.filter((entry) => entry.severity === "failure"), []);
+  });
+});
+
+test("validation manifest tool reports malformed persisted commands without mutation", async () => {
+  await withTempDir(async (dir) => {
+    await saveValidationManifest(dir, {
+      taskId: "T-CORRUPT-MANIFEST",
+      commands: [],
+      createdAt: "",
+      updatedAt: "",
+    });
+    const indexPath = join(dir, ".scaler", "reports", "validation-manifests.json");
+    const bytes = `${JSON.stringify({
+      version: 1,
+      manifests: [{ taskId: "T-CORRUPT-MANIFEST", commands: [null], createdAt: "", updatedAt: "" }],
+    })}\n`;
+    await writeFile(indexPath, bytes, "utf8");
+    const registered = new Map<string, { execute: (...args: any[]) => Promise<any> }>();
+    registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<any> }) {
+      registered.set(definition.name, definition);
+    } } as never);
+
+    const result = await registered.get("scaler_validation_manifest_write")?.execute(
+      "manifest",
+      {
+        taskId: "T-CORRUPT-MANIFEST",
+        commands: [{ id: "unit", command: "npm test" }],
+      },
+      undefined,
+      undefined,
+      { cwd: dir },
+    );
+
+    assert.equal(result?.details.status, "rejected");
+    assert.match(result?.content[0]?.text ?? "", /Persisted validation manifest for T-CORRUPT-MANIFEST is malformed: commands/);
+    assert.equal(await readFile(indexPath, "utf8"), bytes);
+  });
+});
+
+test("validation manifest tool rejects malformed proposals without poisoning the index", async () => {
+  for (const params of [
+    { taskId: "T-BLANK-COMMAND", commands: [{ id: "unit", command: "   " }] },
+    { taskId: "T-BLANK-ID", commands: [{ id: "   ", command: "npm test" }] },
+    { taskId: "   ", commands: [{ id: "unit", command: "npm test" }] },
+  ]) {
+    await withTempDir(async (dir) => {
+      await saveValidationManifest(dir, {
+        taskId: "T-VALID",
+        commands: [{ id: "unit", command: "npm test", required: true }],
+        createdAt: "",
+        updatedAt: "",
+      });
+      const indexPath = join(dir, ".scaler", "reports", "validation-manifests.json");
+      const before = await readFile(indexPath, "utf8");
+      const registered = new Map<string, { execute: (...args: any[]) => Promise<any> }>();
+      registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<any> }) {
+        registered.set(definition.name, definition);
+      } } as never);
+
+      const result = await registered.get("scaler_validation_manifest_write")?.execute(
+        "manifest",
+        params,
+        undefined,
+        undefined,
+        { cwd: dir },
+      );
+
+      assert.equal(result?.details.status, "rejected");
+      assert.match(result?.content[0]?.text ?? "", /malformed: (taskId|commands\[\d+\]\.(id|command))/);
+      assert.equal(await readFile(indexPath, "utf8"), before);
+      assert.equal((await getValidationManifestForTask(dir, "T-VALID")).commands[0]?.command, "npm test");
+    });
+  }
 });
 
 test("scaler_task_create records stable audit summary when quality metadata is complete", async () => {

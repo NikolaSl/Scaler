@@ -13,7 +13,7 @@ import { test } from "node:test";
 import { runScalerAutomation } from "../src/autopilot.js";
 import { commitWithExecutionLock } from "../src/operations.js";
 import { acquireExecutionLock, releaseExecutionLock } from "../src/locks.js";
-import { getCommitSkipsPath, getValidationRunsPath } from "../src/paths.js";
+import { getCommitSkipsPath, getPrdRequirementsPath, getValidationRunsPath } from "../src/paths.js";
 import { amendPrdRequirement, loadPrdCoverage, savePrdCoverage, upsertPrdRequirement } from "../src/prd.js";
 import { completeRunWithEvidence } from "../src/run-completion.js";
 import { advanceStageAfterReadyArtifact } from "../src/stage-advancement.js";
@@ -22,8 +22,8 @@ import { runAutonomousStageWorkflow } from "../src/stage-workflow.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { upsertStageArtifact } from "../src/stages.js";
 import type { ScalerState } from "../src/types.js";
+import { captureValidationSnapshot, verifyCurrentValidationReceipt } from "../src/validation-acceptance.js";
 import { loadValidationRuns, runTaskValidation, saveValidationManifest } from "../src/validation.js";
-import { verifyCurrentValidationReceipt } from "../src/validation-acceptance.js";
 
 const exec = promisify(execFile);
 async function fixture(fn: (dir: string, state: ScalerState) => Promise<void>) {
@@ -302,6 +302,59 @@ test("unrelated explicit coverage does not invalidate a task receipt", async () 
   });
   const errors = await verifyCurrentValidationReceipt(dir, await loadState(dir), "T-ONE");
   assert.deepEqual(errors, []);
+}));
+
+for (const [description, requirements] of [
+  ["missing statement", [{ id: "REQ-BROKEN", createdAt: "", updatedAt: "" }]],
+  ["non-string statement", [{ id: "REQ-BROKEN", statement: 42, createdAt: "", updatedAt: "" }]],
+  ["non-string optional content", [{ id: "REQ-BROKEN", statement: "valid", title: {}, source: null, createdAt: "", updatedAt: "" }]],
+  ["duplicate identifier", [
+    { id: "REQ-BROKEN", statement: "first", createdAt: "", updatedAt: "" },
+    { id: "REQ-BROKEN", statement: "second", createdAt: "", updatedAt: "" },
+  ]],
+] as const) {
+  test(`validation snapshot rejects linked requirement with ${description}`, async () => fixture(async (dir, state) => {
+    state.tasks[0]!.prdRefs = ["REQ-BROKEN"];
+    await saveState(dir, state);
+    await upsertPrdRequirement(dir, { id: "REQ-BROKEN", statement: "Produce the declared output" });
+    await writeFile(getPrdRequirementsPath(dir), JSON.stringify({ version: 1, requirements }));
+    await assert.rejects(
+      captureValidationSnapshot(dir, state, "T-ONE"),
+      /requirement|malformed/i,
+    );
+  }));
+}
+
+for (const [description, requirements] of [
+  ["malformed content", [{ id: "REQ-COVERAGE", createdAt: "", updatedAt: "" }]],
+  ["duplicate identifier", [
+    { id: "REQ-COVERAGE", statement: "first", createdAt: "", updatedAt: "" },
+    { id: "REQ-COVERAGE", statement: "second", createdAt: "", updatedAt: "" },
+  ]],
+] as const) {
+  test(`validation snapshot rejects coverage-only requirement with ${description}`, async () => fixture(async (dir, state) => {
+    await upsertPrdRequirement(dir, {
+      id: "REQ-COVERAGE", statement: "Produce the declared output", status: "pending", taskIds: ["T-ONE"],
+    });
+    await writeFile(getPrdRequirementsPath(dir), JSON.stringify({ version: 1, requirements }));
+
+    await assert.rejects(
+      captureValidationSnapshot(dir, state, "T-ONE"),
+      /requirement|malformed/i,
+    );
+  }));
+}
+
+test("validation snapshot rejects a malformed requirements document deterministically", async () => fixture(async (dir, state) => {
+  state.tasks[0]!.prdRefs = ["REQ-BROKEN"];
+  await saveState(dir, state);
+  await upsertPrdRequirement(dir, { id: "REQ-BROKEN", statement: "Produce the declared output" });
+  await writeFile(getPrdRequirementsPath(dir), JSON.stringify({ version: 1 }));
+
+  await assert.rejects(
+    captureValidationSnapshot(dir, state, "T-ONE"),
+    /Malformed runtime PRD requirements: expected version 1 with a requirements array/,
+  );
 }));
 
 test("two real task commits retain valid completion provenance across changed HEAD", async () => fixture(async (dir, state) => {

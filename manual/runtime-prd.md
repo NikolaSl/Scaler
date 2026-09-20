@@ -62,10 +62,12 @@ title and source. Both link directions use one canonical requirement set. Changi
 content, or creating a requirement that was missing when validation ran, requires
 the task to be revalidated before commit/skip, dependent execution or final
 completion. Rewriting identical content does not invalidate evidence merely
-because the ledger timestamp changed. Receipts created before requirement-bound
-snapshot schema version 3 require revalidation.
-Schema v3 receipts captured before explicit-only links were included also require
-revalidation when they omit that content. Unrelated tasks' coverage entries do
+because the ledger timestamp changed. Receipts created before the current
+snapshot schema version 5 require revalidation. Version 3 introduced requirement
+content, version 4 added integration evidence, and version 5 added validation-
+input identity; these are historical milestones, not current reusable receipt
+formats. Schema v3 receipts captured before explicit-only links were included
+also require revalidation when they omit that content. Unrelated tasks' coverage entries do
 not change the fingerprint. Tasks with no links in either direction do not read
 the requirement-content file; the coverage ledger is still checked for links.
 
@@ -81,9 +83,10 @@ identity of the participating components. A changed and reaccepted component
 invalidates older integration evidence until the named command runs again.
 Omitted criteria are preserved by partial direct, PRD-stage and planning updates.
 Model-facing tools and structured reports cannot add, change, or remove criteria,
-or materially change an existing statement, title, or source. An explicit empty
-array therefore fails on those routes. Use the revision-checked local-user
-amendment command for an authorized change.
+or materially change an existing statement, title, or source. Explicitly removing
+existing criteria with an empty array therefore fails on those routes; an
+idempotent empty array for an already criteria-free requirement remains valid.
+Use the revision-checked local-user amendment command for an authorized change.
 
 Each requirement has a monotonic `revision` and embedded `versionHistory`. Every
 accepted amendment appends the exact resulting content, timestamp, user-command

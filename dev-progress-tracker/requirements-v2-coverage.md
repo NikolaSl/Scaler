@@ -3,7 +3,9 @@
 Reviewed code: d866b6957d0b79b455875e56b635ff8f774d0129.
 Assessment date: 2026-09-16. Requirements-only change; no implementation fix is claimed.
 
-This is the CURRENT assessment for SC-* requirements. The legacy
+This table is the CURRENT status assessment, originally based on the reviewed
+`d866b69` baseline. The progress evidence below records later bounded changes
+without silently upgrading any row to Verified. The legacy
 [traceability matrix](traceability-matrix.md), [gap backlog](gap-backlog.md) and
 implementation inventory remain historical evidence for PRD-* requirements.
 Failed means a counterexample was identified for a mandatory behavior. Partial
@@ -285,8 +287,11 @@ PLAN-118 unit A closes the explicit coverage-link omission in PLAN-117:
 task `prdRefs` and coverage `taskIds` now select the same canonical content set
 for receipts. Four baseline failures and two controls pass; build, 724 unit,
 67 mock integration and 7 conformance checks pass, with 90 focused checks.
-This is prepared on the remaining-P2 phase branch, not merged. Requirement-level
-integration acceptance, authority and semantic sufficiency remain open.
+This is prepared on the remaining-P2 phase branch. PR #21 later merged as
+`cbf2b19`, and merge commit `36a86e8` reconciles its strict linked-requirement
+validation with Units A-F. Coverage-only malformed/duplicate links are covered by
+`64ccea6`. Requirement-level semantic sufficiency and representative outcome
+quality remain open; historical gate counts above describe their original heads.
 
 PLAN-117 extends validation receipt schema v3 with the current content of every
 runtime requirement referenced by a task. Changing a statement/title/source or
