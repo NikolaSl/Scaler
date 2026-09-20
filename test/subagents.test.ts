@@ -399,6 +399,7 @@ test("runTaskAgent refuses invalid runtime output limits before spawn", async ()
 });
 
 const strictProviderPolicy = { requestTokenAllowance: 8_000, outputReserveTokens: 32, safetyMarginTokens: 1_024 };
+const strictProviderModel = { api: "openai-completions", provider: "synthetic", id: "shared-model", contextWindow: 8_000 };
 const providerPolicyEnvKeys = [
   "SCALER_PROVIDER_ADMISSION", "SCALER_REQUEST_TOKEN_ALLOWANCE",
   "SCALER_OUTPUT_RESERVE_TOKENS", "SCALER_REQUEST_MARGIN_TOKENS",
@@ -435,6 +436,40 @@ test("strict child invocation suppresses ambient resources and loads admission l
     if (tools.length === 0) assert.ok(invocation.args.includes("--no-tools"));
     else assert.ok(invocation.args.includes("read"));
   }
+});
+
+test("strict child invocation refuses a missing exact provider model identity", () => {
+  assert.throws(() => buildTaskAgentInvocation({
+    taskId: "T-missing-model-binding",
+    prompt: "Inspect.",
+    providerAdmission: strictProviderPolicy,
+  }), TaskAgentInvocationAdmissionError);
+});
+
+test("strict child invocation selects the exact admitted provider and model", () => {
+  const invocation = buildTaskAgentInvocation({
+    taskId: "T-exact-model-binding",
+    prompt: "Inspect.",
+    providerAdmission: strictProviderPolicy,
+    providerAdmissionModel: strictProviderModel,
+  });
+
+  const providerIndex = invocation.args.indexOf("--provider");
+  const modelIndex = invocation.args.indexOf("--model");
+  assert.ok(providerIndex >= 0);
+  assert.ok(modelIndex >= 0);
+  assert.equal(invocation.args[providerIndex + 1], "synthetic");
+  assert.equal(invocation.args[modelIndex + 1], "shared-model");
+});
+
+test("strict child invocation refuses a caller model that conflicts with the admitted identity", () => {
+  assert.throws(() => buildTaskAgentInvocation({
+    taskId: "T-conflicting-model-binding",
+    prompt: "Inspect.",
+    model: "cloud/shared-model",
+    providerAdmission: strictProviderPolicy,
+    providerAdmissionModel: strictProviderModel,
+  }), TaskAgentInvocationAdmissionError);
 });
 
 test("strict child invocation refuses additional extension configurations", () => {
