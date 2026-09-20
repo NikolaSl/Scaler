@@ -302,6 +302,19 @@ test("manifest readers reject malformed audit metadata without rewriting", async
       );
       assert.equal(await readFile(indexPath, "utf8"), bytes);
     }
+
+    const validBytes = `${JSON.stringify({ version: 1, manifests: [manifest] })}\n`;
+    await writeFile(indexPath, validBytes, "utf8");
+    for (const metadata of malformedMetadata) {
+      await assert.rejects(
+        saveValidationManifest(dir, {
+          ...manifest,
+          ...metadata,
+        } as never),
+        /Proposed validation manifest for T-AUDIT is malformed: (establishedAuthority|versionHistory)/,
+      );
+      assert.equal(await readFile(indexPath, "utf8"), validBytes);
+    }
   });
 });
 
