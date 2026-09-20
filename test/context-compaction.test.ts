@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -22,6 +22,7 @@ import {
 import { loadContextSplitRecords, recordContextSplitIfNeeded } from "../src/context-splits.js";
 import { ensureTaskContextManifest, saveTaskContextManifest, type ResolvedContext } from "../src/context.js";
 import { loadMemoryIndex } from "../src/memory.js";
+import { getTaskContextManifestPath } from "../src/paths.js";
 import { createDefaultState } from "../src/state.js";
 import type { ScalerState } from "../src/types.js";
 
@@ -227,6 +228,69 @@ test("fresh context handoff uses the current manifest allowance", async () => {
     assert.equal(result.accepted, false);
     assert.equal(result.record.activeContextLimitTokens, 100);
     assert.match(result.record.diagnostics.join(" "), /current target 100/i);
+  });
+});
+
+test("fresh context handoff rejects a foreign current manifest identity", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTask();
+    const resolved = oversizedResolvedContext();
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: resolved.estimatedTokens, contextWindowTokens: 1_000, largeItemThresholdTokens: 100 });
+    const split = await recordContextSplitIfNeeded(dir, state, "T-COMPACT", resolved, assessment, new Date("2026-01-01T00:00:03.000Z"));
+    const manifest = await ensureTaskContextManifest(dir, state, "T-COMPACT");
+    await writeFile(getTaskContextManifestPath(dir, "T-COMPACT"), `${JSON.stringify({ ...manifest, taskId: "T-FOREIGN" }, null, 2)}\n`, "utf8");
+
+    const result = await prepareFreshContextHandoff(dir, state, { splitId: split!.id, now: new Date("2026-01-01T00:00:04.000Z") });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.prompt, "");
+    assert.match(result.record.diagnostics.join(" "), /current context manifest is invalid/i);
+  });
+});
+
+test("fresh context handoff rejects unavailable newly required context", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTask();
+    const resolved = oversizedResolvedContext();
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: resolved.estimatedTokens, contextWindowTokens: 1_000, largeItemThresholdTokens: 100 });
+    const split = await recordContextSplitIfNeeded(dir, state, "T-COMPACT", resolved, assessment, new Date("2026-01-01T00:00:03.000Z"));
+    const manifest = await ensureTaskContextManifest(dir, state, "T-COMPACT");
+    await saveTaskContextManifest(dir, { ...manifest, items: [...manifest.items, {
+      id: "new-required-file",
+      type: "file",
+      reason: "New exact dependency",
+      priority: "required",
+      scope: "full",
+      exactness: "exact",
+      source: "file",
+      path: "missing-required.txt",
+    }] });
+
+    const result = await prepareFreshContextHandoff(dir, state, { splitId: split!.id, now: new Date("2026-01-01T00:00:04.000Z") });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.prompt, "");
+    assert.match(result.record.diagnostics.join(" "), /required current context is unavailable/i);
+  });
+});
+
+test("fresh context handoff rejects a symlink replacement for externalized context", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTask();
+    const resolved = oversizedResolvedContext();
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: resolved.estimatedTokens, contextWindowTokens: 1_000, largeItemThresholdTokens: 100 });
+    const split = await recordContextSplitIfNeeded(dir, state, "T-COMPACT", resolved, assessment, new Date("2026-01-01T00:00:03.000Z"));
+    const ref = split!.externalizedMemoryRefs[0]!;
+    const target = join(dir, ".scaler", "memory", "replacement.md");
+    await writeFile(target, await readFile(join(dir, ref.path), "utf8"), "utf8");
+    await rm(join(dir, ref.path));
+    await symlink(target, join(dir, ref.path));
+
+    const result = await prepareFreshContextHandoff(dir, state, { splitId: split!.id, now: new Date("2026-01-01T00:00:04.000Z") });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.prompt, "");
+    assert.match(result.record.diagnostics.join(" "), /externalized context source is unavailable or changed/i);
   });
 });
 

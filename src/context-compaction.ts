@@ -273,6 +273,9 @@ export async function prepareFreshContextHandoff(
   let resolvedItems: ContextItem[];
   try {
     manifest = await ensureTaskContextManifest(cwd, state, split.taskId);
+    if (manifest.taskId !== split.taskId) {
+      return await recordBlockedFreshHandoff(cwd, state, split, "Fresh handoff current context manifest is invalid.", now);
+    }
     resolvedItems = await resolveTaskContextManifest(cwd, state, manifest);
   } catch {
     return await recordBlockedFreshHandoff(cwd, state, split, "Fresh handoff current context manifest is invalid.", now);
@@ -545,6 +548,8 @@ async function verifyExternalizedContextRefs(
       const entry = memory.entries.find((candidate) => candidate.id === ref.memoryId);
       if (!entry || entry.path !== ref.path || entry.taskId !== split.taskId
           || entry.source !== `context-split:${split.id}` || entry.validity !== "active") return false;
+      const normalizedPath = ref.path.replace(/\\/g, "/").replace(/^\.\//, "");
+      if (!normalizedPath.startsWith(".scaler/memory/") || normalizedPath.includes("/../")) return false;
       const absolute = isAbsolute(ref.path) ? resolve(ref.path) : resolve(cwd, ref.path);
       if (!pathIsWithin(root, absolute)) return false;
       const stats = await lstat(absolute);
