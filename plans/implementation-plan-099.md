@@ -81,6 +81,11 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   current-agent or worker/continuation roles, fails closed on malformed runtime
   evidence and records only compact advice. Route execution remains a later
   unit; neither PLAN-123 nor PLAN-124 is AC-08 completion.
+  PLAN-125 first closes the isolated executor's result-acceptance prerequisite:
+  child results become execution-bound proposals, only a successful parent-
+  observed process outcome may close the request, and scheduled tool work is
+  sequential. Provider-envelope admission and route execution remain later
+  units; PLAN-125 is not AC-08 completion.
 
 ### Renewed continuation policy (2026-09-19)
 
