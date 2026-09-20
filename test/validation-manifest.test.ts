@@ -211,6 +211,33 @@ test("manifest revisions must be positive safe integers before read or write", a
   });
 });
 
+test("authorized manifest amendment refuses revision overflow without mutation", async () => {
+  await withTempDir(async (dir) => {
+    const current = await saveValidationManifest(dir, {
+      taskId: "T-REVISION-LIMIT",
+      revision: Number.MAX_SAFE_INTEGER,
+      commands: [{ id: "unit", command: "npm test", required: true }],
+      createdAt: "",
+      updatedAt: "",
+    });
+    const indexPath = join(dir, ".scaler", "reports", "validation-manifests.json");
+    const before = await readFile(indexPath, "utf8");
+
+    await assert.rejects(
+      saveValidationManifest(dir, {
+        ...current,
+        commands: [{ id: "unit", command: "npm test -- --runInBand", required: true }],
+      }, {
+        authority: "user_command",
+        reason: "Exercise the revision limit.",
+      }),
+      /revision.*cannot be incremented safely/i,
+    );
+    assert.equal(await readFile(indexPath, "utf8"), before);
+    assert.equal((await loadValidationManifests(dir))[0]?.revision, Number.MAX_SAFE_INTEGER);
+  });
+});
+
 test("normalizeValidationGateKind maps common software and non-software aliases", () => {
   assert.equal(normalizeValidationGateKind("unit"), "unit_tests");
   assert.equal(normalizeValidationGateKind("build-compile"), "build_compile");
