@@ -23,6 +23,7 @@ import { completeRunWithEvidence } from "./run-completion.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
 import type { GitCommitTaskResult } from "./git.js";
 import type { ValidationRunRecord } from "./validation.js";
+import type { ProviderAdmissionModel } from "./provider-admission.js";
 
 export type ScalerAutomationAction = "stage_workflow" | "task_agent" | "validation" | "debug" | "debug_retry" | "commit" | "complete" | "blocked";
 
@@ -54,6 +55,8 @@ export interface ScalerAutomationOptions {
   autoAcceptReplan?: boolean;
   timeoutMs?: number;
   maxDebugSteps?: number;
+  model?: string;
+  providerAdmissionModel?: ProviderAdmissionModel;
 }
 
 export interface ScalerAutomationRunners extends StageWorkflowRunners, Pick<DebugConductorRunners, "debug"> {
@@ -131,6 +134,8 @@ export async function runScalerAutomation(
         replanTools: options.replanTools,
         autoAcceptReplan: options.autoAcceptReplan,
         timeoutMs: options.timeoutMs,
+        model: options.model,
+        providerAdmissionModel: options.providerAdmissionModel,
       }, runners);
       currentState = await loadState(cwd);
       steps.push({
@@ -213,6 +218,8 @@ export async function runScalerAutomation(
         maxSteps: normalizeMax(options.maxDebugSteps, 5, 1, 50),
         tools: ["read", "bash"],
         timeoutMs: options.timeoutMs,
+        model: options.model,
+        providerAdmissionModel: options.providerAdmissionModel,
       }, {
         debug: runners.debug,
         research: runners.research,
@@ -239,6 +246,8 @@ export async function runScalerAutomation(
           execute: true,
           timeoutMs: options.timeoutMs,
           tools: options.taskTools ? defaultTaskAgentTools(options.taskTools) : undefined,
+          model: options.model,
+          providerAdmissionModel: options.providerAdmissionModel,
         }, runners.task);
         currentState = await loadState(cwd);
         steps.push({
@@ -266,6 +275,8 @@ export async function runScalerAutomation(
         execute: true,
         tools: options.taskTools ? defaultTaskAgentTools(options.taskTools) : undefined,
         timeoutMs: options.timeoutMs,
+        model: options.model,
+        providerAdmissionModel: options.providerAdmissionModel,
       }, runners.task);
       currentState = await loadState(cwd);
       steps.push({

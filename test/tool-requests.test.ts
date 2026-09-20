@@ -50,12 +50,16 @@ import {
   runToolIterationWorkflow as runToolIterationWorkflowRaw,
   runToolRequestAgent as runToolRequestAgentRaw,
   runToolSchedule as runToolScheduleRaw,
-  runToolSchemaDiscoveryAgent,
+  runToolSchemaDiscoveryAgent as runToolSchemaDiscoveryAgentImpl,
   saveToolIterationPolicy,
   selectParentRequesterActiveTools,
   shouldApplyParentToolFocus,
   type ToolDispatchRouteEvidenceSupplier,
 } from "../src/tool-requests.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const runToolSchemaDiscoveryAgent: typeof runToolSchemaDiscoveryAgentImpl = (cwd, state, options, runner) =>
+  runToolSchemaDiscoveryAgentImpl(cwd, state, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runner);
 
 const admittedRouteEvidenceSupplier: ToolDispatchRouteEvidenceSupplier = (basis) => {
   const payload = { model: "synthetic", messages: [{ role: "user", content: "bounded" }], max_completion_tokens: 1_024 };
@@ -340,6 +344,8 @@ test("runToolSchemaDiscoveryAgent records prepare-mode probes", async () => {
     assert.deepEqual(result.run?.allowedTools, ["scaler_tool_schema", "read"]);
     assert.ok(result.invocation?.args.includes("--no-extensions"));
     assert.ok(result.invocation?.args.includes("--no-context-files"));
+    assert.ok(result.invocation?.args.includes("--provider"));
+    assert.ok(result.invocation?.args.includes("synthetic"));
     assert.match(formatToolSchemaDiscoveryRuns(await loadToolSchemaDiscoveryRuns(dir)), /status=prepared/);
   });
 });
@@ -355,6 +361,7 @@ test("runToolSchemaDiscoveryAgent recognizes structured scaler_tool_schema compl
         outputReserveTokens: 1_024,
         safetyMarginTokens: 1_024,
       });
+      assert.deepEqual(request.providerAdmissionModel, testProviderAdmissionModel);
       await recordToolSchema(dir, state, {
         toolName: "mcp_docs_search",
         source: "local-schema",

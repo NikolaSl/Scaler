@@ -5,12 +5,28 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { assessProviderRequestAdmission } from "../src/provider-admission.js";
+import { assessProviderRequestAdmission, readProviderAdmissionModelBindingFromEnvironment } from "../src/provider-admission.js";
 
 const model = { api: "openai-completions", provider: "openai", id: "synthetic-window", contextWindow: 8_000 };
 const policy = { requestTokenAllowance: 8_000, outputReserveTokens: 32, safetyMarginTokens: 16 };
 const payload = () => ({ model: model.id, messages: [{ role: "user", content: "Inspect source." }], stream: true, max_completion_tokens: 32 });
 const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value), "utf8");
+
+test("strict provider model binding parser refuses missing and partial identities", () => {
+  assert.equal(readProviderAdmissionModelBindingFromEnvironment({}).accepted, false);
+  assert.equal(readProviderAdmissionModelBindingFromEnvironment({ SCALER_EXPECTED_PROVIDER: "synthetic" }).accepted, false);
+  assert.deepEqual(readProviderAdmissionModelBindingFromEnvironment({
+    SCALER_EXPECTED_PROVIDER_API: "openai-completions",
+    SCALER_EXPECTED_PROVIDER: "synthetic",
+    SCALER_EXPECTED_MODEL_ID: "synthetic-8k",
+    SCALER_EXPECTED_CONTEXT_WINDOW: "8000",
+  }).model, {
+    api: "openai-completions",
+    provider: "synthetic",
+    id: "synthetic-8k",
+    contextWindow: 8_000,
+  });
+});
 
 for (const [name, extra] of [
   ["system instructions", { messages: [{ role: "system", content: "s".repeat(8_000) }, { role: "user", content: "Inspect source." }] }],

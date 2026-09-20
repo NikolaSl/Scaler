@@ -27,10 +27,10 @@ import { appendLogEvent, createLogEvent, logAgentPromptAudit } from "./logging.j
 import { createMissingContextRequestsFromTaskReport, refreshAndUnblockMissingContext } from "./missing-context.js";
 import { getTaskAgentRunsPath, getValidationHandoffsPath } from "./paths.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
-import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
+import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { assessTaskPromptAdmission, createPromptSizingAttemptBinding, resolveTaskPromptTokenBudget, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
 import { saveState } from "./state.js";
-import { assertStrictChildToolAvailability, buildTaskAgentInvocation, runTaskAgent, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, runTaskAgent, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import {
   completeTaskAttempt,
   taskAttemptBinding,
@@ -56,6 +56,7 @@ export interface ConductorStepOptions {
   tokenBudget?: number;
   tools?: string[];
   model?: string;
+  providerAdmissionModel?: ProviderAdmissionModel;
   timeoutMs?: number;
 }
 
@@ -296,11 +297,12 @@ export async function runConductorStep(
     }
     const tools = options.tools ?? defaultTaskAgentTools();
     try {
-      assertStrictChildToolAvailability({
+      buildTaskAgentInvocation({
         taskId: runningTask.id,
         prompt,
         tools,
         model: options.model,
+        providerAdmissionModel: options.providerAdmissionModel,
         cwd,
         providerAdmission: createStrictProviderAdmissionPolicy(promptTokenBudget),
       });
@@ -310,7 +312,7 @@ export async function runConductorStep(
         eventType: "rejected_transition",
         summary: error.message,
         taskId: runningTask.id,
-        details: { admission: "tool_availability" },
+        details: { admission: "child_invocation" },
       }));
       return { accepted: false, message: error.message, state: nextState, task: runningTask, prompt, contextSplit };
     }
@@ -339,7 +341,7 @@ export async function runConductorStep(
         // Admission performs the final dependency-evidence check. Publish the
         // projected spawn only after that check succeeds so a late rejection
         // cannot consume agent budget for work that never started.
-        activeAttempt = await admitTaskExecution(cwd, lock.lock.id, state, runningTask, resolvedContext, options.model, tools);
+        activeAttempt = await admitTaskExecution(cwd, lock.lock.id, state, runningTask, resolvedContext, exactModelSelector(options.providerAdmissionModel, options.model), tools);
       } catch (error) {
         if (!(error instanceof TaskDependencyAdmissionError) && !(error instanceof TaskContractAdmissionError) && !(error instanceof TaskContextAdmissionError)) throw error;
         const message = error.message;
@@ -376,6 +378,7 @@ export async function runConductorStep(
       model: options.model,
       cwd,
       providerAdmission: createStrictProviderAdmissionPolicy(promptTokenBudget),
+      providerAdmissionModel: options.providerAdmissionModel,
       attempt: attemptBinding,
     };
     const invocation = buildTaskAgentInvocation(request);
@@ -461,6 +464,10 @@ export async function runConductorStep(
   } finally {
     await releaseExecutionLock(cwd, lock.lock.id);
   }
+}
+
+function exactModelSelector(binding: ProviderAdmissionModel | undefined, fallback: string | undefined): string | undefined {
+  return binding ? `${binding.provider}/${binding.id}` : fallback;
 }
 
 export function formatTaskAgentRunList(records: TaskAgentRunRecord[], taskId?: string, limit = 10): string {

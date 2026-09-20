@@ -11,7 +11,7 @@ import { loadExecutionPlan, summarizeExecutionPlan, formatExecutionPlanSummary, 
 import { getResearchAgentRunsPath } from "./paths.js";
 import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdCoverageSummary, type RuntimePrdRequirementsFile } from "./prd.js";
 import { requireTaskPromptAdmission, TaskPromptAdmissionError, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
-import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
+import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import {
   formatResearchSummary,
@@ -44,6 +44,7 @@ export interface ResearchAgentInvocationOptions {
   tools?: string[];
   allowInternet?: boolean;
   model?: string;
+  providerAdmissionModel?: ProviderAdmissionModel;
   appendSystemPromptPath?: string;
   extensionPaths?: string[];
   command?: string;
@@ -199,6 +200,7 @@ export function prepareResearchAgentInvocation(
     appendSystemPromptPath: options.appendSystemPromptPath,
     extensionPaths: options.extensionPaths,
     providerAdmission: createStrictProviderAdmissionPolicy(promptAdmission.tokenBudget),
+    providerAdmissionModel: options.providerAdmissionModel,
     enforceLoadedToolAvailability: true,
   };
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");

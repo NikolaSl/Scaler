@@ -23,7 +23,7 @@ import {
 import { getDebugAgentRunsPath } from "./paths.js";
 import { loadReplanRequests } from "./plans.js";
 import { requireTaskPromptAdmission, TaskPromptAdmissionError, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
-import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
+import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { formatResearchSummary, loadResearchReports, loadResearchRequests } from "./research.js";
 import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
@@ -44,6 +44,7 @@ export interface DebugAgentPromptInput {
 export interface DebugAgentInvocationOptions {
   tools?: string[];
   model?: string;
+  providerAdmissionModel?: ProviderAdmissionModel;
   appendSystemPromptPath?: string;
   extensionPaths?: string[];
   command?: string;
@@ -195,6 +196,7 @@ export function prepareDebugAgentInvocation(
     appendSystemPromptPath: options.appendSystemPromptPath,
     extensionPaths: options.extensionPaths,
     providerAdmission: createStrictProviderAdmissionPolicy(promptAdmission.tokenBudget),
+    providerAdmissionModel: options.providerAdmissionModel,
     enforceLoadedToolAvailability: true,
   };
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");

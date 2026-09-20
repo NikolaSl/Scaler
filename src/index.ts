@@ -96,6 +96,7 @@ import { formatReplanAgentRunList, loadReplanAgentRunRecords, runReplanAgentStep
 import { formatResearchAgentRunList, loadResearchAgentRunRecords, runResearchAgentStep } from "./research-agent.js";
 import { formatResearchSummary, loadResearchReports, loadResearchRequests, recordResearchReport, upsertResearchRequest } from "./research.js";
 import { formatResearchWebRunResult, formatResearchWebTransactions, loadResearchWebTransactions, runResearchWebWorkflow } from "./research-web.js";
+import type { ProviderAdmissionModel } from "./provider-admission.js";
 import { applySafetyApproval, assessToolCallSafety, createSafetyApproval, formatSafetyApprovals, formatSafetyPolicy, formatSafetyScanRecords, formatSafetyScanResult, loadSafetyApprovals, loadSafetyPolicy, loadSafetyScanRecords, mergeSafetyPolicy, revokeSafetyApproval, runSafetyScans, saveSafetyPolicy } from "./safety.js";
 import { createTask, formatTaskList, retryTask, updateTask } from "./tasks.js";
 import { formatTaskAgentReportList, loadTaskAgentReports } from "./task-reports.js";
@@ -126,6 +127,16 @@ type RuntimeToolAPI = Partial<Pick<ExtensionAPI, "getAllTools" | "getActiveTools
 type HostSystemPromptBuilder = (options: BuildSystemPromptOptions) => string;
 
 let hostSystemPromptBuilderPromise: Promise<HostSystemPromptBuilder> | undefined;
+
+function snapshotHostModel(model: ProviderAdmissionModel | undefined): ProviderAdmissionModel | undefined {
+  if (!model) return undefined;
+  return {
+    api: model.api,
+    provider: model.provider,
+    id: model.id,
+    contextWindow: model.contextWindow,
+  };
+}
 
 async function loadHostSystemPromptBuilder(): Promise<HostSystemPromptBuilder> {
   hostSystemPromptBuilderPromise ??= (async () => {
@@ -535,7 +546,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         return;
       }
 
-      const automation = await runScalerAutomation(ctx.cwd, nextState);
+      const automation = await runScalerAutomation(ctx.cwd, nextState, { providerAdmissionModel: snapshotHostModel(ctx.model) });
       const message = `${formatStateStatus(automation.finalState)} reason=${automation.finalState.orchestrationReason ?? "n/a"} git=${gitBootstrap.status}\n${automation.message}`;
       if (ctx.hasUI) {
         ctx.ui.notify(message, automation.accepted ? "info" : "warning");
@@ -884,7 +895,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       try {
         const state = await ensureState(ctx.cwd);
         const execute = /\bexecute\b/i.test(args ?? "");
-        const result = await runStageConductorStep(ctx.cwd, state, { execute });
+        const result = await runStageConductorStep(ctx.cwd, state, { execute, providerAdmissionModel: snapshotHostModel(ctx.model) });
         if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
         else console.log(result.message);
       } catch (error) {
@@ -901,7 +912,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       try {
         const state = await ensureState(ctx.cwd);
         const parsed = parseStageLoopArgs(args);
-        const result = await runStageConductorLoop(ctx.cwd, state, { execute: parsed.execute, maxSteps: parsed.maxSteps });
+        const result = await runStageConductorLoop(ctx.cwd, state, { execute: parsed.execute, maxSteps: parsed.maxSteps, providerAdmissionModel: snapshotHostModel(ctx.model) });
         if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
         else console.log(result.message);
       } catch (error) {
@@ -926,6 +937,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
           allowInternet: parsed.allowInternet,
           tools: parsed.tools,
           autoAcceptReplan: parsed.autoAcceptReplan,
+          providerAdmissionModel: snapshotHostModel(ctx.model),
         });
         if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
         else console.log(result.message);
@@ -959,7 +971,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
 
       try {
         const state = await ensureState(ctx.cwd);
-        const result = await runStageAgentStep(ctx.cwd, state, parsed.stage, { execute: parsed.execute });
+        const result = await runStageAgentStep(ctx.cwd, state, parsed.stage, { execute: parsed.execute, providerAdmissionModel: snapshotHostModel(ctx.model) });
         let message = result.accepted ? `${result.message} run=${result.runRecord?.id ?? "n/a"}` : result.message;
         if (parsed.execute && result.ingestion?.attempted) {
           message = result.ingestion.ingested
@@ -1155,7 +1167,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       const parsed = parseReplanRunArgs(args);
       const state = await ensureState(ctx.cwd);
-      const result = await runReplanAgentStep(ctx.cwd, state, { execute: parsed.execute });
+      const result = await runReplanAgentStep(ctx.cwd, state, { execute: parsed.execute, providerAdmissionModel: snapshotHostModel(ctx.model) });
       const ingestion = result.ingestion?.attempted
         ? ` ingestion=${result.ingestion.ingested ? "ingested" : "rejected"}${result.ingestion.plan ? ` proposed_plan=${result.ingestion.plan.planVersion}` : ""}`
         : "";
@@ -1179,7 +1191,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       const parsed = parseDebugRunArgs(args);
       const state = await ensureState(ctx.cwd);
-      const result = await runDebugAgentStep(ctx.cwd, state, { taskId: parsed.taskId, execute: parsed.execute });
+      const result = await runDebugAgentStep(ctx.cwd, state, { taskId: parsed.taskId, execute: parsed.execute, providerAdmissionModel: snapshotHostModel(ctx.model) });
       const ingestion = result.ingestion?.attempted
         ? ` ingestion=${result.ingestion.ingested ? "ingested" : "rejected"}${result.ingestion.report ? ` report=${result.ingestion.report.id}` : ""}${result.ingestion.researchRequestIds?.length ? ` research=${result.ingestion.researchRequestIds.join(",")}` : ""}${result.ingestion.replanRequestId ? ` replan=${result.ingestion.replanRequestId}` : ""}`
         : "";
@@ -1194,7 +1206,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       const parsed = parseDebugRetryArgs(args);
       const state = await ensureState(ctx.cwd);
-      const result = await runDebugRetryPolicyWorkflow(ctx.cwd, state, { taskId: parsed.taskId, execute: parsed.execute });
+      const result = await runDebugRetryPolicyWorkflow(ctx.cwd, state, { taskId: parsed.taskId, execute: parsed.execute, providerAdmissionModel: snapshotHostModel(ctx.model) });
       const suffix = result.retry ? ` retry=${result.retry.id} status=${result.retry.status}${result.exactValidationRun ? ` exact_validation=${result.exactValidationRun.status}` : ""}${result.postValidation ? ` post_validation=${result.postValidation.result?.status ?? "not_run"}` : ""}${result.postCommit ? ` post_commit=${result.postCommit.accepted ? "accepted" : "rejected"}` : ""}` : "";
       const message = `${result.message}${suffix}`;
       if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
@@ -1262,6 +1274,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         taskId: parsed.taskId,
         execute: parsed.execute,
         maxSteps: parsed.maxSteps,
+        providerAdmissionModel: snapshotHostModel(ctx.model),
       });
       const message = result.message;
       if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
@@ -1381,6 +1394,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         toolName: parsed.toolName ?? "",
         execute: parsed.execute,
         tools: parsed.tools,
+        providerAdmissionModel: snapshotHostModel(ctx.model),
       });
       const suffix = result.run ? ` run=${result.run.id} status=${result.run.status}` : "";
       const message = `${result.message}${suffix}`;
@@ -1542,7 +1556,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       const parsed = parseResearchRunArgs(args);
       const state = await ensureState(ctx.cwd);
-      const result = await runResearchAgentStep(ctx.cwd, state, { requestId: parsed.requestId, execute: parsed.execute, allowInternet: parsed.allowInternet, tools: parsed.tools });
+      const result = await runResearchAgentStep(ctx.cwd, state, { requestId: parsed.requestId, execute: parsed.execute, allowInternet: parsed.allowInternet, tools: parsed.tools, providerAdmissionModel: snapshotHostModel(ctx.model) });
       const ingestion = result.ingestion?.attempted
         ? ` ingestion=${result.ingestion.ingested ? "ingested" : "rejected"}${result.ingestion.report ? ` report=${result.ingestion.report.id}` : ""}`
         : "";
@@ -1563,6 +1577,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         allowInternet: parsed.allowInternet,
         tools: parsed.tools,
         maxQueries: parsed.maxQueries,
+        providerAdmissionModel: snapshotHostModel(ctx.model),
       });
       const message = formatResearchWebRunResult(result);
       if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
@@ -1817,7 +1832,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       const state = await ensureState(ctx.cwd);
       const execute = /\bexecute\b/i.test(args ?? "");
-      const result = await runConductorStep(ctx.cwd, state, { execute });
+      const result = await runConductorStep(ctx.cwd, state, { execute, providerAdmissionModel: snapshotHostModel(ctx.model) });
       const message = result.accepted ? `${result.message} checkpoint=${result.checkpointPath ?? "n/a"}` : result.message;
       if (ctx.hasUI) {
         ctx.ui.notify(message, result.accepted ? "info" : "warning");
@@ -1968,6 +1983,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const result = await runValidationDebugLoopWorkflow(ctx.cwd, state, taskId, {
         execute: parsed.execute,
         maxSteps: parsed.maxSteps,
+        providerAdmissionModel: snapshotHostModel(ctx.model),
       });
       if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
       else console.log(result.message);

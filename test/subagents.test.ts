@@ -426,7 +426,7 @@ console.log(JSON.stringify({type:"test_policy",policy:Object.fromEntries(keys.fi
 test("strict child invocation suppresses ambient resources and loads admission last even without tools", async () => {
   const { getProviderAdmissionExtensionPath } = await import("../src/subagents.js");
   for (const tools of [[], ["read"]]) {
-    const invocation = buildTaskAgentInvocation({ taskId: "T-strict", prompt: "Inspect.", tools, providerAdmission: strictProviderPolicy });
+    const invocation = buildTaskAgentInvocation({ taskId: "T-strict", prompt: "Inspect.", tools, providerAdmission: strictProviderPolicy, providerAdmissionModel: strictProviderModel });
     for (const flag of ["--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files"]) {
       assert.ok(invocation.args.includes(flag), `missing ${flag}`);
     }
@@ -479,16 +479,20 @@ test("strict child invocation refuses additional extension configurations", () =
   }), /extension/i);
 });
 
-test("runTaskAgent transports only validated numeric provider policy and a strict marker", async () => {
+test("runTaskAgent transports validated provider policy and exact model identity", async () => {
   await withInheritedProviderPolicy(async () => {
     await withScript(providerPolicyEchoScript, async (script, dir) => {
-      const result = await runTaskAgent({ taskId: "T-strict", prompt: "Private prompt must not be an environment value", cwd: dir, providerAdmission: strictProviderPolicy }, { command: script });
+      const result = await runTaskAgent({ taskId: "T-strict", prompt: "Private prompt must not be an environment value", cwd: dir, providerAdmission: strictProviderPolicy, providerAdmissionModel: strictProviderModel }, { command: script });
       assert.equal(result.exitCode, 0);
       assert.deepEqual(result.stdoutEvents, [{ type: "test_policy", policy: {
         SCALER_PROVIDER_ADMISSION: "strict",
         SCALER_REQUEST_TOKEN_ALLOWANCE: "8000",
         SCALER_OUTPUT_RESERVE_TOKENS: "32",
         SCALER_REQUEST_MARGIN_TOKENS: "1024",
+        SCALER_EXPECTED_PROVIDER_API: "openai-completions",
+        SCALER_EXPECTED_PROVIDER: "synthetic",
+        SCALER_EXPECTED_MODEL_ID: "shared-model",
+        SCALER_EXPECTED_CONTEXT_WINDOW: "8000",
       } }]);
     });
   });

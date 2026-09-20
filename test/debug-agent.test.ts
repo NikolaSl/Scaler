@@ -14,15 +14,21 @@ import {
   formatDebugAgentRunList,
   ingestDebugReport,
   loadDebugAgentRunRecords,
-  prepareDebugAgentInvocation,
+  prepareDebugAgentInvocation as prepareDebugAgentInvocationImpl,
   recordDebugAgentRun,
-  runDebugAgentStep,
+  runDebugAgentStep as runDebugAgentStepImpl,
 } from "../src/debug-agent.js";
 import { loadDebugReports, recordDebugAttempt } from "../src/debug.js";
 import { readLogEvents } from "../src/logging.js";
 import { loadResearchRequests } from "../src/research.js";
 import { createDefaultState } from "../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../src/subagents.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const prepareDebugAgentInvocation: typeof prepareDebugAgentInvocationImpl = (cwd, input, options = {}) =>
+  prepareDebugAgentInvocationImpl(cwd, input, { ...options, providerAdmissionModel: testProviderAdmissionModel });
+const runDebugAgentStep: typeof runDebugAgentStepImpl = (cwd, state, options = {}, runner) =>
+  runDebugAgentStepImpl(cwd, state, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runner);
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-debug-agent-test-"));
@@ -92,7 +98,7 @@ test("prepareDebugAgentInvocation builds isolated Pi invocation", () => {
     reports: [],
     researchSummary: "No research.",
     replanRequests: [],
-  }, { tools: ["read"], model: "m", command: "pi-test" });
+  }, { tools: ["read"], model: "synthetic-8k", command: "pi-test" });
 
   assert.equal(preparation.task.id, "T-001");
   assert.equal(preparation.request.taskId, "debug-agent-T-001");

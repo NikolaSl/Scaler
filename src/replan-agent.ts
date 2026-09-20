@@ -23,7 +23,7 @@ import {
 } from "./plans.js";
 import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdCoverageSummary, type RuntimePrdRequirementsFile } from "./prd.js";
 import { requireTaskPromptAdmission, TaskPromptAdmissionError, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
-import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
+import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
@@ -41,6 +41,7 @@ export interface ReplanAgentPromptInput {
 export interface ReplanAgentInvocationOptions {
   tools?: string[];
   model?: string;
+  providerAdmissionModel?: ProviderAdmissionModel;
   appendSystemPromptPath?: string;
   extensionPaths?: string[];
   command?: string;
@@ -191,6 +192,7 @@ export function prepareReplanAgentInvocation(
     appendSystemPromptPath: options.appendSystemPromptPath,
     extensionPaths: options.extensionPaths,
     providerAdmission: createStrictProviderAdmissionPolicy(promptAdmission.tokenBudget),
+    providerAdmissionModel: options.providerAdmissionModel,
     enforceLoadedToolAvailability: true,
   };
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");

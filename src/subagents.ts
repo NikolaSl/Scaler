@@ -30,7 +30,7 @@ export interface TaskAgentRequest {
   providerAdmission?: ProviderAdmissionPolicy;
   /** @deprecated Strict admission always refuses tools the isolated loader cannot provide. */
   enforceLoadedToolAvailability?: boolean;
-  /** Optional exact live-model identity bound by the parent admission decision. */
+  /** Exact live-model identity bound by the parent admission decision. Required for strict children. */
   providerAdmissionModel?: ProviderAdmissionModel;
   attempt?: TaskAttemptBinding;
 }
@@ -110,15 +110,25 @@ export function buildTaskAgentInvocation(request: TaskAgentRequest, command = "p
   const strictProviderAdmission = request.providerAdmission !== undefined;
   if (strictProviderAdmission) {
     const diagnostics = validateProviderAdmissionPolicy(request.providerAdmission!);
-    if (diagnostics.length > 0) throw new Error(`Invalid provider admission policy: ${diagnostics.join("; ")}.`);
-    if ((request.extensionPaths?.length ?? 0) > 0) {
-      throw new Error("Strict provider admission does not allow additional extension paths.");
+    if (diagnostics.length > 0) {
+      throw new TaskAgentInvocationAdmissionError(`Invalid provider admission policy: ${diagnostics.join("; ")}.`);
     }
-    if (request.providerAdmissionModel) validateProviderAdmissionModelBinding(request.providerAdmissionModel);
+    if ((request.extensionPaths?.length ?? 0) > 0) {
+      throw new TaskAgentInvocationAdmissionError("Strict provider admission does not allow additional extension paths.");
+    }
+    if (!request.providerAdmissionModel) {
+      throw new TaskAgentInvocationAdmissionError("Strict child invocation requires an exact provider model binding.");
+    }
+    validateProviderAdmissionModelBinding(request.providerAdmissionModel);
+    if (request.model !== undefined
+      && request.model !== request.providerAdmissionModel.id
+      && request.model !== `${request.providerAdmissionModel.provider}/${request.providerAdmissionModel.id}`) {
+      throw new TaskAgentInvocationAdmissionError("Strict child model selector conflicts with the exact provider model binding.");
+    }
     args.push("--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files");
   }
   if (!strictProviderAdmission && request.providerAdmissionModel) {
-    throw new Error("Exact provider model binding requires strict provider admission.");
+    throw new TaskAgentInvocationAdmissionError("Exact provider model binding requires strict provider admission.");
   }
   assertStrictChildToolAvailability(request);
   const grantedTools = normalizeGrantedTools(request);
@@ -128,7 +138,9 @@ export function buildTaskAgentInvocation(request: TaskAgentRequest, command = "p
     args.push("-e", extensionPath);
   }
 
-  if (request.model) {
+  if (strictProviderAdmission) {
+    args.push("--provider", String(request.providerAdmissionModel!.provider), "--model", String(request.providerAdmissionModel!.id));
+  } else if (request.model) {
     args.push("--model", request.model);
   }
 
@@ -397,7 +409,7 @@ function validateProviderAdmissionModelBinding(model: ProviderAdmissionModel): v
     || typeof model.contextWindow !== "number"
     || !Number.isSafeInteger(model.contextWindow)
     || model.contextWindow <= 0) {
-    throw new Error("Invalid exact provider model binding.");
+    throw new TaskAgentInvocationAdmissionError("Invalid exact provider model binding.");
   }
 }
 

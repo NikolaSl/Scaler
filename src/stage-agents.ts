@@ -9,7 +9,7 @@ import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { logAgentPromptAudit, logStructuredReportAudit } from "./logging.js";
 import { getStageAgentRunsPath } from "./paths.js";
 import { assessTaskPromptAdmission, resolveTaskPromptTokenBudget, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
-import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
+import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
@@ -26,6 +26,7 @@ export interface StageAgentPromptInput {
 export interface StageAgentInvocationOptions {
   tools?: string[];
   model?: string;
+  providerAdmissionModel?: ProviderAdmissionModel;
   appendSystemPromptPath?: string;
   extensionPaths?: string[];
   command?: string;
@@ -163,6 +164,7 @@ export function prepareStageAgentInvocation(
     appendSystemPromptPath: options.appendSystemPromptPath,
     extensionPaths: options.extensionPaths,
     providerAdmission: createStrictProviderAdmissionPolicy(promptTokenBudget),
+    providerAdmissionModel: options.providerAdmissionModel,
   };
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");
   return { stage, prompt, request, invocation, promptAdmission };

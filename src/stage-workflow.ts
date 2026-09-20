@@ -21,6 +21,7 @@ import {
   type ReplanProposalAcceptanceResult,
 } from "./plans.js";
 import { getKnowledgeReportPath, getStageWorkflowRunsPath } from "./paths.js";
+import type { ProviderAdmissionModel } from "./provider-admission.js";
 import {
   createPrdVersionSnapshot,
   isRuntimePrdRequirementStatus,
@@ -89,6 +90,8 @@ export interface StageWorkflowOptions {
   maxResearchAgents?: number;
   allowInternet?: boolean;
   tools?: string[];
+  model?: string;
+  providerAdmissionModel?: ProviderAdmissionModel;
   stageTools?: string[];
   researchTools?: string[];
   replanTools?: string[];
@@ -507,6 +510,8 @@ async function runArtifactStageWorkflowStep(
   const stageAgent = await runStageAgentStep(cwd, state, stage, {
     execute: options.execute,
     tools: resolveStageTools(stage, options),
+    model: options.model,
+    providerAdmissionModel: options.providerAdmissionModel,
     timeoutMs: options.timeoutMs,
   }, runner);
   const supplemental = await ingestSupplementalStageReports(cwd, { stage, state, runResult: stageAgent.runResult });
@@ -579,6 +584,8 @@ async function runKnowledgeWorkflowStep(
         execute: options.execute,
         allowInternet: options.allowInternet,
         tools: resolveResearchTools(options),
+        model: options.model,
+        providerAdmissionModel: options.providerAdmissionModel,
         timeoutMs: options.timeoutMs,
       }, researchRunner));
       if (!options.execute) break;
@@ -614,7 +621,12 @@ async function runKnowledgeWorkflowStep(
   }
 
   if (!options.execute) {
-    const stageAgent = await runStageAgentStep(cwd, state, "knowledge", { execute: false, tools: resolveStageTools("knowledge", options) }, stageRunner);
+    const stageAgent = await runStageAgentStep(cwd, state, "knowledge", {
+      execute: false,
+      tools: resolveStageTools("knowledge", options),
+      model: options.model,
+      providerAdmissionModel: options.providerAdmissionModel,
+    }, stageRunner);
     return {
       accepted: stageAgent.accepted,
       action: "stage_agent",
@@ -741,6 +753,8 @@ async function runReplanningWorkflowStep(
     const run = await runReplanAgentStep(cwd, state, {
       execute: options.execute,
       tools: resolveReplanTools(options),
+      model: options.model,
+      providerAdmissionModel: options.providerAdmissionModel,
       timeoutMs: options.timeoutMs,
     }, replanRunner);
     if (!options.execute) {
@@ -786,6 +800,8 @@ async function runReplanningWorkflowStep(
   const stageAgent = await runStageAgentStep(cwd, state, "replanning", {
     execute: options.execute,
     tools: resolveStageTools("replanning", options),
+    model: options.model,
+    providerAdmissionModel: options.providerAdmissionModel,
     timeoutMs: options.timeoutMs,
   }, stageRunner);
   const postAdvance = options.execute ? await advanceIfReady(cwd, state, "replanning") : undefined;

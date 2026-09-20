@@ -14,13 +14,19 @@ import {
   formatStageAgentRunList,
   loadStageAgentRunRecords,
   normalizeStage,
-  prepareStageAgentInvocation,
+  prepareStageAgentInvocation as prepareStageAgentInvocationImpl,
   recordStageAgentRun,
-  runStageAgentStep,
+  runStageAgentStep as runStageAgentStepImpl,
   type RunStageAgentOptions,
 } from "../src/stage-agents.js";
 import { createDefaultState } from "../src/state.js";
 import { loadStageArtifacts } from "../src/stages.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const prepareStageAgentInvocation: typeof prepareStageAgentInvocationImpl = (cwd, input, options = {}) =>
+  prepareStageAgentInvocationImpl(cwd, input, { ...options, providerAdmissionModel: testProviderAdmissionModel });
+const runStageAgentStep: typeof runStageAgentStepImpl = (cwd, state, stage, options = {}, runner) =>
+  runStageAgentStepImpl(cwd, state, stage, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runner);
 
 async function tempDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "scaler-stage-agents-test-"));
@@ -130,7 +136,7 @@ test("prepareStageAgentInvocation builds isolated Pi invocation", () => {
   }, {
     command: "pi-test",
     tools: ["read", "write"],
-    model: "test-model",
+    model: "synthetic-8k",
     tokenBudget: 4_096,
   } as RunStageAgentOptions);
 
@@ -141,7 +147,7 @@ test("prepareStageAgentInvocation builds isolated Pi invocation", () => {
   assert.ok(preparation.invocation.args.includes("--tools"));
   assert.ok(preparation.invocation.args.includes("read,write"));
   assert.ok(preparation.invocation.args.includes("--model"));
-  assert.ok(preparation.invocation.args.includes("test-model"));
+  assert.ok(preparation.invocation.args.includes("synthetic-8k"));
   assert.ok(preparation.invocation.args.includes("--no-extensions"));
   assert.ok(preparation.invocation.args.includes("--no-skills"));
   assert.ok(preparation.invocation.args.includes("--no-prompt-templates"));

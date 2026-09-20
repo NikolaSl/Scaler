@@ -8,11 +8,15 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { runScalerAutomation } from "../src/autopilot.js";
+import { runScalerAutomation as runScalerAutomationImpl } from "../src/autopilot.js";
 import { loadState, saveState, createDefaultState } from "../src/state.js";
 import { getValidationManifestForTask, saveValidationManifest, upsertValidationManifestCommand } from "../src/validation.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../src/subagents.js";
 import type { ScalerState } from "../src/types.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const runScalerAutomation: typeof runScalerAutomationImpl = (cwd, state, options = {}, runners) =>
+  runScalerAutomationImpl(cwd, state, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runners);
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-autopilot-test-"));

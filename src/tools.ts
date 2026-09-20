@@ -13,7 +13,7 @@ import { applyPlanningReport, type ExecutionPlanStatus } from "./plans.js";
 import { formatMemorySearchResults, retrieveMemory, searchMemory, writeMemory, type MemoryValidity } from "./memory.js";
 import { recordProviderUsageBudget } from "./provider-usage.js";
 import { requireTaskPromptAdmission, TaskPromptAdmissionError } from "./prompt-admission.js";
-import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
+import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import {
   createPrdVersionSnapshot,
   loadPrdRequirements,
@@ -156,6 +156,8 @@ export interface SpawnTaskToolParams {
   execute?: boolean;
   timeoutMs?: number;
   tokenBudget?: number;
+  /** Runtime-owned host identity; intentionally absent from the tool schema. */
+  providerAdmissionModel?: ProviderAdmissionModel;
 }
 
 const SpawnTaskParams = Type.Object({
@@ -522,6 +524,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         model: params.model,
         execute: params.execute,
         timeoutMs: params.timeoutMs,
+        providerAdmissionModel: snapshotHostModel(ctx.model),
       }, signal);
       const status = typeof result.details === "object"
         && result.details !== null
@@ -890,6 +893,7 @@ export async function prepareOrRunSpawnTask(
     model: params.model,
     cwd,
     providerAdmission: createStrictProviderAdmissionPolicy(promptAdmission.tokenBudget),
+    providerAdmissionModel: params.providerAdmissionModel,
     enforceLoadedToolAvailability: true,
   };
   let invocation;
@@ -944,6 +948,16 @@ export async function prepareOrRunSpawnTask(
   } finally {
     await releaseExecutionLock(cwd, lock.lock.id);
   }
+}
+
+function snapshotHostModel(model: ProviderAdmissionModel | undefined): ProviderAdmissionModel | undefined {
+  if (!model) return undefined;
+  return {
+    api: model.api,
+    provider: model.provider,
+    id: model.id,
+    contextWindow: model.contextWindow,
+  };
 }
 
 async function logTool(cwd: string, toolName: ScalerToolName, summary: string, details: unknown): Promise<void> {

@@ -17,7 +17,7 @@ import {
   loadValidationHandoffs,
   missingDependencies,
   recordTaskAgentRun,
-  runConductorStep,
+  runConductorStep as runConductorStepImpl,
   selectNextTask,
 } from "../src/conductor.js";
 import { saveTaskContextManifest } from "../src/context.js";
@@ -30,6 +30,10 @@ import { acquireExecutionLock, loadExecutionLock, releaseExecutionLock } from ".
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import type { ScalerTaskStatus } from "../src/types.js";
 import { saveValidationManifest } from "../src/validation.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const runConductorStep: typeof runConductorStepImpl = (cwd, state, options = {}, runner) =>
+  runConductorStepImpl(cwd, state, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runner);
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-conductor-test-"));
@@ -442,6 +446,24 @@ test("runConductorStep refuses unavailable strict child grants before attempt or
 
     assert.equal(result.accepted, false);
     assert.match(result.message, /cannot load granted tools: browser_search/i);
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+    assert.equal(getBudgetState(result.state).usage.spawnedAgents ?? 0, 0);
+  });
+});
+
+test("runConductorStep refuses a missing host model binding before attempt or budget publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    let runnerCalls = 0;
+
+    const result = await runConductorStepImpl(dir, state, { execute: true }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /requires an exact provider model binding/i);
     assert.equal(runnerCalls, 0);
     assert.deepEqual(await loadTaskAttempts(dir), []);
     assert.equal(getBudgetState(result.state).usage.spawnedAgents ?? 0, 0);

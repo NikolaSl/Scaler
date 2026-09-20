@@ -10,7 +10,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { getMcpServersPath, getToolCatalogPath, getToolIterationPolicyPath, getToolIterationRunsPath, getToolReplayApprovalsPath, getToolRequestsIndexPath, getToolResultsPath, getToolSchedulesPath, getToolSchemaDiscoveryRunsPath, getToolTransactionsPath } from "./paths.js";
 import { requireTaskPromptAdmission, TaskPromptAdmissionError, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
-import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
+import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { loadState } from "./state.js";
 import { DEFAULT_TASK_AGENT_OUTPUT_LIMITS, buildTaskAgentInvocation, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type RunTaskAgentOptions, type TaskAgentInvocation, type TaskAgentOutputLimits, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
@@ -428,6 +428,7 @@ export interface ToolSchemaDiscoveryRunOptions {
   timeoutMs?: number;
   command?: string;
   tokenBudget?: number;
+  providerAdmissionModel?: ProviderAdmissionModel;
 }
 
 export interface ToolRequestRunResult {
@@ -1240,6 +1241,7 @@ export async function runToolSchemaDiscoveryAgent(
     tools: allowedTools,
     cwd,
     providerAdmission: createStrictProviderAdmissionPolicy(promptAdmission.tokenBudget),
+    providerAdmissionModel: options.providerAdmissionModel,
     enforceLoadedToolAvailability: true,
   };
   let invocation: TaskAgentInvocation;

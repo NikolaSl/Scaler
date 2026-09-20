@@ -9,11 +9,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { savePrdRequirements } from "../src/prd.js";
-import { runStageConductorLoop, runStageConductorStep } from "../src/stage-conductor.js";
+import { runStageConductorLoop as runStageConductorLoopImpl, runStageConductorStep as runStageConductorStepImpl } from "../src/stage-conductor.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { upsertStageArtifact } from "../src/stages.js";
 import { runTaskValidation, saveValidationManifest } from "../src/validation.js";
 import type { ScalerState } from "../src/types.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const runStageConductorStep: typeof runStageConductorStepImpl = (cwd, state, options = {}, runner) =>
+  runStageConductorStepImpl(cwd, state, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runner);
+const runStageConductorLoop: typeof runStageConductorLoopImpl = (cwd, state, options = {}, runner) =>
+  runStageConductorLoopImpl(cwd, state, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runner);
 
 async function tempDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "scaler-stage-conductor-test-"));

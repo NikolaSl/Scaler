@@ -21,7 +21,11 @@ import {
   validateResearchRequest,
 } from "../src/research.js";
 import { recordToolSchema } from "../src/tool-requests.js";
-import { assessResearchSourceFreshness, buildResearchQueryPlan, discoverResearchToolCandidates, formatResearchWebRunResult, loadResearchWebTransactions, runResearchWebWorkflow } from "../src/research-web.js";
+import { assessResearchSourceFreshness, buildResearchQueryPlan, discoverResearchToolCandidates, formatResearchWebRunResult, loadResearchWebTransactions, runResearchWebWorkflow as runResearchWebWorkflowImpl } from "../src/research-web.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const runResearchWebWorkflow: typeof runResearchWebWorkflowImpl = (cwd, state, options = {}, runner) =>
+  runResearchWebWorkflowImpl(cwd, state, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runner);
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-research-test-"));

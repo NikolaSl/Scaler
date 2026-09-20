@@ -9,8 +9,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { acquireExecutionLock, loadExecutionLock } from "../src/locks.js";
-import { prepareOrRunSpawnTask } from "../src/tools.js";
+import { prepareOrRunSpawnTask as prepareOrRunSpawnTaskImpl } from "../src/tools.js";
 import type { TaskAgentRequest, RunTaskAgentOptions, TaskAgentRunResult } from "../src/subagents.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const prepareOrRunSpawnTask: typeof prepareOrRunSpawnTaskImpl = (cwd, params, signal, runner) =>
+  prepareOrRunSpawnTaskImpl(cwd, { ...params, providerAdmissionModel: testProviderAdmissionModel }, signal, runner);
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-spawn-tool-test-"));

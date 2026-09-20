@@ -16,10 +16,14 @@ import {
   deriveKnowledgeResearchRequests,
   ingestPrdWriteReport,
   loadStageWorkflowRunRecords,
-  runAutonomousStageWorkflow,
+  runAutonomousStageWorkflow as runAutonomousStageWorkflowImpl,
 } from "../src/stage-workflow.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../src/subagents.js";
 import type { ScalerState } from "../src/types.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const runAutonomousStageWorkflow: typeof runAutonomousStageWorkflowImpl = (cwd, state, options = {}, runners) =>
+  runAutonomousStageWorkflowImpl(cwd, state, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runners);
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-stage-workflow-test-"));
@@ -166,6 +170,7 @@ test("PRD stage preserves an omitted source on an existing source-less requireme
 });
 
 async function stageRunner(request: TaskAgentRequest): Promise<TaskAgentRunResult> {
+  assert.deepEqual(request.providerAdmissionModel, testProviderAdmissionModel);
   if (request.taskId === "stage-prd") {
     assert.ok(request.tools?.includes("read"));
     assert.ok(request.tools?.includes("bash"));
@@ -222,6 +227,7 @@ async function stageRunner(request: TaskAgentRequest): Promise<TaskAgentRunResul
 
 async function researchRunner(request: TaskAgentRequest): Promise<TaskAgentRunResult> {
   assert.equal(request.taskId, "research-agent-RESEARCH-REQ-1");
+  assert.deepEqual(request.providerAdmissionModel, testProviderAdmissionModel);
   return {
     taskId: request.taskId,
     exitCode: 0,
@@ -275,6 +281,7 @@ test("runAutonomousStageWorkflow executes PRD, Stage II research merge, and plan
 
 async function replanRunner(request: TaskAgentRequest): Promise<TaskAgentRunResult> {
   assert.equal(request.taskId, "replan-agent");
+  assert.deepEqual(request.providerAdmissionModel, testProviderAdmissionModel);
   assert.match(request.prompt, /REQ-NEW/);
   return {
     taskId: request.taskId,

@@ -12,6 +12,7 @@ import { runReplanAgentStep, type ReplanAgentRunner, type ReplanAgentStepResult,
 import { loadResearchRequests } from "./research.js";
 import { runResearchAgentStep, type ResearchAgentRunner, type ResearchAgentStepResult, type RunResearchAgentOptions } from "./research-agent.js";
 import type { TaskAgentRunner } from "./conductor.js";
+import type { ProviderAdmissionModel } from "./provider-admission.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
 
 export type DebugConductorAction = "run_debug_agent" | "run_research_agent" | "run_replan_agent" | "run_debug_retry" | "no_debug_task" | "no_action";
@@ -40,6 +41,7 @@ export interface DebugConductorStepOptions {
   timeoutMs?: number;
   tools?: string[];
   model?: string;
+  providerAdmissionModel?: ProviderAdmissionModel;
   appendSystemPromptPath?: string;
   extensionPaths?: string[];
   command?: string;
@@ -106,6 +108,7 @@ export async function runDebugConductorStep(
       timeoutMs: options.timeoutMs,
       tools: options.tools,
       model: options.model,
+      providerAdmissionModel: options.providerAdmissionModel,
       appendSystemPromptPath: options.appendSystemPromptPath,
       extensionPaths: options.extensionPaths,
       command: options.command,
@@ -145,6 +148,7 @@ export async function runDebugConductorStep(
       timeoutMs: options.timeoutMs,
       tools: options.tools,
       model: options.model,
+      providerAdmissionModel: options.providerAdmissionModel,
       appendSystemPromptPath: options.appendSystemPromptPath,
       extensionPaths: options.extensionPaths,
       command: options.command,
@@ -180,6 +184,7 @@ export async function runDebugConductorStep(
     timeoutMs: options.timeoutMs,
     tools: options.tools,
     model: options.model,
+    providerAdmissionModel: options.providerAdmissionModel,
     appendSystemPromptPath: options.appendSystemPromptPath,
     extensionPaths: options.extensionPaths,
     command: options.command,
@@ -237,6 +242,7 @@ export async function runDebugConductorLoop(
             timeoutMs: options.timeoutMs,
             tools: options.tools,
             model: options.model,
+            providerAdmissionModel: options.providerAdmissionModel,
           },
           runners.retry,
         );

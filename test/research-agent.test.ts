@@ -17,14 +17,20 @@ import {
   formatResearchToolPolicy,
   ingestResearchReport,
   loadResearchAgentRunRecords,
-  prepareResearchAgentInvocation,
+  prepareResearchAgentInvocation as prepareResearchAgentInvocationImpl,
   recordResearchAgentRun,
   resolveResearchAgentGrantedTools,
-  runResearchAgentStep,
+  runResearchAgentStep as runResearchAgentStepImpl,
 } from "../src/research-agent.js";
 import { readLogEvents } from "../src/logging.js";
 import { loadResearchReports, loadResearchRequests, recordResearchReport, upsertResearchRequest } from "../src/research.js";
 import { createDefaultState } from "../src/state.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const prepareResearchAgentInvocation: typeof prepareResearchAgentInvocationImpl = (cwd, input, options = {}) =>
+  prepareResearchAgentInvocationImpl(cwd, input, { ...options, providerAdmissionModel: testProviderAdmissionModel });
+const runResearchAgentStep: typeof runResearchAgentStepImpl = (cwd, state, options = {}, runner) =>
+  runResearchAgentStepImpl(cwd, state, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runner);
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-research-agent-test-"));
@@ -106,14 +112,14 @@ test("prepareResearchAgentInvocation builds isolated Pi invocation", async () =>
     currentPlan: { version: 1, planVersion: 0, status: "draft", tasks: [], createdAt: state.createdAt, updatedAt: state.createdAt },
     requirements: { version: 1, requirements: [] },
     coverageSummary: { entries: [], countsByStatus: { pending: 0, in_progress: 0, implemented: 0, validated: 0, blocked: 0, needs_replan: 0 }, unlinkedRequirementIds: [], linkedRequirementIds: [] },
-  }, { command: "pi-test", model: "test-model", tools: ["read"] });
+  }, { command: "pi-test", model: "synthetic-8k", tools: ["read"] });
 
   assert.equal(preparation.researchRequest.id, "RESEARCH-001");
   assert.equal(preparation.request.taskId, "research-agent-RESEARCH-001");
   assert.equal(preparation.invocation.command, "pi-test");
   assert.equal(preparation.invocation.cwd, "/repo");
   assert.ok(preparation.invocation.args.includes("--model"));
-  assert.ok(preparation.invocation.args.includes("test-model"));
+  assert.ok(preparation.invocation.args.includes("synthetic-8k"));
   assert.deepEqual(preparation.request.providerAdmission, {
     requestTokenAllowance: 8_000,
     outputReserveTokens: 1_024,
