@@ -70,4 +70,8 @@ Malformed evidence returns fixed diagnostics, preserves an invalid handoff
 ledger for diagnosis and publishes no prompt. The legacy `execute` argument
 records a blocked handoff without invoking the injected runner or persisting an
 invocation. The focused context-compaction/context-split selection passes 22/22.
-Full candidate evidence is recorded separately after the exact-head gate.
+The candidate gate passes the TypeScript build, `git diff --check`, 976/976
+unit/component tests, 67/67 mock integration tests and 7/7
+conformance/autopilot checks. This evidence covers the repository-owned mock and
+conformance boundaries only; it does not establish production continuation
+execution, model quality, savings or scale.
