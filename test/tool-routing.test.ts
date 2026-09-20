@@ -4,9 +4,13 @@
  */
 
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
-import type { RuntimeToolEnvelopeProfile } from "../src/tool-requests.js";
+import { prepareToolRequest, recordToolRouteAssessment, type RuntimeToolEnvelopeProfile } from "../src/tool-requests.js";
 import { assessToolRoute, type ToolRouteAssessmentInput, type ToolRouteModelCandidateInput } from "../src/tool-routing.js";
+import { createDefaultState } from "../src/state.js";
 
 const model8k = { api: "openai-completions", provider: "openai", id: "route-8k", contextWindow: 8_000 };
 const model32k = { ...model8k, id: "route-32k", contextWindow: 32_000 };
@@ -222,4 +226,46 @@ test("assessment binding changes with request profile model policy and bounds", 
   assert.ok(baseline.requestFingerprint);
   assert.ok(baseline.evidenceFingerprint);
   for (const variant of variants) assert.notEqual(variant.evidenceFingerprint, baseline.evidenceFingerprint);
+});
+
+test("runtime-owned route assessment records compact advice without payloads or execution", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "scaler-tool-route-audit-"));
+  try {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "docs_search",
+      request: "Find public routing documentation.",
+      allowedTools: ["docs_search"],
+    }, new Date("2026-01-01T00:00:00.000Z"));
+    assert.ok(prepared.record);
+
+    const evidence = baseInput({
+      request: {
+        requestId: prepared.record!.id,
+        toolNames: prepared.record!.allowedTools,
+        content: {},
+      },
+      currentAgent: candidate({
+        ...payload(100),
+        messages: [{ role: "user", content: "PROVIDER_HISTORY_SENTINEL" }],
+      }),
+    });
+    const recorded = await recordToolRouteAssessment(dir, state, prepared.record!.id, {
+      profile: evidence.profile,
+      authority: evidence.authority,
+      direct: evidence.direct,
+      currentAgent: evidence.currentAgent,
+      isolated: evidence.isolated,
+    });
+
+    assert.equal(recorded.recorded, true);
+    assert.equal(recorded.assessment?.executionAuthorized, false);
+    const events = await readFile(join(dir, ".scaler", "logs", "events.jsonl"), "utf8");
+    const lastEvent = JSON.parse(events.trim().split("\n").at(-1)!) as Record<string, unknown>;
+    assert.match(JSON.stringify(lastEvent), /Tool route assessment recorded/);
+    assert.doesNotMatch(JSON.stringify(lastEvent), /PROVIDER_HISTORY_SENTINEL/);
+    assert.doesNotMatch(JSON.stringify(lastEvent), /Find public routing documentation/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
