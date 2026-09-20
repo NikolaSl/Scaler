@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -38,6 +38,22 @@ export interface RuntimeToolInfoSummary {
 export interface RuntimeToolCatalogEntry extends ToolCatalogEntry {
   active: boolean;
   sourceInfo?: string;
+}
+
+export type RuntimeToolEnvelopeFootprint = "selected" | "whole-catalog" | "unknown";
+
+export interface RuntimeToolEnvelopeSelection {
+  requestedToolNames?: string[];
+  selectionApisAvailable?: boolean;
+}
+
+export interface RuntimeToolEnvelopeProfile {
+  version: 1;
+  footprint: RuntimeToolEnvelopeFootprint;
+  toolNames: string[];
+  byteSize: number | null;
+  fingerprint: string | null;
+  reason?: string;
 }
 
 export interface ToolSchemaInput {
@@ -555,6 +571,104 @@ export function buildRuntimeToolCatalog(
       };
     })
     .sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name));
+}
+
+function normalizeEnvelopeToolNames(names: string[]): string[] | undefined {
+  const normalized = names.map((name) => name.trim());
+  if (normalized.some((name) => name.length === 0) || new Set(normalized).size !== normalized.length) return undefined;
+  return normalized.sort((left, right) => left.localeCompare(right));
+}
+
+function sameEnvelopeToolNames(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((name, index) => name === right[index]);
+}
+
+function canonicalizeEnvelopeValue(value: unknown, ancestors = new Set<object>()): unknown {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new Error("non-finite number");
+    return Object.is(value, -0) ? 0 : value;
+  }
+  if (value === undefined) return { $scalerType: "undefined" };
+  if (typeof value !== "object") throw new Error(`unsupported ${typeof value}`);
+  if (ancestors.has(value)) throw new Error("cyclic value");
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) return value.map((item) => canonicalizeEnvelopeValue(item, ancestors));
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) throw new Error("non-plain object");
+    if (Object.getOwnPropertySymbols(value).length > 0) throw new Error("symbol keys");
+    return Object.fromEntries(Object.keys(value as Record<string, unknown>)
+      .sort((left, right) => left.localeCompare(right))
+      .map((key) => [key, canonicalizeEnvelopeValue((value as Record<string, unknown>)[key], ancestors)]));
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+function unknownRuntimeToolEnvelope(reason: string, toolNames: string[] = []): RuntimeToolEnvelopeProfile {
+  return { version: 1, footprint: "unknown", toolNames, byteSize: null, fingerprint: null, reason };
+}
+
+export function buildRuntimeToolEnvelopeProfile(
+  allTools: RuntimeToolInfoSummary[],
+  activeToolNames: string[],
+  selection: RuntimeToolEnvelopeSelection = {},
+): RuntimeToolEnvelopeProfile {
+  const active = normalizeEnvelopeToolNames(activeToolNames);
+  if (!active) return unknownRuntimeToolEnvelope("invalid-active-tool-set");
+
+  const definitions = new Map<string, RuntimeToolInfoSummary>();
+  for (const tool of allTools) {
+    if (typeof tool.name !== "string" || tool.name.trim().length === 0) return unknownRuntimeToolEnvelope("invalid-tool-definition", active);
+    const name = tool.name.trim();
+    if (definitions.has(name)) return unknownRuntimeToolEnvelope("duplicate-tool-definition", active);
+    definitions.set(name, tool);
+  }
+
+  let footprint: Exclude<RuntimeToolEnvelopeFootprint, "unknown">;
+  if (selection.requestedToolNames !== undefined) {
+    if (selection.selectionApisAvailable !== true) return unknownRuntimeToolEnvelope("selection-apis-unavailable", active);
+    const requested = normalizeEnvelopeToolNames(selection.requestedToolNames);
+    if (!requested) return unknownRuntimeToolEnvelope("invalid-requested-tool-set", active);
+    if (!sameEnvelopeToolNames(active, requested)) return unknownRuntimeToolEnvelope("post-selection-tool-mismatch", active);
+    footprint = "selected";
+  } else {
+    const allNames = normalizeEnvelopeToolNames([...definitions.keys()]);
+    if (!allNames || !sameEnvelopeToolNames(active, allNames)) return unknownRuntimeToolEnvelope("partial-tool-set-without-selection-proof", active);
+    footprint = "whole-catalog";
+  }
+
+  const selectedDefinitions: RuntimeToolInfoSummary[] = [];
+  for (const name of active) {
+    const tool = definitions.get(name);
+    if (!tool) return unknownRuntimeToolEnvelope("active-tool-definition-missing", active);
+    selectedDefinitions.push(tool);
+  }
+
+  try {
+    const canonical = JSON.stringify(canonicalizeEnvelopeValue({
+      version: 1,
+      footprint,
+      tools: selectedDefinitions.map((tool) => ({
+        name: tool.name.trim(),
+        description: tool.description,
+        parameters: tool.parameters,
+        promptGuidelines: tool.promptGuidelines,
+        sourceInfo: tool.sourceInfo,
+      })),
+    }));
+    const bytes = Buffer.from(canonical, "utf8");
+    return {
+      version: 1,
+      footprint,
+      toolNames: active,
+      byteSize: bytes.byteLength,
+      fingerprint: createHash("sha256").update(bytes).digest("hex"),
+    };
+  } catch (error) {
+    return unknownRuntimeToolEnvelope(`unserializable-tool-definition:${error instanceof Error ? error.message : String(error)}`, active);
+  }
 }
 
 export function formatRuntimeToolCatalog(entries: RuntimeToolCatalogEntry[], limit = 25): string {
