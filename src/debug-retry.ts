@@ -8,7 +8,7 @@ import { dirname } from "node:path";
 import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
 import { captureValidationContext, checkAttemptEvidence } from "./attempt-evidence.js";
 import { verifyTaskDependenciesAccepted } from "./accepted-evidence.js";
-import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult, interruptTaskExecution, reconcileInterruptedTaskAttempt, TaskContractAdmissionError, TaskDependencyAdmissionError, verifyTaskExecutionContract } from "./attempt-execution.js";
+import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult, interruptTaskExecution, reconcileInterruptedTaskAttempt, TaskContextAdmissionError, TaskContractAdmissionError, TaskDependencyAdmissionError, verifyTaskExecutionContract } from "./attempt-execution.js";
 import { completeTaskAttempt, taskAttemptBinding, type TaskAttemptRecord } from "./task-attempts.js";
 import {
   applyTaskRunHandoff,
@@ -354,12 +354,12 @@ export async function runDebugNextApproachRetry(
       try {
         activeAttempt = await admitTaskExecution(cwd, lock.lock.id, workingState, runningTask, resolvedContext, options.model, options.tools ?? []);
       } catch (error) {
-        if (!(error instanceof TaskDependencyAdmissionError) && !(error instanceof TaskContractAdmissionError)) throw error;
+        if (!(error instanceof TaskDependencyAdmissionError) && !(error instanceof TaskContractAdmissionError) && !(error instanceof TaskContextAdmissionError)) throw error;
         const message = error.message;
         const retry = await upsertRetryRecord(cwd, buildRetryRecord(selection, "rejected", false, message));
         await appendLogEvent(cwd, createLogEvent(workingState, {
           eventType: "rejected_transition", summary: message, taskId: runningTask.id,
-          details: { diagnostics: error.diagnostics, admission: error instanceof TaskContractAdmissionError ? "task_contract" : "dependency_evidence" },
+          details: { diagnostics: error.diagnostics, admission: error instanceof TaskContractAdmissionError ? "task_contract" : error instanceof TaskContextAdmissionError ? "context_freshness" : "dependency_evidence" },
         }));
         return { accepted: false, message, status: "rejected", state: workingState, task: runningTask, retry, prompt };
       }

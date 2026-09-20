@@ -8,7 +8,7 @@ import { dirname } from "node:path";
 import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
 import { captureValidationContext } from "./attempt-evidence.js";
 import { verifyTaskDependenciesAccepted } from "./accepted-evidence.js";
-import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult, interruptTaskExecution, reconcileInterruptedTaskAttempt, TaskContractAdmissionError, TaskDependencyAdmissionError, verifyTaskExecutionContract } from "./attempt-execution.js";
+import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult, interruptTaskExecution, reconcileInterruptedTaskAttempt, TaskContextAdmissionError, TaskContractAdmissionError, TaskDependencyAdmissionError, verifyTaskExecutionContract } from "./attempt-execution.js";
 import { writeCheckpoint } from "./checkpoints.js";
 import { assessCompression, formatCompressionGuidance, type CompressionAssessment } from "./compression.js";
 import { assessDebugRetryGate } from "./debug.js";
@@ -322,11 +322,11 @@ export async function runConductorStep(
         // cannot consume agent budget for work that never started.
         activeAttempt = await admitTaskExecution(cwd, lock.lock.id, state, runningTask, resolvedContext, options.model, tools);
       } catch (error) {
-        if (!(error instanceof TaskDependencyAdmissionError) && !(error instanceof TaskContractAdmissionError)) throw error;
+        if (!(error instanceof TaskDependencyAdmissionError) && !(error instanceof TaskContractAdmissionError) && !(error instanceof TaskContextAdmissionError)) throw error;
         const message = error.message;
         await appendLogEvent(cwd, createLogEvent(state, {
           eventType: "rejected_transition", summary: message, taskId: runningTask.id,
-          details: { diagnostics: error.diagnostics, admission: error instanceof TaskContractAdmissionError ? "task_contract" : "dependency_evidence" },
+          details: { diagnostics: error.diagnostics, admission: error instanceof TaskContractAdmissionError ? "task_contract" : error instanceof TaskContextAdmissionError ? "context_freshness" : "dependency_evidence" },
         }));
         return { accepted: false, message, state, task: runningTask, prompt, contextSplit };
       }

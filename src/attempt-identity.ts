@@ -47,6 +47,7 @@ function contextItemMaterial(item: ContextItem): Record<string, unknown> {
     priority: item.priority,
     scope: item.scope,
     exactness: item.exactness ?? null,
+    ...(item.fileSource ? { fileSource: item.fileSource } : {}),
   };
 }
 

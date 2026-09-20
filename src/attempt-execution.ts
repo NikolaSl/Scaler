@@ -5,7 +5,8 @@
 
 import { fingerprintAdmittedInput, fingerprintTaskContract, fingerprintTaskRoute, fingerprintValidationPolicy } from "./attempt-identity.js";
 import { verifyTaskDependenciesAccepted } from "./accepted-evidence.js";
-import type { ResolvedContext } from "./context.js";
+import { verifyFileContextSources, type FileContextSourceBinding, type ResolvedContext } from "./context.js";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { normalizeOutputPaths } from "./output-artifacts.js";
@@ -32,6 +33,16 @@ export class TaskContractAdmissionError extends Error {
   ) {
     super(`Task ${taskId} contract admission rejected: ${diagnostics.join(" ")}`);
     this.name = "TaskContractAdmissionError";
+  }
+}
+
+export class TaskContextAdmissionError extends Error {
+  constructor(
+    readonly taskId: string,
+    readonly diagnostics: string[],
+  ) {
+    super(`Task ${taskId} context freshness rejected: ${diagnostics.join(" ")}`);
+    this.name = "TaskContextAdmissionError";
   }
 }
 
@@ -77,6 +88,9 @@ export async function admitTaskExecution(
   if (contractDiagnostics.length > 0) throw new TaskContractAdmissionError(task.id, contractDiagnostics);
   const dependencyDiagnostics = await verifyTaskDependenciesAccepted(cwd, state, task);
   if (dependencyDiagnostics.length > 0) throw new TaskDependencyAdmissionError(task.id, dependencyDiagnostics);
+  const contextSources = context.included.flatMap((item) => item.fileSource ? [item.fileSource] : []);
+  const contextDiagnostics = await verifyFileContextSources(cwd, task.id, contextSources);
+  if (contextDiagnostics.length > 0) throw new TaskContextAdmissionError(task.id, contextDiagnostics);
   const taskFingerprint = fingerprintTaskContract(task);
   return admitTaskAttempt(cwd, lockId, {
     runId: state.runId,
@@ -85,6 +99,7 @@ export async function admitTaskExecution(
     inputFingerprint: fingerprintAdmittedInput(taskFingerprint, context),
     routeFingerprint: fingerprintTaskRoute(model, tools),
     validationPolicyFingerprint: fingerprintValidationPolicy(await getValidationManifestForTask(cwd, task.id)),
+    contextSources,
   });
 }
 
@@ -94,6 +109,11 @@ export async function startTaskExecution(cwd: string, lockId: string, state: Sca
   if (current?.status !== "admitted" || state.runId !== attempt.runId) {
     throw new Error(`Task attempt ${attempt.id} is not an admitted attempt for this run.`);
   }
+  const contextDiagnostics = verifyAttemptContextCoverage(attempt, current);
+  if (contextDiagnostics.length === 0) {
+    contextDiagnostics.push(...await verifyFileContextSources(cwd, attempt.taskId, current.contextSources!));
+  }
+  if (contextDiagnostics.length > 0) throw new TaskContextAdmissionError(attempt.taskId, contextDiagnostics);
   const nextState = transitionTask({
     ...state,
     tasks: state.tasks.map((task) => task.id === attempt.taskId ? { ...task, attemptId: attempt.id } : task),
@@ -119,13 +139,64 @@ export async function checkTaskExecutionResult(cwd: string, attempt: TaskAttempt
     || JSON.stringify(taskAttemptBinding(current)) !== JSON.stringify(taskAttemptBinding(attempt))) {
     diagnostics.push(`Rejected stale task result: admitted identity ${attempt.id} is no longer dispatching.`);
   }
+  const contextDiagnostics = verifyAttemptContextCoverage(attempt, current);
+  diagnostics.push(...contextDiagnostics);
   if (task && fingerprintTaskContract(task) !== attempt.taskFingerprint) {
     diagnostics.push("Rejected stale task result: task contract changed during execution.");
   }
-  if (fingerprintValidationPolicy(await getValidationManifestForTask(cwd, attempt.taskId)) !== attempt.validationPolicyFingerprint) {
+  const validationManifest = await getValidationManifestForTask(cwd, attempt.taskId);
+  if (fingerprintValidationPolicy(validationManifest) !== attempt.validationPolicyFingerprint) {
     diagnostics.push("Rejected stale task result: validation policy changed during execution.");
   }
+  if (contextDiagnostics.length === 0 && current?.contextSources) {
+    const mutablePaths = task
+      ? mutableDeclaredContextOutputs(cwd, task.allowedPathPrefixes ?? [], validationManifest.outputPaths, current.contextSources)
+      : new Set<string>();
+    diagnostics.push(...await verifyFileContextSources(cwd, attempt.taskId, current.contextSources, mutablePaths));
+  }
   return { state, task, diagnostics };
+}
+
+function verifyAttemptContextCoverage(
+  admitted: TaskAttemptRecord,
+  current: TaskAttemptRecord | undefined,
+): string[] {
+  if (admitted.contextSources === undefined || current?.contextSources === undefined) {
+    return [`Task ${admitted.taskId} context freshness coverage is missing for attempt ${admitted.id}.`];
+  }
+  if (JSON.stringify(admitted.contextSources) !== JSON.stringify(current.contextSources)) {
+    return [`Task ${admitted.taskId} context source descriptors changed for attempt ${admitted.id}.`];
+  }
+  return [];
+}
+
+function mutableDeclaredContextOutputs(
+  cwd: string,
+  allowedPathPrefixes: string[],
+  outputPaths: string[] | undefined,
+  sources: FileContextSourceBinding[],
+): Set<string> {
+  const outputs = new Set(normalizeOutputPaths(outputPaths) ?? []);
+  return new Set(sources
+    .filter((source) => {
+      const projectPath = projectRelativeContextPath(cwd, source.path);
+      return projectPath !== undefined && outputs.has(projectPath) && taskPathMatches(projectPath, allowedPathPrefixes);
+    })
+    .map((source) => source.path));
+}
+
+function projectRelativeContextPath(cwd: string, path: string): string | undefined {
+  if (isAbsolute(path)) return undefined;
+  const projectPath = relative(resolve(cwd), resolve(cwd, path)).split(sep).join("/");
+  if (!projectPath || projectPath === ".." || projectPath.startsWith("../")) return undefined;
+  return projectPath;
+}
+
+function taskPathMatches(path: string, allowedPathPrefixes: string[]): boolean {
+  return allowedPathPrefixes.some((prefix) => {
+    const normalized = prefix.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/$/, "");
+    return normalized.length > 0 && (path === normalized || path.startsWith(`${normalized}/`));
+  });
 }
 
 // Block state before closing the ledger. If either publication fails, the open

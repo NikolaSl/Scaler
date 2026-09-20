@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { Parser } from "commonmark";
@@ -32,6 +33,7 @@ export interface ContextItem {
   estimatedTokens?: number;
   available?: boolean;
   diagnostic?: string;
+  fileSource?: FileContextSourceBinding;
 }
 
 export interface ContextResolverInput {
@@ -56,6 +58,14 @@ export interface MarkdownHeadingSelector {
   kind: "markdown-heading";
   heading: string;
   maxChars?: number;
+}
+
+export interface FileContextSourceBinding {
+  itemId: string;
+  path: string;
+  scope: ContextScope;
+  selector?: MarkdownHeadingSelector;
+  contentFingerprint: string;
 }
 
 export interface TaskContextManifestItem {
@@ -437,6 +447,9 @@ async function resolveManifestItem(
   entry: TaskContextManifestItem,
 ): Promise<ContextItem> {
   try {
+    const fileContext = entry.source === "file"
+      ? await resolveFileContextSource(cwd, entry)
+      : undefined;
     return {
       id: entry.id,
       type: entry.type,
@@ -445,7 +458,8 @@ async function resolveManifestItem(
       scope: entry.scope,
       exactness: normalizeExactness(entry.exactness, entry.scope),
       available: true,
-      content: await resolveManifestItemContent(cwd, state, manifest, entry),
+      content: fileContext?.content ?? await resolveManifestItemContent(cwd, state, manifest, entry),
+      fileSource: fileContext?.binding,
     };
   } catch (error) {
     return {
@@ -469,7 +483,7 @@ async function resolveManifestItemContent(
   entry: TaskContextManifestItem,
 ): Promise<string> {
   if (entry.source === "inline") return entry.content ?? "";
-  if (entry.source === "file") return await resolveFileContextContent(cwd, entry.path!, entry.scope, entry.selector);
+  if (entry.source === "file") return (await resolveFileContextSource(cwd, entry)).content;
   if (entry.source === "memory") return (await retrieveMemory(cwd, entry.memoryId!, { scope: entry.scope })).content;
   if (entry.source === "state") return formatStateContext(state);
   if (entry.source === "task") return formatTaskContext(state, entry.taskId ?? manifest.taskId);
@@ -516,7 +530,34 @@ async function resolveFileContextContent(
   scope: ContextScope,
   selector?: MarkdownHeadingSelector,
 ): Promise<string> {
-  const content = await readFile(resolveContextPath(cwd, path), "utf8");
+  const content = (await readFile(resolveContextPath(cwd, path))).toString("utf8");
+  return renderFileContextContent(content, path, scope, selector);
+}
+
+async function resolveFileContextSource(
+  cwd: string,
+  entry: TaskContextManifestItem,
+): Promise<{ content: string; binding: FileContextSourceBinding }> {
+  const path = entry.path!;
+  const bytes = await readFile(resolveContextPath(cwd, path));
+  return {
+    content: renderFileContextContent(bytes.toString("utf8"), path, entry.scope, entry.selector),
+    binding: {
+      itemId: entry.id,
+      path,
+      scope: entry.scope,
+      ...(entry.selector ? { selector: { ...entry.selector } } : {}),
+      contentFingerprint: fingerprintFileBytes(bytes),
+    },
+  };
+}
+
+function renderFileContextContent(
+  content: string,
+  path: string,
+  scope: ContextScope,
+  selector?: MarkdownHeadingSelector,
+): string {
   if (scope === "full") return content;
   if (scope === "reference-only") return `File reference: ${path}`;
   if (scope === "section") {
@@ -526,6 +567,32 @@ async function resolveFileContextContent(
   const maxChars = scope === "snippet" ? 2_400 : 3_200;
   if (content.length <= maxChars) return content;
   return [`File ${scope}: ${path}`, content.slice(0, maxChars), `... [truncated ${content.length - maxChars} chars; request full file if needed]`].join("\n");
+}
+
+export async function verifyFileContextSources(
+  cwd: string,
+  taskId: string,
+  sources: FileContextSourceBinding[],
+  ignoredPaths: ReadonlySet<string> = new Set(),
+): Promise<string[]> {
+  const diagnostics: string[] = [];
+  for (const source of sources) {
+    if (ignoredPaths.has(source.path)) continue;
+    try {
+      const fingerprint = fingerprintFileBytes(await readFile(resolveContextPath(cwd, source.path)));
+      if (fingerprint !== source.contentFingerprint) {
+        diagnostics.push(`Task ${taskId} context source ${source.itemId} changed or became stale: ${source.path}.`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      diagnostics.push(`Task ${taskId} context source ${source.itemId} is missing or unreadable: ${source.path} (${message}).`);
+    }
+  }
+  return diagnostics;
+}
+
+function fingerprintFileBytes(bytes: Buffer): string {
+  return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 }
 
 function trimMarkdownWhitespace(text: string): string {
