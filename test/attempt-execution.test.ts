@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -221,6 +221,36 @@ for (const symlinkKind of ["leaf", "ancestor"] as const) {
       await writeFile(join(dir, referentPath), "CHANGED\n", "utf8");
       const checked = await checkTaskExecutionResult(dir, started.attempt, "T-1");
       assert.match(checked.diagnostics.join(" "), /context.*changed/i);
+    });
+  });
+}
+
+for (const symlinkKind of ["leaf", "ancestor"] as const) {
+  test(`dispatch rejects exact output changed from regular file to ${symlinkKind} symlink`, async () => {
+    await fixture(async (dir) => {
+      const contextPath = symlinkKind === "leaf" ? "src/app.ts" : "linked/app.ts";
+      const initial = await admittedFileContext(dir, {
+        path: contextPath,
+        allowedPathPrefixes: [contextPath.split("/")[0]!],
+        outputPaths: [contextPath],
+      });
+      assert.equal(initial.attempt.contextSources?.[0]?.outputExemptible, true);
+
+      if (symlinkKind === "leaf") {
+        await writeFile(join(dir, "reference.md"), "ORIGINAL\n", "utf8");
+        await rm(join(dir, contextPath));
+        await symlink("../reference.md", join(dir, contextPath));
+      } else {
+        await rename(join(dir, "linked"), join(dir, "real"));
+        await symlink("real", join(dir, "linked"));
+      }
+
+      await assert.rejects(
+        startTaskExecution(dir, initial.lockId, initial.state, initial.attempt),
+        /context.*(changed|stale).*app\.ts/i,
+      );
+      assert.equal((await loadState(dir)).tasks[0]?.status, "ready");
+      assert.equal((await loadTaskAttempts(dir))[0]?.status, "admitted");
     });
   });
 }
