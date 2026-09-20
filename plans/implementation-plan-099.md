@@ -87,7 +87,11 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   sequential. Replay approval is reserved atomically with the execution claim,
   stale finalizers preserve replacement ownership, and request closure is the
   last multi-index publication. Provider-envelope admission and route execution
-  remain later units; PLAN-125 is not AC-08 completion.
+  remain later units; PLAN-125 is not AC-08 completion. PLAN-126 next bounds the
+  isolated subprocess transport and serialized execution-bound result before
+  route advice can become executable. It deliberately keeps PLAN-124 advice
+  non-authorizing because the live worker and caller-continuation envelopes do
+  not yet share a trusted dispatch-time supplier.
 
 ### Renewed continuation policy (2026-09-19)
 
