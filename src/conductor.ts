@@ -30,7 +30,7 @@ import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.
 import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
 import { assessTaskPromptAdmission, createPromptSizingAttemptBinding, resolveTaskPromptTokenBudget, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
 import { saveState } from "./state.js";
-import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
+import { assertStrictChildToolAvailability, buildTaskAgentInvocation, runTaskAgent, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import {
   completeTaskAttempt,
   taskAttemptBinding,
@@ -294,6 +294,26 @@ export async function runConductorStep(
         return { accepted: false, message: promptAdmission.message, state: nextState, task: runningTask, prompt, contextSplit, promptAdmission };
       }
     }
+    const tools = options.tools ?? defaultTaskAgentTools();
+    try {
+      assertStrictChildToolAvailability({
+        taskId: runningTask.id,
+        prompt,
+        tools,
+        model: options.model,
+        cwd,
+        providerAdmission: createStrictProviderAdmissionPolicy(promptTokenBudget),
+      });
+    } catch (error) {
+      if (!(error instanceof TaskAgentInvocationAdmissionError)) throw error;
+      await appendLogEvent(cwd, createLogEvent(nextState, {
+        eventType: "rejected_transition",
+        summary: error.message,
+        taskId: runningTask.id,
+        details: { admission: "tool_availability" },
+      }));
+      return { accepted: false, message: error.message, state: nextState, task: runningTask, prompt, contextSplit };
+    }
     const budgetUpdates = [
       { key: "contextTokens" as const, amount: resolvedContext.estimatedTokens, mode: "set" as const },
       ...(options.execute ? [{ key: "spawnedAgents" as const, amount: 1, mode: "increment" as const }] : []),
@@ -313,7 +333,6 @@ export async function runConductorStep(
         contextSplit,
       };
     }
-    const tools = options.tools ?? defaultTaskAgentTools();
     let attemptBinding: TaskAttemptBinding | undefined;
     if (options.execute) {
       try {

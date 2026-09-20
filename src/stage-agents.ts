@@ -11,7 +11,7 @@ import { getStageAgentRunsPath } from "./paths.js";
 import { assessTaskPromptAdmission, resolveTaskPromptTokenBudget, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
 import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
-import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
 import { loadStageArtifacts, stageArtifactStatuses, stageArtifactStages, upsertStageArtifact, type StageArtifact, type StageArtifactInput, type StageArtifactStage } from "./stages.js";
 import type { ScalerState } from "./types.js";
@@ -207,6 +207,9 @@ export async function runStageAgentStep(
         extraInstructions: options.extraInstructions,
       }, options);
     } catch (error) {
+      if (error instanceof TaskAgentInvocationAdmissionError) {
+        return { accepted: false, message: error.message, stage };
+      }
       if (!(error instanceof StageAgentPromptAdmissionError)) throw error;
       return {
         accepted: false,

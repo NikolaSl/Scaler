@@ -132,6 +132,25 @@ test("debug retry refuses an oversized final prompt before attempt and runner", 
   });
 });
 
+test("debug retry refuses unavailable strict child grants before attempt or budget publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = await seedDebuggingTask(dir);
+    let runnerCalls = 0;
+
+    const result = await runDebugNextApproachRetry(dir, state, { execute: true, tools: ["browser_search"] }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.status, "rejected");
+    assert.match(result.message, /cannot load granted tools: browser_search/i);
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+    assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents ?? 0, 0);
+    assert.equal((await loadDebugRetries(dir))[0]?.status, "rejected");
+  });
+});
+
 test("debug retry refuses an incomplete task contract before dispatch", async () => {
   await withTempDir(async (dir) => {
     const state = await seedDebuggingTask(dir);

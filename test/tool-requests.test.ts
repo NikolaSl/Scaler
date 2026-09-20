@@ -471,7 +471,7 @@ test("runToolSchedule executes parallel then serial requests with structured res
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     await recordToolSchema(dir, state, { toolName: "docs_search", source: "mock", riskLevel: "low", description: "Read-only docs search." });
-    const low = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs A.", riskLevel: "low" });
+    const low = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs A.", riskLevel: "low" });
     const low2 = await prepareToolRequest(dir, state, { toolName: "read", request: "Read docs file.", riskLevel: "low" });
     const serial = await prepareToolRequest(dir, state, { toolName: "write", request: "Write result.", riskLevel: "medium" });
     assert.ok(low.record && low2.record && serial.record);
@@ -497,8 +497,8 @@ test("runToolSchedule executes guarded requests sequentially even when paralleli
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     await recordToolSchema(dir, state, { toolName: "docs_search", source: "mock", riskLevel: "low", description: "Read-only docs search." });
-    await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs A.", riskLevel: "low" });
-    await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs B.", riskLevel: "low" });
+    await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs A.", riskLevel: "low" });
+    await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs B.", riskLevel: "low" });
     let active = 0;
     let maximumActive = 0;
 
@@ -527,8 +527,8 @@ test("runToolSchedule executes guarded requests sequentially even when paralleli
 test("runToolSchedule requires a fresh route snapshot for every dispatch", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs A.", riskLevel: "low" });
-    await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs B.", riskLevel: "low" });
+    await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs A.", riskLevel: "low" });
+    await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs B.", riskLevel: "low" });
     let cached: Awaited<ReturnType<ToolDispatchRouteEvidenceSupplier>> | undefined;
     let supplierCalls = 0;
     let runnerCalls = 0;
@@ -812,11 +812,35 @@ test("runToolRequestAgent requires the caller continuation to reserve the bounde
   });
 });
 
+test("runToolRequestAgent refuses unavailable strict child grants before execution claim", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "browser_search",
+      request: "Find widget docs.",
+    });
+    assert.ok(prepared.record);
+    let runnerCalls = 0;
+
+    const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.transaction?.status, "rejected");
+    assert.equal(result.transaction?.executed, false);
+    assert.match(result.message, /cannot load granted tools: browser_search/i);
+    assert.equal(runnerCalls, 0);
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
+  });
+});
+
 test("runToolRequestAgent recognizes structured scaler_tool_result closure", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     const prepared = await prepareToolRequest(dir, state, {
-      toolName: "docs_search",
+      toolName: "read",
       request: "Find widget docs.",
       taskId: "T-TOOL-RUN",
       allowedTools: ["read"],
@@ -858,7 +882,7 @@ test("runToolRequestAgent recognizes structured scaler_tool_result closure", asy
 test("runToolRequestAgent rejects request drift while live route evidence is supplied", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Original request." });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Original request." });
     assert.ok(prepared.record);
     let runnerCalled = false;
 
@@ -889,7 +913,7 @@ test("runToolRequestAgent rejects request drift while live route evidence is sup
 test("runToolRequestAgent rejects foreign live route evidence identity", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs." });
     assert.ok(prepared.record);
     let runnerCalled = false;
 
@@ -911,7 +935,7 @@ test("runToolRequestAgent rejects foreign live route evidence identity", async (
 test("runToolRequestAgent rejects a completed proposal after child output overflow", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs." });
     assert.ok(prepared.record);
 
     const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
@@ -945,7 +969,7 @@ test("runToolRequestAgent rejects a completed proposal after child output overfl
 test("runToolRequestAgent refuses a completed proposal without authoritative transport measurements", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs." });
     assert.ok(prepared.record);
 
     const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
@@ -977,7 +1001,7 @@ test("runToolRequestAgent refuses malformed transport measurements", async () =>
   for (const measurements of malformed) {
     await withTempDir(async (dir) => {
       const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-      const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+      const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs." });
       assert.ok(prepared.record);
 
       const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
@@ -1008,7 +1032,7 @@ test("runToolRequestAgent refuses malformed transport measurements", async () =>
 test("result publication uses the same bounded representation as byte measurement", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs." });
     assert.ok(prepared.record);
     let nested: unknown = "leaf";
     for (let depth = 0; depth < 900; depth += 1) nested = [nested];
@@ -1034,7 +1058,7 @@ test("result publication uses the same bounded representation as byte measuremen
 test("recordToolResult rejects a proposal above the runtime-owned serialized byte limit", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs." });
     assert.ok(prepared.record);
 
     const run = runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
@@ -1058,7 +1082,7 @@ test("recordToolResult rejects a proposal above the runtime-owned serialized byt
 test("finalization rechecks durable result bytes and transaction limits", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs." });
     assert.ok(prepared.record);
 
     const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
@@ -1085,7 +1109,7 @@ test("finalization rechecks durable result bytes and transaction limits", async 
 test("finalization rejects durable execution-limit drift without releasing replacement ownership", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs." });
     assert.ok(prepared.record);
 
     const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
@@ -1113,7 +1137,7 @@ test("finalization rejects durable execution-limit drift without releasing repla
 test("finalization rejects missing durable live route admission", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs." });
     assert.ok(prepared.record);
 
     const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
@@ -1142,7 +1166,7 @@ test("runToolRequestAgent rejects a completed result when the child process fail
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     const prepared = await prepareToolRequest(dir, state, {
-      toolName: "docs_search",
+      toolName: "read",
       request: "Find widget docs.",
       allowedTools: ["read"],
     });
@@ -1170,7 +1194,7 @@ test("runToolRequestAgent rejects a completed result when the child process fail
 test("runToolRequestAgent durably blocks a thrown runner outcome", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs." });
     assert.ok(prepared.record);
 
     const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async () => {
@@ -1188,7 +1212,7 @@ test("runToolRequestAgent durably blocks a thrown runner outcome", async () => {
 test("runToolRequestAgent accepts only a result bound to its execution", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs." });
     assert.ok(prepared.record);
 
     const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
@@ -1213,7 +1237,7 @@ test("runToolRequestAgent accepts only a result bound to its execution", async (
 test("runToolRequestAgent preserves replacement ownership when a stale execution finalizes", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs." });
     assert.ok(prepared.record);
 
     const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
@@ -1244,7 +1268,7 @@ test("runToolRequestAgent preserves replacement ownership when a stale execution
 test("runToolRequestAgent refuses acceptance when its durable execution disappears", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs." });
     assert.ok(prepared.record);
 
     const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
@@ -1273,7 +1297,7 @@ test("runToolRequestAgent finalizes before accounting usage against fresh state"
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     await saveState(dir, state);
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs." });
     assert.ok(prepared.record);
 
     const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
@@ -1311,7 +1335,7 @@ test("runToolRequestAgent finalizes before accounting usage against fresh state"
 test("runToolRequestAgent rejects duplicate proposals for one execution", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs." });
     assert.ok(prepared.record);
 
     const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
@@ -1336,7 +1360,7 @@ test("runToolRequestAgent rejects duplicate proposals for one execution", async 
 test("runToolRequestAgent refuses a concurrent execution claim for one request", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs." });
     assert.ok(prepared.record);
     let markStarted!: () => void;
     const started = new Promise<void>((resolve) => { markStarted = resolve; });
@@ -1377,7 +1401,7 @@ test("runToolRequestAgent treats free-form or missing structured result as incom
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     const prepared = await prepareToolRequest(dir, state, {
-      toolName: "docs_search",
+      toolName: "read",
       request: "Find widget docs.",
       allowedTools: ["read"],
     }, new Date("2026-01-01T00:00:00.000Z"));
@@ -1404,7 +1428,7 @@ test("runToolRequestAgent treats free-form or missing structured result as incom
 test("replayToolTransaction prepares a replay linked to the original", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs.", allowedTools: ["read"] });
     assert.ok(prepared.record);
     const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id });
     assert.ok(original.transaction);
@@ -1421,7 +1445,7 @@ test("replayToolTransaction prepares a replay linked to the original", async () 
 test("replayToolTransaction executes persisted invocation and recognizes structured closure", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs.", allowedTools: ["read"] });
     assert.ok(prepared.record);
     const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => ({
       taskId: request.taskId,
@@ -1438,7 +1462,7 @@ test("replayToolTransaction executes persisted invocation and recognizes structu
 
     const replay = await replayToolTransaction(dir, state, { transactionId: original.transaction!.id, execute: true, approvalId: approval.id }, async (request) => {
       assert.match(request.prompt, /Tool request id:/);
-      assert.deepEqual(request.tools, ["docs_search", "read"]);
+      assert.deepEqual(request.tools, ["read"]);
       await recordToolResult(dir, state, {
         requestId: prepared.record!.id,
         executionId: request.executionId,
@@ -1460,7 +1484,7 @@ test("replayToolTransaction executes persisted invocation and recognizes structu
 test("replayToolTransaction refuses execute for closed requests", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs.", allowedTools: ["read"] });
     assert.ok(prepared.record);
     const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
       await recordToolResult(dir, state, { requestId: prepared.record!.id, executionId: request.executionId, status: "completed", summary: "Done.", outputs: { ok: true } });
@@ -1479,7 +1503,7 @@ test("replayToolTransaction refuses execute for closed requests", async () => {
 test("tool replay approvals can be created, listed, revoked, and validated", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs.", allowedTools: ["read"] });
     assert.ok(prepared.record);
     const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
       await recordToolResult(dir, state, { requestId: prepared.record!.id, executionId: request.executionId, status: "completed", summary: "Done.", outputs: { ok: true } });
@@ -1509,7 +1533,7 @@ test("tool replay approvals can be created, listed, revoked, and validated", asy
 test("replayToolTransaction executes closed requests only with a matching approval", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs.", allowedTools: ["read"] });
     assert.ok(prepared.record);
     const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
       await recordToolResult(dir, state, { requestId: prepared.record!.id, executionId: request.executionId, status: "completed", summary: "Done.", outputs: { ok: true } });
@@ -1540,7 +1564,7 @@ test("replayToolTransaction executes closed requests only with a matching approv
 test("replayToolTransaction obtains fresh live admission before consuming approval", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs.", allowedTools: ["read"] });
     assert.ok(prepared.record);
     const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
       await recordToolResult(dir, state, {
@@ -1607,7 +1631,7 @@ test("replayToolTransaction refuses a persisted invocation after current request
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     const prepared = await prepareToolRequest(dir, state, {
-      toolName: "docs_search",
+      toolName: "read",
       request: "Original request.",
       allowedTools: ["read", "bash"],
     });
@@ -1660,7 +1684,7 @@ test("replayToolTransaction refuses a persisted invocation after current request
 test("replayToolTransaction reserves a one-use approval before dispatch", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs." });
     assert.ok(prepared.record);
     const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
       await recordToolResult(dir, state, { requestId: prepared.record!.id, executionId: request.executionId, status: "completed", summary: "Done.", outputs: { ok: true } });
@@ -1700,7 +1724,7 @@ test("replayToolTransaction reserves a one-use approval before dispatch", async 
 test("replayToolTransaction treats replay prose without result as missing_result", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs.", allowedTools: ["read"] });
     assert.ok(prepared.record);
     const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id });
     assert.ok(original.transaction);
@@ -1738,7 +1762,7 @@ test("tool iteration policy persists bounded replay controls", async () => {
 test("runToolIterationWorkflow prepares a bounded iteration run", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs.", allowedTools: ["read"] });
     assert.ok(prepared.record);
 
     const result = await runToolIterationWorkflow(dir, state, { requestId: prepared.record.id, maxIterations: 2 });
@@ -1755,7 +1779,7 @@ test("runToolIterationWorkflow prepares a bounded iteration run", async () => {
 test("runToolIterationWorkflow blocks after an ambiguous missing result without automatic replay", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs.", allowedTools: ["read"] });
     assert.ok(prepared.record);
     let calls = 0;
 
@@ -1787,7 +1811,7 @@ test("runToolIterationWorkflow blocks after an ambiguous missing result without 
 test("runToolIterationWorkflow stops after the first ambiguous missing result", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs.", allowedTools: ["read"] });
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Find docs.", allowedTools: ["read"] });
     assert.ok(prepared.record);
 
     const result = await runToolIterationWorkflow(dir, state, { requestId: prepared.record.id, execute: true, maxIterations: 2 }, async (request) => ({
@@ -1813,7 +1837,7 @@ test("recordToolResult stores an unbound proposal without closing the request", 
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     const prepared = await prepareToolRequest(dir, state, {
-      toolName: "docs_search",
+      toolName: "read",
       request: "Find widget docs.",
       taskId: "T-TOOL",
       allowedTools: ["read"],
@@ -1831,7 +1855,7 @@ test("recordToolResult stores an unbound proposal without closing the request", 
     }, new Date("2026-01-01T00:00:01.000Z"));
 
     assert.equal(result.requestId, prepared.record.id);
-    assert.equal(result.toolName, "docs_search");
+    assert.equal(result.toolName, "read");
     assert.equal(result.taskId, "T-TOOL");
     assert.equal(result.status, "completed");
     assert.equal(result.acceptanceStatus, "unbound");

@@ -430,6 +430,24 @@ test("runConductorStep dispatches the selected exact Markdown section", async ()
   });
 });
 
+test("runConductorStep refuses unavailable strict child grants before attempt or budget publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    let runnerCalls = 0;
+
+    const result = await runConductorStep(dir, state, { execute: true, tools: ["browser_search"] }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /cannot load granted tools: browser_search/i);
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+    assert.equal(getBudgetState(result.state).usage.spawnedAgents ?? 0, 0);
+  });
+});
+
 test("runConductorStep rejects a result after selected file context becomes ambiguous", async () => {
   await withTempDir(async (dir) => {
     const state = stateWithTasks(["ready"]);

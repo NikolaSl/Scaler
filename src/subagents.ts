@@ -28,7 +28,7 @@ export interface TaskAgentRequest {
   appendSystemPromptPath?: string;
   extensionPaths?: string[];
   providerAdmission?: ProviderAdmissionPolicy;
-  /** Refuse named tools that the isolated built-in/SCALER loader cannot provide. */
+  /** @deprecated Strict admission always refuses tools the isolated loader cannot provide. */
   enforceLoadedToolAvailability?: boolean;
   /** Optional exact live-model identity bound by the parent admission decision. */
   providerAdmissionModel?: ProviderAdmissionModel;
@@ -75,6 +75,16 @@ const STRICT_CHILD_TOOL_NAMES = new Set([
   "scaler_validation_manifest_write", "scaler_validation_report", "scaler_debug_attempt",
 ]);
 
+export function assertStrictChildToolAvailability(request: TaskAgentRequest): void {
+  if (request.providerAdmission === undefined) return;
+  const unavailableTools = normalizeGrantedTools(request).filter((tool) => !STRICT_CHILD_TOOL_NAMES.has(tool));
+  if (unavailableTools.length > 0) {
+    throw new TaskAgentInvocationAdmissionError(
+      `Strict child invocation cannot load granted tools: ${unavailableTools.join(", ")}.`,
+    );
+  }
+}
+
 export const DEFAULT_TASK_AGENT_OUTPUT_LIMITS: Readonly<TaskAgentOutputLimits> = Object.freeze({
   stdoutBytes: 4 * 1024 * 1024,
   stderrBytes: 1024 * 1024,
@@ -104,14 +114,7 @@ export function buildTaskAgentInvocation(request: TaskAgentRequest, command = "p
     throw new Error("Exact provider model binding requires strict provider admission.");
   }
   const grantedTools = normalizeGrantedTools(request);
-  if (strictProviderAdmission && request.enforceLoadedToolAvailability) {
-    const unavailableTools = grantedTools.filter((tool) => !STRICT_CHILD_TOOL_NAMES.has(tool));
-    if (unavailableTools.length > 0) {
-      throw new TaskAgentInvocationAdmissionError(
-        `Strict child invocation cannot load granted tools: ${unavailableTools.join(", ")}.`,
-      );
-    }
-  }
+  assertStrictChildToolAvailability(request);
   const extensionPaths = resolveChildAgentExtensionPaths(request, grantedTools.length > 0);
 
   for (const extensionPath of extensionPaths) {
