@@ -58,7 +58,7 @@ regular project file that is also an exact declared output can use the
 post-dispatch output exception. Symlink-backed context, FIFO/non-regular inputs,
 deleted sources and newly ambiguous selectors fail closed. Budget-omitted and
 inline context preserve their prior behavior. The exact-head gate passes build,
-901 unit, 67 mock integration and 7 conformance checks. SC-07 remains Partial:
+903 unit, 67 mock integration and 7 conformance checks. SC-07 remains Partial:
 broader selector kinds and automatic effective task splitting are still open.
 
 PLAN-120 adds the next bounded SC-05 layer for conductor and debug-retry child

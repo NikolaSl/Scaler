@@ -109,9 +109,13 @@ Regression coverage includes the planned full-file, selected-section,
 newly-ambiguous-section, deleted-source, unrelated-file, inline-only,
 exact-output and allowed-prefix cases. Additional adversarial cases cover byte
 identity, normalized paths, descriptor tampering, legacy open attempts, leaf
-and ancestor symlinks, and FIFO replacement without blocking. Review findings
-for symlink referent drift and FIFO hangs were reproduced and fixed in
-`423b8c12f54af662fde0d113e9f14ced018f8290`.
+and ancestor symlinks, regular-to-symlink identity drift, and FIFO replacement
+without blocking. Review findings for symlink referent drift and FIFO hangs were
+reproduced and fixed in `423b8c12f54af662fde0d113e9f14ced018f8290`.
+A follow-up exact-head review found that a direct output could lose eligibility
+between admission and dispatch while retaining identical bytes; that transition
+is reproduced in `2d3275b51d462dfe019b8a0ed1ab0cf1b3b5a27c` and rejected by
+`9f92a89e0400f2dcf75ca35dc4c7ea2dfe7c04a8`.
 
 Focused verification:
 
