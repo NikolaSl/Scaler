@@ -173,6 +173,36 @@ test("fresh context handoff preserves complete required exact inline content", a
   });
 });
 
+test("fresh context handoff preserves explicit exactness over reference-only scope", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTask();
+    const manifest = await ensureTaskContextManifest(dir, state, "T-COMPACT");
+    const exact = `${"EXACT-REFERENCE-SCOPE ".repeat(30)}REQUIRED-TAIL`;
+    await saveTaskContextManifest(dir, {
+      ...manifest,
+      items: [...manifest.items, {
+        id: "required-reference-scope-exact",
+        type: "decision",
+        reason: "Explicit exact contract",
+        priority: "required",
+        scope: "reference-only",
+        exactness: "exact",
+        source: "inline",
+        content: exact,
+      }],
+    });
+    const resolved = oversizedResolvedContext();
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: 2_000, contextWindowTokens: 2_000, largeItemThresholdTokens: 100 });
+    const split = await recordContextSplitIfNeeded(dir, state, "T-COMPACT", resolved, assessment, new Date("2026-01-01T00:00:03.000Z"));
+
+    const result = await prepareFreshContextHandoff(dir, state, { splitId: split!.id, now: new Date("2026-01-01T00:00:04.000Z") });
+
+    assert.equal(result.accepted, true);
+    assert.ok(result.prompt.includes(exact));
+    assert.match(result.prompt, /REQUIRED-TAIL/);
+  });
+});
+
 test("fresh context handoff blocks changed externalized source before prompt publication", async () => {
   await withTempDir(async (dir) => {
     const state = stateWithTask();
