@@ -258,36 +258,50 @@ export async function prepareFreshContextHandoff(
   // injectable so older callers/tests remain source-compatible, but never call it.
   void runner;
   const now = input.now ?? new Date();
-  const split = await selectContextSplit(cwd, input);
+  let existingHandoffs: FreshContextHandoffRecord[];
+  try {
+    existingHandoffs = await loadFreshContextHandoffRecords(cwd);
+  } catch {
+    const record = buildBlockedHandoffRecord("none", input.taskId ?? state.currentTaskId ?? "unknown", "Fresh handoff index is invalid.", now);
+    return { accepted: false, message: record.diagnostics[0]!, record, prompt: "" };
+  }
+  let split: ContextSplitRecord | undefined;
+  try {
+    split = await selectContextSplit(cwd, input);
+  } catch {
+    const record = buildBlockedHandoffRecord("none", input.taskId ?? state.currentTaskId ?? "unknown", "Fresh handoff split index is invalid.", now);
+    await writeFreshContextHandoffRecords(cwd, [record, ...existingHandoffs]);
+    return { accepted: false, message: record.diagnostics[0]!, record, prompt: "" };
+  }
   if (!split) {
     const record = buildBlockedHandoffRecord("none", input.taskId ?? state.currentTaskId ?? "unknown", "No matching context split record found.", now);
-    await writeFreshContextHandoffRecords(cwd, [record, ...(await loadFreshContextHandoffRecords(cwd))]);
+    await writeFreshContextHandoffRecords(cwd, [record, ...existingHandoffs]);
     return { accepted: false, message: record.diagnostics[0] ?? "No matching context split record found.", record, prompt: "" };
   }
 
   const task = state.tasks.find((candidate) => candidate.id === split.taskId);
   const splitDiagnostic = validateFreshContextSplit(split, task);
-  if (splitDiagnostic) return await recordBlockedFreshHandoff(cwd, state, split, splitDiagnostic, now);
+  if (splitDiagnostic) return await recordBlockedFreshHandoff(cwd, state, split, splitDiagnostic, now, existingHandoffs);
 
   let manifest: TaskContextManifest;
   let resolvedItems: ContextItem[];
   try {
     manifest = await ensureTaskContextManifest(cwd, state, split.taskId);
     if (manifest.taskId !== split.taskId) {
-      return await recordBlockedFreshHandoff(cwd, state, split, "Fresh handoff current context manifest is invalid.", now);
+      return await recordBlockedFreshHandoff(cwd, state, split, "Fresh handoff current context manifest is invalid.", now, existingHandoffs);
     }
     resolvedItems = await resolveTaskContextManifest(cwd, state, manifest);
   } catch {
-    return await recordBlockedFreshHandoff(cwd, state, split, "Fresh handoff current context manifest is invalid.", now);
+    return await recordBlockedFreshHandoff(cwd, state, split, "Fresh handoff current context manifest is invalid.", now, existingHandoffs);
   }
   const requiredDiagnostics = getRequiredContextDiagnostics(resolvedItems);
   if (requiredDiagnostics.length > 0) {
-    return await recordBlockedFreshHandoff(cwd, state, split, "Fresh handoff required current context is unavailable.", now);
+    return await recordBlockedFreshHandoff(cwd, state, split, "Fresh handoff required current context is unavailable.", now, existingHandoffs);
   }
-  const missingHistoricalExact = split.exactRefs.filter((id) =>
+  const missingHistoricalMinimal = split.minimalContextItemIds.filter((id) =>
     !resolvedItems.some((item) => item.id === id) && !split.externalizedMemoryRefs.some((ref) => ref.itemId === id));
-  if (missingHistoricalExact.length > 0) {
-    return await recordBlockedFreshHandoff(cwd, state, split, "Fresh handoff required historical exact context is unavailable.", now);
+  if (missingHistoricalMinimal.length > 0) {
+    return await recordBlockedFreshHandoff(cwd, state, split, "Fresh handoff historical minimal context is unavailable.", now, existingHandoffs);
   }
   let externalizedSourcesValid = false;
   try {
@@ -296,7 +310,7 @@ export async function prepareFreshContextHandoff(
     externalizedSourcesValid = false;
   }
   if (!externalizedSourcesValid) {
-    return await recordBlockedFreshHandoff(cwd, state, split, "Fresh handoff externalized context source is unavailable or changed.", now);
+    return await recordBlockedFreshHandoff(cwd, state, split, "Fresh handoff externalized context source is unavailable or changed.", now, existingHandoffs);
   }
 
   const prompt = buildFreshContextHandoffPrompt(state, split, task, resolvedItems);
@@ -333,7 +347,7 @@ export async function prepareFreshContextHandoff(
     diagnostics,
     createdAt: now.toISOString(),
   };
-  await writeFreshContextHandoffRecords(cwd, [record, ...(await loadFreshContextHandoffRecords(cwd))]);
+  await writeFreshContextHandoffRecords(cwd, [record, ...existingHandoffs]);
   await appendLogEvent(cwd, createLogEvent(state, {
     eventType: "agent",
     summary: `${status === "prepared" ? "Prepared" : "Blocked"} fresh context handoff for ${split.taskId}`,
@@ -357,7 +371,9 @@ export async function prepareFreshContextHandoff(
 export async function loadFreshContextHandoffRecords(cwd: string): Promise<FreshContextHandoffRecord[]> {
   try {
     const raw = await readFile(getContextHandoffsPath(cwd), "utf8");
-    return (JSON.parse(raw) as FreshContextHandoffIndex).handoffs ?? [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isFreshContextHandoffIndex(parsed)) throw new Error("Invalid fresh-context handoff index.");
+    return parsed.handoffs;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
@@ -525,7 +541,11 @@ function validateFreshContextSplit(split: ContextSplitRecord, task: ScalerTaskSt
       || !areStringArrays(split.includedItemIds, split.exactRefs, split.summaryOkRefs,
         split.referenceOnlyRefs, split.externalizeRefs, split.minimalContextItemIds, split.recommendations)
       || !Array.isArray(split.externalizedMemoryRefs)
-      || !split.externalizedMemoryRefs.every(isExternalizedContextRef)) {
+      || !split.externalizedMemoryRefs.every(isExternalizedContextRef)
+      || !arraysAreUnique(split.includedItemIds, split.exactRefs, split.summaryOkRefs,
+        split.referenceOnlyRefs, split.externalizeRefs, split.minimalContextItemIds)
+      || split.externalizeRefs.length !== split.externalizedMemoryRefs.length
+      || !split.externalizeRefs.every((id) => split.externalizedMemoryRefs.some((ref) => ref.itemId === id))) {
     return "Fresh handoff split evidence is malformed.";
   }
   return undefined;
@@ -539,15 +559,24 @@ async function verifyExternalizedContextRefs(
   const memory = await loadMemoryIndex(cwd);
   const items = new Map(resolvedItems.map((item) => [item.id, item]));
   const root = await realpath(cwd);
+  const seenItemIds = new Set<string>();
+  const seenMemoryIds = new Set<string>();
+  const seenPaths = new Set<string>();
   for (const ref of split.externalizedMemoryRefs) {
     try {
       if (!isNonEmptyString(ref.itemId) || !isNonEmptyString(ref.memoryId) || !isNonEmptyString(ref.path)
           || !/^[0-9a-f]{64}$/.test(ref.sha256)
           || !isPositiveSafeInteger(ref.originalTokens) || !isPositiveSafeInteger(ref.replacementTokens)
-          || ref.itemId !== split.externalizeRefs.find((id) => id === ref.itemId)) return false;
+          || !split.externalizeRefs.includes(ref.itemId)
+          || seenItemIds.has(ref.itemId) || seenMemoryIds.has(ref.memoryId) || seenPaths.has(ref.path)) return false;
+      seenItemIds.add(ref.itemId);
+      seenMemoryIds.add(ref.memoryId);
+      seenPaths.add(ref.path);
       const entry = memory.entries.find((candidate) => candidate.id === ref.memoryId);
       if (!entry || entry.path !== ref.path || entry.taskId !== split.taskId
-          || entry.source !== `context-split:${split.id}` || entry.validity !== "active") return false;
+          || entry.source !== `context-split:${split.id}` || entry.validity !== "active"
+          || !entry.tags?.includes("context-externalized") || !entry.tags.includes(split.taskId.toLowerCase())
+          || !entry.tags.includes(ref.itemId.toLowerCase())) return false;
       const normalizedPath = ref.path.replace(/\\/g, "/").replace(/^\.\//, "");
       if (!normalizedPath.startsWith(".scaler/memory/") || normalizedPath.includes("/../")) return false;
       const absolute = isAbsolute(ref.path) ? resolve(ref.path) : resolve(cwd, ref.path);
@@ -560,6 +589,13 @@ async function verifyExternalizedContextRefs(
       const marker = "\n## Content\n\n";
       const markerIndex = raw.indexOf(marker);
       if (markerIndex < 0) return false;
+      const identityLines = new Set(raw.slice(0, markerIndex).split("\n"));
+      if (!identityLines.has(`# Externalized Context Item ${ref.itemId}`)
+          || !identityLines.has(`- taskId: ${split.taskId}`)
+          || !identityLines.has(`- splitId: ${split.id}`)
+          || !identityLines.has(`- scope: ${ref.scope}`)
+          || !identityLines.has(`- exactness: ${ref.exactness}`)
+          || !identityLines.has(`- sha256: ${ref.sha256}`)) return false;
       const storedContent = raw.slice(markerIndex + marker.length, raw.endsWith("\n") ? -1 : undefined);
       if (createHash("sha256").update(storedContent).digest("hex") !== ref.sha256) return false;
       const current = items.get(ref.itemId);
@@ -580,6 +616,7 @@ async function recordBlockedFreshHandoff(
   split: ContextSplitRecord,
   diagnostic: string,
   now: Date,
+  existingHandoffs: FreshContextHandoffRecord[],
 ): Promise<FreshContextHandoffResult> {
   const record: FreshContextHandoffRecord = {
     ...buildBlockedHandoffRecord(split.id, split.taskId, diagnostic, now),
@@ -587,7 +624,7 @@ async function recordBlockedFreshHandoff(
     activeContextLimitTokens: Number.isSafeInteger(split.activeContextLimitTokens) ? split.activeContextLimitTokens : 0,
     externalizedMemoryRefs: Array.isArray(split.externalizedMemoryRefs) ? split.externalizedMemoryRefs : [],
   };
-  await writeFreshContextHandoffRecords(cwd, [record, ...(await loadFreshContextHandoffRecords(cwd))]);
+  await writeFreshContextHandoffRecords(cwd, [record, ...existingHandoffs]);
   await appendLogEvent(cwd, createLogEvent(state, {
     eventType: "agent",
     summary: `Blocked fresh context handoff for ${split.taskId}`,
@@ -616,6 +653,35 @@ function isPositiveSafeInteger(value: unknown): value is number {
 
 function areStringArrays(...values: unknown[]): boolean {
   return values.every((value) => Array.isArray(value) && value.every(isNonEmptyString));
+}
+
+function arraysAreUnique(...values: string[][]): boolean {
+  return values.every((value) => new Set(value).size === value.length);
+}
+
+function isFreshContextHandoffIndex(value: unknown): value is FreshContextHandoffIndex {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const index = value as Partial<FreshContextHandoffIndex>;
+  return index.version === 1 && Array.isArray(index.handoffs) && index.handoffs.every(isFreshContextHandoffRecord);
+}
+
+function isFreshContextHandoffRecord(value: unknown): value is FreshContextHandoffRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Partial<FreshContextHandoffRecord>;
+  return isNonEmptyString(record.id) && isNonEmptyString(record.splitId) && isNonEmptyString(record.taskId)
+    && ["prepared", "executed", "failed", "blocked"].includes(record.status ?? "")
+    && typeof record.promptPath === "string"
+    && isNonNegativeSafeInteger(record.estimatedTokens)
+    && isNonNegativeSafeInteger(record.previousEstimatedTokens)
+    && isNonNegativeSafeInteger(record.activeContextLimitTokens)
+    && typeof record.shrinkTargetPassed === "boolean"
+    && Array.isArray(record.externalizedMemoryRefs) && record.externalizedMemoryRefs.every(isExternalizedContextRef)
+    && Array.isArray(record.diagnostics) && record.diagnostics.every(isNonEmptyString)
+    && typeof record.createdAt === "string" && Number.isFinite(Date.parse(record.createdAt));
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function isExternalizedContextRef(value: unknown): value is ExternalizedContextRef {
