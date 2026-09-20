@@ -97,6 +97,18 @@ test("strict child invocation refuses tool grants that its isolated loader canno
   }
 });
 
+test("strict child invocation returns structured admission errors for malformed tool grants", () => {
+  const sparse = Array(1) as string[];
+  for (const tools of [[null], [1], "read", { name: "read" }, sparse]) {
+    assert.throws(() => buildTaskAgentInvocation({
+      taskId: "T-malformed-tools",
+      prompt: "Inspect",
+      tools: tools as string[],
+      providerAdmission: { requestTokenAllowance: 8_000, outputReserveTokens: 1_024, safetyMarginTokens: 1_024 },
+    }), TaskAgentInvocationAdmissionError);
+  }
+});
+
 test("task-agent success rejects Pi JSON-mode terminal abort and error events despite exit zero", () => {
   for (const stopReason of ["aborted", "error"]) {
     assert.equal(taskAgentRunSucceeded({

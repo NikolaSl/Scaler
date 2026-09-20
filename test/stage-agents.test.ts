@@ -236,6 +236,25 @@ test("runStageAgentStep refuses unavailable strict child grants without publishi
   assert.deepEqual(await loadStageAgentRunRecords(cwd), []);
 });
 
+test("runStageAgentStep returns a structured refusal for malformed strict grants", async () => {
+  const cwd = await tempDir();
+  const state = createDefaultState();
+  let runnerCalled = false;
+
+  const result = await runStageAgentStep(cwd, state, "prd", {
+    execute: true,
+    tools: [null] as unknown as string[],
+  }, async (request) => {
+    runnerCalled = true;
+    return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+  });
+
+  assert.equal(result.accepted, false);
+  assert.match(result.message, /malformed granted tools/i);
+  assert.equal(runnerCalled, false);
+  assert.deepEqual(await loadStageAgentRunRecords(cwd), []);
+});
+
 test("runStageAgentStep refuses an oversized final prompt before runner or run-record publication", async () => {
   const cwd = await tempDir();
   const state = createDefaultState();

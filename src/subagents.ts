@@ -77,6 +77,13 @@ const STRICT_CHILD_TOOL_NAMES = new Set([
 
 export function assertStrictChildToolAvailability(request: TaskAgentRequest): void {
   if (request.providerAdmission === undefined) return;
+  if (!request.noTools && request.tools !== undefined) {
+    if (!Array.isArray(request.tools)
+      || request.tools.some((tool) => typeof tool !== "string")
+      || Array.from({ length: request.tools.length }, (_, index) => index).some((index) => !(index in request.tools!))) {
+      throw new TaskAgentInvocationAdmissionError("Strict child invocation has malformed granted tools.");
+    }
+  }
   const unavailableTools = normalizeGrantedTools(request).filter((tool) => !STRICT_CHILD_TOOL_NAMES.has(tool));
   if (unavailableTools.length > 0) {
     throw new TaskAgentInvocationAdmissionError(
@@ -113,8 +120,8 @@ export function buildTaskAgentInvocation(request: TaskAgentRequest, command = "p
   if (!strictProviderAdmission && request.providerAdmissionModel) {
     throw new Error("Exact provider model binding requires strict provider admission.");
   }
-  const grantedTools = normalizeGrantedTools(request);
   assertStrictChildToolAvailability(request);
+  const grantedTools = normalizeGrantedTools(request);
   const extensionPaths = resolveChildAgentExtensionPaths(request, grantedTools.length > 0);
 
   for (const extensionPath of extensionPaths) {
