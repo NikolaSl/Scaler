@@ -306,12 +306,12 @@ test("runAutonomousStageWorkflow augments explicit tools with required stage too
     const state = createState("planning");
     await saveState(dir, state);
 
-    const result = await runAutonomousStageWorkflow(dir, state, { execute: true, maxSteps: 1, tools: ["custom-inspector"] }, {
+    const result = await runAutonomousStageWorkflow(dir, state, { execute: true, maxSteps: 1, tools: ["grep"] }, {
       stage: async (request) => {
         assert.equal(request.taskId, "stage-planning");
         assert.ok(request.tools?.includes("read"));
         assert.ok(request.tools?.includes("bash"));
-        assert.ok(request.tools?.includes("custom-inspector"));
+        assert.ok(request.tools?.includes("grep"));
         assert.ok(request.tools?.includes("scaler_planning_report"));
         return {
           taskId: request.taskId,
