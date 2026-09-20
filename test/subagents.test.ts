@@ -106,6 +106,15 @@ test("task-agent success rejects Pi JSON-mode terminal abort and error events de
     taskId: "T-stop", exitCode: 0, stderr: "", timedOut: false, aborted: false,
     stdoutEvents: [{ type: "message_end", message: { role: "assistant", stopReason: "stop" } }],
   }), true);
+  assert.equal(taskAgentRunSucceeded({
+    taskId: "T-retry", exitCode: 0, stderr: "", timedOut: false, aborted: false,
+    stdoutEvents: [
+      { type: "message_end", message: { role: "assistant", stopReason: "error" } },
+      { type: "auto_retry_start" },
+      { type: "message_end", message: { role: "assistant", stopReason: "stop" } },
+      { type: "auto_retry_end", success: true },
+    ],
+  }), true);
 });
 
 test("extractStructuredReportPayloads accepts direct, nested, and exact Pi assistant JSON reports", () => {

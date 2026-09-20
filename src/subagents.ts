@@ -143,15 +143,19 @@ export function buildTaskAgentInvocation(request: TaskAgentRequest, command = "p
 
 export function taskAgentRunSucceeded(result: TaskAgentRunResult): boolean {
   if (result.exitCode !== 0 || result.timedOut || result.aborted || result.outputLimitExceeded !== undefined) return false;
-  return !result.stdoutEvents.some((event) => hasTerminalFailureStopReason(event));
+  for (let index = result.stdoutEvents.length - 1; index >= 0; index -= 1) {
+    const stopReason = terminalStopReason(result.stdoutEvents[index]);
+    if (stopReason) return !["aborted", "error"].includes(stopReason);
+  }
+  return true;
 }
 
-function hasTerminalFailureStopReason(value: unknown): boolean {
-  if (!value || typeof value !== "object") return false;
+function terminalStopReason(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
   const record = value as Record<string, unknown>;
-  if (typeof record.stopReason === "string" && ["aborted", "error"].includes(record.stopReason.toLowerCase())) return true;
-  if (record.message && typeof record.message === "object" && hasTerminalFailureStopReason(record.message)) return true;
-  return false;
+  if (typeof record.stopReason === "string") return record.stopReason.toLowerCase();
+  if (record.message && typeof record.message === "object") return terminalStopReason(record.message);
+  return undefined;
 }
 
 export function getDefaultScalerChildExtensionPath(): string {
