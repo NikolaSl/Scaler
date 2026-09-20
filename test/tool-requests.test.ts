@@ -423,6 +423,37 @@ test("runToolSchedule executes parallel then serial requests with structured res
   });
 });
 
+test("runToolSchedule executes guarded requests sequentially even when parallelism is requested", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await recordToolSchema(dir, state, { toolName: "docs_search", source: "mock", riskLevel: "low", description: "Read-only docs search." });
+    await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs A.", riskLevel: "low" });
+    await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs B.", riskLevel: "low" });
+    let active = 0;
+    let maximumActive = 0;
+
+    const result = await runToolSchedule(dir, state, { execute: true, parallelism: 8 }, async (request) => {
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const requestId = request.taskId.replace(/^tool-/, "");
+      const executionId = (request as typeof request & { executionId?: string }).executionId;
+      await recordToolResult(dir, state, {
+        requestId,
+        executionId,
+        status: "completed",
+        summary: `Completed ${requestId}`,
+        outputs: { ok: true },
+      } as Parameters<typeof recordToolResult>[2] & { executionId?: string });
+      active -= 1;
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+
+    assert.equal(result.accepted, true);
+    assert.equal(maximumActive, 1);
+  });
+});
+
 test("buildToolAgentPrompt includes request and excludes unrelated tools", () => {
   const prompt = buildToolAgentPrompt({
     id: "REQ-001",
@@ -514,6 +545,60 @@ test("runToolRequestAgent recognizes structured scaler_tool_result closure", asy
     assert.equal(result.resultRecord?.status, "completed");
     assert.equal((await loadToolRequests(dir))[0]?.status, "completed");
     assert.equal((await loadToolTransactions(dir))[0]?.resultId, result.resultRecord?.id);
+  });
+});
+
+test("runToolRequestAgent rejects a completed result when the child process fails", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "docs_search",
+      request: "Find widget docs.",
+      allowedTools: ["read"],
+    });
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+      await recordToolResult(dir, state, {
+        requestId: prepared.record!.id,
+        executionId: (request as typeof request & { executionId?: string }).executionId,
+        status: "completed",
+        summary: "Claimed completion before process failure.",
+        outputs: { ok: true },
+      } as Parameters<typeof recordToolResult>[2] & { executionId?: string });
+      return { taskId: request.taskId, exitCode: 1, stdoutEvents: [], stderr: "failed after result", timedOut: true, aborted: false };
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.transaction?.status, "blocked");
+    assert.equal((await loadToolRequests(dir))[0]?.status, "blocked");
+    const proposal = (await loadToolResults(dir))[0] as unknown as { acceptanceStatus?: string };
+    assert.equal(proposal.acceptanceStatus, "rejected");
+  });
+});
+
+test("runToolRequestAgent accepts only a result bound to its execution", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+      await recordToolResult(dir, state, {
+        requestId: prepared.record!.id,
+        executionId: "foreign-execution",
+        status: "completed",
+        summary: "Foreign result.",
+        outputs: { ok: true },
+      } as Parameters<typeof recordToolResult>[2] & { executionId: string });
+      assert.ok((request as typeof request & { executionId?: string }).executionId);
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.transaction?.status, "blocked");
+    assert.equal((await loadToolRequests(dir))[0]?.status, "blocked");
+    assert.equal(result.resultRecord, undefined);
   });
 });
 
