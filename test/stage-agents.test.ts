@@ -223,6 +223,33 @@ test("runStageAgentStep prepares and executes under lock", async () => {
   });
 });
 
+for (const stopReason of ["aborted", "error"] as const) {
+  test(`runStageAgentStep rejects a zero-exit terminal ${stopReason} without ingesting artifacts`, async () => {
+    const cwd = await tempDir();
+    const state = createDefaultState();
+    const result = await runStageAgentStep(cwd, state, "execution", { execute: true }, async (request) => ({
+      taskId: request.taskId,
+      exitCode: 0,
+      stdoutEvents: [
+        {
+          type: "scaler_stage_artifact",
+          stage: "execution",
+          status: "ready",
+          title: "Must not be accepted",
+        },
+        { type: "message_end", message: { role: "assistant", stopReason } },
+      ],
+      stderr: "",
+      timedOut: false,
+      aborted: false,
+    }));
+
+    assert.equal(result.runRecord?.status, "failed");
+    assert.deepEqual(result.ingestion, { attempted: false, ingested: false });
+    assert.deepEqual(await loadStageArtifacts(cwd), []);
+  });
+}
+
 test("runStageAgentStep refuses unavailable strict child grants without publishing a run", async () => {
   const cwd = await tempDir();
   const state = createDefaultState();
