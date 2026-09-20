@@ -55,7 +55,7 @@ import {
   type StageArtifact,
   type StageArtifactStage,
 } from "./stages.js";
-import { extractStructuredReportPayloads, type TaskAgentRunResult } from "./subagents.js";
+import { extractStructuredReportPayloads, taskAgentRunSucceeded, type TaskAgentRunResult } from "./subagents.js";
 import { transitionStage } from "./supervisor.js";
 import type { ScalerState } from "./types.js";
 import { completeRunWithEvidence } from "./run-completion.js";
@@ -320,7 +320,7 @@ export async function ingestSupplementalStageReports(
   cwd: string,
   input: SupplementalIngestionInput,
 ): Promise<StageWorkflowSupplementalIngestion> {
-  if (!input.runResult || input.runResult.exitCode !== 0) return {};
+  if (!input.runResult || !taskAgentRunSucceeded(input.runResult)) return {};
   const result: StageWorkflowSupplementalIngestion = {};
   if (input.stage === "prd") {
     result.prd = await ingestPrdWriteReport(cwd, input.state, input.runResult.stdoutEvents);
@@ -514,9 +514,12 @@ async function runArtifactStageWorkflowStep(
     providerAdmissionModel: options.providerAdmissionModel,
     timeoutMs: options.timeoutMs,
   }, runner);
-  const supplemental = await ingestSupplementalStageReports(cwd, { stage, state, runResult: stageAgent.runResult });
+  const runSucceeded = Boolean(stageAgent.runResult && taskAgentRunSucceeded(stageAgent.runResult));
+  const supplemental = runSucceeded
+    ? await ingestSupplementalStageReports(cwd, { stage, state, runResult: stageAgent.runResult })
+    : {};
   const stateForAdvance = supplemental.planning?.result?.state ?? state;
-  const postAdvance = options.execute ? await advanceIfReady(cwd, stateForAdvance, stage) : undefined;
+  const postAdvance = options.execute && runSucceeded ? await advanceIfReady(cwd, stateForAdvance, stage) : undefined;
   const accepted = stageAgent.accepted && (!options.execute || Boolean(postAdvance?.accepted));
   return {
     accepted,
