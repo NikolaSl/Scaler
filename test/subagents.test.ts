@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { buildTaskAgentInvocation, extractStructuredReportPayloads, getDefaultScalerChildExtensionPath, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError } from "../src/subagents.js";
 import { loadWatchdogCleanupRecords } from "../src/watchdogs.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
 
 async function withScript<T>(content: string, fn: (script: string, dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-subagent-test-"));
@@ -93,7 +94,11 @@ test("strict child invocation refuses tool grants that its isolated loader canno
       tools: ["browser", "mcp-docs"],
       enforceLoadedToolAvailability,
       providerAdmission: { requestTokenAllowance: 8_000, outputReserveTokens: 1_024, safetyMarginTokens: 1_024 },
-    }), TaskAgentInvocationAdmissionError);
+      providerAdmissionModel: testProviderAdmissionModel,
+    }), {
+      name: "TaskAgentInvocationAdmissionError",
+      message: /cannot load granted tools: browser, mcp-docs/i,
+    });
   }
 });
 
@@ -105,7 +110,11 @@ test("strict child invocation returns structured admission errors for malformed 
       prompt: "Inspect",
       tools: tools as string[],
       providerAdmission: { requestTokenAllowance: 8_000, outputReserveTokens: 1_024, safetyMarginTokens: 1_024 },
-    }), TaskAgentInvocationAdmissionError);
+      providerAdmissionModel: testProviderAdmissionModel,
+    }), {
+      name: "TaskAgentInvocationAdmissionError",
+      message: /malformed granted tools/i,
+    });
   }
 });
 
