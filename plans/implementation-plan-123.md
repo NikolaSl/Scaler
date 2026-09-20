@@ -65,6 +65,47 @@ Run the focused extension, tool-request and installed-host suites, followed by
 build, full unit, mock integration and conformance/autopilot gates. Two
 independent GPT-6 Astra/high reviews must inspect the exact candidate head.
 
+## Implemented result
+
+The installed Pi path now applies the initial parent tool focus during
+`before_agent_start`, before the host snapshots tools and rebuilds its provider
+request. Pi 0.80.3 retains the previous prompt inside that extension chain, so
+SCALER verifies it with the installed host builder and returns a rebuilt prompt
+containing only the selected snippets and guidelines. A later extension can
+append its own instruction without reintroducing excluded material. An earlier
+unreconcilable rewrite instead restores the previous tools and aborts at the
+provider boundary; arbitrary earlier safety text is never silently discarded.
+
+The zero-network host regression inspects the actual OpenAI-compatible JSON
+body: the first request contains `scaler_task_report` and
+`scaler_tool_request`, while a large previously active unselected tool's schema,
+snippet and guideline are absent. The companion extension's marker remains.
+Child agents retain their explicitly selected tools and the parent selection is
+restored at the existing turn/agent-end boundary.
+
+`buildRuntimeToolEnvelopeProfile` now produces a selected, whole-catalog or
+unknown footprint. A selected footprint requires the host selection APIs and an
+exact post-selection tool-set match. Its type-tagged canonical wire identity
+contains complete names, descriptions, parameter schemas, prompt guidelines and
+source metadata, then records UTF-8 byte size and SHA-256. Object key order is
+stable; sparse holes, explicit `undefined`, `null` and empty arrays remain
+distinct, and missing values cannot collide with user-shaped objects. Duplicate or
+missing definitions, mismatched selections, cycles, unsupported values and
+non-finite numbers return unknown with no size or fingerprint.
+
+The request-start audit event records only the profile metadata and fingerprint,
+not the full schemas or guidelines. The compact requester catalog remains
+compact and does not expose those definitions.
+
+Candidate verification after the review fixes:
+
+- TypeScript build: passed;
+- unit: 907/907;
+- mock integration: 67/67;
+- conformance/autopilot: 7/7;
+- focused extension, installed-host and tool-request selection: 55/55;
+- `git diff --check`: passed.
+
 ## Explicit limits
 
 PLAN-123 does not complete AC-08 or implement the three route executors. It does
