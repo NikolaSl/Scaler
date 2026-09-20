@@ -8,6 +8,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { Type } from "typebox";
 import {
   AuthStorage, createAgentSession, DefaultResourceLoader, ModelRegistry,
   SessionManager, SettingsManager, type AgentSession, type ExtensionFactory,
@@ -26,7 +27,7 @@ const policyEnv = {
 
 // All provider traffic is replaced before creating the SDK session. No live
 // credentials, endpoints, command providers or global resource discovery are used.
-async function runInstalledHost(systemCharacters: number, extensions: ExtensionFactory[] = [], options: { autoCompaction?: boolean; activeTask?: boolean } = {}) {
+async function runInstalledHost(systemCharacters: number, extensions: ExtensionFactory[] = [], options: { autoCompaction?: boolean; activeTask?: boolean; largeUnselectedTool?: boolean; reemitBeforeStartPrompt?: boolean; rewriteBeforeScaler?: boolean; defaultSystemPrompt?: boolean } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "scaler-provider-host-test-"));
   const savedFetch = globalThis.fetch;
   const savedEnv = Object.fromEntries(Object.keys(policyEnv).map((key) => [key, process.env[key]]));
@@ -82,17 +83,41 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
     const loader = new DefaultResourceLoader({
       cwd: dir, agentDir: join(dir, "agent"), settingsManager,
       noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-      systemPrompt: `HOST_SYSTEM_START\n${"s".repeat(systemCharacters)}\nHOST_SYSTEM_END`,
+      ...(options.defaultSystemPrompt ? {} : { systemPrompt: `HOST_SYSTEM_START\n${"s".repeat(systemCharacters)}\nHOST_SYSTEM_END` }),
       // Tool-less children load admission alone, without SCALER's separate
       // deterministic compaction handler (see resolveChildAgentExtensionPaths).
-      extensionFactories: [...(options.autoCompaction ? [] : [scalerExtension]), ...extensions],
+      extensionFactories: [
+        ...(options.rewriteBeforeScaler ? [((pi) => {
+          pi.on("before_agent_start", (event) => ({ systemPrompt: `EARLIER_SAFETY_PROMPT\n${event.systemPrompt}` }));
+        }) satisfies ExtensionFactory] : []),
+        ...(options.autoCompaction ? [] : [scalerExtension]),
+        ...(options.largeUnselectedTool ? [((pi) => {
+          pi.registerTool({
+            name: "large_unselected",
+            label: "Large Unselected",
+            description: "LARGE_UNSELECTED_DESCRIPTION",
+            promptSnippet: "LARGE_UNSELECTED_SNIPPET",
+            promptGuidelines: [`LARGE_UNSELECTED_GUIDELINE_${"g".repeat(20_000)}`],
+            parameters: Type.Object({ payload: Type.String({ description: `LARGE_UNSELECTED_SCHEMA_${"s".repeat(30_000)}` }) }),
+            async execute() { return { content: [{ type: "text", text: "unused" }], details: {} }; },
+          });
+        }) satisfies ExtensionFactory] : []),
+        ...(options.reemitBeforeStartPrompt ? [((pi) => {
+          pi.on("before_agent_start", (event) => ({ systemPrompt: `${event.systemPrompt}\nCOMPANION_BEFORE_START_PROMPT` }));
+        }) satisfies ExtensionFactory] : []),
+        ...extensions,
+      ],
     });
     await loader.reload();
     ({ session } = await createAgentSession({
       cwd: dir, agentDir: join(dir, "agent"), authStorage,
       modelRegistry: ModelRegistry.inMemory(authStorage), model, settingsManager,
       sessionManager: SessionManager.inMemory(dir), resourceLoader: loader,
-      tools: options.autoCompaction ? [] : options.activeTask ? ["read", "scaler_tool_request", "scaler_task_report"] : ["read"],
+      tools: options.autoCompaction
+        ? []
+        : options.activeTask
+          ? ["read", ...(options.largeUnselectedTool ? ["large_unselected"] : []), "scaler_tool_request", "scaler_task_report"]
+          : ["read"],
     }));
     session.subscribe((event) => {
       if (event.type === "compaction_end" && event.aborted) compactionCancelled = true;
@@ -101,6 +126,7 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
     const lastMessage = session.messages.at(-1);
     return {
       fetchCalls, payload, payloads, model, compactionCancelled,
+      activeToolNames: session.getActiveToolNames(),
       stopReason: lastMessage?.role === "assistant" ? lastMessage.stopReason : undefined,
     };
   } finally {
@@ -140,13 +166,26 @@ test("provider admission permits an adequate installed Pi envelope", async () =>
 });
 
 test("installed Pi first provider request uses SCALER parent tool focus", async () => {
-  const result = await runInstalledHost(40, [], { activeTask: true });
+  const result = await runInstalledHost(40, [], { activeTask: true, largeUnselectedTool: true, reemitBeforeStartPrompt: true, defaultSystemPrompt: true });
   assert.equal(result.fetchCalls, 1);
   const toolNames = ((result.payload?.tools ?? []) as Array<{ function?: { name?: string } }>)
     .map((tool) => tool.function?.name)
     .filter((name): name is string => Boolean(name));
   assert.deepEqual(toolNames.sort(), ["scaler_task_report", "scaler_tool_request"]);
   assert.equal(toolNames.includes("read"), false, "the unselected tool must be absent from the transported first request");
+  const transported = JSON.stringify(result.payload);
+  assert.doesNotMatch(transported, /LARGE_UNSELECTED_SCHEMA/);
+  assert.doesNotMatch(transported, /LARGE_UNSELECTED_GUIDELINE/);
+  assert.doesNotMatch(transported, /LARGE_UNSELECTED_SNIPPET/);
+  assert.match(transported, /COMPANION_BEFORE_START_PROMPT/);
+  assert.deepEqual(result.activeToolNames, ["read", "large_unselected", "scaler_tool_request", "scaler_task_report"]);
+});
+
+test("installed Pi refuses an unreconcilable earlier system-prompt rewrite", async () => {
+  const result = await runInstalledHost(40, [], { activeTask: true, largeUnselectedTool: true, rewriteBeforeScaler: true, defaultSystemPrompt: true });
+  assert.equal(result.fetchCalls, 0, "unsupported prompt composition must stop before transport");
+  assert.equal(result.stopReason, "aborted");
+  assert.deepEqual(result.activeToolNames, ["read", "large_unselected", "scaler_tool_request", "scaler_task_report"]);
 });
 
 test("installed Pi auto-compaction bypasses provider-request hooks without the strict profile", async () => {

@@ -198,6 +198,15 @@ test("runtime tool envelope profile rejects malformed definitions without ambigu
     parameters: { $scalerType: "undefined" },
   }], ["docs_search"], selected);
   assert.notEqual(omitted.fingerprint, sentinelShaped.fingerprint, "an actual schema object must not collide with an omitted field marker");
+  const denseArray = toolRequestsModule.buildRuntimeToolEnvelopeProfile([{
+    name: "docs_search",
+    parameters: { enum: [] },
+  }], ["docs_search"], selected);
+  const sparseArray = toolRequestsModule.buildRuntimeToolEnvelopeProfile([{
+    name: "docs_search",
+    parameters: { enum: Array(1) },
+  }], ["docs_search"], selected);
+  assert.notEqual(denseArray.fingerprint, sparseArray.fingerprint, "sparse array holes must not collide with a shorter transported array");
 
   const cyclic: Record<string, unknown> = {};
   cyclic.self = cyclic;
