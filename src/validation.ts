@@ -490,6 +490,10 @@ function assertValidationManifestShape(
   if (typeof taskId !== "string" || !taskId.trim()) {
     throw new Error(`${source} validation manifest at index ${index} is malformed: taskId must be a non-empty string.`);
   }
+  const revision = (candidate as { revision?: unknown }).revision;
+  if (revision !== undefined && (!Number.isSafeInteger(revision) || (revision as number) < 1)) {
+    throw new Error(`${source} validation manifest for ${taskId} is malformed: revision must be a positive safe integer.`);
+  }
   const commands = (candidate as { commands?: unknown }).commands;
   if (!Array.isArray(commands)) {
     throw new Error(`${source} validation manifest for ${taskId} is malformed: commands must be an array.`);
