@@ -1972,18 +1972,28 @@ async function finalizeToolExecution(
     const results = await loadToolResults(cwd);
     const transactions = await loadToolTransactions(cwd);
     const currentRequest = requests.find((candidate) => candidate.id === request.id);
+    const currentExecution = transactions.find((candidate) => candidate.id === execution.id);
     const boundResults = results.filter((candidate) => candidate.requestId === request.id
       && candidate.executionId === execution.id
       && !beforeResultIds.has(candidate.id));
     const processSucceeded = runResult.exitCode === 0 && !runResult.timedOut && !runResult.aborted;
     const requestUnchanged = currentRequest?.status === request.status && currentRequest.activeExecutionId === execution.id;
-    const accepted = processSucceeded && requestUnchanged && boundResults.length === 1;
+    const executionUnchanged = currentExecution?.status === "prepared"
+      && currentExecution.requestId === execution.requestId
+      && currentExecution.toolName === execution.toolName
+      && currentExecution.createdAt === execution.createdAt
+      && currentExecution.replayOfTransactionId === execution.replayOfTransactionId
+      && JSON.stringify(currentExecution.invocation) === JSON.stringify(execution.invocation);
+    const ownershipUnchanged = requestUnchanged && executionUnchanged;
+    const accepted = processSucceeded && ownershipUnchanged && boundResults.length === 1;
     const proposedResult = accepted ? boundResults[0] : undefined;
     const status: ToolTransactionStatus = accepted ? proposedResult!.status : "blocked";
     const failureReason = !processSucceeded
       ? `process outcome exit=${runResult.exitCode} timedOut=${runResult.timedOut} aborted=${runResult.aborted}`
       : !requestUnchanged
         ? `request or active execution changed from ${request.status}/${execution.id} to ${currentRequest?.status ?? "missing"}/${currentRequest?.activeExecutionId ?? "none"}`
+        : !executionUnchanged
+          ? `durable execution ${execution.id} is missing or no longer matches its prepared identity`
         : boundResults.length === 0
           ? "no fresh result matched the execution identity"
           : `expected one execution-bound result, received ${boundResults.length}`;
@@ -2002,7 +2012,7 @@ async function finalizeToolExecution(
     const resultRecord = proposedResult
       ? updatedResults.find((candidate) => candidate.id === proposedResult.id)
       : undefined;
-    const updatedRequest: ToolRequestRecord = !requestUnchanged
+    const updatedRequest: ToolRequestRecord = !ownershipUnchanged
       ? currentRequest ?? request
       : accepted
         ? { ...currentRequest!, status: resultRecord!.status, activeExecutionId: undefined, updatedAt: timestamp }
@@ -2024,8 +2034,10 @@ async function finalizeToolExecution(
       updatedAt: timestamp,
     };
     await writeToolResultIndex(cwd, updatedResults);
-    await writeToolTransactionIndex(cwd, transactions.map((candidate) => candidate.id === execution.id ? transaction : candidate));
-    if (requestUnchanged && currentRequest) {
+    if (executionUnchanged) {
+      await writeToolTransactionIndex(cwd, transactions.map((candidate) => candidate.id === execution.id ? transaction : candidate));
+    }
+    if (ownershipUnchanged && currentRequest) {
       await writeToolRequestIndex(cwd, requests.map((candidate) => candidate.id === updatedRequest.id ? updatedRequest : candidate));
     }
     return { accepted, status, request: updatedRequest, transaction, resultRecord };

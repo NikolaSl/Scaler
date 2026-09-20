@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
-import { getToolRequestsIndexPath } from "../src/paths.js";
+import { getToolRequestsIndexPath, getToolTransactionsPath } from "../src/paths.js";
 import * as toolRequestsModule from "../src/tool-requests.js";
 import {
   buildRuntimeToolCatalog,
@@ -651,6 +651,34 @@ test("runToolRequestAgent preserves replacement ownership when a stale execution
     assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, "replacement-live-execution");
     assert.equal((await loadToolRequests(dir))[0]?.status, "prepared");
     assert.equal((await loadToolResults(dir))[0]?.acceptanceStatus, "rejected");
+  });
+});
+
+test("runToolRequestAgent refuses acceptance when its durable execution disappears", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+      await recordToolResult(dir, state, {
+        requestId: prepared.record!.id,
+        executionId: request.executionId,
+        status: "completed",
+        summary: "Proposal with missing durable execution.",
+        outputs: { ok: true },
+      });
+      await writeFile(getToolTransactionsPath(dir), `${JSON.stringify({ version: 1, transactions: [] }, null, 2)}\n`, "utf8");
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.transaction?.status, "blocked");
+    assert.match(result.message, /durable execution .* missing or no longer matches/);
+    assert.equal((await loadToolRequests(dir))[0]?.status, "prepared");
+    assert.ok((await loadToolRequests(dir))[0]?.activeExecutionId);
+    assert.equal((await loadToolResults(dir))[0]?.acceptanceStatus, "rejected");
+    assert.equal((await loadToolTransactions(dir)).length, 0);
   });
 });
 
