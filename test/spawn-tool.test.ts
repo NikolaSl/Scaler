@@ -73,6 +73,11 @@ test("prepareOrRunSpawnTask executes runner when execute is true", async () => {
 
   assert.equal(capturedRequest?.taskId, "T-002");
   assert.equal(capturedRequest?.cwd, "/tmp/project");
+  assert.deepEqual(capturedRequest?.providerAdmission, {
+    requestTokenAllowance: 8_000,
+    outputReserveTokens: 1_024,
+    safetyMarginTokens: 1_024,
+  });
   assert.equal(capturedOptions?.timeoutMs, 1234);
   assert.match(result.text, /executed/);
   assert.equal((result.details as { status: string }).status, "executed");
@@ -87,4 +92,29 @@ test("prepareOrRunSpawnTask reports failed execution status", async () => {
   );
 
   assert.equal((result.details as { status: string }).status, "failed");
+});
+
+test("prepareOrRunSpawnTask refuses an oversized prompt before runner and releases its lock", async () => {
+  await withTempDir(async (dir) => {
+    let runnerCalled = false;
+    const result = await prepareOrRunSpawnTask(
+      dir,
+      {
+        taskId: "T-LARGE",
+        prompt: "EXACT-SOURCE\n".repeat(4_000),
+        execute: true,
+        tokenBudget: 1,
+      } as never,
+      undefined,
+      async () => {
+        runnerCalled = true;
+        throw new Error("runner must not be called");
+      },
+    );
+
+    assert.equal(runnerCalled, false);
+    assert.match(result.text, /final SCALER prompt refused/i);
+    assert.equal((result.details as { status: string }).status, "refused");
+    assert.equal(await loadExecutionLock(dir), undefined);
+  });
 });

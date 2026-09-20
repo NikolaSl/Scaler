@@ -348,6 +348,11 @@ test("runToolSchemaDiscoveryAgent recognizes structured scaler_tool_schema compl
 
     const result = await runToolSchemaDiscoveryAgent(dir, state, { toolName: "mcp_docs_search", execute: true, tools: ["read"] }, async (request) => {
       assert.match(request.prompt, /scaler_tool_schema/);
+      assert.deepEqual(request.providerAdmission, {
+        requestTokenAllowance: 8_000,
+        outputReserveTokens: 1_024,
+        safetyMarginTokens: 1_024,
+      });
       await recordToolSchema(dir, state, {
         toolName: "mcp_docs_search",
         source: "local-schema",
@@ -364,6 +369,26 @@ test("runToolSchemaDiscoveryAgent recognizes structured scaler_tool_schema compl
     assert.equal(result.run?.status, "completed");
     assert.equal(result.schemaRecord?.toolName, "mcp_docs_search");
     assert.equal((await loadToolSchemaDiscoveryRuns(dir))[0]?.schemaRecordId, result.schemaRecord?.id);
+  });
+});
+
+test("runToolSchemaDiscoveryAgent refuses an oversized prompt before runner or run publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    let runnerCalled = false;
+    const result = await runToolSchemaDiscoveryAgent(dir, state, {
+      toolName: "mcp_docs_search",
+      execute: true,
+      tokenBudget: 1,
+    } as never, async () => {
+      runnerCalled = true;
+      throw new Error("runner must not be called");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(runnerCalled, false);
+    assert.match(result.message, /final SCALER prompt refused/i);
+    assert.deepEqual(await loadToolSchemaDiscoveryRuns(dir), []);
   });
 });
 

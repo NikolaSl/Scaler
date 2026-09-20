@@ -114,6 +114,11 @@ test("prepareResearchAgentInvocation builds isolated Pi invocation", async () =>
   assert.equal(preparation.invocation.cwd, "/repo");
   assert.ok(preparation.invocation.args.includes("--model"));
   assert.ok(preparation.invocation.args.includes("test-model"));
+  assert.deepEqual(preparation.request.providerAdmission, {
+    requestTokenAllowance: 8_000,
+    outputReserveTokens: 1_024,
+    safetyMarginTokens: 1_024,
+  });
   assert.match(preparation.prompt, /Required final response/);
   assert.match(preparation.prompt, /local-scope request/);
 });
@@ -288,5 +293,33 @@ test("runResearchAgentStep prepares oldest open request and executes with report
     const events = await readLogEvents(dir);
     assert.equal(events.some((event) => event.eventType === "agent" && /Agent prompt prepared/.test(event.summary) && event.detailsPath), true);
     assert.equal(events.some((event) => event.eventType === "report" && /Research report ingested/.test(event.summary) && event.detailsPath), true);
+  });
+});
+
+test("runResearchAgentStep refuses an oversized final prompt before audit, runner, or run publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await upsertResearchRequest(dir, {
+      id: "RESEARCH-LARGE",
+      question: "Inspect the supplied source.",
+      reason: "Admission regression.",
+      scope: "local",
+    }, new Date("2026-01-01T00:00:01.000Z"));
+    let runnerCalled = false;
+    const result = await runResearchAgentStep(dir, state, {
+      requestId: "RESEARCH-LARGE",
+      execute: true,
+      tokenBudget: 1,
+      extraInstructions: "EXACT-SOURCE\n".repeat(4_000),
+    } as never, async () => {
+      runnerCalled = true;
+      throw new Error("runner must not be called");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(runnerCalled, false);
+    assert.match(result.message, /final SCALER prompt refused/i);
+    assert.deepEqual(await loadResearchAgentRunRecords(dir), []);
+    assert.deepEqual(await loadResearchReports(dir), []);
   });
 });

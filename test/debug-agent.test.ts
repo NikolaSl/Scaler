@@ -97,6 +97,11 @@ test("prepareDebugAgentInvocation builds isolated Pi invocation", () => {
   assert.equal(preparation.request.taskId, "debug-agent-T-001");
   assert.equal(preparation.invocation.command, "pi-test");
   assert.ok(preparation.invocation.args.includes("--tools"));
+  assert.deepEqual(preparation.request.providerAdmission, {
+    requestTokenAllowance: 8_000,
+    outputReserveTokens: 1_024,
+    safetyMarginTokens: 1_024,
+  });
 });
 
 test("extractDebugReport validates latest structured debug report candidate", () => {
@@ -225,5 +230,26 @@ test("runDebugAgentStep executes and ingests report", async () => {
     assert.equal(result.accepted, true);
     assert.equal(result.ingestion?.ingested, true);
     assert.equal((await loadDebugReports(dir))[0]?.status, "next_approach");
+  });
+});
+
+test("runDebugAgentStep refuses an oversized final prompt before audit, runner, or run publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = debugState();
+    let runnerCalled = false;
+    const result = await runDebugAgentStep(dir, state, {
+      taskId: "T-001",
+      execute: true,
+      tokenBudget: 1,
+      extraInstructions: "EXACT-SOURCE\n".repeat(4_000),
+    } as never, async () => {
+      runnerCalled = true;
+      throw new Error("runner must not be called");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(runnerCalled, false);
+    assert.match(result.message, /final SCALER prompt refused/i);
+    assert.deepEqual(await loadDebugAgentRunRecords(dir), []);
   });
 });

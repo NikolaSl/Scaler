@@ -81,6 +81,11 @@ test("prepareReplanAgentInvocation builds isolated Pi invocation", async () => {
   assert.equal(preparation.invocation.cwd, "/repo");
   assert.ok(preparation.invocation.args.includes("--model"));
   assert.ok(preparation.invocation.args.includes("test-model"));
+  assert.deepEqual(preparation.request.providerAdmission, {
+    requestTokenAllowance: 8_000,
+    outputReserveTokens: 1_024,
+    safetyMarginTokens: 1_024,
+  });
   assert.match(preparation.prompt, /Required preservation rules/);
 });
 
@@ -235,5 +240,35 @@ test("runReplanAgentStep prepares and executes with proposal ingestion", async (
     assert.equal(executed.runRecord?.status, "passed");
     assert.equal(executed.ingestion?.ingested, true);
     assert.equal((await loadProposedExecutionPlan(dir))?.planVersion, 2);
+  });
+});
+
+test("runReplanAgentStep refuses an oversized final prompt before audit, runner, or run publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "replanning";
+    await saveExecutionPlan(dir, {
+      version: 1,
+      planVersion: 1,
+      status: "active",
+      tasks: [],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+    let runnerCalled = false;
+    const result = await runReplanAgentStep(dir, state, {
+      execute: true,
+      tokenBudget: 1,
+      extraInstructions: "EXACT-SOURCE\n".repeat(4_000),
+    } as never, async () => {
+      runnerCalled = true;
+      throw new Error("runner must not be called");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(runnerCalled, false);
+    assert.match(result.message, /final SCALER prompt refused/i);
+    assert.deepEqual(await loadReplanAgentRunRecords(dir), []);
+    assert.equal(await loadProposedExecutionPlan(dir), undefined);
   });
 });
