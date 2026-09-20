@@ -26,7 +26,7 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-04 | Failed | English keyword classifier routes 'What is Docker?' to level 4 and a complex Bulgarian request to level 1. | `src/adaptive.ts` | [AC-04](../specs/acceptance-scenarios.md#ac-04) |
 | SC-05 | Partial | Conductor/debug children now fail closed at both the rendered SCALER prompt and final OpenAI Chat Completions payload boundaries, including system/tool/history, output reserve, model window and compaction-route isolation. Exact tokenization, alternate providers, parent/other child routes, internal retries and observed-usage reconciliation remain open. | `src/prompt-admission.ts`, `src/provider-admission.ts`, `src/provider-admission-extension.ts`, `src/subagents.ts`, `src/conductor.ts`, `src/debug-retry.ts`, `test/provider-admission.test.ts`, `test/provider-admission-host.test.ts`, `test/subagents.test.ts` | [AC-05](../specs/acceptance-scenarios.md#ac-05) |
 | SC-06 | Partial | Validity labels and memory references exist; dependency-based freshness and invalidation unverified. | `src/memory.ts`, `src/context.ts` | [AC-06](../specs/acceptance-scenarios.md#ac-06) |
-| SC-07 | Partial | File-manifest section retrieval now uses an explicit Markdown-heading selector, preserves exact source bytes/line endings, ignores fenced pseudo-headings and fails closed for missing, ambiguous or oversized required sections before worker side effects. AST/semantic retrieval, automatic splitting and stale-source version binding remain open. | `src/context.ts`, `src/conductor.ts`, `src/debug-retry.ts`, `test/context.test.ts`, `test/conductor.test.ts` | [AC-07](../specs/acceptance-scenarios.md#ac-07) |
+| SC-07 | Partial | Exact Markdown-heading retrieval preserves source bytes and rejects missing, ambiguous or oversized required sections. Admitted file context is now byte-bound and revalidated before dispatch and result acceptance, including symlink, non-regular-file and exact-output boundaries. AST/function selectors and automatic effective splitting remain open. | `src/context.ts`, `src/attempt-execution.ts`, `src/conductor.ts`, `src/debug-retry.ts`, `test/context.test.ts`, `test/attempt-execution.test.ts`, `test/conductor.test.ts` | [AC-07](../specs/acceptance-scenarios.md#ac-07) |
 | SC-08 | Partial | Isolated tools and catalogs exist; measured per-request three-mode policy not established; active-tool API mismatch found. | `src/tool-requests.ts`, `src/index.ts` | [AC-08](../specs/acceptance-scenarios.md#ac-08) |
 | SC-09 | Not assessed | Model option exists; local-only envelope and end-to-end acceptance not demonstrated in this review. | `src/subagents.ts` | [AC-09](../specs/acceptance-scenarios.md#ac-09) |
 | SC-10 | Failed | Accepted status can be obtained without validation runs; evidence/version acceptance needs repair. | `src/validation.ts`, `src/tools.ts` | [AC-10](../specs/acceptance-scenarios.md#ac-10) |
@@ -49,6 +49,17 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-27 | Partial | Current named command evidence and participant identity gate declared integration criteria; revision-checked user amendments and immutable history prevent model-route criterion changes. Semantic necessity and non-software evidence remain open. | `src/prd.ts`, `src/run-completion.ts`, `test/requirement-integration.test.ts`, `test/prd.test.ts` | [AC-27](../specs/acceptance-scenarios.md#ac-27) |
 
 ## Implementation progress — PLAN-099
+
+PLAN-122 closes the reproduced stale file-context acceptance boundary. Every
+included file item carries a durable normalized source descriptor and complete
+byte fingerprint in admitted input identity; admission, pre-dispatch and result
+acceptance revalidate it without following a changed identity. Only a direct
+regular project file that is also an exact declared output can use the
+post-dispatch output exception. Symlink-backed context, FIFO/non-regular inputs,
+deleted sources and newly ambiguous selectors fail closed. Budget-omitted and
+inline context preserve their prior behavior. The exact-head gate passes build,
+901 unit, 67 mock integration and 7 conformance checks. SC-07 remains Partial:
+broader selector kinds and automatic effective task splitting are still open.
 
 PLAN-120 adds the next bounded SC-05 layer for conductor and debug-retry child
 calls. Strict child invocations suppress ambient resources and load a final
