@@ -86,13 +86,15 @@ test("buildTaskAgentInvocation can disable all tools for report-only child agent
 });
 
 test("strict child invocation refuses tool grants that its isolated loader cannot provide", () => {
-  assert.throws(() => buildTaskAgentInvocation({
-    taskId: "T-external",
-    prompt: "Browse",
-    tools: ["browser", "mcp-docs"],
-    enforceLoadedToolAvailability: true,
-    providerAdmission: { requestTokenAllowance: 8_000, outputReserveTokens: 1_024, safetyMarginTokens: 1_024 },
-  }), TaskAgentInvocationAdmissionError);
+  for (const enforceLoadedToolAvailability of [undefined, false, true]) {
+    assert.throws(() => buildTaskAgentInvocation({
+      taskId: "T-external",
+      prompt: "Browse",
+      tools: ["browser", "mcp-docs"],
+      enforceLoadedToolAvailability,
+      providerAdmission: { requestTokenAllowance: 8_000, outputReserveTokens: 1_024, safetyMarginTokens: 1_024 },
+    }), TaskAgentInvocationAdmissionError);
+  }
 });
 
 test("task-agent success rejects Pi JSON-mode terminal abort and error events despite exit zero", () => {

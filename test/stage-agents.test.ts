@@ -217,6 +217,25 @@ test("runStageAgentStep prepares and executes under lock", async () => {
   });
 });
 
+test("runStageAgentStep refuses unavailable strict child grants without publishing a run", async () => {
+  const cwd = await tempDir();
+  const state = createDefaultState();
+  let runnerCalled = false;
+
+  const result = await runStageAgentStep(cwd, state, "prd", {
+    execute: true,
+    tools: ["browser_search"],
+  }, async (request) => {
+    runnerCalled = true;
+    return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+  });
+
+  assert.equal(result.accepted, false);
+  assert.match(result.message, /cannot load granted tools: browser_search/);
+  assert.equal(runnerCalled, false);
+  assert.deepEqual(await loadStageAgentRunRecords(cwd), []);
+});
+
 test("runStageAgentStep refuses an oversized final prompt before runner or run-record publication", async () => {
   const cwd = await tempDir();
   const state = createDefaultState();
