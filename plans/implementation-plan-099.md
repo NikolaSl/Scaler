@@ -104,7 +104,12 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   surface cannot yet supply a trustworthy future continuation payload, so
   execution remains unavailable there instead of reconstructing or inventing
   one. This closes an unsafe dispatch default but still does not complete
-  SC-08/AC-08.
+  SC-08/AC-08. PLAN-128 applies the same fail-closed discipline to the legacy
+  fresh-context handoff route: preparation revalidates complete minimal-item and
+  externalized-source provenance without clipping exact bytes, while `execute`
+  refuses before the runner until conductor-equivalent attempt, provider and
+  result admission exist. It does not complete automatic effective splitting,
+  SC-07, SC-08 or AC-08.
 
 ### Renewed continuation policy (2026-09-19)
 

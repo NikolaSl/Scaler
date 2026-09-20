@@ -176,6 +176,11 @@ Default/discovered manifests mark file snippets, task metadata, validation evide
 
 `/scaler-compactions` lists recent compaction records and summary artifact paths.
 
-`/scaler-context-handoff` prepares, or with `execute` runs, a fresh minimal-context continuation agent from a split record. It refuses execution if the generated prompt does not shrink below the split target.
+`/scaler-context-handoff` prepares a fresh minimal-context continuation from a
+split record only after revalidating the split, current manifest, every selected
+minimal item, and each externalized source's stored identity and bytes. The
+legacy `execute` argument now fails closed before invoking a runner because this
+route does not yet have conductor-equivalent attempt, provider and result
+admission. Execute prepared work through the normal conductor boundary.
 
 `/scaler-context-handoffs` lists fresh handoff records.

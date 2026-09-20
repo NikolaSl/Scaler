@@ -319,7 +319,13 @@ Lists SCALER-aware compaction records and summary artifact paths.
 
 ## `/scaler-context-handoff [splitId|taskId] [execute]`
 
-Prepares a fresh minimal-context continuation from the selected context split. The prompt keeps task metadata plus externalized memory refs instead of reinjecting large content. With `execute`, SCALER runs the handoff agent only if the prompt is smaller than the split context and below the active-context target.
+Prepares a fresh minimal-context continuation from the selected context split.
+Before publishing a prompt, SCALER revalidates the versioned split and handoff
+ledgers, current manifest, complete minimal-item selection, and externalized
+artifact identity/content. The prompt keeps verified memory refs instead of
+reinjecting large content and preserves inline exact items without clipping.
+The legacy `execute` argument is intentionally blocked before runner invocation
+until this route has conductor-equivalent attempt, provider and result admission.
 
 ## `/scaler-context-handoffs [taskId|splitId|handoffId]`
 

@@ -56,3 +56,18 @@ This unit does not invent a future Pi continuation payload, authorize PLAN-124
 route advice, implement a second executor, certify SC-08/AC-08, or claim real
 model quality, savings or scale. Automatic effective splitting and executing a
 fresh handoff through the full supervisor contract remain later bounded work.
+
+## Implemented result
+
+Preparation now validates the versioned split and handoff ledger envelopes,
+current task/manifest, every selected historical minimal item, and each
+externalized artifact before prompt publication. Externalized identity is bound
+across the split reference, memory index tags/source/task, stored item/task/split/
+scope/exactness header and exact content hash; duplicate memory/path aliases are
+rejected. Required inline exact content is emitted byte-for-byte.
+
+Malformed evidence returns fixed diagnostics, preserves an invalid handoff
+ledger for diagnosis and publishes no prompt. The legacy `execute` argument
+records a blocked handoff without invoking the injected runner or persisting an
+invocation. The focused context-compaction/context-split selection passes 22/22.
+Full candidate evidence is recorded separately after the exact-head gate.

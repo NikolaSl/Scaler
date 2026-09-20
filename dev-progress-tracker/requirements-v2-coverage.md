@@ -50,6 +50,18 @@ Those results do not verify revision 2, a local model, or the real host end to e
 
 ## Implementation progress — PLAN-099
 
+PLAN-128 closes the unsafe legacy fresh-context handoff preparation and direct
+execution defaults. Preparation now validates both ledger envelopes, the current
+task/manifest, every historical minimal item, and each externalized artifact's
+workspace path, regular-file identity, memory provenance, item/task/split/scope/
+exactness header, and content hash before prompt publication. Required inline
+exact bytes are never clipped. The legacy `execute` argument refuses before the
+runner because this path lacks conductor-equivalent attempt, provider and result
+admission. Focused context-compaction/context-split coverage passes 22 checks.
+SC-07 and SC-08 remain Partial: this does not implement automatic effective
+splitting, a production continuation supplier, route execution, or savings and
+quality evidence.
+
 PLAN-124 adds the bounded SC-08 route-assessment prerequisite without changing
 execution. Runtime-owned evidence can recommend `direct`, `current-agent`,
 `isolated` or `blocked`, always with `executionAuthorized: false`. Direct advice

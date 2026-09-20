@@ -375,6 +375,17 @@ available. Synthetic evidence is limited to tests and does not establish a
 production supplier, route execution completeness, local-model quality, token
 savings or scale. SC-08/AC-08 remains partial.
 
+PLAN-128 revalidates fresh-context handoff evidence before prompt publication.
+Run `node --test --import tsx test/context-compaction.test.ts test/context-splits.test.ts`
+for exact-inline preservation plus malformed/foreign ledger, missing minimal
+item, mutated/deleted/symlinked source, hash/header/alias substitution and legacy
+execute-refusal coverage. Preparation writes no prompt for invalid source or
+identity evidence, and malformed handoff evidence is preserved rather than
+overwritten. The `execute` argument invokes no runner; normal conductor
+admission remains the only executable task-agent boundary. These checks do not
+prove automatic effective splitting, a live continuation supplier, route
+execution, local-model quality, savings or scale.
+
 PLAN-113 requires declared `outputPaths` before automatic non-Git/clean/runtime
 commit skips or explicit commit skips can accept a task. A successful command
 may still have `status: passed` while `acceptance.accepted` is false; callers
