@@ -11,7 +11,7 @@ import { getStageAgentRunsPath } from "./paths.js";
 import { assessTaskPromptAdmission, resolveTaskPromptTokenBudget, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
 import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
-import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
 import { loadStageArtifacts, stageArtifactStatuses, stageArtifactStages, upsertStageArtifact, type StageArtifact, type StageArtifactInput, type StageArtifactStage } from "./stages.js";
 import type { ScalerState } from "./types.js";
@@ -236,7 +236,7 @@ export async function runStageAgentStep(
       });
     }
     const runRecord = await recordStageAgentRun(cwd, stage, runResult, options.execute ? undefined : "prepared");
-    const ingestion = runResult?.exitCode === 0 ? await ingestStageAgentArtifactReport(cwd, stage, runResult.stdoutEvents) : { attempted: false, ingested: false };
+    const ingestion = runResult && taskAgentRunSucceeded(runResult) ? await ingestStageAgentArtifactReport(cwd, stage, runResult.stdoutEvents) : { attempted: false, ingested: false };
     if (ingestion.attempted) {
       await logStructuredReportAudit(cwd, state, {
         reportType: "scaler_stage_artifact",
@@ -284,7 +284,7 @@ export async function recordStageAgentRun(
   const record: StageAgentRunRecord = runResult ? {
     id: `stage-${stage}-${now.getTime()}`,
     stage,
-    status: runResult.exitCode === 0 ? "passed" : "failed",
+    status: taskAgentRunSucceeded(runResult) ? "passed" : "failed",
     exitCode: runResult.exitCode,
     stdoutEventCount: runResult.stdoutEvents.length,
     stderrSummary: summarizeOutput(runResult.stderr),
