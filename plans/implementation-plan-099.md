@@ -95,7 +95,14 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   representation. PLAN-124 advice deliberately remains non-authorizing because
   the live worker and caller-continuation envelopes do not yet share a trusted
   dispatch-time supplier. PLAN-126 therefore closes an execution prerequisite,
-  not SC-08/AC-08 or any quality/savings claim.
+  not SC-08/AC-08 or any quality/savings claim. PLAN-127 makes a fresh trusted
+  supplier mandatory immediately before isolated execution, binds its worker
+  and caller-continuation evidence to the claimed request/execution identity,
+  and fails closed when that supplier is unavailable. The installed Pi command
+  surface cannot yet supply a trustworthy future continuation payload, so
+  execution remains unavailable there instead of reconstructing or inventing
+  one. This closes an unsafe dispatch default but still does not complete
+  SC-08/AC-08.
 
 ### Renewed continuation policy (2026-09-19)
 
