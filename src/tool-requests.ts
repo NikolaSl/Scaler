@@ -188,6 +188,7 @@ export interface ToolTransactionRecord {
   stderrBytes?: number;
   outputLimitExceeded?: "stdout" | "stderr";
   limits?: ToolExecutionLimits;
+  routeAdmission?: ToolDispatchAdmissionRecord;
   stderrSummary?: string;
   resultId?: string;
   replayOfTransactionId?: string;
@@ -333,6 +334,7 @@ export interface ToolDispatchRouteBasis {
   executionId: string;
   requestFingerprint: string;
   invocationFingerprint: string;
+  toolNames: readonly string[];
   resultBytesReserve: number;
 }
 
@@ -346,6 +348,18 @@ export interface ToolDispatchRouteSnapshot {
 export type ToolDispatchRouteEvidenceSupplier = (
   basis: Readonly<ToolDispatchRouteBasis>,
 ) => Promise<ToolDispatchRouteSnapshot> | ToolDispatchRouteSnapshot;
+
+export interface ToolDispatchAdmissionRecord {
+  version: 1;
+  route: "isolated";
+  authorized: true;
+  requestFingerprint: string;
+  invocationFingerprint: string;
+  evidenceFingerprint: string;
+  profileFingerprint: string;
+  modelId: string;
+  selectedEstimatedOverheadUpperBound: number;
+}
 
 export interface ToolRouteAssessmentRecordResult {
   recorded: boolean;
@@ -368,6 +382,7 @@ export interface ToolIterationWorkflowOptions {
   maxIterations?: number;
   timeoutMs?: number;
   command?: string;
+  routeEvidenceSupplier?: ToolDispatchRouteEvidenceSupplier;
 }
 
 export interface ToolScheduleOptions {
@@ -375,6 +390,7 @@ export interface ToolScheduleOptions {
   parallelism?: number;
   timeoutMs?: number;
   command?: string;
+  routeEvidenceSupplier?: ToolDispatchRouteEvidenceSupplier;
 }
 
 export interface ToolIterationPolicyInput {
@@ -388,6 +404,7 @@ export interface ToolTransactionReplayOptions {
   timeoutMs?: number;
   command?: string;
   approvalId?: string;
+  routeEvidenceSupplier?: ToolDispatchRouteEvidenceSupplier;
 }
 
 export interface ToolReplayApprovalInput {
@@ -1119,7 +1136,13 @@ export async function runToolSchedule(
   const executedSteps: ToolScheduleStepRecord[] = [];
   const parallelSteps = steps.filter((step) => step.mode === "parallel");
   for (const step of steps) {
-    const result = await runToolRequestAgent(cwd, state, { requestId: step.requestId, execute: true, timeoutMs: options.timeoutMs, command: options.command }, runner);
+    const result = await runToolRequestAgent(cwd, state, {
+      requestId: step.requestId,
+      execute: true,
+      timeoutMs: options.timeoutMs,
+      command: options.command,
+      routeEvidenceSupplier: options.routeEvidenceSupplier,
+    }, runner);
     executedSteps.push(toolScheduleExecutedStep(step, result));
   }
   const status: ToolScheduleStatus = executedSteps.every((step) => step.accepted) ? "completed" : "partial";
@@ -1268,13 +1291,13 @@ export async function runToolRequestAgent(
   }
 
   const prompt = buildToolAgentPrompt(request, await loadToolSchemaRecords(cwd));
-  const agentRequest: TaskAgentRequest = {
+  let agentRequest: TaskAgentRequest = {
     taskId: `tool-${request.id}`,
     prompt,
     tools: request.allowedTools,
     cwd,
   };
-  const invocation = buildTaskAgentInvocation(agentRequest, options.command ?? "pi");
+  let invocation = buildTaskAgentInvocation(agentRequest, options.command ?? "pi");
 
   if (!options.execute) {
     const transaction = await recordToolTransaction(cwd, request, {
@@ -1289,7 +1312,29 @@ export async function runToolRequestAgent(
   }
 
   const limits = copyToolExecutionLimits(DEFAULT_TOOL_EXECUTION_LIMITS);
-  const claim = await beginToolExecution(cwd, request, invocation, limits);
+  const admission = await prepareToolDispatchAdmission(
+    request,
+    agentRequest,
+    invocation,
+    limits,
+    options.routeEvidenceSupplier,
+    options.command ?? "pi",
+  );
+  if (!admission.accepted) {
+    const transaction = await recordToolTransaction(cwd, request, {
+      id: admission.executionId,
+      status: "rejected",
+      executed: false,
+      invocation,
+      limits,
+      message: admission.message,
+    });
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: transaction.message, taskId: request.taskId, details: { transaction } }));
+    return { accepted: false, message: transaction.message, request, prompt, invocation, transaction };
+  }
+  agentRequest = admission.agentRequest;
+  invocation = admission.invocation;
+  const claim = await beginToolExecution(cwd, request, invocation, limits, undefined, undefined, admission.executionId, admission.routeAdmission);
   if (!claim.accepted) {
     await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: claim.transaction.message, taskId: request.taskId, details: { transaction: claim.transaction } }));
     return { accepted: false, message: claim.transaction.message, request: claim.request, prompt, invocation, transaction: claim.transaction };
@@ -1393,8 +1438,20 @@ export async function runToolIterationWorkflow(
     const latestMissing = policy.autoReplay ? await latestMissingResultTransaction(cwd, request.id) : undefined;
     const action: ToolIterationStepAction = latestMissing ? "replay" : "run";
     const result = latestMissing
-      ? await replayToolTransaction(cwd, state, { transactionId: latestMissing.id, execute: true, timeoutMs: options.timeoutMs, command: options.command }, runner)
-      : await runToolRequestAgent(cwd, state, { requestId: request.id, execute: true, timeoutMs: options.timeoutMs, command: options.command }, runner);
+      ? await replayToolTransaction(cwd, state, {
+          transactionId: latestMissing.id,
+          execute: true,
+          timeoutMs: options.timeoutMs,
+          command: options.command,
+          routeEvidenceSupplier: options.routeEvidenceSupplier,
+        }, runner)
+      : await runToolRequestAgent(cwd, state, {
+          requestId: request.id,
+          execute: true,
+          timeoutMs: options.timeoutMs,
+          command: options.command,
+          routeEvidenceSupplier: options.routeEvidenceSupplier,
+        }, runner);
     const step = toolIterationStep(iteration, action, result);
     steps.push(step);
 
@@ -1462,8 +1519,8 @@ export async function replayToolTransaction(
     return { accepted: false, message, original };
   }
 
-  const replayRequest = reconstructReplayTaskRequest(original, cwd);
-  const invocation = buildTaskAgentInvocation(replayRequest, options.command ?? original.invocation.command);
+  let replayRequest = reconstructReplayTaskRequest(original, cwd);
+  let invocation = buildTaskAgentInvocation(replayRequest, options.command ?? original.invocation.command);
 
   if (!options.execute) {
     const transaction = await recordToolTransaction(cwd, request, {
@@ -1479,7 +1536,30 @@ export async function replayToolTransaction(
   }
 
   const limits = copyToolExecutionLimits(DEFAULT_TOOL_EXECUTION_LIMITS);
-  const claim = await beginToolExecution(cwd, request, invocation, limits, original.id, options.approvalId);
+  const admission = await prepareToolDispatchAdmission(
+    request,
+    replayRequest,
+    invocation,
+    limits,
+    options.routeEvidenceSupplier,
+    options.command ?? original.invocation.command,
+  );
+  if (!admission.accepted) {
+    const transaction = await recordToolTransaction(cwd, request, {
+      id: admission.executionId,
+      status: "rejected",
+      executed: false,
+      invocation,
+      limits,
+      replayOfTransactionId: original.id,
+      message: admission.message,
+    });
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: transaction.message, taskId: request.taskId, details: { transaction, original } }));
+    return { accepted: false, message: transaction.message, original, request, prompt: replayRequest.prompt, invocation, transaction };
+  }
+  replayRequest = admission.agentRequest;
+  invocation = admission.invocation;
+  const claim = await beginToolExecution(cwd, request, invocation, limits, original.id, options.approvalId, admission.executionId, admission.routeAdmission);
   if (!claim.accepted) {
     await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: claim.transaction.message, taskId: request.taskId, details: { transaction: claim.transaction, original } }));
     return { accepted: false, message: claim.transaction.message, original, request: claim.request, prompt: replayRequest.prompt, invocation, transaction: claim.transaction };
@@ -1953,6 +2033,167 @@ function normalizeToolRunMeasurements(result: TaskAgentRunResult, limits: TaskAg
   return { ...result, stdoutBytes, stderrBytes, outputLimitExceeded };
 }
 
+async function prepareToolDispatchAdmission(
+  request: ToolRequestRecord,
+  baseAgentRequest: TaskAgentRequest,
+  baseInvocation: TaskAgentInvocation,
+  limits: ToolExecutionLimits,
+  supplier: ToolDispatchRouteEvidenceSupplier | undefined,
+  command: string,
+): Promise<
+  | { accepted: true; executionId: string; agentRequest: TaskAgentRequest; invocation: TaskAgentInvocation; routeAdmission: ToolDispatchAdmissionRecord }
+  | { accepted: false; executionId: string; message: string }
+> {
+  const executionId = randomUUID();
+  const refuse = (reason: string) => ({
+    accepted: false as const,
+    executionId,
+    message: `Tool transaction dispatch rejected: ${reason}.`,
+  });
+  if (!supplier) return refuse("a live route evidence supplier is required for isolated execution");
+
+  const requestFingerprint = fingerprintToolRequest(request);
+  const basis: ToolDispatchRouteBasis = Object.freeze({
+    version: 1,
+    requestId: request.id,
+    executionId,
+    requestFingerprint,
+    invocationFingerprint: fingerprintInvocation(baseInvocation),
+    toolNames: Object.freeze([...request.allowedTools]),
+    resultBytesReserve: limits.resultBytes,
+  });
+
+  let snapshot: ToolDispatchRouteSnapshot;
+  try {
+    snapshot = structuredClone(await supplier(basis));
+  } catch (error) {
+    return refuse(`live route evidence supplier failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!isPlainObject(snapshot)
+    || snapshot.version !== 1
+    || snapshot.requestId !== request.id
+    || snapshot.executionId !== executionId
+    || !isPlainObject(snapshot.evidence)) {
+    return refuse("live route evidence is malformed or bound to another request/execution");
+  }
+  if (snapshot.evidence.isolationRequirement !== "capability"
+    && snapshot.evidence.isolationRequirement !== "focus"
+    && snapshot.evidence.isolationRequirement !== "evidence-independence") {
+    return refuse("live route evidence lacks an explicit isolation requirement");
+  }
+
+  const routeRequest = buildToolRouteRequestBasis(request, executionId);
+  const assessment = assessToolRoute({ ...snapshot.evidence, request: routeRequest });
+  if (assessment.route !== "isolated") {
+    return refuse(`live route recomputation recommended ${assessment.route} (${assessment.reasonCode})`);
+  }
+  if (!assessment.evidenceFingerprint || !assessment.profileFingerprint || assessment.selectedEstimatedOverheadUpperBound === null) {
+    return refuse("live route recomputation did not produce complete compact identity");
+  }
+
+  const isolated = isPlainObject(snapshot.evidence.isolated) ? snapshot.evidence.isolated : undefined;
+  const worker = Array.isArray(isolated?.legs)
+    ? isolated.legs.find((leg) => isPlainObject(leg) && leg.role === "worker")
+    : undefined;
+  if (!isPlainObject(worker) || !isPlainObject(worker.model) || !isPlainObject(worker.policy)) {
+    return refuse("live worker provider evidence is missing");
+  }
+  const modelId = typeof worker.model.id === "string" && worker.model.id.trim().length > 0
+    ? worker.model.id.trim()
+    : undefined;
+  const modelApi = typeof worker.model.api === "string" && worker.model.api.trim().length > 0 ? worker.model.api.trim() : undefined;
+  const modelProvider = typeof worker.model.provider === "string" && worker.model.provider.trim().length > 0 ? worker.model.provider.trim() : undefined;
+  const modelContextWindow = typeof worker.model.contextWindow === "number" && Number.isSafeInteger(worker.model.contextWindow) && worker.model.contextWindow > 0
+    ? worker.model.contextWindow
+    : undefined;
+  if (!modelId || !modelApi || !modelProvider || modelContextWindow === undefined) return refuse("live worker model identity is missing");
+  const providerAdmission = {
+    requestTokenAllowance: worker.policy.requestTokenAllowance,
+    outputReserveTokens: worker.policy.outputReserveTokens,
+    safetyMarginTokens: worker.policy.safetyMarginTokens,
+  };
+  if (!Object.values(providerAdmission).every((value) => typeof value === "number")) {
+    return refuse("live worker provider policy is malformed");
+  }
+
+  const agentRequest: TaskAgentRequest = {
+    ...baseAgentRequest,
+    model: modelId,
+    providerAdmission: providerAdmission as TaskAgentRequest["providerAdmission"],
+    providerAdmissionModel: {
+      api: modelApi,
+      provider: modelProvider,
+      id: modelId,
+      contextWindow: modelContextWindow,
+    },
+  };
+  let invocation: TaskAgentInvocation;
+  try {
+    invocation = buildTaskAgentInvocation(agentRequest, command);
+  } catch (error) {
+    return refuse(`strict worker invocation could not be built: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const routeAdmission: ToolDispatchAdmissionRecord = {
+    version: 1,
+    route: "isolated",
+    authorized: true,
+    requestFingerprint,
+    invocationFingerprint: fingerprintInvocation(invocation),
+    evidenceFingerprint: assessment.evidenceFingerprint,
+    profileFingerprint: assessment.profileFingerprint,
+    modelId,
+    selectedEstimatedOverheadUpperBound: assessment.selectedEstimatedOverheadUpperBound,
+  };
+  return { accepted: true, executionId, agentRequest, invocation, routeAdmission };
+}
+
+function buildToolRouteRequestBasis(request: ToolRequestRecord, executionId?: string): ToolRouteAssessmentInput["request"] {
+  return {
+    requestId: request.id,
+    taskId: request.taskId,
+    attemptId: executionId,
+    toolNames: [...request.allowedTools],
+    content: {
+      toolName: request.toolName,
+      request: request.request,
+      requesterAgentId: request.requesterAgentId,
+      contextSummary: request.contextSummary,
+      expectedOutput: request.expectedOutput,
+      requiredFormat: request.requiredFormat,
+      riskLevel: request.riskLevel,
+      permissionRequirement: request.permissionRequirement,
+      safetyNotes: request.safetyNotes,
+    },
+  };
+}
+
+function fingerprintToolRequest(request: ToolRequestRecord): string {
+  return createHash("sha256").update(JSON.stringify({
+    id: request.id,
+    taskId: request.taskId,
+    requesterAgentId: request.requesterAgentId,
+    toolName: request.toolName,
+    request: request.request,
+    contextSummary: request.contextSummary,
+    expectedOutput: request.expectedOutput,
+    requiredFormat: request.requiredFormat,
+    riskLevel: request.riskLevel,
+    permissionRequirement: request.permissionRequirement,
+    safetyNotes: request.safetyNotes,
+    allowedTools: request.allowedTools,
+    status: request.status,
+    createdAt: request.createdAt,
+  }), "utf8").digest("hex");
+}
+
+function fingerprintInvocation(invocation: TaskAgentInvocation): string {
+  return createHash("sha256").update(JSON.stringify({
+    command: invocation.command,
+    args: invocation.args,
+    cwd: invocation.cwd,
+  }), "utf8").digest("hex");
+}
+
 async function beginToolExecution(
   cwd: string,
   request: ToolRequestRecord,
@@ -1960,6 +2201,8 @@ async function beginToolExecution(
   limits: ToolExecutionLimits,
   replayOfTransactionId?: string,
   approvalId?: string,
+  executionId: string = randomUUID(),
+  routeAdmission?: ToolDispatchAdmissionRecord,
 ): Promise<{ accepted: boolean; request: ToolRequestRecord; transaction: ToolTransactionRecord; approval?: ToolReplayApprovalRecord }> {
   return withToolLedgerWriteQueue(cwd, async () => {
     const requests = await loadToolRequests(cwd);
@@ -1982,17 +2225,24 @@ async function beginToolExecution(
         ? `request ${request.id} is ${currentRequest!.status}; approval ${approvalId.trim()} is not usable`
         : `request ${request.id} is ${currentRequest!.status}; no approval supplied`
       : undefined;
+    const currentRequestFingerprint = currentRequest ? fingerprintToolRequest(currentRequest) : undefined;
     const refusal = limitDiagnostics.length > 0
       ? `invalid runtime execution limits: ${limitDiagnostics.join("; ")}`
-      : !currentRequest
-      ? `request ${request.id} disappeared before dispatch`
-      : currentRequest.status !== request.status
-        ? `request status changed from ${request.status} to ${currentRequest.status} before dispatch`
-        : currentRequest.activeExecutionId
-          ? `request ${request.id} already has active execution ${currentRequest.activeExecutionId}`
-          : approvalRefusal;
+      : !routeAdmission
+        ? "live isolated route admission is missing"
+        : !currentRequest
+          ? `request ${request.id} disappeared before dispatch`
+          : currentRequestFingerprint !== routeAdmission.requestFingerprint
+            ? `request ${request.id} changed while live route admission was evaluated`
+            : fingerprintInvocation(invocation) !== routeAdmission.invocationFingerprint
+              ? `invocation for request ${request.id} changed after live route admission`
+              : currentRequest.status !== request.status
+                ? `request status changed from ${request.status} to ${currentRequest.status} before dispatch`
+                : currentRequest.activeExecutionId
+                  ? `request ${request.id} already has active execution ${currentRequest.activeExecutionId}`
+                  : approvalRefusal;
     const transaction: ToolTransactionRecord = {
-      id: randomUUID(),
+      id: executionId,
       requestId: request.id,
       taskId: request.taskId,
       toolName: request.toolName,
@@ -2000,6 +2250,7 @@ async function beginToolExecution(
       executed: !refusal,
       invocation,
       limits: copyToolExecutionLimits(limits),
+      routeAdmission,
       replayOfTransactionId,
       message: refusal
         ? `Tool transaction ${replayOfTransactionId ? "replay " : ""}dispatch rejected: ${refusal}.`
@@ -2073,7 +2324,12 @@ async function finalizeToolExecution(
       && currentExecution.createdAt === execution.createdAt
       && currentExecution.replayOfTransactionId === execution.replayOfTransactionId
       && JSON.stringify(currentExecution.invocation) === JSON.stringify(execution.invocation)
-      && JSON.stringify(currentExecution.limits) === JSON.stringify(execution.limits);
+      && JSON.stringify(currentExecution.limits) === JSON.stringify(execution.limits)
+      && JSON.stringify(currentExecution.routeAdmission) === JSON.stringify(execution.routeAdmission)
+      && execution.routeAdmission?.authorized === true
+      && execution.routeAdmission.route === "isolated"
+      && fingerprintToolRequest(currentRequest ?? request) === execution.routeAdmission.requestFingerprint
+      && fingerprintInvocation(execution.invocation) === execution.routeAdmission.invocationFingerprint;
     const ownershipUnchanged = requestUnchanged && executionUnchanged;
     const soleBoundResult = boundResults.length === 1 ? boundResults[0] : undefined;
     const measuredResultBytes = soleBoundResult ? measureToolResultBytes(soleBoundResult) : undefined;
@@ -2158,10 +2414,12 @@ async function recordToolTransaction(
   cwd: string,
   request: ToolRequestRecord,
   input: {
+    id?: string;
     status: ToolTransactionStatus;
     executed: boolean;
     invocation: TaskAgentInvocation;
     limits?: ToolExecutionLimits;
+    routeAdmission?: ToolDispatchAdmissionRecord;
     runResult?: TaskAgentRunResult;
     resultId?: string;
     replayOfTransactionId?: string;
@@ -2171,7 +2429,7 @@ async function recordToolTransaction(
 ): Promise<ToolTransactionRecord> {
   const timestamp = now.toISOString();
   const record: ToolTransactionRecord = {
-    id: randomUUID(),
+    id: input.id ?? randomUUID(),
     requestId: request.id,
     taskId: request.taskId,
     toolName: request.toolName,
@@ -2179,6 +2437,7 @@ async function recordToolTransaction(
     executed: input.executed,
     invocation: input.invocation,
     limits: input.limits ? copyToolExecutionLimits(input.limits) : undefined,
+    routeAdmission: input.routeAdmission,
     runExitCode: input.runResult?.exitCode,
     stdoutEventCount: input.runResult?.stdoutEvents.length,
     stderrSummary: input.runResult ? summarizeOutput(input.runResult.stderr) : undefined,

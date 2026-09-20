@@ -356,6 +356,8 @@ const strictProviderPolicy = { requestTokenAllowance: 8_000, outputReserveTokens
 const providerPolicyEnvKeys = [
   "SCALER_PROVIDER_ADMISSION", "SCALER_REQUEST_TOKEN_ALLOWANCE",
   "SCALER_OUTPUT_RESERVE_TOKENS", "SCALER_REQUEST_MARGIN_TOKENS",
+  "SCALER_EXPECTED_PROVIDER_API", "SCALER_EXPECTED_PROVIDER",
+  "SCALER_EXPECTED_MODEL_ID", "SCALER_EXPECTED_CONTEXT_WINDOW",
 ] as const;
 
 async function withInheritedProviderPolicy<T>(fn: () => Promise<T>): Promise<T> {
@@ -409,6 +411,41 @@ test("runTaskAgent transports only validated numeric provider policy and a stric
       } }]);
     });
   });
+});
+
+test("runTaskAgent transports an exact parent-admitted provider model identity", async () => {
+  await withInheritedProviderPolicy(async () => {
+    await withScript(providerPolicyEchoScript, async (script, dir) => {
+      const result = await runTaskAgent({
+        taskId: "T-bound-model",
+        prompt: "Inspect.",
+        cwd: dir,
+        providerAdmission: strictProviderPolicy,
+        providerAdmissionModel: { api: "openai-completions", provider: "synthetic", id: "synthetic-8k", contextWindow: 8_000 },
+      }, { command: script });
+      assert.deepEqual(result.stdoutEvents, [{ type: "test_policy", policy: {
+        SCALER_PROVIDER_ADMISSION: "strict",
+        SCALER_REQUEST_TOKEN_ALLOWANCE: "8000",
+        SCALER_OUTPUT_RESERVE_TOKENS: "32",
+        SCALER_REQUEST_MARGIN_TOKENS: "1024",
+        SCALER_EXPECTED_PROVIDER_API: "openai-completions",
+        SCALER_EXPECTED_PROVIDER: "synthetic",
+        SCALER_EXPECTED_MODEL_ID: "synthetic-8k",
+        SCALER_EXPECTED_CONTEXT_WINDOW: "8000",
+      } }]);
+    });
+  });
+});
+
+test("exact provider model identity requires strict admission and complete fields", () => {
+  assert.throws(() => buildTaskAgentInvocation({
+    taskId: "T-model-without-policy", prompt: "Inspect.",
+    providerAdmissionModel: { api: "openai-completions", provider: "synthetic", id: "synthetic-8k", contextWindow: 8_000 },
+  }), /requires strict provider admission/i);
+  assert.throws(() => buildTaskAgentInvocation({
+    taskId: "T-invalid-model-binding", prompt: "Inspect.", providerAdmission: strictProviderPolicy,
+    providerAdmissionModel: { api: "openai-completions", provider: "", id: "synthetic-8k", contextWindow: 8_000 },
+  }), /model binding/i);
 });
 
 test("runTaskAgent removes inherited provider policy for children without an explicit policy", async () => {

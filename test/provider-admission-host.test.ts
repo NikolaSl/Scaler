@@ -23,11 +23,15 @@ const policyEnv = {
   SCALER_REQUEST_TOKEN_ALLOWANCE: "8000",
   SCALER_OUTPUT_RESERVE_TOKENS: "32",
   SCALER_REQUEST_MARGIN_TOKENS: "1024",
+  SCALER_EXPECTED_PROVIDER_API: "openai-completions",
+  SCALER_EXPECTED_PROVIDER: "openai",
+  SCALER_EXPECTED_MODEL_ID: "synthetic-window",
+  SCALER_EXPECTED_CONTEXT_WINDOW: "8000",
 };
 
 // All provider traffic is replaced before creating the SDK session. No live
 // credentials, endpoints, command providers or global resource discovery are used.
-async function runInstalledHost(systemCharacters: number, extensions: ExtensionFactory[] = [], options: { autoCompaction?: boolean; activeTask?: boolean; largeUnselectedTool?: boolean; reemitBeforeStartPrompt?: boolean; rewriteBeforeScaler?: boolean; defaultSystemPrompt?: boolean; failScalerAuditBeforeStart?: boolean; failScalerAuditBeforeProvider?: boolean; queueFollowUpAfterAbort?: boolean } = {}) {
+async function runInstalledHost(systemCharacters: number, extensions: ExtensionFactory[] = [], options: { autoCompaction?: boolean; activeTask?: boolean; largeUnselectedTool?: boolean; reemitBeforeStartPrompt?: boolean; rewriteBeforeScaler?: boolean; defaultSystemPrompt?: boolean; failScalerAuditBeforeStart?: boolean; failScalerAuditBeforeProvider?: boolean; queueFollowUpAfterAbort?: boolean; wrongExpectedModel?: boolean } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "scaler-provider-host-test-"));
   const savedFetch = globalThis.fetch;
   const savedEnv = Object.fromEntries(Object.keys(policyEnv).map((key) => [key, process.env[key]]));
@@ -38,6 +42,7 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
   let compactionCancelled = false;
   try {
     Object.assign(process.env, policyEnv);
+    if (options.wrongExpectedModel) process.env.SCALER_EXPECTED_MODEL_ID = "different-model";
     if (options.autoCompaction) process.env.SCALER_OUTPUT_RESERVE_TOKENS = "1024";
     if (options.activeTask) {
       const state = createDefaultState();
@@ -185,6 +190,12 @@ test("provider admission permits an adequate installed Pi envelope", async () =>
   const result = await runInstalledHost(40, [await admissionExtension()]);
   assert.equal(result.fetchCalls, 1);
   assert.ok(result.payload);
+});
+
+test("provider admission aborts when the live model differs from the parent binding", async () => {
+  const result = await runInstalledHost(40, [await admissionExtension()], { wrongExpectedModel: true });
+  assert.equal(result.fetchCalls, 0);
+  assert.equal(result.stopReason, "aborted");
 });
 
 test("installed Pi first provider request uses SCALER parent tool focus", async () => {

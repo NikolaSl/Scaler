@@ -13,10 +13,49 @@ import { promisify } from "node:util";
 import { getBudgetState } from "../../../src/budgets.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { createDefaultState, loadState } from "../../../src/state.js";
-import { createToolReplayApproval, loadMcpServerRecords, loadToolIterationRuns, loadToolReplayApprovals, loadToolRequests, loadToolResults, loadToolSchedules, loadToolSchemaDiscoveryRuns, loadToolTransactions, prepareToolRequest, recordToolResult, recordToolSchema, replayToolTransaction, runMcpServerEnumeration, runToolIterationWorkflow, runToolRequestAgent, runToolSchedule, runToolSchemaDiscoveryAgent } from "../../../src/tool-requests.js";
+import {
+  createToolReplayApproval, loadMcpServerRecords, loadToolIterationRuns, loadToolReplayApprovals, loadToolRequests,
+  loadToolResults, loadToolSchedules, loadToolSchemaDiscoveryRuns, loadToolTransactions, prepareToolRequest,
+  recordToolResult, recordToolSchema, replayToolTransaction as replayToolTransactionRaw, runMcpServerEnumeration,
+  runToolIterationWorkflow as runToolIterationWorkflowRaw, runToolRequestAgent as runToolRequestAgentRaw,
+  runToolSchedule as runToolScheduleRaw, runToolSchemaDiscoveryAgent, type ToolDispatchRouteEvidenceSupplier,
+} from "../../../src/tool-requests.js";
 import { registerScalerTools } from "../../../src/tools.js";
 
 const execFileAsync = promisify(execFile);
+
+const admittedRouteEvidenceSupplier: ToolDispatchRouteEvidenceSupplier = (basis) => {
+  const payload = { model: "synthetic", messages: [{ role: "user", content: "bounded" }], max_completion_tokens: 1_024 };
+  const model = { api: "openai-completions", provider: "synthetic", id: "synthetic-4m", contextWindow: 4_000_000 };
+  const policy = { requestTokenAllowance: 4_000_000, outputReserveTokens: 1_024, safetyMarginTokens: 1_024 };
+  return {
+    version: 1, requestId: basis.requestId, executionId: basis.executionId,
+    evidence: {
+      profile: { version: 1, footprint: "selected", toolNames: [...basis.toolNames], byteSize: 64, fingerprint: "a".repeat(64) },
+      authority: "allowed",
+      direct: { exactArgumentsAvailable: false, argumentsValidated: false },
+      currentAgent: { available: false, legs: [] },
+      isolated: { available: true, legs: [
+        { id: "worker", role: "worker", payload, model, policy, additionalContextBytes: 0, repeatCount: 1 },
+        { id: "caller-continuation", role: "caller-continuation", payload, model, policy, additionalContextBytes: basis.resultBytesReserve, repeatCount: 1 },
+      ] },
+      isolationRequirement: "capability",
+    },
+  };
+};
+
+const runToolRequestAgent: typeof runToolRequestAgentRaw = (cwd, state, options = {}, runner) => runToolRequestAgentRaw(
+  cwd, state, options.execute ? { ...options, routeEvidenceSupplier: options.routeEvidenceSupplier ?? admittedRouteEvidenceSupplier } : options, runner,
+);
+const replayToolTransaction: typeof replayToolTransactionRaw = (cwd, state, options, runner) => replayToolTransactionRaw(
+  cwd, state, options.execute ? { ...options, routeEvidenceSupplier: options.routeEvidenceSupplier ?? admittedRouteEvidenceSupplier } : options, runner,
+);
+const runToolIterationWorkflow: typeof runToolIterationWorkflowRaw = (cwd, state, options = {}, runner) => runToolIterationWorkflowRaw(
+  cwd, state, options.execute ? { ...options, routeEvidenceSupplier: options.routeEvidenceSupplier ?? admittedRouteEvidenceSupplier } : options, runner,
+);
+const runToolSchedule: typeof runToolScheduleRaw = (cwd, state, options = {}, runner, now) => runToolScheduleRaw(
+  cwd, state, options.execute ? { ...options, routeEvidenceSupplier: options.routeEvidenceSupplier ?? admittedRouteEvidenceSupplier } : options, runner, now,
+);
 
 async function withTempRepo<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-tool-request-integration-test-"));

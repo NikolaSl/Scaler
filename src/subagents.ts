@@ -11,6 +11,7 @@ import { extractProviderUsage, type ProviderUsage } from "./provider-usage.js";
 import {
   providerAdmissionEnvironmentKeys,
   validateProviderAdmissionPolicy,
+  type ProviderAdmissionModel,
   type ProviderAdmissionPolicy,
 } from "./provider-admission.js";
 import { recordWatchdogCleanup } from "./watchdogs.js";
@@ -27,6 +28,8 @@ export interface TaskAgentRequest {
   appendSystemPromptPath?: string;
   extensionPaths?: string[];
   providerAdmission?: ProviderAdmissionPolicy;
+  /** Optional exact live-model identity bound by the parent admission decision. */
+  providerAdmissionModel?: ProviderAdmissionModel;
   attempt?: TaskAttemptBinding;
 }
 
@@ -76,7 +79,11 @@ export function buildTaskAgentInvocation(request: TaskAgentRequest, command = "p
     if ((request.extensionPaths?.length ?? 0) > 0) {
       throw new Error("Strict provider admission does not allow additional extension paths.");
     }
+    if (request.providerAdmissionModel) validateProviderAdmissionModelBinding(request.providerAdmissionModel);
     args.push("--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files");
+  }
+  if (!strictProviderAdmission && request.providerAdmissionModel) {
+    throw new Error("Exact provider model binding requires strict provider admission.");
   }
   const grantedTools = normalizeGrantedTools(request);
   const extensionPaths = resolveChildAgentExtensionPaths(request, grantedTools.length > 0);
@@ -175,6 +182,12 @@ export async function runTaskAgent(
     environment.SCALER_REQUEST_TOKEN_ALLOWANCE = String(request.providerAdmission.requestTokenAllowance);
     environment.SCALER_OUTPUT_RESERVE_TOKENS = String(request.providerAdmission.outputReserveTokens);
     environment.SCALER_REQUEST_MARGIN_TOKENS = String(request.providerAdmission.safetyMarginTokens);
+    if (request.providerAdmissionModel) {
+      environment.SCALER_EXPECTED_PROVIDER_API = String(request.providerAdmissionModel.api);
+      environment.SCALER_EXPECTED_PROVIDER = String(request.providerAdmissionModel.provider);
+      environment.SCALER_EXPECTED_MODEL_ID = String(request.providerAdmissionModel.id);
+      environment.SCALER_EXPECTED_CONTEXT_WINDOW = String(request.providerAdmissionModel.contextWindow);
+    }
   }
   if (request.executionId) environment.SCALER_TOOL_EXECUTION_ID = request.executionId;
 
@@ -323,6 +336,16 @@ export async function runTaskAgent(
       }, options.timeoutMs);
     }
   });
+}
+
+function validateProviderAdmissionModelBinding(model: ProviderAdmissionModel): void {
+  const strings = [model.api, model.provider, model.id];
+  if (!strings.every((value) => typeof value === "string" && value.trim().length > 0)
+    || typeof model.contextWindow !== "number"
+    || !Number.isSafeInteger(model.contextWindow)
+    || model.contextWindow <= 0) {
+    throw new Error("Invalid exact provider model binding.");
+  }
 }
 
 function validateTaskAgentOutputLimits(limits: TaskAgentOutputLimits): TaskAgentOutputLimits {

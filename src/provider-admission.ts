@@ -8,6 +8,10 @@ export const providerAdmissionEnvironmentKeys = [
   "SCALER_REQUEST_TOKEN_ALLOWANCE",
   "SCALER_OUTPUT_RESERVE_TOKENS",
   "SCALER_REQUEST_MARGIN_TOKENS",
+  "SCALER_EXPECTED_PROVIDER_API",
+  "SCALER_EXPECTED_PROVIDER",
+  "SCALER_EXPECTED_MODEL_ID",
+  "SCALER_EXPECTED_CONTEXT_WINDOW",
 ] as const;
 
 export interface ProviderAdmissionPolicy {
@@ -76,6 +80,12 @@ export interface ProviderAdmissionPolicyParseResult {
   policy?: ProviderAdmissionPolicy;
 }
 
+export interface ProviderAdmissionModelBindingParseResult {
+  accepted: boolean;
+  message: string;
+  model?: Required<Pick<ProviderAdmissionModel, "api" | "provider" | "id" | "contextWindow">>;
+}
+
 const estimator = "serialized_utf8_bytes_upper_bound" as const;
 
 export function validateProviderAdmissionPolicy(policy: ProviderAdmissionPolicy): string[] {
@@ -101,6 +111,41 @@ export function readProviderAdmissionPolicyFromEnvironment(
   return diagnostics.length > 0
     ? { accepted: false, message: `Invalid strict provider admission policy: ${diagnostics.join("; ")}.` }
     : { accepted: true, message: "Strict provider admission policy loaded.", policy };
+}
+
+export function readProviderAdmissionModelBindingFromEnvironment(
+  environment: NodeJS.ProcessEnv = process.env,
+): ProviderAdmissionModelBindingParseResult {
+  const values = [
+    environment.SCALER_EXPECTED_PROVIDER_API,
+    environment.SCALER_EXPECTED_PROVIDER,
+    environment.SCALER_EXPECTED_MODEL_ID,
+    environment.SCALER_EXPECTED_CONTEXT_WINDOW,
+  ];
+  if (values.every((value) => value === undefined)) {
+    return { accepted: true, message: "No exact provider model binding configured." };
+  }
+  const [api, provider, id] = values;
+  const contextWindow = parseStrictInteger(environment.SCALER_EXPECTED_CONTEXT_WINDOW);
+  if (![api, provider, id].every((value) => typeof value === "string" && value.length > 0)
+    || !isPositiveSafeInteger(contextWindow)) {
+    return { accepted: false, message: "Exact provider model binding is incomplete or malformed." };
+  }
+  return {
+    accepted: true,
+    message: "Exact provider model binding loaded.",
+    model: { api, provider, id, contextWindow },
+  };
+}
+
+export function providerAdmissionModelMatches(
+  actual: ProviderAdmissionModel | undefined,
+  expected: ProviderAdmissionModel,
+): boolean {
+  return actual?.api === expected.api
+    && actual?.provider === expected.provider
+    && actual?.id === expected.id
+    && actual?.contextWindow === expected.contextWindow;
 }
 
 export function assessProviderRequestAdmission(input: ProviderAdmissionInput): ProviderAdmissionDecision {
