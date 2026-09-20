@@ -14,7 +14,7 @@ import { runScalerAutomation } from "../src/autopilot.js";
 import { commitWithExecutionLock } from "../src/operations.js";
 import { acquireExecutionLock, releaseExecutionLock } from "../src/locks.js";
 import { getCommitSkipsPath, getPrdRequirementsPath, getValidationRunsPath } from "../src/paths.js";
-import { upsertPrdRequirement } from "../src/prd.js";
+import { amendPrdRequirement, loadPrdCoverage, savePrdCoverage, upsertPrdRequirement } from "../src/prd.js";
 import { completeRunWithEvidence } from "../src/run-completion.js";
 import { advanceStageAfterReadyArtifact } from "../src/stage-advancement.js";
 import { runStageConductorLoop } from "../src/stage-conductor.js";
@@ -22,7 +22,7 @@ import { runAutonomousStageWorkflow } from "../src/stage-workflow.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { upsertStageArtifact } from "../src/stages.js";
 import type { ScalerState } from "../src/types.js";
-import { captureValidationSnapshot } from "../src/validation-acceptance.js";
+import { captureValidationSnapshot, verifyCurrentValidationReceipt } from "../src/validation-acceptance.js";
 import { loadValidationRuns, runTaskValidation, saveValidationManifest } from "../src/validation.js";
 
 const exec = promisify(execFile);
@@ -190,10 +190,34 @@ test("completion rejects evidence for an earlier linked requirement statement", 
   await saveState(dir, state);
   await upsertPrdRequirement(dir, { id: "REQ-CHANGE", statement: "Produce version one" });
   assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
-  await upsertPrdRequirement(dir, { id: "REQ-CHANGE", statement: "Produce materially different version two" });
+  await amendPrdRequirement(dir, {
+    id: "REQ-CHANGE", expectedRevision: 1, reason: "User changed the required output.",
+    changes: { statement: "Produce materially different version two" },
+  });
   const result = await completeRunWithEvidence(dir, await loadState(dir));
   assert.equal(result.accepted, false);
   assert.match(result.message, /requirement|receipt|evidence|changed/i);
+  assert.equal((await loadState(dir)).stage, "execution");
+}));
+
+test("completion rejects evidence after a requirement changes away and back", async () => fixture(async (dir, state) => {
+  state.tasks[0]!.prdRefs = ["REQ-ABA"];
+  await saveState(dir, state);
+  await upsertPrdRequirement(dir, { id: "REQ-ABA", statement: "Original requirement" });
+  assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
+  await amendPrdRequirement(dir, {
+    id: "REQ-ABA", expectedRevision: 1, reason: "User changes the requirement.",
+    changes: { statement: "Intermediate requirement" },
+  });
+  await amendPrdRequirement(dir, {
+    id: "REQ-ABA", expectedRevision: 2, reason: "User restores the wording with new history.",
+    changes: { statement: "Original requirement" },
+  });
+
+  const errors = await verifyCurrentValidationReceipt(dir, await loadState(dir), "T-ONE");
+  assert.match(errors.join("\n"), /requirement|receipt|changed/i);
+  const result = await completeRunWithEvidence(dir, await loadState(dir));
+  assert.equal(result.accepted, false);
   assert.equal((await loadState(dir)).stage, "execution");
 }));
 
@@ -219,6 +243,67 @@ test("completion rejects evidence captured while a referenced requirement was mi
   assert.equal((await loadState(dir)).stage, "execution");
 }));
 
+for (const change of ["statement", "late-link"] as const) {
+  test(`explicit-only requirement ${change} invalidates completion evidence`, async () => fixture(async (dir, state) => {
+    if (change === "statement") {
+      await upsertPrdRequirement(dir, {
+        id: "REQ-EXPLICIT", statement: "Original requirement", status: "pending", taskIds: ["T-ONE"],
+      });
+    }
+    assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
+    if (change === "statement") {
+      await amendPrdRequirement(dir, {
+        id: "REQ-EXPLICIT", expectedRevision: 1, reason: "User changed explicit requirement content.",
+        changes: { statement: "New requirement content" },
+      });
+    } else {
+      await upsertPrdRequirement(dir, {
+        id: "REQ-EXPLICIT", statement: "New requirement content", status: "pending", taskIds: ["T-ONE"],
+      });
+    }
+    const current = await loadState(dir);
+    const receiptErrors = await verifyCurrentValidationReceipt(dir, current, "T-ONE");
+    const completion = await completeRunWithEvidence(dir, current);
+    assert.equal(completion.accepted, false, "Explicit ledger links must bind requirement content too");
+    assert.match(receiptErrors.join("\n"), /receipt.*changed/i);
+    assert.equal((await loadState(dir)).stage, "execution");
+  }));
+}
+
+test("explicit-only unchanged requirement preserves accepted completion", async () => fixture(async (dir, state) => {
+  const requirement = {
+    id: "REQ-EXPLICIT", statement: "Produce one", status: "pending" as const, taskIds: ["T-ONE"],
+  };
+  await upsertPrdRequirement(dir, requirement);
+  assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
+  await upsertPrdRequirement(dir, { ...requirement, now: new Date("2030-01-01") });
+  const result = await completeRunWithEvidence(dir, await loadState(dir));
+  assert.equal(result.accepted, true, result.message);
+}));
+
+for (const taskIds of [[], ["T-OTHER"]]) {
+  test(`changing an explicit task link to ${JSON.stringify(taskIds)} invalidates its receipt`, async () => fixture(async (dir, state) => {
+    await upsertPrdRequirement(dir, {
+      id: "REQ-EXPLICIT", statement: "Produce one", status: "pending", taskIds: ["T-ONE"],
+    });
+    assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
+    const coverage = await loadPrdCoverage(dir);
+    coverage.entries[0]!.taskIds = taskIds;
+    await savePrdCoverage(dir, coverage);
+    const errors = await verifyCurrentValidationReceipt(dir, await loadState(dir), "T-ONE");
+    assert.match(errors.join("\n"), /receipt.*changed/i);
+  }));
+}
+
+test("unrelated explicit coverage does not invalidate a task receipt", async () => fixture(async (dir, state) => {
+  assert.equal((await runTaskValidation(dir, state, "T-ONE")).acceptance?.accepted, true);
+  await upsertPrdRequirement(dir, {
+    id: "REQ-OTHER", statement: "Unrelated requirement", status: "pending", taskIds: ["T-OTHER"],
+  });
+  const errors = await verifyCurrentValidationReceipt(dir, await loadState(dir), "T-ONE");
+  assert.deepEqual(errors, []);
+}));
+
 for (const [description, requirements] of [
   ["missing statement", [{ id: "REQ-BROKEN", createdAt: "", updatedAt: "" }]],
   ["non-string statement", [{ id: "REQ-BROKEN", statement: 42, createdAt: "", updatedAt: "" }]],
@@ -233,6 +318,26 @@ for (const [description, requirements] of [
     await saveState(dir, state);
     await upsertPrdRequirement(dir, { id: "REQ-BROKEN", statement: "Produce the declared output" });
     await writeFile(getPrdRequirementsPath(dir), JSON.stringify({ version: 1, requirements }));
+    await assert.rejects(
+      captureValidationSnapshot(dir, state, "T-ONE"),
+      /requirement|malformed/i,
+    );
+  }));
+}
+
+for (const [description, requirements] of [
+  ["malformed content", [{ id: "REQ-COVERAGE", createdAt: "", updatedAt: "" }]],
+  ["duplicate identifier", [
+    { id: "REQ-COVERAGE", statement: "first", createdAt: "", updatedAt: "" },
+    { id: "REQ-COVERAGE", statement: "second", createdAt: "", updatedAt: "" },
+  ]],
+] as const) {
+  test(`validation snapshot rejects coverage-only requirement with ${description}`, async () => fixture(async (dir, state) => {
+    await upsertPrdRequirement(dir, {
+      id: "REQ-COVERAGE", statement: "Produce the declared output", status: "pending", taskIds: ["T-ONE"],
+    });
+    await writeFile(getPrdRequirementsPath(dir), JSON.stringify({ version: 1, requirements }));
+
     await assert.rejects(
       captureValidationSnapshot(dir, state, "T-ONE"),
       /requirement|malformed/i,

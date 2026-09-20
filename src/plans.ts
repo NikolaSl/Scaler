@@ -5,7 +5,7 @@
 
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { normalizeOutputPaths } from "./output-artifacts.js";
+import { fingerprintValidationInputs, normalizeOutputPaths, normalizeValidationInputPaths } from "./output-artifacts.js";
 import {
   getCurrentExecutionPlanPath,
   getExecutionPlansDir,
@@ -15,10 +15,11 @@ import {
   getReplanDecisionsPath,
   getReplanRequestsPath,
 } from "./paths.js";
-import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, upsertPrdRequirement, type RuntimePrdRequirementStatus, type RuntimePrdRequirementsFile } from "./prd.js";
-import { createTask, updateTask } from "./tasks.js";
+import { applyPrdRequirementUpserts, computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdAcceptanceCriterion, type RuntimePrdRequirementStatus, type RuntimePrdRequirementsFile } from "./prd.js";
+import { assertStateSnapshotCurrent } from "./state.js";
+import { createTask, reviewTaskAcceptancePolicyMutation, updateTask, type UpdateTaskInput } from "./tasks.js";
 import type { ScalerState, ScalerTaskKind, ScalerTaskQualityWaiver } from "./types.js";
-import type { EmbeddedValidationManifestCommandInput } from "./validation.js";
+import { assertValidationPolicyMutationAuthorized, getValidationManifestForTask, loadValidationManifests, withValidationPolicyLock, type EmbeddedValidationManifestCommandInput, type ValidationPolicyAuthority } from "./validation.js";
 
 export const executionPlanStatuses = ["draft", "active", "superseded", "completed"] as const;
 export type ExecutionPlanStatus = (typeof executionPlanStatuses)[number];
@@ -32,6 +33,7 @@ export type ReplanRequestTrigger = (typeof replanRequestTriggers)[number];
 export interface ExecutionPlanTask {
   id: string;
   outputPaths?: string[];
+  validationInputPaths?: string[];
   title: string;
   description?: string;
   taskKind?: ScalerTaskKind | string;
@@ -58,6 +60,7 @@ export interface ExecutionPlanArtifact {
 
 export interface ExecutionPlanApplyOptions {
   updateExisting?: boolean;
+  acceptanceAuthority?: ValidationPolicyAuthority;
 }
 
 export interface ExecutionPlanApplyResult {
@@ -74,6 +77,7 @@ export interface PlanningReportRequirementInput {
   statement: string;
   title?: string;
   source?: string;
+  acceptanceCriteria?: RuntimePrdAcceptanceCriterion[];
   status?: RuntimePrdRequirementStatus;
   evidenceRefs?: string[];
   notes?: string;
@@ -277,6 +281,16 @@ export async function acceptReplanProposal(
   requirements: RuntimePrdRequirementsFile,
   input?: { currentPlan?: ExecutionPlanArtifact; proposedPlan?: ExecutionPlanArtifact; now?: Date; requestIds?: string[] },
 ): Promise<ReplanProposalAcceptanceResult> {
+  return withValidationPolicyLock(cwd, () => acceptReplanProposalLocked(cwd, state, requirements, input));
+}
+
+async function acceptReplanProposalLocked(
+  cwd: string,
+  state: ScalerState,
+  requirements: RuntimePrdRequirementsFile,
+  input?: { currentPlan?: ExecutionPlanArtifact; proposedPlan?: ExecutionPlanArtifact; now?: Date; requestIds?: string[] },
+): Promise<ReplanProposalAcceptanceResult> {
+  await assertStateSnapshotCurrent(cwd, state);
   const now = input?.now ?? new Date();
   const timestamp = now.toISOString();
   const currentPlan = input?.currentPlan ?? (await loadExecutionPlan(cwd));
@@ -312,6 +326,23 @@ export async function acceptReplanProposal(
     });
     return { accepted: false, message: decision.summary, state, decision, currentPlan, proposedPlan };
   }
+
+  const policyRejections = await preflightExecutionPlanPolicyChanges(cwd, state, proposedPlan, "model");
+  if (policyRejections.length > 0) {
+    const decision = await appendReplanDecision(cwd, {
+      id: `DECISION-${now.getTime()}`,
+      status: "rejected",
+      summary: `Proposed execution plan failed acceptance-policy authority: ${policyRejections.join(" ")}`,
+      requestIds,
+      previousPlanVersion: currentPlan.planVersion,
+      proposedPlanVersion: proposedPlan.planVersion,
+      preservation,
+      createdAt: timestamp,
+    });
+    return { accepted: false, message: decision.summary, state, decision, currentPlan, proposedPlan };
+  }
+
+  await preflightExecutionPlanValidationInputs(cwd, proposedPlan);
 
   const snapshotPath = await createExecutionPlanSnapshot(cwd, { plan: currentPlan, now });
   const savedPlan = await saveExecutionPlan(cwd, {
@@ -362,6 +393,7 @@ export async function applyExecutionPlanTasks(
   options: ExecutionPlanApplyOptions = {},
 ): Promise<ExecutionPlanApplyResult> {
   validateExecutionPlan(plan);
+  await preflightExecutionPlanValidationInputs(cwd, plan);
   let nextState = state;
   const createdTaskIds: string[] = [];
   const existingTaskIds: string[] = [];
@@ -385,8 +417,10 @@ export async function applyExecutionPlanTasks(
           validationRefs: task.validationRefs,
           validationCommands: task.validationCommands,
           outputPaths: task.outputPaths,
+          validationInputPaths: task.validationInputPaths,
           qualityWaivers: task.qualityWaivers,
           qualityMode: "enforce",
+          acceptanceAuthority: options.acceptanceAuthority ?? "system",
         });
         nextState = result.state;
         if (result.accepted) updatedTaskIds.push(task.id);
@@ -407,8 +441,10 @@ export async function applyExecutionPlanTasks(
       validationRefs: task.validationRefs,
       validationCommands: task.validationCommands,
       outputPaths: task.outputPaths,
+      validationInputPaths: task.validationInputPaths,
       qualityWaivers: task.qualityWaivers,
       qualityMode: "enforce",
+      acceptanceAuthority: options.acceptanceAuthority ?? "system",
     });
     nextState = result.state;
     if (result.accepted) createdTaskIds.push(task.id);
@@ -425,31 +461,105 @@ export async function applyExecutionPlanTasks(
   };
 }
 
+async function preflightExecutionPlanPolicyChanges(
+  cwd: string,
+  state: ScalerState,
+  plan: ExecutionPlanArtifact,
+  authority: ValidationPolicyAuthority,
+): Promise<string[]> {
+  const rejections: string[] = [];
+  const manifests = await loadValidationManifests(cwd);
+  for (const task of plan.tasks) {
+    const existing = state.tasks.find((candidate) => candidate.id === task.id);
+    if (!existing) {
+      const manifest = manifests.find((candidate) => candidate.taskId === task.id);
+      const writesManifest = Boolean(task.validationCommands?.length)
+        || task.outputPaths !== undefined
+        || task.validationInputPaths !== undefined;
+      if (!manifest || !writesManifest) continue;
+      try {
+        await assertValidationPolicyMutationAuthorized(cwd, {
+          ...manifest,
+          outputPaths: task.outputPaths ?? manifest.outputPaths,
+          validationInputPaths: task.validationInputPaths ?? manifest.validationInputPaths,
+          definitionOfDone: task.definitionOfDone ?? manifest.definitionOfDone,
+          commands: task.validationCommands?.length
+            ? task.validationCommands.map((command) => ({ ...command, required: command.required ?? true }))
+            : manifest.commands,
+        }, { authority }, manifests);
+      } catch (error) {
+        rejections.push(error instanceof Error ? error.message : String(error));
+      }
+      continue;
+    }
+    const input: UpdateTaskInput = {
+      id: task.id,
+      title: task.title,
+      taskKind: task.taskKind,
+      atomicityRationale: task.atomicityRationale,
+      allowedPathPrefixes: task.allowedPathPrefixes,
+      dependsOn: task.dependsOn,
+      prdRefs: task.prdRefs,
+      definitionOfDone: task.definitionOfDone,
+      validationRefs: task.validationRefs,
+      validationCommands: task.validationCommands,
+      outputPaths: task.outputPaths,
+      validationInputPaths: task.validationInputPaths,
+      qualityWaivers: task.qualityWaivers,
+      acceptanceAuthority: authority,
+    };
+    const rejection = await reviewTaskAcceptancePolicyMutation(cwd, existing, input);
+    if (rejection) rejections.push(rejection);
+  }
+  return rejections;
+}
+
+async function preflightExecutionPlanValidationInputs(
+  cwd: string,
+  plan: ExecutionPlanArtifact,
+): Promise<void> {
+  for (const task of plan.tasks) {
+    try {
+      const validationInputPaths = task.validationInputPaths
+        ?? (await getValidationManifestForTask(cwd, task.id)).validationInputPaths;
+      await fingerprintValidationInputs(cwd, validationInputPaths);
+    } catch (error) {
+      throw new Error(`Execution plan rejected before publication: task ${task.id} validation input preflight failed: ${String(error)}`);
+    }
+  }
+}
+
 export async function applyPlanningReport(
   cwd: string,
   state: ScalerState,
   input: PlanningReportInput,
   now = new Date(),
 ): Promise<PlanningReportResult> {
+  return withValidationPolicyLock(cwd, () => applyPlanningReportLocked(cwd, state, input, now));
+}
+
+async function applyPlanningReportLocked(
+  cwd: string,
+  state: ScalerState,
+  input: PlanningReportInput,
+  now: Date,
+): Promise<PlanningReportResult> {
+  await assertStateSnapshotCurrent(cwd, state);
   const timestamp = now.toISOString();
   const plan: ExecutionPlanArtifact = normalizePlanningReportPlan(input.plan, timestamp);
+  validateExecutionPlan(plan);
+  await preflightExecutionPlanValidationInputs(cwd, plan);
+  const policyRejections = await preflightExecutionPlanPolicyChanges(cwd, state, plan, "model");
+  if (policyRejections.length > 0) throw new Error(`Planning report rejected before publication: ${policyRejections.join(" ")}`);
+  const taskIdsByRequirement = buildPlanTaskIdsByRequirement(plan);
+  await applyPrdRequirementUpserts(cwd, input.requirements.map((requirement) => ({
+    ...requirement,
+    status: requirement.status ?? (taskIdsByRequirement.get(requirement.id)?.length ? "in_progress" : "pending"),
+    taskIds: taskIdsByRequirement.get(requirement.id),
+    now,
+  })));
   const savedPlan = await saveExecutionPlan(cwd, plan);
-  const applyResult = await applyExecutionPlanTasks(cwd, state, savedPlan, { updateExisting: true });
-  const taskIdsByRequirement = buildPlanTaskIdsByRequirement(savedPlan);
-
-  for (const requirement of input.requirements) {
-    await upsertPrdRequirement(cwd, {
-      id: requirement.id,
-      statement: requirement.statement,
-      title: requirement.title,
-      source: requirement.source ?? input.source ?? "planning_report",
-      status: requirement.status ?? (taskIdsByRequirement.get(requirement.id)?.length ? "in_progress" : "pending"),
-      taskIds: taskIdsByRequirement.get(requirement.id),
-      evidenceRefs: requirement.evidenceRefs,
-      notes: requirement.notes,
-      now,
-    });
-  }
+  const applyResult = await applyExecutionPlanTasks(cwd, state, savedPlan, { updateExisting: true, acceptanceAuthority: "model" });
 
   const requirements = await loadPrdRequirements(cwd);
   const coverage = await loadPrdCoverage(cwd);
@@ -773,6 +883,7 @@ function normalizeExecutionPlan(plan: ExecutionPlanArtifact, now: Date): Executi
       definitionOfDone: normalizeList(task.definitionOfDone),
       validationRefs: normalizeList(task.validationRefs),
       outputPaths: normalizeOutputPaths(task.outputPaths),
+      validationInputPaths: normalizeValidationInputPaths(task.validationInputPaths),
       validationCommands: task.validationCommands?.map((command) => ({ ...command, id: command.id.trim(), command: command.command.trim() })).filter((command) => command.id && command.command),
       qualityWaivers: task.qualityWaivers?.map((waiver) => ({ ...waiver, code: waiver.code.trim(), reason: waiver.reason.trim() })).filter((waiver) => waiver.code && waiver.reason),
     })),

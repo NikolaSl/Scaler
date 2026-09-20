@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -32,8 +32,9 @@ import {
   validateExecutionPlan,
   validateReplanRequest,
 } from "../src/plans.js";
-import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements } from "../src/prd.js";
-import { createDefaultState } from "../src/state.js";
+import { computePrdCoverageSummary, loadPrdChanges, loadPrdCoverage, loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
+import { createDefaultState, loadState, saveState } from "../src/state.js";
+import { saveValidationManifest } from "../src/validation.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-plans-test-"));
@@ -228,6 +229,193 @@ test("applyPlanningReport reports coverage warnings for unlinked and unknown ref
     assert.deepEqual(result.report.diagnostics.unlinkedRequirementIds, ["REQ-KNOWN"]);
     assert.deepEqual(result.report.diagnostics.unknownPlanRequirementIds, ["REQ-UNKNOWN"]);
     assert.deepEqual(result.report.diagnostics.planUnlinkedTaskIds, ["T-NOREF"]);
+  });
+});
+
+test("planning report rejects requirement amendments before plan or task writes", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await upsertPrdRequirement(dir, { id: "REQ-LOCKED", statement: "Original user scope" });
+    const before = await loadPrdRequirements(dir);
+
+    await assert.rejects(() => applyPlanningReport(dir, state, {
+      id: "PLAN-UNAUTHORIZED",
+      source: "user",
+      requirements: [{ id: "REQ-LOCKED", statement: "Planner-expanded scope", source: "user" }],
+      plan: {
+        planVersion: 1,
+        status: "active",
+        tasks: [validPlanTask("T-UNAUTHORIZED", "Unauthorized task", { prdRefs: ["REQ-LOCKED"] })],
+      },
+    }), /amendment authority.*explicit user command/i);
+
+    assert.deepEqual(await loadPrdRequirements(dir), before);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.equal(state.tasks.length, 0);
+  });
+});
+
+test("planning report rejects an invalid plan before requirement ledger writes", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+
+    await assert.rejects(() => applyPlanningReport(dir, state, {
+      id: "PLAN-DUPLICATE",
+      requirements: [{ id: "REQ-NOT-WRITTEN", statement: "Must remain absent", status: "pending" }],
+      plan: {
+        planVersion: 1,
+        status: "active",
+        tasks: [validPlanTask("T-DUP", "First"), validPlanTask("T-DUP", "Duplicate")],
+      },
+    }), /duplicate execution plan task id/i);
+
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    assert.deepEqual((await loadPrdCoverage(dir)).entries, []);
+    assert.deepEqual(await loadPrdChanges(dir), []);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual(state.tasks, []);
+  });
+});
+
+test("planning report rejects a duplicate persisted catalog before publishing an empty-requirements plan", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await saveState(dir, state);
+    await upsertPrdRequirement(dir, { id: "REQ-DUP", statement: "Initial requirement." });
+    await writeFile(join(dir, ".scaler", "prd", "requirements.json"), `${JSON.stringify({
+      version: 1,
+      requirements: [
+        { id: "REQ-DUP", statement: "First copy.", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
+        { id: "REQ-DUP", statement: "Second copy.", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
+      ],
+    })}\n`, "utf8");
+
+    await assert.rejects(() => applyPlanningReport(dir, state, {
+      id: "PLAN-CORRUPT-CATALOG",
+      requirements: [],
+      plan: {
+        planVersion: 1,
+        status: "active",
+        tasks: [validPlanTask("T-MUST-NOT-PUBLISH", "Must not publish")],
+      },
+    }), /duplicate id REQ-DUP/i);
+
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual(await loadPlanningReports(dir), []);
+    assert.deepEqual((await loadState(dir)).tasks, []);
+  });
+});
+
+test("planning report rejects unreadable validation inputs before any publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+
+    await assert.rejects(() => applyPlanningReport(dir, state, {
+      id: "PLAN-MISSING-VALIDATOR",
+      requirements: [{ id: "REQ-MISSING-VALIDATOR", statement: "Validation basis must be readable." }],
+      plan: {
+        planVersion: 1,
+        status: "active",
+        tasks: [validPlanTask("T-MISSING-VALIDATOR", "Missing validator", {
+          prdRefs: ["REQ-MISSING-VALIDATOR"],
+          validationInputPaths: ["missing.cjs"],
+        })],
+      },
+    }), /rejected before publication.*validation input.*missing\.cjs/i);
+
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    assert.deepEqual((await loadPrdCoverage(dir)).entries, []);
+    assert.deepEqual(await loadPrdChanges(dir), []);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual((await loadPlanningReports(dir)), []);
+    assert.deepEqual(state.tasks, []);
+  });
+});
+
+test("planning report preflights inherited validation inputs before any publication", async () => {
+  await withTempDir(async (dir) => {
+    await writeFile(join(dir, "check.cjs"), "process.exit(0);\n");
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.tasks = [{
+      id: "T-INHERITED-VALIDATOR",
+      title: "Original task",
+      status: "pending",
+      taskKind: "software",
+      atomicityRationale: "One independently testable result.",
+      allowedPathPrefixes: ["src"],
+      definitionOfDone: ["Original requirement remains intact."],
+      updatedAt: state.updatedAt,
+    }];
+    await saveState(dir, state);
+    await saveValidationManifest(dir, {
+      taskId: "T-INHERITED-VALIDATOR",
+      validationInputPaths: ["check.cjs"],
+      definitionOfDone: state.tasks[0]!.definitionOfDone,
+      commands: [
+        { id: "test-first", command: "node check.cjs", gate: "test_first", required: true },
+        { id: "unit", command: "node check.cjs", gate: "unit_tests", required: true },
+      ],
+      createdAt: "",
+      updatedAt: "",
+    });
+    await unlink(join(dir, "check.cjs"));
+
+    await assert.rejects(async () => applyPlanningReport(dir, await loadState(dir), {
+      id: "PLAN-INHERITED-VALIDATOR",
+      requirements: [{ id: "REQ-NOT-WRITTEN", statement: "Must remain absent" }],
+      plan: {
+        planVersion: 2,
+        status: "active",
+        tasks: [validPlanTask("T-INHERITED-VALIDATOR", "Updated task", {
+          prdRefs: ["REQ-NOT-WRITTEN"],
+        })],
+      },
+    }), /rejected before publication.*validation input.*check\.cjs/i);
+
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    assert.deepEqual((await loadPrdCoverage(dir)).entries, []);
+    assert.deepEqual(await loadPrdChanges(dir), []);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual(await loadPlanningReports(dir), []);
+    assert.equal((await loadState(dir)).tasks[0]?.title, "Original task");
+  });
+});
+
+test("planning report preflights a manifest configured before task creation", async () => {
+  await withTempDir(async (dir) => {
+    await writeFile(join(dir, "check.cjs"), "process.exit(0);\n");
+    await saveValidationManifest(dir, {
+      taskId: "T-PRECONFIGURED-VALIDATOR",
+      validationInputPaths: ["check.cjs"],
+      definitionOfDone: ["Planned task remains unpublished on refusal."],
+      commands: [
+        { id: "test-first", command: "node check.cjs", gate: "test_first", required: true },
+        { id: "unit", command: "node check.cjs", gate: "unit_tests", required: true },
+      ],
+      createdAt: "",
+      updatedAt: "",
+    });
+    await unlink(join(dir, "check.cjs"));
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+
+    await assert.rejects(() => applyPlanningReport(dir, state, {
+      id: "PLAN-PRECONFIGURED-VALIDATOR",
+      requirements: [{ id: "REQ-NOT-WRITTEN", statement: "Must remain absent" }],
+      plan: {
+        planVersion: 1,
+        status: "active",
+        tasks: [validPlanTask("T-PRECONFIGURED-VALIDATOR", "New task", {
+          prdRefs: ["REQ-NOT-WRITTEN"],
+        })],
+      },
+    }), /rejected before publication.*validation input.*check\.cjs/i);
+
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    assert.deepEqual((await loadPrdCoverage(dir)).entries, []);
+    assert.deepEqual(await loadPrdChanges(dir), []);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual(await loadPlanningReports(dir), []);
+    assert.deepEqual((await loadState(dir)).tasks, []);
   });
 });
 

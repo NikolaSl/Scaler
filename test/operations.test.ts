@@ -4,14 +4,15 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { getBudgetState, setBudgetLimits } from "../src/budgets.js";
 import { acquireExecutionLock, loadExecutionLock } from "../src/locks.js";
 import { commitWithExecutionLock, runValidationWithExecutionLock } from "../src/operations.js";
-import { createDefaultState, loadState } from "../src/state.js";
+import { ingestReport } from "../src/reports.js";
+import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { addTask } from "../src/supervisor.js";
 import { saveValidationManifest } from "../src/validation.js";
 
@@ -74,6 +75,40 @@ test("runValidationWithExecutionLock refuses hard validation-loop budget before 
     assert.match(result.message, /Validation refused by budget/);
     assert.equal(getBudgetState(await loadState(dir)).usage.validationLoops, 1);
     assert.equal(await loadExecutionLock(dir), undefined);
+  });
+});
+
+test("validation refuses a downstream task before dependency evidence exists", async () => {
+  await withTempDir(async (dir) => {
+    let state = createDefaultState();
+    state.stage = "execution";
+    state = addTask(state, { id: "T-UPSTREAM", status: "pending" });
+    state = addTask(state, { id: "T-DOWNSTREAM", status: "ready", dependsOn: ["T-UPSTREAM"] });
+    await saveState(dir, state);
+    await saveValidationManifest(dir, {
+      taskId: "T-DOWNSTREAM",
+      commands: [{ id: "must-not-run", command: "node -e \"require('fs').writeFileSync('ran.txt','yes')\"", required: true }],
+      outputPaths: [],
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    const running = await ingestReport(dir, await loadState(dir), {
+      reportType: "task", summary: "generic start", taskId: "T-DOWNSTREAM", taskTransition: "running",
+    });
+    assert.equal(running.accepted, true);
+    const validating = await ingestReport(dir, await loadState(dir), {
+      reportType: "task", summary: "generic validation", taskId: "T-DOWNSTREAM", taskTransition: "validating",
+    });
+    assert.equal(validating.accepted, true);
+
+    const beforeBudget = getBudgetState(await loadState(dir)).usage.validationLoops;
+    const result = await runValidationWithExecutionLock(dir, await loadState(dir), "T-DOWNSTREAM");
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /dependenc|T-UPSTREAM/i);
+    await assert.rejects(access(join(dir, "ran.txt")));
+    assert.notEqual((await loadState(dir)).tasks.find((task) => task.id === "T-DOWNSTREAM")?.status, "validated");
+    assert.equal(getBudgetState(await loadState(dir)).usage.validationLoops, beforeBudget);
   });
 });
 

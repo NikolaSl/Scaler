@@ -4,8 +4,10 @@
  */
 
 import { incrementBudgetUsage, persistBudgetDecision } from "./budgets.js";
+import { verifyTaskDependenciesAccepted } from "./accepted-evidence.js";
 import { commitValidatedTask, skipTaskCommit, type GitCommitTaskResult } from "./git.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
+import { appendLogEvent, createLogEvent } from "./logging.js";
 import { saveState } from "./state.js";
 import { transitionTask } from "./supervisor.js";
 import type { ScalerState } from "./types.js";
@@ -26,6 +28,15 @@ export async function runValidationWithExecutionLock(
   if (!lock.acquired) return { accepted: false, message: lock.message };
 
   try {
+    const task = state.tasks.find((candidate) => candidate.id === taskId);
+    if (task) {
+      const dependencyDiagnostics = await verifyTaskDependenciesAccepted(cwd, state, task);
+      if (dependencyDiagnostics.length > 0) {
+        const message = `Validation refused: ${dependencyDiagnostics.join(" ")}`;
+        await appendLogEvent(cwd, createLogEvent(state, { eventType: "validation", taskId, summary: message }));
+        return { accepted: false, message };
+      }
+    }
     const budgetResult = incrementBudgetUsage(state, "validationLoops");
     const budgetedState = await persistBudgetDecision(cwd, budgetResult.state, budgetResult.decision);
     if (budgetResult.decision.status === "hard_limit") {

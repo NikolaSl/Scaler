@@ -383,6 +383,7 @@ function stageContract(stage: StageArtifactStage): string[] {
         "Keep tasks atomic, ordered, independently validateable, and linked to runtime PRD ids.",
         "Every task must include taskKind, atomicityRationale, allowedPathPrefixes, definitionOfDone, and validationRefs or validationCommands.",
         "Software/mixed tasks must include a test_first validation command/check before implementation gates, or an explicit qualityWaivers entry with a reason and alternative validation path.",
+        "Declare existing local validator, fixture, and validation-config files in validationInputPaths. Use [] only for commands that are genuinely self-contained; when a task creates its validator, configure the manifest after creating the file and before first validation.",
         "For software plans, decide whether local_ci, Docker, Compose, devcontainer, or Minikube validation is needed; set validationCommands.environment accordingly and include setup as an atomic task when configuration must be generated.",
         "Persist the active plan through `scaler_planning_report` when that tool is granted; SCALER will write `.scaler/plans/current-plan.json`.",
         "When executed by the autonomous workflow, emit or call `scaler_planning_report` so SCALER can synchronize requirements, tasks, and coverage.",

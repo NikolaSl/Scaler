@@ -331,6 +331,10 @@ export function getPrdRequirementsPath(cwd: string): string {
   return join(getPrdDir(cwd), "requirements.json");
 }
 
+export function getPrdRequirementsLockPath(cwd: string): string {
+  return join(getPrdDir(cwd), "requirements.lock");
+}
+
 export function getPrdCoveragePath(cwd: string): string {
   return join(getPrdDir(cwd), "coverage.json");
 }

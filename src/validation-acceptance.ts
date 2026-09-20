@@ -12,8 +12,9 @@ import { promisify } from "node:util";
 import { captureValidationContext, checkAttemptEvidence } from "./attempt-evidence.js";
 import { fingerprintTaskContract, fingerprintValidationPolicy } from "./attempt-identity.js";
 import { fingerprintJson } from "./fingerprints.js";
-import { fingerprintDeclaredOutputs } from "./output-artifacts.js";
-import { loadPrdRequirements } from "./prd.js";
+import { fingerprintDeclaredOutputs, fingerprintValidationInputs } from "./output-artifacts.js";
+import { loadPrdCoverage, loadPrdRequirements } from "./prd.js";
+import { loadCommitReports, loadCommitSkips, type CommitValidationSummary } from "./git.js";
 import { loadState } from "./state.js";
 import { loadTaskAttempts } from "./task-attempts.js";
 import type { ScalerState } from "./types.js";
@@ -22,7 +23,7 @@ import { getValidationManifestForTask, loadValidationRuns, type TaskValidationMa
 const exec = promisify(execFile);
 
 export interface ValidationSnapshot {
-  version: 3;
+  version: 5;
   runId: string;
   taskId: string;
   taskFingerprint: string;
@@ -31,8 +32,10 @@ export interface ValidationSnapshot {
   policyFingerprint: string;
   contextFingerprint: string;
   requirementFingerprint: string;
+  integrationFingerprint: string;
   gitCandidateFingerprint: string | null;
   declaredOutputFingerprint: string | null;
+  validationInputFingerprint: string | null;
 }
 
 export interface ValidationReceipt {
@@ -45,19 +48,36 @@ export async function captureValidationSnapshot(cwd: string, state: ScalerState,
   if (!task) throw new Error(`Cannot snapshot missing validation task ${taskId}.`);
   const attempt = task.attemptId ? (await loadTaskAttempts(cwd)).find((attempt) => attempt.id === task.attemptId) : undefined;
   const manifest = await getValidationManifestForTask(cwd, taskId);
+  const validationInputFingerprint = await verifyValidationInputBaseline(cwd, manifest);
   return {
-    version: 3, runId: state.runId, taskId,
+    version: 5, runId: state.runId, taskId,
     taskFingerprint: fingerprintTaskContract(task),
     attemptId: task.attemptId ?? null, outputFingerprint: attempt?.outputFingerprint ?? null,
     policyFingerprint: fingerprintValidationPolicy(manifest),
     contextFingerprint: await captureValidationContext(cwd, state, taskId),
-    requirementFingerprint: await fingerprintTaskRequirements(cwd, task.prdRefs ?? []),
+    requirementFingerprint: await fingerprintTaskRequirements(cwd, taskId, task.prdRefs ?? []),
+    integrationFingerprint: await fingerprintTaskIntegrationInputs(cwd, state, taskId, task.prdRefs ?? []),
     gitCandidateFingerprint: await fingerprintGitCandidate(cwd),
     declaredOutputFingerprint: await fingerprintDeclaredOutputs(cwd, manifest.outputPaths),
+    validationInputFingerprint,
   };
 }
 
-async function fingerprintTaskRequirements(cwd: string, requirementIds: string[]): Promise<string> {
+async function verifyValidationInputBaseline(cwd: string, manifest: TaskValidationManifest): Promise<string | null> {
+  const current = await fingerprintValidationInputs(cwd, manifest.validationInputPaths);
+  if (manifest.validationInputPaths !== undefined && current !== manifest.validationInputFingerprint) {
+    throw new Error(`Validation basis changed for ${manifest.taskId}; use an explicit user-authorized policy amendment with a reason before revalidation.`);
+  }
+  return current;
+}
+
+async function fingerprintTaskRequirements(cwd: string, taskId: string, taskRequirementIds: string[]): Promise<string> {
+  // Coverage accepts links in either direction. Bind the same requirement slice
+  // so a coverage-only link cannot reuse evidence for different requirement text.
+  const coverage = await loadPrdCoverage(cwd);
+  const requirementIds = [...taskRequirementIds, ...coverage.entries
+    .filter((entry) => entry.taskIds?.includes(taskId))
+    .map((entry) => entry.requirementId)];
   if (requirementIds.length === 0) return fingerprintJson([]);
   const requirements = await loadPrdRequirements(cwd);
   assertValidRequirementsCatalog(requirements);
@@ -78,14 +98,76 @@ async function fingerprintTaskRequirements(cwd: string, requirementIds: string[]
       assertValidRequirementContent(requirement, id);
       return {
         id: requirement.id,
+        revision: requirement.revision ?? 1,
         statement: requirement.statement,
         title: requirement.title ?? null,
         source: requirement.source ?? null,
+        acceptanceCriteria: requirement.acceptanceCriteria ?? [],
       };
     }
     return { id, missing: true };
   });
   return fingerprintJson(material);
+}
+
+async function fingerprintTaskIntegrationInputs(
+  cwd: string,
+  state: ScalerState,
+  ownerTaskId: string,
+  taskRequirementIds: string[],
+): Promise<string> {
+  const coverage = await loadPrdCoverage(cwd);
+  const linkedRequirementIds = new Set([...taskRequirementIds, ...coverage.entries
+    .filter((entry) => entry.taskIds?.includes(ownerTaskId))
+    .map((entry) => entry.requirementId)]);
+  if (linkedRequirementIds.size === 0) return fingerprintJson([]);
+  const requirements = await loadPrdRequirements(cwd);
+  const criteria = requirements.requirements.filter((requirement) => linkedRequirementIds.has(requirement.id)).flatMap((requirement) =>
+    (requirement.acceptanceCriteria ?? [])
+      .filter((criterion) => criterion.validationTaskId === ownerTaskId)
+      .map((criterion) => ({ requirementId: requirement.id, ...criterion })))
+    .sort((a, b) => `${a.requirementId}:${a.id}`.localeCompare(`${b.requirementId}:${b.id}`));
+  if (criteria.length === 0) return fingerprintJson([]);
+
+  const [attempts, runs, commits, skips] = await Promise.all([
+    loadTaskAttempts(cwd), loadValidationRuns(cwd), loadCommitReports(cwd), loadCommitSkips(cwd),
+  ]);
+  const participantIds = [...new Set(criteria.flatMap((criterion) => criterion.participantTaskIds)
+    .filter((taskId) => taskId !== ownerTaskId))].sort();
+  const participants = [];
+  for (const participantTaskId of participantIds) {
+    const task = state.tasks.find((candidate) => candidate.id === participantTaskId);
+    if (!task) {
+      participants.push({ taskId: participantTaskId, missing: true });
+      continue;
+    }
+    const attempt = task.attemptId ? attempts.find((candidate) => candidate.id === task.attemptId) : undefined;
+    const manifest = await getValidationManifestForTask(cwd, participantTaskId);
+    const run = runs.find((candidate) => candidate.taskId === participantTaskId);
+    const commit = run && commits.find((candidate) => candidate.taskId === participantTaskId
+      && candidate.commitHash.trim() && matchesValidation(candidate.validation, run));
+    const skipped = run && skips.find((candidate) => candidate.taskId === participantTaskId
+      && candidate.status === "skipped" && candidate.reason.trim() && matchesValidation(candidate.validation, run));
+    participants.push({
+      taskId: participantTaskId,
+      taskFingerprint: fingerprintTaskContract(task),
+      attemptId: task.attemptId ?? null,
+      outputFingerprint: attempt?.outputFingerprint ?? null,
+      policyFingerprint: fingerprintValidationPolicy(manifest),
+      contextFingerprint: await captureValidationContext(cwd, state, participantTaskId),
+      declaredOutputFingerprint: await fingerprintDeclaredOutputs(cwd, manifest.outputPaths),
+      acceptance: commit
+        ? { kind: "commit", commitHash: commit.commitHash, includedPaths: [...commit.includedPaths].sort() }
+        : skipped ? { kind: "skip" } : { kind: "missing" },
+    });
+  }
+  return fingerprintJson({ criteria, participants });
+}
+
+function matchesValidation(summary: CommitValidationSummary, run: ValidationRunRecord): boolean {
+  return summary.runId === run.id && summary.status === "passed"
+    && summary.commandCount === run.commandRuns.length
+    && summary.createdAt === run.createdAt;
 }
 
 function assertValidRequirementsCatalog(catalog: unknown): asserts catalog is {
@@ -104,6 +186,8 @@ function assertValidRequirementContent(requirement: unknown, expectedId: string)
   statement: string;
   title?: string;
   source?: string;
+  revision?: number;
+  acceptanceCriteria?: unknown[];
 } {
   if (!requirement || typeof requirement !== "object") {
     throw new Error(`Malformed runtime PRD requirement ${expectedId}: expected an object.`);
@@ -132,9 +216,36 @@ export async function verifyCurrentValidationReceipt(cwd: string, state: ScalerS
   return verifyValidationRunReceipt(cwd, state, taskId, run);
 }
 
+// Git commit necessarily changes HEAD and consumes the staged candidate. Recheck
+// every other receipt field after hooks before publishing accepted commit
+// evidence; committed output identity is checked separately against the commit.
+export async function verifyCurrentValidationReceiptAfterGitCommit(
+  cwd: string,
+  state: ScalerState,
+  taskId: string,
+): Promise<string[]> {
+  const run = (await loadValidationRuns(cwd)).find((run) => run.taskId === taskId);
+  return verifyValidationRunReceiptInternal(cwd, state, taskId, run, { ignoreGitCandidate: true });
+}
+
 // Also used before automatic acceptance, while the supervisor-produced record
 // is still in memory. This checks evidence, not caller authority or signatures.
-export async function verifyValidationRunReceipt(cwd: string, state: ScalerState, taskId: string, run: ValidationRunRecord | undefined): Promise<string[]> {
+export async function verifyValidationRunReceipt(
+  cwd: string,
+  state: ScalerState,
+  taskId: string,
+  run: ValidationRunRecord | undefined,
+): Promise<string[]> {
+  return verifyValidationRunReceiptInternal(cwd, state, taskId, run);
+}
+
+async function verifyValidationRunReceiptInternal(
+  cwd: string,
+  state: ScalerState,
+  taskId: string,
+  run: ValidationRunRecord | undefined,
+  options: { ignoreGitCandidate?: boolean } = {},
+): Promise<string[]> {
   const durable = await loadState(cwd);
   if (durable.runId !== state.runId || durable.revision !== state.revision) {
     return ["Validation receipt rejected: state changed or was not persisted; reload and revalidate."];
@@ -144,13 +255,24 @@ export async function verifyValidationRunReceipt(cwd: string, state: ScalerState
   diagnostics.push(...await checkAttemptEvidence(cwd, state, taskId));
   try {
     const current = await captureValidationSnapshot(cwd, state, taskId);
-    if (fingerprintJson(run.receipt.snapshot) !== fingerprintJson(current)) {
+    const expectedSnapshot = options.ignoreGitCandidate
+      ? withoutGitCandidate(run.receipt.snapshot)
+      : run.receipt.snapshot;
+    const currentSnapshot = options.ignoreGitCandidate
+      ? withoutGitCandidate(current)
+      : current;
+    if (fingerprintJson(expectedSnapshot) !== fingerprintJson(currentSnapshot)) {
       diagnostics.push("Validation receipt rejected: run, task, attempt, policy, context or candidate output changed.");
     }
   } catch (error) {
     diagnostics.push(`Validation receipt rejected: snapshot unavailable: ${String(error)}`);
   }
   return diagnostics;
+}
+
+function withoutGitCandidate(snapshot: ValidationSnapshot): Omit<ValidationSnapshot, "gitCandidateFingerprint"> {
+  const { gitCandidateFingerprint: _ignored, ...rest } = snapshot;
+  return rest;
 }
 
 // Integrity of historical command evidence only. Callers must additionally

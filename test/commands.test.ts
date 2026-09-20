@@ -23,6 +23,7 @@ import {
   parseMemorySearchArgs,
   parseMissingContextResolveArgs,
   parseMissingContextRunArgs,
+  parsePrdAmendArgs,
   parsePrdLinkArgs,
   parseReplanRequestArgs,
   parseReplanRunArgs,
@@ -115,8 +116,27 @@ test("parsePrdLinkArgs parses task id and PRD refs", () => {
   assert.equal(parsePrdLinkArgs(" | REQ-001"), undefined);
 });
 
+test("parsePrdAmendArgs requires an exact revision, reason, and JSON changes", () => {
+  assert.deepEqual(parsePrdAmendArgs('REQ-001 | 3 | User expanded scope | {"statement":"New wording","acceptanceCriteria":[]}'), {
+    requirementId: "REQ-001",
+    expectedRevision: 3,
+    reason: "User expanded scope",
+    changes: { statement: "New wording", acceptanceCriteria: [] },
+  });
+  assert.equal(parsePrdAmendArgs('REQ-001 | no | reason | {"statement":"x"}'), undefined);
+  assert.equal(parsePrdAmendArgs('REQ-001 | 1oops | reason | {"statement":"x"}'), undefined);
+  assert.equal(parsePrdAmendArgs('REQ-001 | 1 | reason | not-json'), undefined);
+  assert.deepEqual(parsePrdAmendArgs('REQ-001 | 1 | clarify alternatives | {"statement":"Accept A|B"}'), {
+    requirementId: "REQ-001",
+    expectedRevision: 1,
+    reason: "clarify alternatives",
+    changes: { statement: "Accept A|B" },
+  });
+  assert.equal(parsePrdAmendArgs('REQ-001 | 1 | reason | {"statement":"x"} trailing'), undefined);
+});
+
 test("parseValidationAddArgs parses manifest command fields", () => {
-  assert.deepEqual(parseValidationAddArgs("T-001 | test | npm test | Run tests | optional | unit | exits 0 | ev:1, ev:2 | docker | skipped:not needed on docs-only change"), {
+  assert.deepEqual(parseValidationAddArgs("T-001 | test | npm test | Run tests | optional | unit | exits 0 | ev:1, ev:2 | docker | skipped:not needed on docs-only change | Correct flaky assertion"), {
     taskId: "T-001",
     id: "test",
     command: "npm test",
@@ -128,6 +148,7 @@ test("parseValidationAddArgs parses manifest command fields", () => {
     environment: "docker",
     disposition: "skipped",
     dispositionReason: "not needed on docs-only change",
+    reason: "Correct flaky assertion",
   });
 });
 

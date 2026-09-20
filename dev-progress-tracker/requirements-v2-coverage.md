@@ -3,7 +3,9 @@
 Reviewed code: d866b6957d0b79b455875e56b635ff8f774d0129.
 Assessment date: 2026-09-16. Requirements-only change; no implementation fix is claimed.
 
-This is the CURRENT assessment for SC-* requirements. The legacy
+This table is the CURRENT status assessment, originally based on the reviewed
+`d866b69` baseline. The progress evidence below records later bounded changes
+without silently upgrading any row to Verified. The legacy
 [traceability matrix](traceability-matrix.md), [gap backlog](gap-backlog.md) and
 implementation inventory remain historical evidence for PRD-* requirements.
 Failed means a counterexample was identified for a mandatory behavior. Partial
@@ -44,7 +46,7 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-24 | Partial | Tests and usage reports exist; representative outcome evaluation and revision 2 coverage gate are pending. | `src/provider-usage.ts`, `src/conformance.ts` | [AC-24](../specs/acceptance-scenarios.md#ac-24) |
 | SC-25 | Failed | Tool focus reads methods from ctx although reviewed Pi exposes them on ExtensionAPI; permissive mock masks this. | `src/index.ts`, `test/extension-shape.test.ts` | [AC-25](../specs/acceptance-scenarios.md#ac-25) |
 | SC-26 | Partial | Automation loop exists; revised complete-run, cancellation and recovery guarantees not demonstrated. | `src/autopilot.ts` | [AC-26](../specs/acceptance-scenarios.md#ac-26) |
-| SC-27 | Partial | Requirement versions/links exist; task status alone is insufficient proof of current requirement acceptance. | `src/prd.ts` | [AC-27](../specs/acceptance-scenarios.md#ac-27) |
+| SC-27 | Partial | Current named command evidence and participant identity gate declared integration criteria; revision-checked user amendments and immutable history prevent model-route criterion changes. Semantic necessity and non-software evidence remain open. | `src/prd.ts`, `src/run-completion.ts`, `test/requirement-integration.test.ts`, `test/prd.test.ts` | [AC-27](../specs/acceptance-scenarios.md#ac-27) |
 
 ## Implementation progress — PLAN-099
 
@@ -212,6 +214,50 @@ SC-* coverage or these acceptance scenarios. Its existing passing test is histor
 compatibility only. Updating that gate belongs to the later implementation phase;
 revision 2 document integrity is checked separately during this change.
 # PLAN-106 continuation
+
+PLAN-118 unit F closes the reproduced pre-first-validation manifest replacement
+route. Validation manifests now retain establishment authority; material model
+changes are allowed only for model-owned unexercised drafts, while system/user
+policies require the explicit reasoned local-user amendment path. Manifest,
+task-update and planning regressions verify rejection before partial task, plan
+or requirement publication. This is bounded policy-authority evidence, not
+semantic validation sufficiency or complete provenance for all task metadata.
+Legacy/default-policy and preconfigured-task cases are included, while unchanged
+preconfigured policy inheritance remains supported. Final build, full unit, 67
+mock integration and 7 conformance/autopilot checks pass; two independent
+GPT-6 Astra/high exact-head reviews report no remaining actionable finding.
+
+PLAN-118 unit E binds explicitly declared local checker, fixture and validation
+configuration files to the acceptance policy and schema-v5 receipt snapshots.
+Validation, direct Git decisions, dependency admission and completion reject
+basis drift; model routes cannot rebaseline an exercised policy. Exact-path
+normalization, authority serialization and planning preflight regressions cover
+duplicate declarations, policy-save TOCTOU, and explicit/inherited partial
+publication. TypeScript build, full unit suite, 67 mock integration tests and
+7 conformance/autopilot checks pass. This is partial SC-10/26 evidence only:
+undeclared dependencies, semantic sufficiency, trusted filesystem writers,
+non-software evidence and representative outcomes remain open.
+
+PLAN-118 unit C adds an explicit revision-checked local-user amendment boundary
+and exact requirement version history. Model PRD/planning/stage routes cannot
+materially change existing content or criteria, forged source labels grant no
+authority, and omission preserves catalog entries. Supported catalog/coverage
+writers serialize atomic publication, so a concurrent unrelated upsert cannot
+erase an authorized revision; invalid batches and invalid plans leave no partial
+requirement ledgers. A→B→A revisions invalidate older receipts. Gate: build,
+743 unit, 67 mock integration and 7 conformance/autopilot checks. This is partial
+SC-10/26/27 evidence: semantic necessity, arbitrary filesystem authority,
+non-software evidence and representative real-model outcomes remain open.
+
+PLAN-118 unit A closes the explicit coverage-link omission in PLAN-117:
+task `prdRefs` and coverage `taskIds` now select the same canonical content set
+for receipts. Four baseline failures and two controls pass; build, 724 unit,
+67 mock integration and 7 conformance checks pass, with 90 focused checks.
+This is prepared on the remaining-P2 phase branch. PR #21 later merged as
+`cbf2b19`, and merge commit `36a86e8` reconciles its strict linked-requirement
+validation with Units A-F. Coverage-only malformed/duplicate links are covered by
+`64ccea6`. Requirement-level semantic sufficiency and representative outcome
+quality remain open; historical gate counts above describe their original heads.
 
 PLAN-117 extends validation receipt schema v3 with the current content of every
 runtime requirement referenced by a task. Changing a statement/title/source or

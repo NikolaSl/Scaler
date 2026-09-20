@@ -4,11 +4,14 @@
  */
 
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { checkAttemptEvidence } from "./attempt-evidence.js";
+import { fingerprintValidationPolicy } from "./attempt-identity.js";
 import { captureValidationSnapshot, fingerprintValidationResult, verifyValidationRunReceipt, type ValidationReceipt, type ValidationSnapshot } from "./validation-acceptance.js";
 import { fingerprintJson } from "./fingerprints.js";
-import { normalizeOutputPaths } from "./output-artifacts.js";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { fingerprintValidationInputs, normalizeOutputPaths, normalizeValidationInputPaths } from "./output-artifacts.js";
+import { mkdir, open, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { prepareCicdValidationExecution } from "./cicd-environments.js";
 import { evaluateValidationGitAcceptance, type GitValidationAcceptanceDecision } from "./git.js";
@@ -19,12 +22,19 @@ import { requestReplan } from "./replanning.js";
 import { saveState } from "./state.js";
 import { transitionTask } from "./supervisor.js";
 import type { ScalerState, ScalerTaskStatus } from "./types.js";
+import { setTimeout as delay } from "node:timers/promises";
 
 export type ValidationStatus = "passed" | "failed" | "partial" | "blocked" | "not_applicable";
 export type ValidationChecklistItemStatus = "passed" | "failed" | "blocked" | "not_applicable";
 export type ValidationChecklistStatus = "passed" | "failed" | "blocked";
 export type ValidationEnvironmentKind = "host" | "docker" | "compose" | "devcontainer" | "minikube" | "local_ci";
 export type ValidationGateDisposition = "run" | "skipped" | "blocked";
+export type ValidationPolicyAuthority = "system" | "model" | "user_command";
+
+export interface ValidationPolicyWriteOptions {
+  authority?: ValidationPolicyAuthority;
+  reason?: string;
+}
 
 export type ValidationGateKind =
   | "dependency_check"
@@ -75,13 +85,34 @@ export interface ValidationCommandManifest {
 
 export interface TaskValidationManifest {
   taskId: string;
+  establishedAuthority?: ValidationPolicyAuthority;
+  revision?: number;
+  versionHistory?: ValidationPolicyVersion[];
   outputPaths?: string[];
+  validationInputPaths?: string[];
+  validationInputFingerprint?: string;
   definitionOfDone?: string[];
   acceptanceCriteria?: string[];
   qualityWaivers?: Array<{ code: string; reason: string; evidenceRefs?: string[]; approvedBy?: string }>;
   commands: ValidationCommandManifest[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ValidationPolicyVersion {
+  revision: number;
+  reason: string;
+  authority: "user_command";
+  changedAt: string;
+  policy: {
+    outputPaths?: string[];
+    validationInputPaths?: string[];
+    validationInputFingerprint?: string;
+    definitionOfDone?: string[];
+    acceptanceCriteria?: string[];
+    qualityWaivers?: TaskValidationManifest["qualityWaivers"];
+    commands: ValidationCommandManifest[];
+  };
 }
 
 export interface ValidationManifestCommandInput {
@@ -432,19 +463,201 @@ export function normalizeValidationGateKind(value: unknown): ValidationGateKind 
 export async function loadValidationManifests(cwd: string): Promise<TaskValidationManifest[]> {
   try {
     const raw = await readFile(getValidationManifestsPath(cwd), "utf8");
-    return (JSON.parse(raw) as ValidationManifestIndex).manifests;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Persisted validation manifest index is malformed: expected an object.");
+    }
+    if ((parsed as { version?: unknown }).version !== 1) {
+      throw new Error("Persisted validation manifest index is malformed: version must be 1.");
+    }
+    const manifests = (parsed as { manifests?: unknown }).manifests;
+    if (!Array.isArray(manifests)) {
+      throw new Error("Persisted validation manifest index is malformed: manifests must be an array.");
+    }
+    return manifests.map((candidate, index) => assertValidationManifestShape(candidate, index));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
   }
 }
 
-export async function saveValidationManifest(cwd: string, manifest: TaskValidationManifest): Promise<TaskValidationManifest> {
-  const manifests = await loadValidationManifests(cwd);
-  const timestamp = new Date().toISOString();
-  const normalized: TaskValidationManifest = {
+function assertValidationManifestShape(
+  candidate: unknown,
+  index: number,
+  source: "Persisted" | "Proposed" = "Persisted",
+): TaskValidationManifest {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+    throw new Error(`${source} validation manifest at index ${index} is malformed: expected an object.`);
+  }
+  const taskId = (candidate as { taskId?: unknown }).taskId;
+  if (typeof taskId !== "string" || !taskId.trim()) {
+    throw new Error(`${source} validation manifest at index ${index} is malformed: taskId must be a non-empty string.`);
+  }
+  const revision = (candidate as { revision?: unknown }).revision;
+  if (revision !== undefined && (!Number.isSafeInteger(revision) || (revision as number) < 1)) {
+    throw new Error(`${source} validation manifest for ${taskId} is malformed: revision must be a positive safe integer.`);
+  }
+  const establishedAuthority = (candidate as { establishedAuthority?: unknown }).establishedAuthority;
+  if (establishedAuthority !== undefined && !isValidationPolicyAuthority(establishedAuthority)) {
+    throw new Error(`${source} validation manifest for ${taskId} is malformed: establishedAuthority must be system, model, or user_command.`);
+  }
+  const versionHistory = (candidate as { versionHistory?: unknown }).versionHistory;
+  if (versionHistory !== undefined) {
+    if (!Array.isArray(versionHistory)) {
+      throw new Error(`${source} validation manifest for ${taskId} is malformed: versionHistory must be an array.`);
+    }
+    for (const [historyIndex, entry] of versionHistory.entries()) {
+      const prefix = `${source} validation manifest for ${taskId} is malformed: versionHistory[${historyIndex}]`;
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        throw new Error(`${prefix} must be an object.`);
+      }
+      const history = entry as Record<string, unknown>;
+      if (!Number.isSafeInteger(history.revision) || (history.revision as number) < 1) {
+        throw new Error(`${prefix}.revision must be a positive safe integer.`);
+      }
+      if (typeof history.reason !== "string" || !history.reason.trim()) {
+        throw new Error(`${prefix}.reason must be a non-empty string.`);
+      }
+      if (history.authority !== "user_command") {
+        throw new Error(`${prefix}.authority must be user_command.`);
+      }
+      if (typeof history.changedAt !== "string" || !history.changedAt.trim()) {
+        throw new Error(`${prefix}.changedAt must be a non-empty string.`);
+      }
+      if (!history.policy || typeof history.policy !== "object" || Array.isArray(history.policy)) {
+        throw new Error(`${prefix}.policy must be an object.`);
+      }
+      assertValidationCommandsShape(
+        (history.policy as { commands?: unknown }).commands,
+        `${prefix}.policy.commands`,
+      );
+    }
+  }
+  const commands = (candidate as { commands?: unknown }).commands;
+  assertValidationCommandsShape(commands, `${source} validation manifest for ${taskId} is malformed: commands`);
+  return candidate as TaskValidationManifest;
+}
+
+function isValidationPolicyAuthority(value: unknown): value is ValidationPolicyAuthority {
+  return value === "system" || value === "model" || value === "user_command";
+}
+
+function assertValidationCommandsShape(commands: unknown, prefix: string): asserts commands is ValidationCommandManifest[] {
+  if (!Array.isArray(commands)) throw new Error(`${prefix} must be an array.`);
+  for (const [commandIndex, command] of commands.entries()) {
+    if (!command || typeof command !== "object" || Array.isArray(command)) {
+      throw new Error(`${prefix}[${commandIndex}] must be an object.`);
+    }
+    const persistedCommand = command as { id?: unknown; command?: unknown; required?: unknown };
+    if (typeof persistedCommand.id !== "string" || !persistedCommand.id.trim()) {
+      throw new Error(`${prefix}[${commandIndex}].id must be a non-empty string.`);
+    }
+    if (typeof persistedCommand.command !== "string" || !persistedCommand.command.trim()) {
+      throw new Error(`${prefix}[${commandIndex}].command must be a non-empty string.`);
+    }
+    if (typeof persistedCommand.required !== "boolean") {
+      throw new Error(`${prefix}[${commandIndex}].required must be a boolean.`);
+    }
+  }
+}
+
+function fingerprintPersistedValidationManifest(
+  manifest: TaskValidationManifest,
+  expectedTaskId: string,
+): string {
+  if (!Array.isArray(manifest.commands)) {
+    throw new Error(`Persisted validation manifest for ${expectedTaskId} is malformed: commands must be an array.`);
+  }
+  try {
+    return fingerprintValidationPolicy(manifest);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Persisted validation manifest for ${expectedTaskId} is malformed and cannot be fingerprinted: ${detail}`,
+      { cause: error },
+    );
+  }
+}
+
+export async function saveValidationManifest(
+  cwd: string,
+  manifest: TaskValidationManifest,
+  options: ValidationPolicyWriteOptions = {},
+): Promise<TaskValidationManifest> {
+  return withValidationPolicyLock(cwd, async () => {
+    const manifests = await loadValidationManifests(cwd);
+    const timestamp = new Date().toISOString();
+    let normalized = assertValidationManifestShape(
+      await normalizeValidationManifest(cwd, manifest, timestamp),
+      0,
+      "Proposed",
+    );
+    const persistedCurrent = manifests.find((candidate) => candidate.taskId === manifest.taskId);
+    const current = persistedCurrent
+      ?? await createDefaultValidationManifest(cwd, manifest.taskId);
+    normalized = {
+      ...normalized,
+      versionHistory: persistedCurrent?.versionHistory,
+    };
+    const currentFingerprint = persistedCurrent
+      ? fingerprintPersistedValidationManifest(persistedCurrent, manifest.taskId)
+      : fingerprintValidationPolicy(current);
+    const changed = currentFingerprint !== fingerprintValidationPolicy(normalized);
+    const exercised = changed && await hasValidationRunForTask(cwd, manifest.taskId);
+    await assertValidationPolicyMutationAuthorized(cwd, normalized, options, manifests, normalized);
+    const authorizedAmendment = changed && options.authority === "user_command" && (persistedCurrent !== undefined || exercised);
+    if (authorizedAmendment) {
+      const reason = options.reason?.trim();
+      if (!reason) throw new Error(`Acceptance policy update rejected for ${manifest.taskId}: an explicit user-command reason is required.`);
+      const currentRevision = current.revision ?? 1;
+      const proposedRevision = normalized.revision ?? 1;
+      if (proposedRevision !== currentRevision) {
+        throw new Error(`Acceptance policy update rejected for ${manifest.taskId}: stale revision ${proposedRevision}; expected ${currentRevision}.`);
+      }
+      if (currentRevision === Number.MAX_SAFE_INTEGER) {
+        throw new Error(`Acceptance policy update rejected for ${manifest.taskId}: revision ${currentRevision} cannot be incremented safely.`);
+      }
+      normalized = {
+        ...normalized,
+        revision: currentRevision + 1,
+        versionHistory: [...(current.versionHistory ?? []), {
+          revision: currentRevision,
+          reason,
+          authority: "user_command",
+          changedAt: timestamp,
+          policy: captureValidationPolicy(current),
+        }],
+      };
+    }
+    normalized = {
+      ...normalized,
+      establishedAuthority: persistedCurrent
+        ? (changed
+            ? (options.authority ?? "system")
+            : (persistedCurrent.establishedAuthority ?? "system"))
+        : (exercised
+            ? (options.authority === "user_command" ? "user_command" : "system")
+            : (options.authority ?? "system")),
+    };
+    normalized = assertValidationManifestShape(normalized, 0, "Proposed");
+    const next = [normalized, ...manifests.filter((candidate) => candidate.taskId !== manifest.taskId)];
+    await writeValidationManifestIndex(cwd, next);
+    return normalized;
+  });
+}
+
+async function normalizeValidationManifest(
+  cwd: string,
+  manifest: TaskValidationManifest,
+  timestamp = new Date().toISOString(),
+): Promise<TaskValidationManifest> {
+  const validationInputPaths = normalizeValidationInputPaths(manifest.validationInputPaths);
+  const validationInputFingerprint = await fingerprintValidationInputs(cwd, validationInputPaths);
+  return {
     ...manifest,
     outputPaths: normalizeOutputPaths(manifest.outputPaths),
+    validationInputPaths,
+    validationInputFingerprint: validationInputFingerprint ?? undefined,
     definitionOfDone: normalizeStringList(manifest.definitionOfDone),
     acceptanceCriteria: normalizeStringList(manifest.acceptanceCriteria),
     qualityWaivers: normalizeValidationQualityWaivers(manifest.qualityWaivers),
@@ -462,33 +675,71 @@ export async function saveValidationManifest(cwd: string, manifest: TaskValidati
       dispositionReason: normalizeOptionalString(command.dispositionReason),
     })),
   };
-  const next = [normalized, ...manifests.filter((candidate) => candidate.taskId !== manifest.taskId)];
-  await writeValidationManifestIndex(cwd, next);
-  return normalized;
+}
+
+function captureValidationPolicy(manifest: TaskValidationManifest): ValidationPolicyVersion["policy"] {
+  return JSON.parse(JSON.stringify({
+    outputPaths: manifest.outputPaths,
+    validationInputPaths: manifest.validationInputPaths,
+    validationInputFingerprint: manifest.validationInputFingerprint,
+    definitionOfDone: manifest.definitionOfDone,
+    acceptanceCriteria: manifest.acceptanceCriteria,
+    qualityWaivers: manifest.qualityWaivers,
+    commands: manifest.commands,
+  })) as ValidationPolicyVersion["policy"];
+}
+
+export async function hasValidationRunForTask(cwd: string, taskId: string): Promise<boolean> {
+  return (await loadValidationRuns(cwd)).some((run) => run.taskId === taskId);
+}
+
+export async function assertValidationPolicyMutationAuthorized(
+  cwd: string,
+  proposed: TaskValidationManifest,
+  options: ValidationPolicyWriteOptions = {},
+  loadedManifests?: TaskValidationManifest[],
+  normalizedProposed?: TaskValidationManifest,
+): Promise<void> {
+  if ((options.authority ?? "system") !== "model") return;
+  const manifests = loadedManifests ?? await loadValidationManifests(cwd);
+  const persistedCurrent = manifests.find((manifest) => manifest.taskId === proposed.taskId);
+  const exercised = await hasValidationRunForTask(cwd, proposed.taskId);
+  if (!persistedCurrent && !exercised) return;
+  const current = persistedCurrent ?? await createDefaultValidationManifest(cwd, proposed.taskId);
+  // saveValidationManifest passes the exact normalized snapshot it will write.
+  // Re-reading executable inputs here would authorize one filesystem version
+  // while persisting another if the validator changes between both hashes.
+  const normalized = normalizedProposed ?? await normalizeValidationManifest(cwd, proposed);
+  if (fingerprintValidationPolicy(current) === fingerprintValidationPolicy(normalized)) return;
+  if (!exercised && current.establishedAuthority === "model") return;
+  throw new Error(`Acceptance policy update rejected for ${proposed.taskId}: model routes cannot replace an established policy; use an explicit local user command with a recorded reason.`);
 }
 
 export async function upsertValidationManifestCommand(
   cwd: string,
   input: ValidationManifestCommandInput,
+  options: ValidationPolicyWriteOptions = {},
 ): Promise<TaskValidationManifest> {
-  const existing = (await loadValidationManifests(cwd)).find((manifest) => manifest.taskId === input.taskId);
-  const base = existing ?? (await createDefaultValidationManifest(cwd, input.taskId));
-  const command: ValidationCommandManifest = {
-    id: input.id,
-    command: input.command,
-    description: input.description,
-    timeoutMs: input.timeoutMs,
-    required: input.required ?? true,
-    gate: normalizeValidationGateKind(input.gate),
-    expectedResult: normalizeOptionalString(input.expectedResult),
-    evidenceRefs: normalizeStringList(input.evidenceRefs),
-    environment: normalizeValidationEnvironmentKind(input.environment),
-    disposition: normalizeValidationGateDisposition(input.disposition) ?? "run",
-    dispositionReason: normalizeOptionalString(input.dispositionReason),
-  };
-  return await saveValidationManifest(cwd, {
-    ...base,
-    commands: [command, ...base.commands.filter((candidate) => candidate.id !== input.id)],
+  return withValidationPolicyLock(cwd, async () => {
+    const existing = (await loadValidationManifests(cwd)).find((manifest) => manifest.taskId === input.taskId);
+    const base = existing ?? (await createDefaultValidationManifest(cwd, input.taskId));
+    const command: ValidationCommandManifest = {
+      id: input.id,
+      command: input.command,
+      description: input.description,
+      timeoutMs: input.timeoutMs,
+      required: input.required ?? true,
+      gate: normalizeValidationGateKind(input.gate),
+      expectedResult: normalizeOptionalString(input.expectedResult),
+      evidenceRefs: normalizeStringList(input.evidenceRefs),
+      environment: normalizeValidationEnvironmentKind(input.environment),
+      disposition: normalizeValidationGateDisposition(input.disposition) ?? "run",
+      dispositionReason: normalizeOptionalString(input.dispositionReason),
+    };
+    return saveValidationManifest(cwd, {
+      ...base,
+      commands: [command, ...base.commands.filter((candidate) => candidate.id !== input.id)],
+    }, options);
   });
 }
 
@@ -818,6 +1069,10 @@ function isNonPassingValidationProblem(run: ValidationCommandRunRecord): boolean
 }
 
 export async function runTaskValidation(cwd: string, state: ScalerState, taskId: string): Promise<ValidationRunRecord> {
+  return withValidationPolicyLock(cwd, () => runTaskValidationLocked(cwd, state, taskId));
+}
+
+async function runTaskValidationLocked(cwd: string, state: ScalerState, taskId: string): Promise<ValidationRunRecord> {
   const freshness = await checkAttemptEvidence(cwd, state, taskId);
   if (freshness.length > 0) return rejectStaleValidation(cwd, state, taskId, freshness, []);
   let snapshot: ValidationSnapshot;
@@ -1288,7 +1543,71 @@ async function logAndReturn(
 async function writeValidationManifestIndex(cwd: string, manifests: TaskValidationManifest[]): Promise<void> {
   const path = getValidationManifestsPath(cwd);
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify({ version: 1, manifests } satisfies ValidationManifestIndex, null, 2)}\n`, "utf8");
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    const file = await open(temporary, "wx", 0o600);
+    try {
+      await file.writeFile(`${JSON.stringify({ version: 1, manifests } satisfies ValidationManifestIndex, null, 2)}\n`, "utf8");
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    await rename(temporary, path);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+}
+
+interface ValidationPolicyLockOwner {
+  active: boolean;
+}
+
+const validationPolicyLockContext = new AsyncLocalStorage<ReadonlyMap<string, ValidationPolicyLockOwner>>();
+
+export async function withValidationPolicyLock<T>(cwd: string, fn: () => Promise<T>): Promise<T> {
+  const manifestPath = getValidationManifestsPath(cwd);
+  await mkdir(dirname(manifestPath), { recursive: true });
+  const lockPath = `${manifestPath}.lock`;
+  const heldLocks = validationPolicyLockContext.getStore();
+  if (heldLocks?.get(lockPath)?.active) return fn();
+  let acquired = false;
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    try {
+      await mkdir(lockPath);
+      acquired = true;
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      await delay(10);
+    }
+  }
+  if (!acquired) throw new Error("Validation policy is locked by another active operation; retry after it finishes.");
+  const owner: ValidationPolicyLockOwner = { active: true };
+  const context = new Map(heldLocks ?? []);
+  context.set(lockPath, owner);
+  try {
+    return await validationPolicyLockContext.run(context, fn);
+  } finally {
+    owner.active = false;
+    await releaseValidationPolicyLock(lockPath);
+  }
+}
+
+async function releaseValidationPolicyLock(lockPath: string): Promise<void> {
+  let releaseError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await rmdir(lockPath);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      releaseError = error;
+      if (attempt < 2) await delay(10);
+    }
+  }
+  process.emitWarning(`Validation policy lock could not be released: ${lockPath}. Reconcile the active owner before retrying policy effects. ${String(releaseError)}`, {
+    code: "SCALER_VALIDATION_POLICY_LOCK_RELEASE_FAILED",
+  });
 }
 
 async function writeValidationRuns(cwd: string, runs: ValidationRunRecord[]): Promise<void> {

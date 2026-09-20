@@ -387,3 +387,123 @@ reference is also rejected, while an identical content upsert remains current.
 Validation snapshot schema version 3 binds requirement id/statement/title/source;
 version 1 and 2 receipts require revalidation. This is version freshness, not
 proof that the selected requirement links or integration checks are sufficient.
+
+PLAN-118 unit A covers explicit coverage-ledger links as well as task `prdRefs`.
+Run `node --test --import tsx test/completion-provenance.test.ts test/validation-acceptance.test.ts test/dependency-evidence-admission.test.ts test/declared-outputs.test.ts`.
+Four baseline failures demonstrate false completion after changed/new explicit
+links and stale receipts after removed/retargeted links. Unchanged/idempotent and
+unrelated-task controls remain valid. Both directions feed the existing canonical
+requirement-content fingerprint; the schema and acceptance routes are unchanged.
+After PR #21 reconciliation, the same suite also refuses malformed content and
+duplicate linked identifiers reached only through coverage `taskIds`, as well as
+through task `prdRefs`. A malformed requirements document fails with a stable
+diagnostic rather than being treated as missing evidence.
+
+PLAN-118 unit B adds `test/requirement-integration.test.ts`. Two negative
+baselines show that linked component success previously allowed completion when
+the named end-to-end command was missing or skipped. Current checks reject both,
+accept one exact required passing command, and reject the old integration receipt
+after a component output changes and is independently reaccepted. Rerunning the
+named command restores completion. PRD, tool and stage-workflow tests also cover
+criterion normalization and preservation through all structured input paths.
+Snapshot schema version 4 introduced this integration identity. The current
+schema is version 5 because declared validation-input files are also bound; all
+older receipt versions require revalidation.
+Malformed or duplicate stage-provided criteria are refused before any PRD,
+catalog, stage-artifact or accepted audit write; malformed participant arrays are
+not silently narrowed.
+
+The test proves deterministic command evidence and current component identity;
+it does not prove that an agent had authority to create/delete the criterion,
+that the selected criterion is semantically sufficient, or that non-software and
+real-model outcomes meet their requirements.
+
+PLAN-118 unit C adds revision-checked local-user PRD amendments and immutable
+requirement history. `test/prd.test.ts`, `test/plans.test.ts`,
+`test/stage-workflow.test.ts`, `test/commands.test.ts`, and
+`test/completion-provenance.test.ts` cover model-route refusal, whole-catalog
+preservation, stale revisions, serialized concurrent writers, batch refusal with
+no partial ledgers, source-less idempotence, JSON containing `|`, invalid-plan
+ordering, and A→B→A evidence invalidation. The supported writer paths use an
+exclusive PRD publication lock and atomic JSON replacement; a held lock is never
+stolen by age.
+
+Unit C gate: TypeScript build, 743 unit tests, 67 mock integration tests and 7
+conformance/autopilot checks pass. GPT-6 Astra/high independently reviewed the
+implementation and all review findings were corrected. These checks do not
+authenticate arbitrary filesystem writers, prove semantic requirement necessity,
+or establish representative real-model/local-model outcome quality.
+
+PLAN-118 unit D closes reproduced Git and policy-authority routes. The Git
+regressions refuse clean/runtime-only commit skips without declared outputs,
+reject pre/post-commit hook changes before publishing accepted evidence, and
+preserve the resulting Git commit for diagnosis instead of resetting it.
+Dependency admission runs before validation commands and budget consumption.
+
+`test/acceptance-policy-authority.test.ts` covers exercised command/DoD/link
+replacement, idempotent metadata preservation, explicit user corrections with
+reason/history/revision, concurrent amendments, stale revisions, and rejection
+before planning/replan publication. Barrier-controlled first-validation tests
+exercise both policy replacement and unchanged-policy stale-state paths. The
+lock-owner lifecycle regression checks that a detached descendant cannot reuse
+reentrant ownership after release. `test/commands.test.ts` covers the amendment
+reason parser.
+
+Policy writes, task updates, planning/replan publication and validation share a
+bounded policy lock; task/planning/replan callers must present a current state
+revision after acquiring it. The lock is never stolen by age. An interrupted
+holder requires operator reconciliation; a waiting operation can fail after
+approximately two seconds. These are supported-route concurrency guards, not a
+transaction across every ledger, process authentication, semantic test adequacy,
+or evidence of real/local-model outcome quality.
+
+PLAN-118 unit E adds `validationInputPaths` to the existing validation policy.
+Declare every existing local checker, fixture, or validation-only configuration
+file that a command depends on. Paths are exact project-relative regular files;
+missing files, symlinks, duplicates, absolute/traversal paths and `.scaler`
+runtime metadata are rejected. `[]` is an explicit assertion that the commands
+are self-contained. Omission preserves an existing task declaration but provides
+no protection for an undeclared dependency.
+
+The policy records a canonical SHA-256 basis fingerprint and checks it before and
+after command execution and at receipt/commit/skip/completion freshness gates. A
+model cannot rebaseline an exercised policy. A genuine correction uses the
+existing explicit user-authorized manifest amendment with a reason, revision and
+policy history. Planning preflights explicit and inherited declarations before
+publishing requirements, plans or task changes. If the task creates its own
+validator, create it first and write the manifest before the first validation.
+
+Run `node --test --import tsx test/acceptance-policy-authority.test.ts test/validation-acceptance.test.ts test/plans.test.ts test/tools.test.ts test/stage-workflow.test.ts test/replan-agent.test.ts` for the focused basis, authority, transport and publication coverage. These checks protect only declared local files; they do not infer shell dependencies, prove declaration completeness or establish semantic/real-model outcome quality.
+
+PLAN-118 unit F distinguishes a model-owned unexercised manifest draft from an
+acceptance policy already established by the system or an explicit local user
+command. Public manifest writes, task updates and planning reports cannot weaken
+an established manifest before its first validation. Idempotent writes and
+model-owned draft refinement remain supported; an operator correction requires
+the same explicit reason, revision and version history used after exercise.
+Legacy manifests without provenance reject material model changes. This is an
+authority boundary only: it does not prove semantic test sufficiency or assign
+provenance to every unexercised task metadata field.
+
+The Unit F regression set also covers provenance laundering through an
+idempotent legacy write, replacement of an exercised generated default,
+preconfigured manifests for tasks not yet in state, and a positive unchanged
+inheritance control. Final validation passes the TypeScript build, full unit
+suite, 67 mock integration tests and 7 conformance/autopilot checks; two
+independent GPT-6 Astra/high exact-head reviews report no remaining finding.
+
+PLAN-118 unit G adds adversarial pre-commit and post-commit hook coverage for
+declared validation-basis files. After a Git commit is created, SCALER rechecks
+task outputs, Git safety and the current validation receipt before publishing a
+commit report or promoting the task. The receipt comparison excludes only the
+Git candidate identity, because the successful commit itself advances that
+identity; checker bytes, policy, task contract, PRD and integration evidence
+must still match the validated snapshot.
+
+When a hook changes a declared checker, the resulting commit is intentionally
+kept for operator diagnosis, but acceptance is refused and no commit report is
+recorded. Run `node --test --import tsx test/validation-acceptance.test.ts` for
+the focused regression. The reconciled exact candidate passes the TypeScript
+build, 799 unit tests, 67 mock integration tests and 7 conformance/autopilot
+checks. These tests do not make arbitrary hooks transactional or authorize an
+automatic reset/replay.

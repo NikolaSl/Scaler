@@ -12,35 +12,56 @@ compliance or deploy unattended operation while acceptance/authority bypasses
 remain. Merge authority follows the current user instruction below. This plan
 is a durable continuation record; scheduled execution is recorded separately.
 
-### Overnight authorization and review policy
+### Current authorization and review policy
 
-Nikola explicitly authorized autonomous implementation, Copilot review requests,
-and merging PRs after review when there are no valid unresolved findings and
-applicable tests pass. The unattended work window ends at
-`2026-09-17T18:00:00Z` (21:00 Europe/Sofia), explicitly extended by Nikola on
-2026-09-17 with "Продължи и след крайният срок. Промени срока на 21:00 българско време."
-This replaces the earlier 06:49:57Z cutoff. Stop unattended mutations then
-and preserve a handoff unless the user extends or changes the instruction.
-This supersedes the earlier no-automatic-merge instruction for this window.
+Nikola explicitly authorized autonomous implementation and merging PRs after
+review when there are no valid unresolved findings and applicable tests pass.
+The current unattended mutation deadline is `2026-09-20T20:52:02Z`
+(23:52:02 Europe/Sofia). Nikola renewed this window on 2026-09-19; it supersedes
+all earlier cutoffs.
+Stop unattended mutations then and preserve a handoff unless Nikola extends
+or changes the instruction. No paid model spending or deployment is authorized.
 
 After that handoff, Nikola explicitly requested continuation again. PLAN-106
 records this direct continuation and its bounded scope; the same completed
 Copilot review, test, separate-commit and expected-head merge gates apply.
 
 - Request `copilot-pull-request-reviewer[bot]` through the GitHub review-request
-  API; the login without `[bot]` is not the supported reviewer identity.
-- Wait for a completed review covering the changes. Silence is not approval.
-  Evaluate findings against code and requirements; fix valid issues and record
-  evidence for findings that do not apply. Re-review changed code when needed.
+  API; the login without `[bot]` is not the supported reviewer identity. An API
+  success without a submitted review is not approval and must not stall useful
+  implementation indefinitely.
+- A completed Copilot review covering the exact candidate head is mandatory in
+  the current work window. Independent GPT-6 Astra reviews at `high` or higher
+  supplement it but do not replace it. Fix every valid finding, rerun applicable
+  checks, and re-review the changed head. Silence or an accepted API request is
+  not approval. A stuck request may be removed and re-added once as a bounded
+  recovery; verify the actual submitted review afterward.
 - Merge only the reviewed, tested head using an expected-head-SHA guard and a
   merge commit to preserve implementation history. Respect branch protection.
 - Keep paid model spending and deployment out of scope. Existing free-provider
   synthetic tests are permitted; do not disclose credentials.
 - Continuations must inspect current remote state before acting and avoid
-  overlapping work. Scheduling details are recorded separately; scheduling does
-  not guarantee execution tools or phase completion. Report concrete blockers.
-- Next work after PR #3: make the parallel tool-ledger race reproducible, address
-  it in a bounded change, then continue P2.2 attempt/evidence binding.
+  overlapping work. Claim a checked, bounded ownership marker and release it at
+  handoff; marker age alone never proves that a live worker is dead. Scheduling
+  details are recorded separately and do not guarantee execution tools or phase
+  completion. Report concrete blockers.
+- Group subsequent work into coherent phase PRs: remaining P2, then P3, etc.
+  Keep separate logical commits for planning, reproductions, implementation,
+  tests, documentation and review fixes. A new plan does not require a new PR.
+- Prepare the next dependency-ordered unit while a PR is in review, using a
+  separate branch for dependent changes. At most one PR is in review and one
+  next unit is in preparation; do not merge before prerequisites are merged.
+  Do not spend active work repeatedly sleeping or resending the same review
+  request. A successful API response is not a completed review.
+- Every delegated agent must use GPT-6 Astra (`gpt-6-astra`) with reasoning
+  `high` or higher. If unavailable, work locally; do not silently downgrade.
+- Report meaningful published commits in Bulgarian with commit links, purpose,
+  validation and next action. Group related commits when necessary; do not make
+  empty reporting commits or repeatedly announce an unchanged pending review.
+- PRs #3-#21 are merged. PR #21 merged as `cbf2b19` after an exact-head Copilot
+  review. Remaining P2 acceptance work is reconciled with that merge on
+  `implementation/v2-p2-acceptance`; publish one coherent P2 phase PR rather
+  than a PR per plan or defect.
 
 ## Architecture direction
 

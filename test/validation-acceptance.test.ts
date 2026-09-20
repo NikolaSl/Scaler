@@ -104,6 +104,103 @@ test("current validation receipt permits an unchanged candidate commit", async (
   });
 });
 
+async function prepareHookCandidate(dir: string): Promise<void> {
+  const state = createDefaultState();
+  state.stage = "execution";
+  state.tasks = [{
+    id: "T-HOOK", title: "Hook-bound output", status: "validating",
+    allowedPathPrefixes: ["output.txt"], updatedAt: state.updatedAt,
+  }];
+  await saveState(dir, state);
+  await writeFile(join(dir, "output.txt"), "good");
+  await saveValidationManifest(dir, {
+    taskId: "T-HOOK",
+    commands: [{
+      id: "check",
+      command: "node -e \"if(require('fs').readFileSync('output.txt','utf8')!=='good')process.exit(1)\"",
+      required: true,
+    }],
+    createdAt: "",
+    updatedAt: "",
+  });
+  assert.equal((await runTaskValidation(dir, await loadState(dir), "T-HOOK")).status, "passed");
+}
+
+for (const hookCase of [
+  { name: "pre-commit staged mutation", hook: "pre-commit", script: "printf bad > output.txt\ngit add output.txt" },
+  { name: "pre-commit worktree mutation", hook: "pre-commit", script: "printf bad > output.txt" },
+  { name: "post-commit staged mutation", hook: "post-commit", script: "printf bad > output.txt\ngit add output.txt" },
+] as const) {
+  test(`commit refuses ${hookCase.name} after validation`, async () => fixture(async (dir) => {
+    await prepareHookCandidate(dir);
+    const hook = join(dir, ".git", "hooks", hookCase.hook);
+    await writeFile(hook, `#!/bin/sh\n${hookCase.script}\n`);
+    await chmod(hook, 0o755);
+
+    const result = await commitWithExecutionLock(dir, await loadState(dir), "T-HOOK", ["output.txt"]);
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /committed tree|committed output|revalidat/i);
+    assert.deepEqual(await loadCommitReports(dir), []);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validating");
+    assert.equal(await readFile(join(dir, "output.txt"), "utf8"), "bad");
+  }));
+}
+
+test("a no-op pre-commit hook preserves normal validated commit acceptance", async () => {
+  await fixture(async (dir) => {
+    await prepareHookCandidate(dir);
+    const hook = join(dir, ".git", "hooks", "pre-commit");
+    await writeFile(hook, "#!/bin/sh\nexit 0\n");
+    await chmod(hook, 0o755);
+    const result = await commitWithExecutionLock(dir, await loadState(dir), "T-HOOK", ["output.txt"]);
+    assert.equal(result.accepted, true, result.message);
+    assert.equal((await loadCommitReports(dir)).length, 1);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
+  });
+});
+
+async function prepareHookValidationInputCandidate(dir: string): Promise<void> {
+  await writeFile(join(dir, "check.cjs"), "const fs=require('fs'); if(fs.readFileSync('output.txt','utf8')!=='good') process.exit(1);\n");
+  await exec("git", ["add", "check.cjs"], { cwd: dir });
+  await exec("git", ["commit", "-m", "add validation input"], { cwd: dir });
+  const state = createDefaultState();
+  state.stage = "execution";
+  state.tasks = [{
+    id: "T-HOOK-INPUT", title: "Hook-bound validation input", status: "validating",
+    allowedPathPrefixes: ["output.txt"], updatedAt: state.updatedAt,
+  }];
+  await saveState(dir, state);
+  await writeFile(join(dir, "output.txt"), "good");
+  await saveValidationManifest(dir, {
+    taskId: "T-HOOK-INPUT",
+    outputPaths: ["output.txt"],
+    validationInputPaths: ["check.cjs"],
+    commands: [{ id: "check", command: "node check.cjs", required: true }],
+    createdAt: "",
+    updatedAt: "",
+  });
+  assert.equal((await runTaskValidation(dir, await loadState(dir), "T-HOOK-INPUT")).status, "passed");
+}
+
+for (const hookName of ["pre-commit", "post-commit"] as const) {
+  test(`commit refuses ${hookName} validation-input drift after validation`, async () => fixture(async (dir) => {
+    await prepareHookValidationInputCandidate(dir);
+    const beforeCommit = (await exec("git", ["rev-parse", "HEAD"], { cwd: dir })).stdout.trim();
+    const hook = join(dir, ".git", "hooks", hookName);
+    await writeFile(hook, "#!/bin/sh\nprintf 'process.exit(1);\\n' > check.cjs\n");
+    await chmod(hook, 0o755);
+
+    const result = await commitWithExecutionLock(dir, await loadState(dir), "T-HOOK-INPUT", ["output.txt"]);
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /validation basis|receipt|revalidat/i);
+    assert.deepEqual(await loadCommitReports(dir), []);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validating");
+    assert.notEqual((await exec("git", ["rev-parse", "HEAD"], { cwd: dir })).stdout.trim(), beforeCommit,
+      "The created commit remains available for diagnosis after acceptance refusal");
+    assert.equal(await readFile(join(dir, "check.cjs"), "utf8"), "process.exit(1);\n");
+  }));
+}
+
 test("current validation receipt permits an explicit unchanged candidate skip", async () => {
   await fixture(async (dir) => {
     const { state } = await validated(dir);

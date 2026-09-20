@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -36,6 +36,41 @@ test("loadValidationManifests returns empty list when missing", async () => {
   });
 });
 
+test("manifest readers reject unsupported index versions without rewriting", async () => {
+  await withTempDir(async (dir) => {
+    await saveValidationManifest(dir, {
+      taskId: "T-VALID",
+      commands: [{ id: "unit", command: "npm test", required: true }],
+      createdAt: "",
+      updatedAt: "",
+    });
+    const indexPath = join(dir, ".scaler", "reports", "validation-manifests.json");
+    const manifest = (await loadValidationManifests(dir))[0];
+
+    for (const version of [undefined, null, "1", 0, 2]) {
+      const index = version === undefined
+        ? { manifests: [manifest] }
+        : { version, manifests: [manifest] };
+      const bytes = `${JSON.stringify(index)}\n`;
+      await writeFile(indexPath, bytes, "utf8");
+
+      await assert.rejects(
+        loadValidationManifests(dir),
+        /Persisted validation manifest index is malformed: version must be 1/,
+      );
+      await assert.rejects(
+        upsertValidationManifestCommand(dir, {
+          taskId: "T-VALID",
+          id: "build",
+          command: "npm run build",
+        }),
+        /Persisted validation manifest index is malformed: version must be 1/,
+      );
+      assert.equal(await readFile(indexPath, "utf8"), bytes);
+    }
+  });
+});
+
 test("saveValidationManifest writes and replaces per-task manifest", async () => {
   await withTempDir(async (dir) => {
     await saveValidationManifest(dir, {
@@ -54,6 +89,285 @@ test("saveValidationManifest writes and replaces per-task manifest", async () =>
     const manifests = await loadValidationManifests(dir);
     assert.equal(manifests.length, 1);
     assert.equal(manifests[0]?.commands[0]?.command, "npm run build");
+  });
+});
+
+test("saveValidationManifest identifies a malformed persisted policy entry", async () => {
+  await withTempDir(async (dir) => {
+    await saveValidationManifest(dir, {
+      taskId: "T-CORRUPT",
+      commands: [],
+      createdAt: "",
+      updatedAt: "",
+    });
+    await writeFile(join(dir, ".scaler", "reports", "validation-manifests.json"), `${JSON.stringify({
+      version: 1,
+      manifests: [{ taskId: "T-CORRUPT", createdAt: "", updatedAt: "" }],
+    })}\n`, "utf8");
+
+    await assert.rejects(
+      saveValidationManifest(dir, {
+        taskId: "T-CORRUPT",
+        commands: [],
+        createdAt: "",
+        updatedAt: "",
+      }),
+      /Persisted validation manifest for T-CORRUPT is malformed: commands must be an array/,
+    );
+  });
+});
+
+test("manifest readers reject malformed commands before command updates", async () => {
+  await withTempDir(async (dir) => {
+    await saveValidationManifest(dir, {
+      taskId: "T-CORRUPT",
+      commands: [],
+      createdAt: "",
+      updatedAt: "",
+    });
+    const indexPath = join(dir, ".scaler", "reports", "validation-manifests.json");
+
+    for (const commands of [undefined, null, [null]]) {
+      const bytes = `${JSON.stringify({
+        version: 1,
+        manifests: [{ taskId: "T-CORRUPT", commands, createdAt: "", updatedAt: "" }],
+      })}\n`;
+      await writeFile(indexPath, bytes, "utf8");
+
+      await assert.rejects(
+        loadValidationManifests(dir),
+        /Persisted validation manifest for T-CORRUPT is malformed: commands/,
+      );
+      await assert.rejects(
+        upsertValidationManifestCommand(dir, {
+          taskId: "T-CORRUPT",
+          id: "unit",
+          command: "npm test",
+        }),
+        /Persisted validation manifest for T-CORRUPT is malformed: commands/,
+      );
+      assert.equal(await readFile(indexPath, "utf8"), bytes);
+    }
+  });
+});
+
+test("manifest readers reject persisted commands with missing required fields", async () => {
+  await withTempDir(async (dir) => {
+    await saveValidationManifest(dir, {
+      taskId: "T-CORRUPT",
+      commands: [],
+      createdAt: "",
+      updatedAt: "",
+    });
+    const indexPath = join(dir, ".scaler", "reports", "validation-manifests.json");
+    const malformedCommands = [
+      { command: "npm test", required: true },
+      { id: "unit", required: true },
+      { id: "unit", command: "npm test" },
+    ];
+
+    for (const command of malformedCommands) {
+      const bytes = `${JSON.stringify({
+        version: 1,
+        manifests: [{ taskId: "T-CORRUPT", commands: [command], createdAt: "", updatedAt: "" }],
+      })}\n`;
+      await writeFile(indexPath, bytes, "utf8");
+
+      await assert.rejects(
+        loadValidationManifests(dir),
+        /Persisted validation manifest for T-CORRUPT is malformed: commands\[0\]\.(id|command|required)/,
+      );
+      await assert.rejects(
+        upsertValidationManifestCommand(dir, {
+          taskId: "T-CORRUPT",
+          id: "unit",
+          command: "npm test",
+        }),
+        /Persisted validation manifest for T-CORRUPT is malformed: commands\[0\]\.(id|command|required)/,
+      );
+      assert.equal(await readFile(indexPath, "utf8"), bytes);
+    }
+  });
+});
+
+test("manifest revisions must be positive safe integers before read or write", async () => {
+  await withTempDir(async (dir) => {
+    await saveValidationManifest(dir, {
+      taskId: "T-VALID",
+      commands: [{ id: "unit", command: "npm test", required: true }],
+      createdAt: "",
+      updatedAt: "",
+    });
+    const indexPath = join(dir, ".scaler", "reports", "validation-manifests.json");
+    const validBytes = await readFile(indexPath, "utf8");
+
+    for (const revision of ["1", 0, -1, 1.5, null]) {
+      const bytes = `${JSON.stringify({
+        version: 1,
+        manifests: [{
+          taskId: "T-CORRUPT",
+          revision,
+          commands: [{ id: "unit", command: "npm test", required: true }],
+          createdAt: "",
+          updatedAt: "",
+        }],
+      })}\n`;
+      await writeFile(indexPath, bytes, "utf8");
+
+      await assert.rejects(
+        loadValidationManifests(dir),
+        /Persisted validation manifest for T-CORRUPT is malformed: revision/,
+      );
+      await assert.rejects(
+        upsertValidationManifestCommand(dir, {
+          taskId: "T-CORRUPT",
+          id: "unit",
+          command: "npm test",
+        }),
+        /Persisted validation manifest for T-CORRUPT is malformed: revision/,
+      );
+      assert.equal(await readFile(indexPath, "utf8"), bytes);
+    }
+
+    await writeFile(indexPath, validBytes, "utf8");
+    for (const [index, revision] of [0, -1, 1.5, "1", Number.MAX_SAFE_INTEGER + 1].entries()) {
+      await assert.rejects(
+        saveValidationManifest(dir, {
+          taskId: `T-PROPOSED-${index}`,
+          revision: revision as never,
+          commands: [{ id: "unit", command: "npm test", required: true }],
+          createdAt: "",
+          updatedAt: "",
+        }),
+        /Proposed validation manifest for T-PROPOSED-\d+ is malformed: revision/,
+      );
+      assert.equal(await readFile(indexPath, "utf8"), validBytes);
+    }
+  });
+});
+
+test("manifest readers reject malformed audit metadata without rewriting", async () => {
+  await withTempDir(async (dir) => {
+    await saveValidationManifest(dir, {
+      taskId: "T-AUDIT",
+      commands: [{ id: "unit", command: "npm test", required: true }],
+      createdAt: "",
+      updatedAt: "",
+    });
+    const indexPath = join(dir, ".scaler", "reports", "validation-manifests.json");
+    const manifest = (await loadValidationManifests(dir))[0]!;
+    const validHistory = {
+      revision: 1,
+      reason: "Record the prior policy.",
+      authority: "user_command",
+      changedAt: "2026-09-20T00:00:00.000Z",
+      policy: { commands: manifest.commands },
+    };
+    const malformedMetadata: Array<Record<string, unknown>> = [
+      { establishedAuthority: null },
+      { establishedAuthority: "bogus" },
+      { versionHistory: null },
+      { versionHistory: "bad" },
+      { versionHistory: {} },
+      { versionHistory: [null] },
+      { versionHistory: [[]] },
+      { versionHistory: [{}] },
+      { versionHistory: [{ ...validHistory, revision: 0 }] },
+      { versionHistory: [{ ...validHistory, reason: " " }] },
+      { versionHistory: [{ ...validHistory, authority: "model" }] },
+      { versionHistory: [{ ...validHistory, changedAt: "" }] },
+      { versionHistory: [{ ...validHistory, policy: null }] },
+      { versionHistory: [{ ...validHistory, policy: {} }] },
+      { versionHistory: [{ ...validHistory, policy: { commands: [null] } }] },
+    ];
+
+    for (const metadata of malformedMetadata) {
+      const bytes = `${JSON.stringify({
+        version: 1,
+        manifests: [{ ...manifest, ...metadata }],
+      })}\n`;
+      await writeFile(indexPath, bytes, "utf8");
+
+      await assert.rejects(
+        loadValidationManifests(dir),
+        /Persisted validation manifest for T-AUDIT is malformed: (establishedAuthority|versionHistory)/,
+      );
+      await assert.rejects(
+        upsertValidationManifestCommand(dir, {
+          taskId: "T-AUDIT",
+          id: "build",
+          command: "npm run build",
+        }),
+        /Persisted validation manifest for T-AUDIT is malformed: (establishedAuthority|versionHistory)/,
+      );
+      assert.equal(await readFile(indexPath, "utf8"), bytes);
+    }
+
+    const validBytes = `${JSON.stringify({ version: 1, manifests: [manifest] })}\n`;
+    await writeFile(indexPath, validBytes, "utf8");
+    for (const metadata of malformedMetadata) {
+      await assert.rejects(
+        saveValidationManifest(dir, {
+          ...manifest,
+          ...metadata,
+        } as never),
+        /Proposed validation manifest for T-AUDIT is malformed: (establishedAuthority|versionHistory)/,
+      );
+      assert.equal(await readFile(indexPath, "utf8"), validBytes);
+    }
+  });
+});
+
+test("manifest saves preserve authoritative audit history", async () => {
+  await withTempDir(async (dir) => {
+    const original = await saveValidationManifest(dir, {
+      taskId: "T-HISTORY",
+      commands: [{ id: "unit", command: "npm test", required: true }],
+      createdAt: "",
+      updatedAt: "",
+    });
+    const amended = await saveValidationManifest(dir, {
+      ...original,
+      commands: [{ id: "unit", command: "npm test -- --runInBand", required: true }],
+    }, {
+      authority: "user_command",
+      reason: "Correct the established validation command.",
+    });
+    assert.equal(amended.versionHistory?.length, 1);
+
+    const attemptedErase = await saveValidationManifest(dir, {
+      ...amended,
+      versionHistory: [],
+    }, { authority: "model" });
+    assert.deepEqual(attemptedErase.versionHistory, amended.versionHistory);
+    assert.deepEqual((await loadValidationManifests(dir))[0]?.versionHistory, amended.versionHistory);
+  });
+});
+
+test("authorized manifest amendment refuses revision overflow without mutation", async () => {
+  await withTempDir(async (dir) => {
+    const current = await saveValidationManifest(dir, {
+      taskId: "T-REVISION-LIMIT",
+      revision: Number.MAX_SAFE_INTEGER,
+      commands: [{ id: "unit", command: "npm test", required: true }],
+      createdAt: "",
+      updatedAt: "",
+    });
+    const indexPath = join(dir, ".scaler", "reports", "validation-manifests.json");
+    const before = await readFile(indexPath, "utf8");
+
+    await assert.rejects(
+      saveValidationManifest(dir, {
+        ...current,
+        commands: [{ id: "unit", command: "npm test -- --runInBand", required: true }],
+      }, {
+        authority: "user_command",
+        reason: "Exercise the revision limit.",
+      }),
+      /revision.*cannot be incremented safely/i,
+    );
+    assert.equal(await readFile(indexPath, "utf8"), before);
+    assert.equal((await loadValidationManifests(dir))[0]?.revision, Number.MAX_SAFE_INTEGER);
   });
 });
 

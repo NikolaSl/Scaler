@@ -4,11 +4,13 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
+  amendPrdRequirement,
+  applyPrdRequirementUpserts,
   appendPrdChange,
   computePrdCoverageSummary,
   createPrdVersionSnapshot,
@@ -20,6 +22,7 @@ import {
   saveCurrentPrd,
   savePrdCoverage,
   savePrdRequirements,
+  upsertPrdRequirement,
 } from "../src/prd.js";
 import { createDefaultState } from "../src/state.js";
 
@@ -75,6 +78,185 @@ test("runtime PRD files save and load round trips", async () => {
     assert.equal((await loadPrdRequirements(dir)).requirements[0]?.id, "REQ-001");
     assert.equal((await loadPrdCoverage(dir)).entries[0]?.status, "pending");
     assert.equal((await loadPrdChanges(dir))[0]?.reason, "initial PRD");
+  });
+});
+
+test("runtime PRD loading rejects duplicate on-disk requirement ids before updates", async () => {
+  await withTempDir(async (dir) => {
+    await savePrdRequirements(dir, {
+      version: 1,
+      requirements: [{
+        id: "REQ-DUP",
+        statement: "Initial requirement.",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }],
+    });
+    const path = join(dir, ".scaler", "prd", "requirements.json");
+    const bytes = `${JSON.stringify({
+      version: 1,
+      requirements: [
+        { id: "REQ-DUP", statement: "First copy.", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
+        { id: "REQ-DUP", statement: "Second copy.", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
+      ],
+    })}\n`;
+    await writeFile(path, bytes, "utf8");
+
+    await assert.rejects(loadPrdRequirements(dir), /duplicate id REQ-DUP/i);
+    await assert.rejects(
+      applyPrdRequirementUpserts(dir, [{ id: "REQ-NEW", statement: "Must not be written." }]),
+      /duplicate id REQ-DUP/i,
+    );
+    assert.equal(await readFile(path, "utf8"), bytes);
+  });
+});
+
+test("model-route requirement upserts preserve criteria and reject explicit removal", async () => {
+  await withTempDir(async (dir) => {
+    const acceptanceCriteria = [{
+      id: "AC-INTEGRATION",
+      statement: "Components work together.",
+      validationTaskId: "T-B",
+      commandId: "integration",
+      participantTaskIds: ["T-B", "T-A", "T-A"],
+    }];
+    await savePrdRequirements(dir, {
+      version: 1,
+      requirements: [{
+        id: "REQ-ONE", statement: "Initial", acceptanceCriteria,
+        createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
+      }],
+    });
+    await upsertPrdRequirement(dir, { id: "REQ-ONE", statement: "Initial" });
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements[0]?.acceptanceCriteria?.[0]?.participantTaskIds, ["T-A", "T-B"]);
+    const before = await loadPrdRequirements(dir);
+    await assert.rejects(
+      () => upsertPrdRequirement(dir, { id: "REQ-ONE", statement: "Initial", source: "user", acceptanceCriteria: [] }),
+      /amendment authority|required user command/i,
+    );
+    assert.deepEqual(await loadPrdRequirements(dir), before);
+  });
+});
+
+test("model-route requirement upserts cannot introduce mandatory criteria", async () => {
+  await withTempDir(async (dir) => {
+    const acceptanceCriteria = [{
+      id: "AC-NEW", statement: "New mandatory gate.", validationTaskId: "T-ONE",
+      commandId: "integration", participantTaskIds: ["T-ONE"],
+    }];
+    await assert.rejects(
+      () => upsertPrdRequirement(dir, {
+        id: "REQ-NEW", statement: "Agent-normalized requirement", source: "user", acceptanceCriteria,
+      }),
+      /amendment authority|required user command/i,
+    );
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    assert.deepEqual(await loadPrdChanges(dir), []);
+  });
+});
+
+test("explicit user amendment records immutable versions and rejects stale bases", async () => {
+  await withTempDir(async (dir) => {
+    await upsertPrdRequirement(dir, {
+      id: "REQ-AMEND", statement: "Original normalized wording", source: "initial-input",
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    const acceptanceCriteria = [{
+      id: "AC-END", statement: "Operate end to end.", validationTaskId: "T-END",
+      commandId: "integration", participantTaskIds: ["T-A", "T-END"],
+    }];
+    const amended = await amendPrdRequirement(dir, {
+      id: "REQ-AMEND",
+      expectedRevision: 1,
+      reason: "User explicitly requires the end-to-end gate.",
+      changes: { statement: "Authorized amended wording", acceptanceCriteria },
+      now: new Date("2026-01-01T00:01:00.000Z"),
+    });
+
+    assert.equal(amended.revision, 2);
+    assert.deepEqual(amended.versionHistory?.map((version) => version.revision), [1, 2]);
+    assert.equal(amended.versionHistory?.[0]?.statement, "Original normalized wording");
+    assert.equal(amended.versionHistory?.[0]?.authority.kind, "normalized_input");
+    assert.equal(amended.versionHistory?.[1]?.statement, "Authorized amended wording");
+    assert.deepEqual(amended.versionHistory?.[1]?.acceptanceCriteria, acceptanceCriteria);
+    assert.deepEqual(amended.versionHistory?.[1]?.authority, {
+      kind: "user_command", reason: "User explicitly requires the end-to-end gate.",
+    });
+
+    const beforeStale = await loadPrdRequirements(dir);
+    await assert.rejects(() => amendPrdRequirement(dir, {
+      id: "REQ-AMEND", expectedRevision: 1, reason: "Stale overwrite", changes: { acceptanceCriteria: [] },
+    }), /stale.*expected revision 1.*current revision 2/i);
+    assert.deepEqual(await loadPrdRequirements(dir), beforeStale);
+  });
+});
+
+test("acceptance criteria reject exact duplicate ids hidden by Unicode collation", async () => {
+  await withTempDir(async (dir) => {
+    await upsertPrdRequirement(dir, { id: "REQ-UNICODE", statement: "Original requirement." });
+    const path = join(dir, ".scaler", "prd", "requirements.json");
+    const before = await readFile(path, "utf8");
+    const criterion = (id: string, statement: string) => ({
+      id,
+      statement,
+      validationTaskId: "T-UNICODE",
+      commandId: "integration",
+      participantTaskIds: ["T-UNICODE"],
+    });
+
+    await assert.rejects(() => amendPrdRequirement(dir, {
+      id: "REQ-UNICODE",
+      expectedRevision: 1,
+      reason: "Exercise exact duplicate detection independently of locale collation.",
+      changes: {
+        acceptanceCriteria: [
+          criterion("é", "First exact id."),
+          criterion("e\u0301", "Canonically equivalent but byte-distinct id."),
+          criterion("é", "Second exact id."),
+        ],
+      },
+    }), /duplicate id é/i);
+    assert.equal(await readFile(path, "utf8"), before);
+  });
+});
+
+test("serialized unrelated upserts cannot roll back an authorized amendment", async () => {
+  await withTempDir(async (dir) => {
+    await upsertPrdRequirement(dir, { id: "REQ-AMEND", statement: "Version one" });
+    await Promise.all([
+      amendPrdRequirement(dir, {
+        id: "REQ-AMEND", expectedRevision: 1, reason: "User authorizes version two.",
+        changes: { statement: "Version two" },
+      }),
+      ...Array.from({ length: 12 }, (_, index) => upsertPrdRequirement(dir, {
+        id: `REQ-OTHER-${index}`, statement: `Unrelated ${index}`,
+      })),
+    ]);
+
+    const requirements = await loadPrdRequirements(dir);
+    const amended = requirements.requirements.find((requirement) => requirement.id === "REQ-AMEND");
+    assert.equal(amended?.statement, "Version two");
+    assert.equal(amended?.revision, 2);
+    assert.deepEqual(amended?.versionHistory?.map((version) => version.revision), [1, 2]);
+    assert.equal(requirements.requirements.length, 13);
+  });
+});
+
+test("batch authorization failure publishes no partial requirement or coverage writes", async () => {
+  await withTempDir(async (dir) => {
+    await upsertPrdRequirement(dir, { id: "REQ-LOCKED", statement: "Original" });
+    const beforeRequirements = await loadPrdRequirements(dir);
+    const beforeCoverage = await loadPrdCoverage(dir);
+    const beforeChanges = await loadPrdChanges(dir);
+
+    await assert.rejects(() => applyPrdRequirementUpserts(dir, [
+      { id: "REQ-NEW", statement: "Would otherwise be added", status: "pending" },
+      { id: "REQ-LOCKED", statement: "Unauthorized rewrite" },
+    ]), /amendment authority|required user command/i);
+
+    assert.deepEqual(await loadPrdRequirements(dir), beforeRequirements);
+    assert.deepEqual(await loadPrdCoverage(dir), beforeCoverage);
+    assert.deepEqual(await loadPrdChanges(dir), beforeChanges);
   });
 });
 

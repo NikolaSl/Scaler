@@ -60,7 +60,10 @@ export function fingerprintTaskRoute(model: string | undefined, tools: string[])
 export function fingerprintValidationPolicy(manifest: TaskValidationManifest): string {
   return fingerprintJson({
     taskId: manifest.taskId,
+    revision: manifest.revision ?? 1,
     outputPaths: manifest.outputPaths ?? null,
+    validationInputPaths: manifest.validationInputPaths ?? null,
+    validationInputFingerprint: manifest.validationInputFingerprint ?? null,
     definitionOfDone: manifest.definitionOfDone ?? [],
     acceptanceCriteria: manifest.acceptanceCriteria ?? [],
     qualityWaivers: (manifest.qualityWaivers ?? []).map((waiver) => ({

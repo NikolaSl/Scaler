@@ -14,8 +14,9 @@ import { formatMemorySearchResults, retrieveMemory, searchMemory, writeMemory, t
 import { recordProviderUsageBudget } from "./provider-usage.js";
 import {
   createPrdVersionSnapshot,
+  loadPrdRequirements,
+  applyPrdRequirementUpserts,
   saveCurrentPrd,
-  savePrdRequirements,
   upsertPrdRequirement,
   type RuntimePrdRequirement,
   type RuntimePrdRequirementStatus,
@@ -28,7 +29,7 @@ import { recordTaskAgentReport } from "./task-reports.js";
 import { createTask, updateTask } from "./tasks.js";
 import { prepareToolRequest, recordToolResult, recordToolSchema } from "./tool-requests.js";
 import type { ScalerState } from "./types.js";
-import { applyValidationReport, saveValidationManifest } from "./validation.js";
+import { applyValidationReport, getValidationManifestForTask, saveValidationManifest } from "./validation.js";
 
 export const scalerToolNames = [
   "scaler_report",
@@ -226,6 +227,7 @@ const TaskValidationCommandParams = Type.Object({
 const TaskCreateParams = Type.Object({
   taskId: Type.String(),
   outputPaths: Type.Optional(Type.Array(Type.String(), { description: "Exact output paths to bind before validation; [] only for no filesystem outputs." })),
+  validationInputPaths: Type.Optional(Type.Array(Type.String(), { description: "Exact local validator, fixture, helper, or runner-config files whose bytes define the executable validation basis; [] only for self-contained commands." })),
   title: Type.Optional(Type.String()),
   status: Type.Optional(Type.String({ description: "Initial task status. Defaults to pending." })),
   taskKind: Type.Optional(Type.String({ description: "software, non_software, or mixed. Software/mixed tasks require test_first coverage or a waiver." })),
@@ -242,6 +244,7 @@ const TaskCreateParams = Type.Object({
 const TaskUpdateParams = Type.Object({
   taskId: Type.String(),
   outputPaths: Type.Optional(Type.Array(Type.String(), { description: "Replacement declared output paths; omit to preserve the existing basis." })),
+  validationInputPaths: Type.Optional(Type.Array(Type.String(), { description: "Replacement executable validation-basis paths; omit to preserve the existing basis." })),
   title: Type.Optional(Type.String()),
   status: Type.Optional(Type.String({ description: "Target task status; must be a valid transition." })),
   taskKind: Type.Optional(Type.String({ description: "software, non_software, or mixed." })),
@@ -255,6 +258,14 @@ const TaskUpdateParams = Type.Object({
   qualityWaivers: Type.Optional(Type.Array(TaskQualityWaiverParams)),
 });
 
+const PrdAcceptanceCriterionParams = Type.Object({
+  id: Type.String(),
+  statement: Type.String(),
+  validationTaskId: Type.String(),
+  commandId: Type.String(),
+  participantTaskIds: Type.Array(Type.String()),
+});
+
 const PlanningReportParams = Type.Object({
   id: Type.Optional(Type.String()),
   reason: Type.Optional(Type.String()),
@@ -264,6 +275,7 @@ const PlanningReportParams = Type.Object({
     statement: Type.String(),
     title: Type.Optional(Type.String()),
     source: Type.Optional(Type.String()),
+    acceptanceCriteria: Type.Optional(Type.Array(PrdAcceptanceCriterionParams)),
     status: Type.Optional(Type.String({ description: "pending, in_progress, implemented, validated, blocked, or needs_replan." })),
     evidenceRefs: Type.Optional(Type.Array(Type.String())),
     notes: Type.Optional(Type.String()),
@@ -276,6 +288,7 @@ const PlanningReportParams = Type.Object({
     tasks: Type.Array(Type.Object({
       id: Type.String(),
       outputPaths: Type.Optional(Type.Array(Type.String(), { description: "Exact output paths for the task's validation basis; [] only for no filesystem outputs." })),
+      validationInputPaths: Type.Optional(Type.Array(Type.String(), { description: "Exact files implementing the executable validation basis; [] only for self-contained commands." })),
       title: Type.String(),
       description: Type.Optional(Type.String()),
       taskKind: Type.Optional(Type.String()),
@@ -302,6 +315,7 @@ const PrdWriteParams = Type.Object({
         statement: Type.String(),
         title: Type.Optional(Type.String()),
         source: Type.Optional(Type.String()),
+        acceptanceCriteria: Type.Optional(Type.Array(PrdAcceptanceCriterionParams)),
       }),
     ),
   ),
@@ -312,6 +326,7 @@ const PrdRequirementUpdateParams = Type.Object({
   statement: Type.String(),
   title: Type.Optional(Type.String()),
   source: Type.Optional(Type.String()),
+  acceptanceCriteria: Type.Optional(Type.Array(PrdAcceptanceCriterionParams)),
   status: Type.Optional(Type.String({ description: "pending, in_progress, implemented, validated, blocked, or needs_replan." })),
   taskIds: Type.Optional(Type.Array(Type.String())),
   evidenceRefs: Type.Optional(Type.Array(Type.String())),
@@ -321,6 +336,7 @@ const PrdRequirementUpdateParams = Type.Object({
 const ValidationManifestWriteParams = Type.Object({
   taskId: Type.String(),
   outputPaths: Type.Optional(Type.Array(Type.String(), { description: "Exact project-relative output files, symlinks or deletions to bind to validation; omit when not yet specified. No directories or globs." })),
+  validationInputPaths: Type.Optional(Type.Array(Type.String(), { description: "Exact project-relative regular files implementing validation; omit to preserve the existing basis, [] only for self-contained commands." })),
   commands: Type.Array(
     Type.Object({
       id: Type.String(),
@@ -599,8 +615,10 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         validationRefs: params.validationRefs,
         validationCommands: params.validationCommands,
         outputPaths: params.outputPaths,
+        validationInputPaths: params.validationInputPaths,
         qualityWaivers: params.qualityWaivers,
         qualityMode: "enforce",
+        acceptanceAuthority: "model",
       });
       await logTool(ctx.cwd, "scaler_task_create", result.accepted ? `Task created: ${params.taskId}` : `Task create rejected: ${params.taskId}`, { params, result });
       return textResult(result.message, { status: result.accepted ? "created" : "rejected", taskId: params.taskId });
@@ -627,8 +645,10 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         validationRefs: params.validationRefs,
         validationCommands: params.validationCommands,
         outputPaths: params.outputPaths,
+        validationInputPaths: params.validationInputPaths,
         qualityWaivers: params.qualityWaivers,
         qualityMode: "enforce",
+        acceptanceAuthority: "model",
       });
       await logTool(ctx.cwd, "scaler_task_update", result.message, params);
       return textResult(result.message, { status: result.accepted ? "updated" : "rejected", taskId: params.taskId });
@@ -651,6 +671,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
           statement: requirement.statement,
           title: requirement.title,
           source: requirement.source,
+          acceptanceCriteria: requirement.acceptanceCriteria,
           status: normalizePrdStatus(requirement.status),
           evidenceRefs: requirement.evidenceRefs,
           notes: requirement.notes,
@@ -669,18 +690,18 @@ export function registerScalerTools(pi: ExtensionAPI): void {
     description: "Write the polished runtime PRD and optional requirement catalog under .scaler/prd.",
     parameters: PrdWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const proposedRequirements = (params.requirements ?? []).map((requirement) => ({
+        id: requirement.id,
+        statement: requirement.statement,
+        title: requirement.title,
+        source: requirement.source,
+        acceptanceCriteria: requirement.acceptanceCriteria,
+      }));
+      const requirements = params.requirements
+        ? await applyPrdRequirementUpserts(ctx.cwd, proposedRequirements)
+        : undefined;
       const snapshotPath = params.snapshotCurrent ? await createPrdVersionSnapshot(ctx.cwd, { reason: params.snapshotReason ?? "PRD replaced" }) : undefined;
       await saveCurrentPrd(ctx.cwd, params.content);
-      let requirements: RuntimePrdRequirement[] | undefined;
-      if (params.requirements) {
-        const timestamp = new Date().toISOString();
-        requirements = params.requirements.map((requirement) => ({
-          ...requirement,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        }));
-        await savePrdRequirements(ctx.cwd, { version: 1, requirements });
-      }
       await logTool(ctx.cwd, "scaler_prd_write", "Runtime PRD written", { snapshotPath, requirements });
       return textResult(`Runtime PRD written${snapshotPath ? ` snapshot=${snapshotPath}` : ""}`, {
         status: "written",
@@ -701,6 +722,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         statement: params.statement,
         title: params.title,
         source: params.source,
+        acceptanceCriteria: params.acceptanceCriteria,
         status: params.status as RuntimePrdRequirementStatus | undefined,
         taskIds: params.taskIds,
         evidenceRefs: params.evidenceRefs,
@@ -717,24 +739,52 @@ export function registerScalerTools(pi: ExtensionAPI): void {
     description: "Persist validation commands for a task.",
     parameters: ValidationManifestWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const manifest = await saveValidationManifest(ctx.cwd, {
-        taskId: params.taskId,
-        outputPaths: params.outputPaths,
-        commands: params.commands.map((command) => ({
-          id: command.id,
-          command: command.command,
-          description: command.description,
-          timeoutMs: command.timeoutMs,
-          required: command.required ?? true,
-        })),
-        createdAt: "",
-        updatedAt: "",
-      });
-      await logTool(ctx.cwd, "scaler_validation_manifest_write", `Validation manifest written: ${params.taskId}`, { manifest });
-      return textResult(`Validation manifest written for ${params.taskId}: ${manifest.commands.length} commands`, {
-        status: "written",
-        manifest,
-      });
+      try {
+        const existing = await getValidationManifestForTask(ctx.cwd, params.taskId);
+        const existingCommands = new Map(existing.commands.map((command) => [command.id, command]));
+        const commandUpdates = new Map(params.commands.map((command) => [command.id, command]));
+        const mergedCommands = existing.commands.map((current) => {
+          const command = commandUpdates.get(current.id);
+          if (!command) return current;
+          return {
+            ...current,
+            command: command.command,
+            description: command.description ?? current.description,
+            timeoutMs: command.timeoutMs ?? current.timeoutMs,
+            required: command.required ?? current.required ?? true,
+          };
+        });
+        const appendedIds = new Set<string>();
+        for (const command of params.commands) {
+          if (existingCommands.has(command.id) || appendedIds.has(command.id)) continue;
+          mergedCommands.push({
+            id: command.id,
+            command: command.command,
+            description: command.description,
+            timeoutMs: command.timeoutMs,
+            required: command.required ?? true,
+          });
+          appendedIds.add(command.id);
+        }
+        const manifest = await saveValidationManifest(ctx.cwd, {
+          ...existing,
+          taskId: params.taskId,
+          outputPaths: params.outputPaths ?? existing.outputPaths,
+          validationInputPaths: params.validationInputPaths ?? existing.validationInputPaths,
+          commands: mergedCommands,
+          createdAt: existing.createdAt,
+          updatedAt: existing.updatedAt,
+        }, { authority: "model" });
+        await logTool(ctx.cwd, "scaler_validation_manifest_write", `Validation manifest written: ${params.taskId}`, { manifest });
+        return textResult(`Validation manifest written for ${params.taskId}: ${manifest.commands.length} commands`, {
+          status: "written",
+          manifest,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await logTool(ctx.cwd, "scaler_validation_manifest_write", message, params);
+        return textResult(message, { status: "rejected", taskId: params.taskId });
+      }
     },
   });
 

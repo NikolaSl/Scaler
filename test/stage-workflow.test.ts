@@ -9,11 +9,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { loadExecutionPlan, saveExecutionPlan } from "../src/plans.js";
-import { loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
+import { loadCurrentPrd, loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
 import { loadResearchReports, loadResearchRequests } from "../src/research.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import {
   deriveKnowledgeResearchRequests,
+  ingestPrdWriteReport,
   loadStageWorkflowRunRecords,
   runAutonomousStageWorkflow,
 } from "../src/stage-workflow.js";
@@ -78,6 +79,92 @@ test("deriveKnowledgeResearchRequests creates deterministic Stage II requests fo
   assert.deepEqual(requests, []);
 });
 
+test("PRD stage ingestion rejects malformed criteria before writing content or requirements", async () => {
+  await withTempDir(async (dir) => {
+    const state = createState("prd");
+    await saveState(dir, state);
+    const result = await ingestPrdWriteReport(dir, state, [{
+      type: "scaler_prd_write",
+      content: "# Must not be published",
+      requirements: [{
+        id: "REQ-BAD",
+        statement: "Malformed integration policy",
+        acceptanceCriteria: [
+          { id: "AC-DUP", statement: "One", validationTaskId: "T-ONE", commandId: "check", participantTaskIds: ["T-ONE"] },
+          { id: "AC-DUP", statement: "Two", validationTaskId: "T-ONE", commandId: "check", participantTaskIds: ["T-ONE"] },
+        ],
+      }],
+    }]);
+    assert.equal(result.ingested, false);
+    assert.match(result.reason ?? "", /invalid.*acceptance criteria/i);
+    assert.equal(await loadCurrentPrd(dir), "");
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+  });
+});
+
+test("PRD stage ingestion cannot replace requirements or weaken current acceptance", async () => {
+  await withTempDir(async (dir) => {
+    const state = createState("prd");
+    await saveState(dir, state);
+    await upsertPrdRequirement(dir, { id: "REQ-KEEP", statement: "Keep this requirement." });
+    await upsertPrdRequirement(dir, { id: "REQ-OTHER", statement: "Preserve this requirement too." });
+    const before = await loadPrdRequirements(dir);
+
+    const result = await ingestPrdWriteReport(dir, state, [{
+      type: "scaler_prd_write",
+      content: "# Unauthorized replacement",
+      requirements: [{
+        id: "REQ-KEEP",
+        statement: "Weakened requirement.",
+        source: "user",
+        acceptanceCriteria: [],
+      }],
+    }]);
+
+    assert.equal(result.ingested, false);
+    assert.match(result.reason ?? "", /amendment authority|required user command/i);
+    assert.deepEqual(await loadPrdRequirements(dir), before);
+    assert.equal(await loadCurrentPrd(dir), "");
+  });
+});
+
+test("PRD stage catalog omission preserves requirements not named by the report", async () => {
+  await withTempDir(async (dir) => {
+    const state = createState("prd");
+    await saveState(dir, state);
+    await upsertPrdRequirement(dir, { id: "REQ-ONE", statement: "One", source: "initial" });
+    await upsertPrdRequirement(dir, { id: "REQ-TWO", statement: "Two", source: "initial" });
+
+    const result = await ingestPrdWriteReport(dir, state, [{
+      type: "scaler_prd_write",
+      content: "# Refreshed normalized PRD",
+      requirements: [{ id: "REQ-ONE", statement: "One" }],
+    }]);
+
+    assert.equal(result.ingested, true, result.reason);
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements.map((requirement) => requirement.id).sort(), ["REQ-ONE", "REQ-TWO"]);
+  });
+});
+
+test("PRD stage preserves an omitted source on an existing source-less requirement", async () => {
+  await withTempDir(async (dir) => {
+    const state = createState("prd");
+    await saveState(dir, state);
+    await upsertPrdRequirement(dir, { id: "REQ-SOURCELESS", statement: "Keep source absent." });
+
+    const result = await ingestPrdWriteReport(dir, state, [{
+      type: "scaler_prd_write",
+      requirements: [{ id: "REQ-SOURCELESS", statement: "Keep source absent." }],
+    }]);
+
+    assert.equal(result.ingested, true, result.reason);
+    const requirement = (await loadPrdRequirements(dir)).requirements[0];
+    assert.equal(requirement?.source, undefined);
+    assert.equal(requirement?.revision, 1);
+    assert.equal(requirement?.versionHistory?.length, 1);
+  });
+});
+
 async function stageRunner(request: TaskAgentRequest): Promise<TaskAgentRunResult> {
   if (request.taskId === "stage-prd") {
     assert.ok(request.tools?.includes("read"));
@@ -89,7 +176,9 @@ async function stageRunner(request: TaskAgentRequest): Promise<TaskAgentRunResul
       stdoutEvents: [{
         type: "scaler_prd_write",
         content: "# Runtime PRD\n\n- REQ-1: Implement the workflow.\n",
-        requirements: [{ id: "REQ-1", title: "Workflow", statement: "Implement the autonomous workflow.", source: "test" }],
+        requirements: [{
+          id: "REQ-1", title: "Workflow", statement: "Implement the autonomous workflow.", source: "test",
+        }],
       }],
       stderr: "",
       timedOut: false,
@@ -174,6 +263,7 @@ test("runAutonomousStageWorkflow executes PRD, Stage II research merge, and plan
       "execution_ready",
     ]);
     assert.equal((await loadPrdRequirements(dir)).requirements[0]?.id, "REQ-1");
+    assert.equal((await loadPrdRequirements(dir)).requirements[0]?.acceptanceCriteria, undefined);
     assert.equal((await loadResearchRequests(dir))[0]?.status, "resolved");
     assert.equal((await loadResearchReports(dir))[0]?.status, "complete");
     assert.match(await readFile(join(dir, ".scaler", "knowledge", "knowledge-report.md"), "utf8"), /deterministic ledgers/);
