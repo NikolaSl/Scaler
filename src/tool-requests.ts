@@ -327,6 +327,26 @@ export interface ToolRequestPrepareResult {
 
 export type ToolRouteRuntimeEvidence = Omit<ToolRouteAssessmentInput, "request">;
 
+export interface ToolDispatchRouteBasis {
+  version: 1;
+  requestId: string;
+  executionId: string;
+  requestFingerprint: string;
+  invocationFingerprint: string;
+  resultBytesReserve: number;
+}
+
+export interface ToolDispatchRouteSnapshot {
+  version: 1;
+  requestId: string;
+  executionId: string;
+  evidence: ToolRouteRuntimeEvidence;
+}
+
+export type ToolDispatchRouteEvidenceSupplier = (
+  basis: Readonly<ToolDispatchRouteBasis>,
+) => Promise<ToolDispatchRouteSnapshot> | ToolDispatchRouteSnapshot;
+
 export interface ToolRouteAssessmentRecordResult {
   recorded: boolean;
   message: string;
@@ -338,6 +358,8 @@ export interface ToolRequestRunOptions {
   execute?: boolean;
   timeoutMs?: number;
   command?: string;
+  /** Host-owned live envelope supplier. Model/request payloads cannot set it. */
+  routeEvidenceSupplier?: ToolDispatchRouteEvidenceSupplier;
 }
 
 export interface ToolIterationWorkflowOptions {

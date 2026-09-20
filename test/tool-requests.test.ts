@@ -522,6 +522,85 @@ test("runToolRequestAgent records prepare-mode transactions", async () => {
   });
 });
 
+test("runToolRequestAgent refuses isolated dispatch without a live route evidence supplier", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "docs_search",
+      request: "Find widget docs.",
+      allowedTools: ["read"],
+    });
+    assert.ok(prepared.record);
+    let runnerCalled = false;
+
+    const result = await runToolRequestAgent(dir, state, {
+      requestId: prepared.record.id,
+      execute: true,
+    }, async (request) => {
+      runnerCalled = true;
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(runnerCalled, false);
+    assert.match(result.message, /route evidence supplier/i);
+    assert.equal((await loadToolRequests(dir))[0]?.status, "prepared");
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
+  });
+});
+
+test("runToolRequestAgent recomputes route and refuses a non-isolated recommendation", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "docs_search",
+      request: "Find widget docs.",
+      allowedTools: ["read"],
+    });
+    assert.ok(prepared.record);
+    let runnerCalled = false;
+    const payload = {
+      model: "synthetic",
+      messages: [{ role: "user", content: "bounded" }],
+      max_completion_tokens: 1024,
+    };
+    const model = { api: "openai-completions", provider: "synthetic", id: "synthetic-32k", contextWindow: 32_000 };
+    const policy = { requestTokenAllowance: 32_000, outputReserveTokens: 1_024, safetyMarginTokens: 1_024 };
+
+    const result = await runToolRequestAgent(dir, state, {
+      requestId: prepared.record.id,
+      execute: true,
+      routeEvidenceSupplier: (basis) => ({
+        version: 1,
+        requestId: basis.requestId,
+        executionId: basis.executionId,
+        evidence: {
+          profile: { version: 1, footprint: "selected", toolNames: ["docs_search", "read"], byteSize: 64, fingerprint: "a".repeat(64) },
+          authority: "allowed",
+          direct: { exactArgumentsAvailable: true, argumentsValidated: true, adapterId: "builtin:direct-v1" },
+          currentAgent: { available: false, legs: [] },
+          isolated: {
+            available: true,
+            legs: [
+              { id: "worker", role: "worker", payload, model, policy, additionalContextBytes: 0, repeatCount: 1 },
+              { id: "caller-continuation", role: "caller-continuation", payload, model, policy, additionalContextBytes: 0, repeatCount: 1 },
+            ],
+          },
+          isolationRequirement: undefined,
+        },
+      }),
+    }, async (request) => {
+      runnerCalled = true;
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(runnerCalled, false);
+    assert.match(result.message, /recommended direct/i);
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
+  });
+});
+
 test("runToolRequestAgent recognizes structured scaler_tool_result closure", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
