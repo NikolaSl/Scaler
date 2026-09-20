@@ -51,3 +51,20 @@ wire a production continuation supplier, or claim local-model quality, savings
 or scale. The stage path also does not yet bind an exact parent-selected provider
 and model identity; strict admission evaluates whichever supported live model is
 actually selected. Those P3 acceptance rows remain partial.
+
+## Implemented evidence
+
+Stage-agent preparation now assesses the complete final prompt against the
+runtime-owned allowance and attaches the strict provider policy to the exact
+request used for both invocation rendering and execution. Oversized or malformed
+allowances return a structured refusal before prompt audit, run-record
+publication or runner invocation; the execution lock is still released.
+
+The strict invocation disables ambient extensions, skills, prompt templates and
+context files while preserving the selected stage tools and SCALER/provider
+admission extensions. Exact-boundary, invalid-budget, prepare/execute, ingestion
+and orchestration controls pass. The exact candidate tree passes build,
+`git diff --check`, 986/986 unit/component tests, 67/67 mock integration tests
+and 7/7 conformance/autopilot checks. Two GPT-6 Astra/high reviews found no code
+defects; one documentation overclaim was corrected by the explicit identity
+limitation above.
