@@ -497,26 +497,68 @@ function assertValidationManifestShape(
   if (revision !== undefined && (!Number.isSafeInteger(revision) || (revision as number) < 1)) {
     throw new Error(`${source} validation manifest for ${taskId} is malformed: revision must be a positive safe integer.`);
   }
-  const commands = (candidate as { commands?: unknown }).commands;
-  if (!Array.isArray(commands)) {
-    throw new Error(`${source} validation manifest for ${taskId} is malformed: commands must be an array.`);
+  const establishedAuthority = (candidate as { establishedAuthority?: unknown }).establishedAuthority;
+  if (establishedAuthority !== undefined && !isValidationPolicyAuthority(establishedAuthority)) {
+    throw new Error(`${source} validation manifest for ${taskId} is malformed: establishedAuthority must be system, model, or user_command.`);
   }
+  const versionHistory = (candidate as { versionHistory?: unknown }).versionHistory;
+  if (versionHistory !== undefined) {
+    if (!Array.isArray(versionHistory)) {
+      throw new Error(`${source} validation manifest for ${taskId} is malformed: versionHistory must be an array.`);
+    }
+    for (const [historyIndex, entry] of versionHistory.entries()) {
+      const prefix = `${source} validation manifest for ${taskId} is malformed: versionHistory[${historyIndex}]`;
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        throw new Error(`${prefix} must be an object.`);
+      }
+      const history = entry as Record<string, unknown>;
+      if (!Number.isSafeInteger(history.revision) || (history.revision as number) < 1) {
+        throw new Error(`${prefix}.revision must be a positive safe integer.`);
+      }
+      if (typeof history.reason !== "string" || !history.reason.trim()) {
+        throw new Error(`${prefix}.reason must be a non-empty string.`);
+      }
+      if (history.authority !== "user_command") {
+        throw new Error(`${prefix}.authority must be user_command.`);
+      }
+      if (typeof history.changedAt !== "string" || !history.changedAt.trim()) {
+        throw new Error(`${prefix}.changedAt must be a non-empty string.`);
+      }
+      if (!history.policy || typeof history.policy !== "object" || Array.isArray(history.policy)) {
+        throw new Error(`${prefix}.policy must be an object.`);
+      }
+      assertValidationCommandsShape(
+        (history.policy as { commands?: unknown }).commands,
+        `${prefix}.policy.commands`,
+      );
+    }
+  }
+  const commands = (candidate as { commands?: unknown }).commands;
+  assertValidationCommandsShape(commands, `${source} validation manifest for ${taskId} is malformed: commands`);
+  return candidate as TaskValidationManifest;
+}
+
+function isValidationPolicyAuthority(value: unknown): value is ValidationPolicyAuthority {
+  return value === "system" || value === "model" || value === "user_command";
+}
+
+function assertValidationCommandsShape(commands: unknown, prefix: string): asserts commands is ValidationCommandManifest[] {
+  if (!Array.isArray(commands)) throw new Error(`${prefix} must be an array.`);
   for (const [commandIndex, command] of commands.entries()) {
     if (!command || typeof command !== "object" || Array.isArray(command)) {
-      throw new Error(`${source} validation manifest for ${taskId} is malformed: commands[${commandIndex}] must be an object.`);
+      throw new Error(`${prefix}[${commandIndex}] must be an object.`);
     }
     const persistedCommand = command as { id?: unknown; command?: unknown; required?: unknown };
     if (typeof persistedCommand.id !== "string" || !persistedCommand.id.trim()) {
-      throw new Error(`${source} validation manifest for ${taskId} is malformed: commands[${commandIndex}].id must be a non-empty string.`);
+      throw new Error(`${prefix}[${commandIndex}].id must be a non-empty string.`);
     }
     if (typeof persistedCommand.command !== "string" || !persistedCommand.command.trim()) {
-      throw new Error(`${source} validation manifest for ${taskId} is malformed: commands[${commandIndex}].command must be a non-empty string.`);
+      throw new Error(`${prefix}[${commandIndex}].command must be a non-empty string.`);
     }
     if (typeof persistedCommand.required !== "boolean") {
-      throw new Error(`${source} validation manifest for ${taskId} is malformed: commands[${commandIndex}].required must be a boolean.`);
+      throw new Error(`${prefix}[${commandIndex}].required must be a boolean.`);
     }
   }
-  return candidate as TaskValidationManifest;
 }
 
 function fingerprintPersistedValidationManifest(
@@ -553,6 +595,10 @@ export async function saveValidationManifest(
     const persistedCurrent = manifests.find((candidate) => candidate.taskId === manifest.taskId);
     const current = persistedCurrent
       ?? await createDefaultValidationManifest(cwd, manifest.taskId);
+    normalized = {
+      ...normalized,
+      versionHistory: persistedCurrent?.versionHistory,
+    };
     const currentFingerprint = persistedCurrent
       ? fingerprintPersistedValidationManifest(persistedCurrent, manifest.taskId)
       : fingerprintValidationPolicy(current);
@@ -593,6 +639,7 @@ export async function saveValidationManifest(
             ? (options.authority === "user_command" ? "user_command" : "system")
             : (options.authority ?? "system")),
     };
+    normalized = assertValidationManifestShape(normalized, 0, "Proposed");
     const next = [normalized, ...manifests.filter((candidate) => candidate.taskId !== manifest.taskId)];
     await writeValidationManifestIndex(cwd, next);
     return normalized;
