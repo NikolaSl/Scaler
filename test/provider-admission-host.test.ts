@@ -15,6 +15,7 @@ import {
 import scalerExtension from "../src/index.js";
 import { assessTaskPromptAdmission } from "../src/prompt-admission.js";
 import { assessProviderRequestAdmission, createStrictProviderAdmissionPolicy } from "../src/provider-admission.js";
+import { createDefaultState, saveState } from "../src/state.js";
 
 const policyEnv = {
   SCALER_PROVIDER_ADMISSION: "strict",
@@ -25,7 +26,7 @@ const policyEnv = {
 
 // All provider traffic is replaced before creating the SDK session. No live
 // credentials, endpoints, command providers or global resource discovery are used.
-async function runInstalledHost(systemCharacters: number, extensions: ExtensionFactory[] = [], options: { autoCompaction?: boolean } = {}) {
+async function runInstalledHost(systemCharacters: number, extensions: ExtensionFactory[] = [], options: { autoCompaction?: boolean; activeTask?: boolean } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "scaler-provider-host-test-"));
   const savedFetch = globalThis.fetch;
   const savedEnv = Object.fromEntries(Object.keys(policyEnv).map((key) => [key, process.env[key]]));
@@ -37,6 +38,13 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
   try {
     Object.assign(process.env, policyEnv);
     if (options.autoCompaction) process.env.SCALER_OUTPUT_RESERVE_TOKENS = "1024";
+    if (options.activeTask) {
+      const state = createDefaultState();
+      state.stage = "execution";
+      state.currentTaskId = "T-HOST-TOOLS";
+      state.tasks = [{ id: "T-HOST-TOOLS", title: "Host tool envelope", status: "running", updatedAt: state.createdAt }];
+      await saveState(dir, state);
+    }
     globalThis.fetch = async (_input, init) => {
       fetchCalls += 1;
       assert.equal(typeof init?.body, "string", "expected SDK JSON request body");
@@ -128,6 +136,16 @@ test("provider admission permits an adequate installed Pi envelope", async () =>
   const result = await runInstalledHost(40, [await admissionExtension()]);
   assert.equal(result.fetchCalls, 1);
   assert.ok(result.payload);
+});
+
+test("installed Pi first provider request uses SCALER parent tool focus", async () => {
+  const result = await runInstalledHost(40, [], { activeTask: true });
+  assert.equal(result.fetchCalls, 1);
+  const toolNames = ((result.payload?.tools ?? []) as Array<{ function?: { name?: string } }>)
+    .map((tool) => tool.function?.name)
+    .filter((name): name is string => Boolean(name));
+  assert.deepEqual(toolNames.sort(), ["scaler_task_report", "scaler_tool_request"]);
+  assert.equal(toolNames.includes("read"), false, "the unselected tool must be absent from the transported first request");
 });
 
 test("installed Pi auto-compaction bypasses provider-request hooks without the strict profile", async () => {
