@@ -8,7 +8,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createDefaultState } from "../src/state.js";
+import { createDefaultState, loadState, saveState } from "../src/state.js";
+import { getToolRequestsIndexPath } from "../src/paths.js";
 import * as toolRequestsModule from "../src/tool-requests.js";
 import {
   buildRuntimeToolCatalog,
@@ -544,6 +545,7 @@ test("runToolRequestAgent recognizes structured scaler_tool_result closure", asy
     assert.equal(result.accepted, true);
     assert.equal(result.transaction?.status, "completed");
     assert.equal(result.resultRecord?.status, "completed");
+    assert.equal(result.resultRecord?.acceptanceStatus, "accepted");
     assert.equal((await loadToolRequests(dir))[0]?.status, "completed");
     assert.equal((await loadToolTransactions(dir))[0]?.resultId, result.resultRecord?.id);
   });
@@ -603,13 +605,13 @@ test("runToolRequestAgent accepts only a result bound to its execution", async (
     assert.ok(prepared.record);
 
     const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
-      await recordToolResult(dir, state, {
+      await assert.rejects(recordToolResult(dir, state, {
         requestId: prepared.record!.id,
         executionId: "foreign-execution",
         status: "completed",
         summary: "Foreign result.",
         outputs: { ok: true },
-      } as Parameters<typeof recordToolResult>[2] & { executionId: string });
+      } as Parameters<typeof recordToolResult>[2] & { executionId: string }), /not the active prepared execution/);
       assert.ok((request as typeof request & { executionId?: string }).executionId);
       return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
     });
@@ -618,6 +620,99 @@ test("runToolRequestAgent accepts only a result bound to its execution", async (
     assert.equal(result.transaction?.status, "blocked");
     assert.equal((await loadToolRequests(dir))[0]?.status, "blocked");
     assert.equal(result.resultRecord, undefined);
+  });
+});
+
+test("runToolRequestAgent preserves replacement ownership when a stale execution finalizes", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+      await recordToolResult(dir, state, {
+        requestId: prepared.record!.id,
+        executionId: request.executionId,
+        status: "completed",
+        summary: "Stale execution result.",
+        outputs: { ok: true },
+      });
+      const requests = await loadToolRequests(dir);
+      await writeFile(getToolRequestsIndexPath(dir), `${JSON.stringify({
+        version: 1,
+        requests: requests.map((candidate) => candidate.id === prepared.record!.id
+          ? { ...candidate, activeExecutionId: "replacement-live-execution" }
+          : candidate),
+      }, null, 2)}\n`, "utf8");
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, "replacement-live-execution");
+    assert.equal((await loadToolRequests(dir))[0]?.status, "prepared");
+    assert.equal((await loadToolResults(dir))[0]?.acceptanceStatus, "rejected");
+  });
+});
+
+test("runToolRequestAgent finalizes before accounting usage against fresh state", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await saveState(dir, state);
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+      await recordToolResult(dir, state, {
+        requestId: prepared.record!.id,
+        executionId: request.executionId,
+        status: "completed",
+        summary: "Completed after child state update.",
+        outputs: { ok: true },
+      });
+      const childState = await loadState(dir);
+      childState.orchestrationReason = "child state update";
+      await saveState(dir, childState);
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+        usage: { totalTokens: 11, sources: ["test"] },
+      };
+    });
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.transaction?.status, "completed");
+    assert.equal((await loadToolRequests(dir))[0]?.status, "completed");
+    const budgets = (await loadState(dir)).budgets as { usage: { contextTokens?: number } };
+    assert.equal(budgets.usage.contextTokens, 11);
+  });
+});
+
+test("runToolRequestAgent rejects duplicate proposals for one execution", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+      for (const summary of ["First proposal.", "Second proposal."]) {
+        await recordToolResult(dir, state, {
+          requestId: prepared.record!.id,
+          executionId: request.executionId,
+          status: "completed",
+          summary,
+          outputs: { ok: true },
+        });
+      }
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.transaction?.status, "blocked");
+    assert.deepEqual((await loadToolResults(dir)).map((candidate) => candidate.acceptanceStatus), ["rejected", "rejected"]);
   });
 });
 
@@ -818,6 +913,46 @@ test("replayToolTransaction executes closed requests only with a matching approv
     const second = await replayToolTransaction(dir, state, { transactionId: original.transaction.id, execute: true, approvalId: approval.id });
     assert.equal(second.accepted, false);
     assert.match(second.message, /approval .* is not usable/);
+  });
+});
+
+test("replayToolTransaction reserves a one-use approval before dispatch", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    assert.ok(prepared.record);
+    const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+      await recordToolResult(dir, state, { requestId: prepared.record!.id, executionId: request.executionId, status: "completed", summary: "Done.", outputs: { ok: true } });
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+    const approval = await createToolReplayApproval(dir, state, { transactionId: original.transaction!.id, reason: "One retry" });
+    let release!: () => void;
+    const wait = new Promise<void>((resolve) => { release = resolve; });
+    let started!: () => void;
+    const didStart = new Promise<void>((resolve) => { started = resolve; });
+    let runnerCalls = 0;
+    const first = replayToolTransaction(dir, state, { transactionId: original.transaction!.id, execute: true, approvalId: approval.id }, async (request) => {
+      runnerCalls += 1;
+      assert.equal((await loadToolReplayApprovals(dir))[0]?.status, "consumed");
+      started();
+      await wait;
+      await recordToolResult(dir, state, { requestId: prepared.record!.id, executionId: request.executionId, status: "completed", summary: "Replay done.", outputs: { ok: true } });
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+    await didStart;
+    const second = await replayToolTransaction(dir, state, { transactionId: original.transaction!.id, execute: true, approvalId: approval.id }, async (request) => {
+      runnerCalls += 1;
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+    });
+    release();
+    const completed = await first;
+
+    assert.equal(completed.accepted, true);
+    assert.equal(second.accepted, false);
+    assert.equal(runnerCalls, 1);
+    const storedApproval = (await loadToolReplayApprovals(dir))[0];
+    assert.equal(storedApproval?.uses, 1);
+    assert.equal(storedApproval?.maxUses, 1);
   });
 });
 

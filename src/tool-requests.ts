@@ -10,6 +10,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { getMcpServersPath, getToolCatalogPath, getToolIterationPolicyPath, getToolIterationRunsPath, getToolReplayApprovalsPath, getToolRequestsIndexPath, getToolResultsPath, getToolSchedulesPath, getToolSchemaDiscoveryRunsPath, getToolTransactionsPath } from "./paths.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
+import { loadState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type RunTaskAgentOptions, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { assessToolRoute, type ToolRouteAssessment, type ToolRouteAssessmentInput } from "./tool-routing.js";
 import type { ScalerState } from "./types.js";
@@ -907,7 +908,9 @@ export async function createToolReplayApproval(cwd: string, state: ScalerState, 
     createdAt: timestamp,
     updatedAt: timestamp,
   };
-  await writeToolReplayApprovalIndex(cwd, [approval, ...(await loadToolReplayApprovals(cwd))]);
+  await withToolLedgerWriteQueue(cwd, async () => {
+    await writeToolReplayApprovalIndex(cwd, [approval, ...(await loadToolReplayApprovals(cwd))]);
+  });
   await appendLogEvent(cwd, createLogEvent(state, {
     eventType: "tool",
     summary: `Tool replay approval created: ${approval.id}`,
@@ -920,11 +923,14 @@ export async function createToolReplayApproval(cwd: string, state: ScalerState, 
 
 export async function revokeToolReplayApproval(cwd: string, state: ScalerState, input: ToolReplayApprovalRevokeInput, now = new Date()): Promise<ToolReplayApprovalRecord> {
   const id = input.id.trim();
-  const approvals = await loadToolReplayApprovals(cwd);
-  const approval = approvals.find((candidate) => candidate.id === id);
-  if (!approval) throw new Error(`Tool replay approval rejected: approval ${id || "<missing>"} not found.`);
-  const updated: ToolReplayApprovalRecord = { ...approval, status: "revoked", revokedReason: input.reason?.trim() || undefined, updatedAt: now.toISOString() };
-  await writeToolReplayApprovalIndex(cwd, approvals.map((candidate) => candidate.id === approval.id ? updated : candidate));
+  const updated = await withToolLedgerWriteQueue(cwd, async () => {
+    const approvals = await loadToolReplayApprovals(cwd);
+    const approval = approvals.find((candidate) => candidate.id === id);
+    if (!approval) throw new Error(`Tool replay approval rejected: approval ${id || "<missing>"} not found.`);
+    const next: ToolReplayApprovalRecord = { ...approval, status: "revoked", revokedReason: input.reason?.trim() || undefined, updatedAt: now.toISOString() };
+    await writeToolReplayApprovalIndex(cwd, approvals.map((candidate) => candidate.id === approval.id ? next : candidate));
+    return next;
+  });
   await appendLogEvent(cwd, createLogEvent(state, {
     eventType: "tool",
     summary: `Tool replay approval revoked: ${updated.id}`,
@@ -1253,17 +1259,15 @@ export async function runToolRequestAgent(
   agentRequest.executionId = execution.id;
   const beforeResultIds = new Set((await loadToolResults(cwd)).map((record) => record.id));
   const runResult = await runToolAgentWithOutcome(agentRequest, { timeoutMs: options.timeoutMs, command: options.command }, runner);
-  if (runResult.usage) {
-    await recordProviderUsageBudget(cwd, state, runResult.usage, {
-      source: "tool-agent-run",
-      taskId: request.taskId,
-      agentId: request.id,
-      agentType: "tool",
-    });
-  }
   const finalized = await finalizeToolExecution(cwd, request, execution, runResult, beforeResultIds, false);
   const { request: updatedRequest, resultRecord, transaction } = finalized;
-  await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: transaction.message, taskId: request.taskId, details: { transaction, runResult, resultRecord } }));
+  await recordToolExecutionUsage(cwd, runResult.usage, {
+    source: "tool-agent-run",
+    taskId: request.taskId,
+    agentId: request.id,
+    agentType: "tool",
+  });
+  await appendToolExecutionAudit(cwd, state, { eventType: "tool", summary: transaction.message, taskId: request.taskId, details: { transaction, runResult, resultRecord } });
   return {
     accepted: finalized.accepted,
     message: transaction.message,
@@ -1430,24 +1434,7 @@ export async function replayToolTransaction(
     return { accepted: true, message: transaction.message, original, request, prompt: replayRequest.prompt, invocation, transaction };
   }
 
-  let approval: ToolReplayApprovalRecord | undefined;
-  if (request.status !== "prepared") {
-    approval = await findUsableReplayApproval(cwd, original, request, options.approvalId);
-    if (!approval) {
-      const approvalHint = options.approvalId ? ` approval ${options.approvalId} is not usable` : " no approval supplied";
-      const transaction = await recordToolTransaction(cwd, request, {
-        status: "rejected",
-        executed: false,
-        invocation,
-        replayOfTransactionId: original.id,
-        message: `Tool transaction replay rejected: request ${request.id} is ${request.status};${approvalHint}`,
-      });
-      await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: transaction.message, taskId: request.taskId, details: { transaction, original, request, approvalId: options.approvalId } }));
-      return { accepted: false, message: transaction.message, original, request, prompt: replayRequest.prompt, invocation, transaction };
-    }
-  }
-
-  const claim = await beginToolExecution(cwd, request, invocation, original.id);
+  const claim = await beginToolExecution(cwd, request, invocation, original.id, options.approvalId);
   if (!claim.accepted) {
     await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: claim.transaction.message, taskId: request.taskId, details: { transaction: claim.transaction, original } }));
     return { accepted: false, message: claim.transaction.message, original, request: claim.request, prompt: replayRequest.prompt, invocation, transaction: claim.transaction };
@@ -1456,18 +1443,15 @@ export async function replayToolTransaction(
   replayRequest.executionId = execution.id;
   const beforeResultIds = new Set((await loadToolResults(cwd)).map((record) => record.id));
   const runResult = await runToolAgentWithOutcome(replayRequest, { timeoutMs: options.timeoutMs, command: options.command ?? original.invocation.command }, runner);
-  if (runResult.usage) {
-    await recordProviderUsageBudget(cwd, state, runResult.usage, {
-      source: "tool-replay-run",
-      taskId: request.taskId,
-      agentId: request.id,
-      agentType: "tool-replay",
-    });
-  }
   const finalized = await finalizeToolExecution(cwd, request, execution, runResult, beforeResultIds, request.status !== "prepared");
   const { request: updatedRequest, resultRecord, transaction } = finalized;
-  const consumedApproval = approval ? await consumeToolReplayApproval(cwd, approval, transaction.id) : undefined;
-  await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: transaction.message, taskId: request.taskId, details: { transaction, original, runResult, resultRecord, approval: consumedApproval } }));
+  await recordToolExecutionUsage(cwd, runResult.usage, {
+    source: "tool-replay-run",
+    taskId: request.taskId,
+    agentId: request.id,
+    agentType: "tool-replay",
+  });
+  await appendToolExecutionAudit(cwd, state, { eventType: "tool", summary: transaction.message, taskId: request.taskId, details: { transaction, original, runResult, resultRecord, approval: claim.approval } });
   return {
     accepted: finalized.accepted,
     message: transaction.message,
@@ -1486,6 +1470,13 @@ export async function recordToolResult(cwd: string, state: ScalerState, input: T
     const requests = await loadToolRequests(cwd);
     const request = requests.find((candidate) => candidate.id === input.requestId.trim());
     if (!request) throw new Error(`Tool result rejected: request ${input.requestId.trim() || "<missing>"} not found.`);
+    const executionId = input.executionId?.trim() || undefined;
+    if (executionId) {
+      const transaction = (await loadToolTransactions(cwd)).find((candidate) => candidate.id === executionId);
+      if (request.activeExecutionId !== executionId || transaction?.requestId !== request.id || transaction.status !== "prepared") {
+        throw new Error(`Tool result rejected: execution ${executionId} is not the active prepared execution for request ${request.id}.`);
+      }
+    }
 
     const status = normalizeToolResultStatus(input.status);
     const summary = input.summary.trim();
@@ -1504,9 +1495,9 @@ export async function recordToolResult(cwd: string, state: ScalerState, input: T
     const record: ToolResultRecord = {
       id: randomUUID(),
       requestId: request.id,
-      executionId: input.executionId?.trim() || undefined,
-      acceptanceStatus: input.executionId?.trim() ? "proposed" : "unbound",
-      acceptanceMessage: input.executionId?.trim()
+      executionId,
+      acceptanceStatus: executionId ? "proposed" : "unbound",
+      acceptanceMessage: executionId
         ? "Awaiting parent process-outcome and execution-binding checks."
         : "Unbound result cannot satisfy an isolated execution.",
       taskId: request.taskId,
@@ -1891,19 +1882,35 @@ async function beginToolExecution(
   request: ToolRequestRecord,
   invocation: TaskAgentInvocation,
   replayOfTransactionId?: string,
-): Promise<{ accepted: boolean; request: ToolRequestRecord; transaction: ToolTransactionRecord }> {
+  approvalId?: string,
+): Promise<{ accepted: boolean; request: ToolRequestRecord; transaction: ToolTransactionRecord; approval?: ToolReplayApprovalRecord }> {
   return withToolLedgerWriteQueue(cwd, async () => {
     const requests = await loadToolRequests(cwd);
     const transactions = await loadToolTransactions(cwd);
+    const approvals = replayOfTransactionId ? await loadToolReplayApprovals(cwd) : [];
     const currentRequest = requests.find((candidate) => candidate.id === request.id);
     const timestamp = new Date().toISOString();
+    const requiresApproval = Boolean(replayOfTransactionId && currentRequest && currentRequest.status !== "prepared");
+    const approval = requiresApproval
+      ? approvals.find((candidate) => candidate.id === approvalId?.trim()
+        && candidate.transactionId === replayOfTransactionId
+        && candidate.requestId === request.id
+        && candidate.status === "active"
+        && candidate.uses < candidate.maxUses
+        && (!candidate.expiresAt || candidate.expiresAt > timestamp))
+      : undefined;
+    const approvalRefusal = requiresApproval && !approval
+      ? approvalId?.trim()
+        ? `request ${request.id} is ${currentRequest!.status}; approval ${approvalId.trim()} is not usable`
+        : `request ${request.id} is ${currentRequest!.status}; no approval supplied`
+      : undefined;
     const refusal = !currentRequest
       ? `request ${request.id} disappeared before dispatch`
       : currentRequest.status !== request.status
         ? `request status changed from ${request.status} to ${currentRequest.status} before dispatch`
         : currentRequest.activeExecutionId
           ? `request ${request.id} already has active execution ${currentRequest.activeExecutionId}`
-          : undefined;
+          : approvalRefusal;
     const transaction: ToolTransactionRecord = {
       id: randomUUID(),
       requestId: request.id,
@@ -1914,7 +1921,7 @@ async function beginToolExecution(
       invocation,
       replayOfTransactionId,
       message: refusal
-        ? `Tool transaction dispatch rejected: ${refusal}.`
+        ? `Tool transaction ${replayOfTransactionId ? "replay " : ""}dispatch rejected: ${refusal}.`
         : `${replayOfTransactionId ? "Tool transaction replay execution" : "Tool execution"} prepared: ${request.id}`,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -1922,11 +1929,27 @@ async function beginToolExecution(
     const claimedRequest = refusal || !currentRequest
       ? currentRequest ?? request
       : { ...currentRequest, activeExecutionId: transaction.id, updatedAt: timestamp };
+    const reservedApproval = approval && !refusal
+      ? {
+          ...approval,
+          uses: approval.uses + 1,
+          status: approval.uses + 1 >= approval.maxUses ? "consumed" as const : approval.status,
+          consumedByTransactionIds: uniqueNonEmpty([...(approval.consumedByTransactionIds ?? []), transaction.id]),
+          updatedAt: timestamp,
+        }
+      : undefined;
+    const expiredApproval = !approval && approvalId?.trim()
+      ? approvals.find((candidate) => candidate.id === approvalId.trim() && candidate.status === "active" && candidate.expiresAt && candidate.expiresAt <= timestamp)
+      : undefined;
+    await writeToolTransactionIndex(cwd, [transaction, ...transactions]);
+    if (reservedApproval || expiredApproval) {
+      const updatedApproval = reservedApproval ?? { ...expiredApproval!, status: "expired" as const, updatedAt: timestamp };
+      await writeToolReplayApprovalIndex(cwd, approvals.map((candidate) => candidate.id === updatedApproval.id ? updatedApproval : candidate));
+    }
     if (!refusal && currentRequest) {
       await writeToolRequestIndex(cwd, requests.map((candidate) => candidate.id === currentRequest.id ? claimedRequest : candidate));
     }
-    await writeToolTransactionIndex(cwd, [transaction, ...transactions]);
-    return { accepted: !refusal, request: claimedRequest, transaction };
+    return { accepted: !refusal, request: claimedRequest, transaction, approval: reservedApproval };
   });
 }
 
@@ -1949,13 +1972,14 @@ async function finalizeToolExecution(
     const results = await loadToolResults(cwd);
     const transactions = await loadToolTransactions(cwd);
     const currentRequest = requests.find((candidate) => candidate.id === request.id);
-    const freshResults = results.filter((candidate) => candidate.requestId === request.id && !beforeResultIds.has(candidate.id));
-    const boundResults = freshResults.filter((candidate) => candidate.executionId === execution.id);
+    const boundResults = results.filter((candidate) => candidate.requestId === request.id
+      && candidate.executionId === execution.id
+      && !beforeResultIds.has(candidate.id));
     const processSucceeded = runResult.exitCode === 0 && !runResult.timedOut && !runResult.aborted;
     const requestUnchanged = currentRequest?.status === request.status && currentRequest.activeExecutionId === execution.id;
     const accepted = processSucceeded && requestUnchanged && boundResults.length === 1;
-    const resultRecord = accepted ? boundResults[0] : undefined;
-    const status: ToolTransactionStatus = accepted ? resultRecord!.status : "blocked";
+    const proposedResult = accepted ? boundResults[0] : undefined;
+    const status: ToolTransactionStatus = accepted ? proposedResult!.status : "blocked";
     const failureReason = !processSucceeded
       ? `process outcome exit=${runResult.exitCode} timedOut=${runResult.timedOut} aborted=${runResult.aborted}`
       : !requestUnchanged
@@ -1965,8 +1989,8 @@ async function finalizeToolExecution(
           : `expected one execution-bound result, received ${boundResults.length}`;
     const timestamp = new Date().toISOString();
     const updatedResults = results.map((candidate): ToolResultRecord => {
-      if (!freshResults.some((fresh) => fresh.id === candidate.id)) return candidate;
-      const isAccepted = accepted && candidate.id === resultRecord!.id;
+      if (!boundResults.some((bound) => bound.id === candidate.id)) return candidate;
+      const isAccepted = accepted && candidate.id === proposedResult!.id;
       return {
         ...candidate,
         acceptanceStatus: isAccepted ? "accepted" : "rejected",
@@ -1975,11 +1999,16 @@ async function finalizeToolExecution(
           : `Rejected by parent execution ${execution.id}: ${failureReason}.`,
       };
     });
-    const updatedRequest: ToolRequestRecord = accepted
-      ? { ...currentRequest!, status: resultRecord!.status, activeExecutionId: undefined, updatedAt: timestamp }
-      : preserveClosedRequestOnFailure && currentRequest && currentRequest.status !== "prepared"
-        ? { ...currentRequest, activeExecutionId: undefined, updatedAt: timestamp }
-        : { ...(currentRequest ?? request), status: "blocked", activeExecutionId: undefined, updatedAt: timestamp };
+    const resultRecord = proposedResult
+      ? updatedResults.find((candidate) => candidate.id === proposedResult.id)
+      : undefined;
+    const updatedRequest: ToolRequestRecord = !requestUnchanged
+      ? currentRequest ?? request
+      : accepted
+        ? { ...currentRequest!, status: resultRecord!.status, activeExecutionId: undefined, updatedAt: timestamp }
+        : preserveClosedRequestOnFailure && currentRequest && currentRequest.status !== "prepared"
+          ? { ...currentRequest, activeExecutionId: undefined, updatedAt: timestamp }
+          : { ...currentRequest!, status: "blocked", activeExecutionId: undefined, updatedAt: timestamp };
     const message = accepted
       ? `${execution.replayOfTransactionId ? "Tool transaction replay" : "Tool transaction"} completed: ${request.id} ${status}`
       : `${execution.replayOfTransactionId ? "Tool transaction replay" : "Tool transaction"} blocked: ${request.id}; ${failureReason}`;
@@ -1995,8 +2024,10 @@ async function finalizeToolExecution(
       updatedAt: timestamp,
     };
     await writeToolResultIndex(cwd, updatedResults);
-    if (currentRequest) await writeToolRequestIndex(cwd, requests.map((candidate) => candidate.id === updatedRequest.id ? updatedRequest : candidate));
     await writeToolTransactionIndex(cwd, transactions.map((candidate) => candidate.id === execution.id ? transaction : candidate));
+    if (requestUnchanged && currentRequest) {
+      await writeToolRequestIndex(cwd, requests.map((candidate) => candidate.id === updatedRequest.id ? updatedRequest : candidate));
+    }
     return { accepted, status, request: updatedRequest, transaction, resultRecord };
   });
 }
@@ -2233,50 +2264,35 @@ async function latestMissingResultTransaction(cwd: string, requestId: string): P
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
 }
 
-async function findUsableReplayApproval(
+async function recordToolExecutionUsage(
   cwd: string,
-  transaction: ToolTransactionRecord,
-  request: ToolRequestRecord,
-  approvalId?: string,
-  now = new Date(),
-): Promise<ToolReplayApprovalRecord | undefined> {
-  if (!approvalId?.trim()) return undefined;
-  const approvals = await loadToolReplayApprovals(cwd);
-  for (const approval of approvals) {
-    if (approval.id !== approvalId.trim()) continue;
-    if (approval.transactionId !== transaction.id || approval.requestId !== request.id) continue;
-    if (approval.status !== "active") continue;
-    if (approval.uses >= approval.maxUses) continue;
-    if (approval.expiresAt && approval.expiresAt <= now.toISOString()) continue;
-    return approval;
+  usage: ProviderUsage | undefined,
+  input: Parameters<typeof recordProviderUsageBudget>[3],
+): Promise<void> {
+  if (!usage) return;
+  try {
+    await recordProviderUsageBudget(cwd, await loadState(cwd), usage, input);
+  } catch (error) {
+    process.emitWarning(
+      `Tool execution usage could not be added to the shared budget after its durable outcome was recorded. Reconcile from the transaction usage without replaying the tool execution. ${String(error)}`,
+      { code: "SCALER_TOOL_USAGE_ACCOUNTING_FAILED" },
+    );
   }
-  if (approvalId) {
-    const expired = approvals.find((approval) => approval.id === approvalId.trim() && approval.status === "active" && approval.expiresAt && approval.expiresAt <= now.toISOString());
-    if (expired) await expireToolReplayApproval(cwd, expired, now);
-  }
-  return undefined;
 }
 
-async function expireToolReplayApproval(cwd: string, approval: ToolReplayApprovalRecord, now = new Date()): Promise<ToolReplayApprovalRecord> {
-  const updated: ToolReplayApprovalRecord = { ...approval, status: "expired", updatedAt: now.toISOString() };
-  const approvals = await loadToolReplayApprovals(cwd);
-  await writeToolReplayApprovalIndex(cwd, approvals.map((candidate) => candidate.id === approval.id ? updated : candidate));
-  return updated;
-}
-
-async function consumeToolReplayApproval(cwd: string, approval: ToolReplayApprovalRecord, transactionId: string, now = new Date()): Promise<ToolReplayApprovalRecord> {
-  const approvals = await loadToolReplayApprovals(cwd);
-  const latest = approvals.find((candidate) => candidate.id === approval.id) ?? approval;
-  const uses = latest.uses + 1;
-  const updated: ToolReplayApprovalRecord = {
-    ...latest,
-    uses,
-    status: uses >= latest.maxUses ? "consumed" : latest.status,
-    consumedByTransactionIds: uniqueNonEmpty([...(latest.consumedByTransactionIds ?? []), transactionId]),
-    updatedAt: now.toISOString(),
-  };
-  await writeToolReplayApprovalIndex(cwd, approvals.map((candidate) => candidate.id === latest.id ? updated : candidate));
-  return updated;
+async function appendToolExecutionAudit(
+  cwd: string,
+  state: ScalerState,
+  input: Parameters<typeof createLogEvent>[1],
+): Promise<void> {
+  try {
+    await appendLogEvent(cwd, createLogEvent(state, input));
+  } catch (error) {
+    process.emitWarning(
+      `Tool execution audit append failed after its durable outcome was recorded. Reconcile from the execution ledger without replaying the tool execution. ${String(error)}`,
+      { code: "SCALER_TOOL_AUDIT_APPEND_FAILED" },
+    );
+  }
 }
 
 function toolIterationStep(
