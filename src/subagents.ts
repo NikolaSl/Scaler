@@ -28,6 +28,8 @@ export interface TaskAgentRequest {
   appendSystemPromptPath?: string;
   extensionPaths?: string[];
   providerAdmission?: ProviderAdmissionPolicy;
+  /** Refuse named tools that the isolated built-in/SCALER loader cannot provide. */
+  enforceLoadedToolAvailability?: boolean;
   /** Optional exact live-model identity bound by the parent admission decision. */
   providerAdmissionModel?: ProviderAdmissionModel;
   attempt?: TaskAttemptBinding;
@@ -56,6 +58,22 @@ export interface TaskAgentOutputLimits {
   stdoutBytes: number;
   stderrBytes: number;
 }
+
+export class TaskAgentInvocationAdmissionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TaskAgentInvocationAdmissionError";
+  }
+}
+
+const STRICT_CHILD_TOOL_NAMES = new Set([
+  "bash", "edit", "find", "grep", "ls", "read", "write",
+  "scaler_report", "scaler_memory_write", "scaler_memory_retrieve", "scaler_memory_search",
+  "scaler_research_report", "scaler_task_report", "scaler_spawn_task", "scaler_tool_request",
+  "scaler_tool_schema", "scaler_tool_result", "scaler_task_create", "scaler_task_update",
+  "scaler_planning_report", "scaler_prd_write", "scaler_prd_requirement_update",
+  "scaler_validation_manifest_write", "scaler_validation_report", "scaler_debug_attempt",
+]);
 
 export const DEFAULT_TASK_AGENT_OUTPUT_LIMITS: Readonly<TaskAgentOutputLimits> = Object.freeze({
   stdoutBytes: 4 * 1024 * 1024,
@@ -86,6 +104,14 @@ export function buildTaskAgentInvocation(request: TaskAgentRequest, command = "p
     throw new Error("Exact provider model binding requires strict provider admission.");
   }
   const grantedTools = normalizeGrantedTools(request);
+  if (strictProviderAdmission && request.enforceLoadedToolAvailability) {
+    const unavailableTools = grantedTools.filter((tool) => !STRICT_CHILD_TOOL_NAMES.has(tool));
+    if (unavailableTools.length > 0) {
+      throw new TaskAgentInvocationAdmissionError(
+        `Strict child invocation cannot load granted tools: ${unavailableTools.join(", ")}.`,
+      );
+    }
+  }
   const extensionPaths = resolveChildAgentExtensionPaths(request, grantedTools.length > 0);
 
   for (const extensionPath of extensionPaths) {
@@ -113,6 +139,19 @@ export function buildTaskAgentInvocation(request: TaskAgentRequest, command = "p
     args,
     cwd: request.cwd,
   };
+}
+
+export function taskAgentRunSucceeded(result: TaskAgentRunResult): boolean {
+  if (result.exitCode !== 0 || result.timedOut || result.aborted || result.outputLimitExceeded !== undefined) return false;
+  return !result.stdoutEvents.some((event) => hasTerminalFailureStopReason(event));
+}
+
+function hasTerminalFailureStopReason(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  if (typeof record.stopReason === "string" && ["aborted", "error"].includes(record.stopReason.toLowerCase())) return true;
+  if (record.message && typeof record.message === "object" && hasTerminalFailureStopReason(record.message)) return true;
+  return false;
 }
 
 export function getDefaultScalerChildExtensionPath(): string {

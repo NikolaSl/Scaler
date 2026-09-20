@@ -26,7 +26,7 @@ import {
 import { ingestReport } from "./reports.js";
 import { recordResearchReport } from "./research.js";
 import { ensureState } from "./state.js";
-import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentRunResult } from "./subagents.js";
 import { recordTaskAgentReport } from "./task-reports.js";
 import { createTask, updateTask } from "./tasks.js";
 import { prepareToolRequest, recordToolResult, recordToolSchema } from "./tool-requests.js";
@@ -165,7 +165,6 @@ const SpawnTaskParams = Type.Object({
   model: Type.Optional(Type.String()),
   execute: Type.Optional(Type.Boolean({ description: "Execute the task agent instead of only preparing invocation." })),
   timeoutMs: Type.Optional(Type.Number({ description: "Task-agent timeout in milliseconds." })),
-  tokenBudget: Type.Optional(Type.Number({ description: "Maximum admitted final child-prompt tokens." })),
 });
 
 const ToolRequestParams = Type.Object({
@@ -516,8 +515,23 @@ export function registerScalerTools(pi: ExtensionAPI): void {
     description: "Prepare or execute an isolated task-agent spawn.",
     parameters: SpawnTaskParams,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const result = await prepareOrRunSpawnTask(ctx.cwd, params, signal);
-      if (params.execute) await recordBudgetUsage(ctx.cwd, "spawnedAgents");
+      const result = await prepareOrRunSpawnTask(ctx.cwd, {
+        taskId: params.taskId,
+        prompt: params.prompt,
+        tools: params.tools,
+        model: params.model,
+        execute: params.execute,
+        timeoutMs: params.timeoutMs,
+      }, signal);
+      const status = typeof result.details === "object"
+        && result.details !== null
+        && "status" in result.details
+        && typeof result.details.status === "string"
+        ? result.details.status
+        : undefined;
+      if (params.execute && (status === "executed" || status === "failed")) {
+        await recordBudgetUsage(ctx.cwd, "spawnedAgents");
+      }
       await logTool(ctx.cwd, "scaler_spawn_task", result.summary, result.details);
       return textResult(result.text, result.details);
     },
@@ -876,8 +890,19 @@ export async function prepareOrRunSpawnTask(
     model: params.model,
     cwd,
     providerAdmission: createStrictProviderAdmissionPolicy(promptAdmission.tokenBudget),
+    enforceLoadedToolAvailability: true,
   };
-  const invocation = buildTaskAgentInvocation(request);
+  let invocation;
+  try {
+    invocation = buildTaskAgentInvocation(request);
+  } catch (error) {
+    if (!(error instanceof TaskAgentInvocationAdmissionError)) throw error;
+    return {
+      text: error.message,
+      summary: `Task spawn refused: ${params.taskId}`,
+      details: { status: "refused", promptAdmission },
+    };
+  }
 
   if (!params.execute) {
     return {
@@ -914,7 +939,7 @@ export async function prepareOrRunSpawnTask(
     return {
       text: `Task spawn executed: ${params.taskId} exit=${runResult.exitCode}`,
       summary: `Task spawn executed: ${params.taskId}`,
-      details: { status: runResult.exitCode === 0 ? "executed" : "failed", invocation, result: runResult, promptAdmission },
+      details: { status: taskAgentRunSucceeded(runResult) ? "executed" : "failed", invocation, result: runResult, promptAdmission },
     };
   } finally {
     await releaseExecutionLock(cwd, lock.lock.id);

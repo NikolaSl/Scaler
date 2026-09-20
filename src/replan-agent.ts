@@ -25,7 +25,7 @@ import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type R
 import { requireTaskPromptAdmission, TaskPromptAdmissionError, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
 import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
-import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
 import type { ScalerState } from "./types.js";
 
@@ -191,6 +191,7 @@ export function prepareReplanAgentInvocation(
     appendSystemPromptPath: options.appendSystemPromptPath,
     extensionPaths: options.extensionPaths,
     providerAdmission: createStrictProviderAdmissionPolicy(promptAdmission.tokenBudget),
+    enforceLoadedToolAvailability: true,
   };
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");
   return { prompt, request, invocation, promptAdmission };
@@ -214,11 +215,11 @@ export async function runReplanAgentStep(
     try {
       preparation = prepareReplanAgentInvocation(cwd, context, options);
     } catch (error) {
-      if (!(error instanceof TaskPromptAdmissionError)) throw error;
+      if (!(error instanceof TaskPromptAdmissionError) && !(error instanceof TaskAgentInvocationAdmissionError)) throw error;
       return {
         accepted: false,
         message: error.message,
-        promptAdmission: error.decision,
+        promptAdmission: error instanceof TaskPromptAdmissionError ? error.decision : undefined,
       };
     }
     await logAgentPromptAudit(cwd, state, {
@@ -236,7 +237,7 @@ export async function runReplanAgentStep(
         agentType: "replan",
       });
     }
-    const ingestion = runResult?.exitCode === 0 ? await ingestReplanProposalReport(cwd, runResult.stdoutEvents, state) : { attempted: false, ingested: false };
+    const ingestion = runResult && taskAgentRunSucceeded(runResult) ? await ingestReplanProposalReport(cwd, runResult.stdoutEvents, state) : { attempted: false, ingested: false };
     if (ingestion.attempted) {
       await logStructuredReportAudit(cwd, state, {
         reportType: "scaler_replan_proposal",
@@ -343,7 +344,7 @@ export async function recordReplanAgentRun(
   const timestamp = now.toISOString();
   const record: ReplanAgentRunRecord = runResult ? {
     id: `replan-agent-${now.getTime()}`,
-    status: runResult.exitCode === 0 ? "passed" : "failed",
+    status: taskAgentRunSucceeded(runResult) ? "passed" : "failed",
     exitCode: runResult.exitCode,
     stdoutEventCount: runResult.stdoutEvents.length,
     stderrSummary: summarizeOutput(runResult.stderr),

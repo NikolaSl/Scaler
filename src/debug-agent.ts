@@ -26,7 +26,7 @@ import { requireTaskPromptAdmission, TaskPromptAdmissionError, type TaskPromptAd
 import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { formatResearchSummary, loadResearchReports, loadResearchRequests } from "./research.js";
-import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
 
@@ -195,6 +195,7 @@ export function prepareDebugAgentInvocation(
     appendSystemPromptPath: options.appendSystemPromptPath,
     extensionPaths: options.extensionPaths,
     providerAdmission: createStrictProviderAdmissionPolicy(promptAdmission.tokenBudget),
+    enforceLoadedToolAvailability: true,
   };
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");
   return { prompt, request, invocation, task: input.task, promptAdmission };
@@ -224,12 +225,12 @@ export async function runDebugAgentStep(
     try {
       preparation = prepareDebugAgentInvocation(cwd, context, options);
     } catch (error) {
-      if (!(error instanceof TaskPromptAdmissionError)) throw error;
+      if (!(error instanceof TaskPromptAdmissionError) && !(error instanceof TaskAgentInvocationAdmissionError)) throw error;
       return {
         accepted: false,
         message: error.message,
         task: context.task,
-        promptAdmission: error.decision,
+        promptAdmission: error instanceof TaskPromptAdmissionError ? error.decision : undefined,
       };
     }
     await logAgentPromptAudit(cwd, state, {
@@ -249,7 +250,7 @@ export async function runDebugAgentStep(
         agentType: "debug",
       });
     }
-    const ingestion = runResult?.exitCode === 0 ? await ingestDebugReport(cwd, state, runResult.stdoutEvents) : { attempted: false, ingested: false };
+    const ingestion = runResult && taskAgentRunSucceeded(runResult) ? await ingestDebugReport(cwd, state, runResult.stdoutEvents) : { attempted: false, ingested: false };
     if (ingestion.attempted) {
       await logStructuredReportAudit(cwd, state, {
         reportType: "scaler_debug_report",
@@ -348,7 +349,7 @@ export async function recordDebugAgentRun(
   const record: DebugAgentRunRecord = runResult ? {
     id: `debug-agent-${now.getTime()}`,
     taskId,
-    status: runResult.exitCode === 0 ? "passed" : "failed",
+    status: taskAgentRunSucceeded(runResult) ? "passed" : "failed",
     exitCode: runResult.exitCode,
     stdoutEventCount: runResult.stdoutEvents.length,
     stderrSummary: summarizeOutput(runResult.stderr),

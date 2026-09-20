@@ -65,6 +65,30 @@ test("registerScalerTools registers all tool definitions", () => {
   assert.deepEqual(registered, [...scalerToolNames]);
 });
 
+test("scaler_spawn_task admission refusal does not charge a spawned agent", async () => {
+  await withTempDir(async (dir) => {
+    const registered = new Map<string, { execute: (...args: any[]) => Promise<{ details: any }> }>();
+    registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<{ details: any }> }) {
+      registered.set(definition.name, definition);
+    } } as never);
+
+    const result = await registered.get("scaler_spawn_task")?.execute(
+      "spawn-refused",
+      {
+        taskId: "T-LARGE",
+        prompt: "EXACT-SOURCE\n".repeat(4_000),
+        execute: true,
+      },
+      undefined,
+      undefined,
+      { cwd: dir },
+    );
+
+    assert.equal(result?.details.status, "refused");
+    assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents ?? 0, 0);
+  });
+});
+
 test("validation manifest tool preserves commands omitted from a partial draft update", async () => {
   await withTempDir(async (dir) => {
     await saveValidationManifest(dir, {

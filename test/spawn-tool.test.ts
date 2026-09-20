@@ -97,6 +97,27 @@ test("prepareOrRunSpawnTask reports failed execution status", async () => {
   assert.equal((result.details as { status: string }).status, "failed");
 });
 
+test("prepareOrRunSpawnTask treats a Pi JSON-mode provider abort as failed even with exit zero", async () => {
+  const result = await prepareOrRunSpawnTask(
+    "/tmp/project",
+    { taskId: "T-ABORT", prompt: "Run it", execute: true },
+    undefined,
+    async (request) => ({
+      taskId: request.taskId, exitCode: 0, stderr: "", timedOut: false, aborted: false,
+      stdoutEvents: [{ type: "message_end", message: { role: "assistant", stopReason: "aborted" } }],
+    }),
+  );
+  assert.equal((result.details as { status: string }).status, "failed");
+});
+
+test("prepareOrRunSpawnTask refuses external tools unavailable under strict isolated loading", async () => {
+  const result = await prepareOrRunSpawnTask("/tmp/project", {
+    taskId: "T-EXTERNAL", prompt: "Browse", tools: ["browser"], execute: true,
+  }, undefined, async () => { throw new Error("must not run"); });
+  assert.equal((result.details as { status: string }).status, "refused");
+  assert.match(result.text, /cannot load granted tools: browser/);
+});
+
 test("prepareOrRunSpawnTask refuses an oversized prompt before runner and releases its lock", async () => {
   await withTempDir(async (dir) => {
     let runnerCalled = false;

@@ -13,7 +13,7 @@ import { requireTaskPromptAdmission, TaskPromptAdmissionError, type TaskPromptAd
 import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { loadState } from "./state.js";
-import { DEFAULT_TASK_AGENT_OUTPUT_LIMITS, buildTaskAgentInvocation, runTaskAgent, type RunTaskAgentOptions, type TaskAgentInvocation, type TaskAgentOutputLimits, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
+import { DEFAULT_TASK_AGENT_OUTPUT_LIMITS, buildTaskAgentInvocation, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type RunTaskAgentOptions, type TaskAgentInvocation, type TaskAgentOutputLimits, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { assessToolRoute, type ToolRouteAssessment, type ToolRouteAssessmentInput } from "./tool-routing.js";
 import type { ScalerState } from "./types.js";
 
@@ -1240,8 +1240,15 @@ export async function runToolSchemaDiscoveryAgent(
     tools: allowedTools,
     cwd,
     providerAdmission: createStrictProviderAdmissionPolicy(promptAdmission.tokenBudget),
+    enforceLoadedToolAvailability: true,
   };
-  const invocation = buildTaskAgentInvocation(agentRequest, options.command ?? "pi");
+  let invocation: TaskAgentInvocation;
+  try {
+    invocation = buildTaskAgentInvocation(agentRequest, options.command ?? "pi");
+  } catch (error) {
+    if (!(error instanceof TaskAgentInvocationAdmissionError)) throw error;
+    return { accepted: false, message: error.message, toolName, prompt, promptAdmission };
+  }
 
   if (!options.execute) {
     const run = await recordToolSchemaDiscoveryRun(cwd, {
@@ -1266,7 +1273,7 @@ export async function runToolSchemaDiscoveryAgent(
     });
   }
   const schemaRecord = (await loadToolSchemaRecords(cwd)).find((record) => record.toolName === toolName && !beforeIds.has(record.id));
-  const status: ToolSchemaDiscoveryRunStatus = schemaRecord ? "completed" : "missing_schema";
+  const status: ToolSchemaDiscoveryRunStatus = taskAgentRunSucceeded(runResult) && schemaRecord ? "completed" : "missing_schema";
   const run = await recordToolSchemaDiscoveryRun(cwd, {
     toolName,
     status,

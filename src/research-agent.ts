@@ -23,7 +23,7 @@ import {
   type ResearchReportInput,
   type ResearchRequest,
 } from "./research.js";
-import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
 import type { ScalerState } from "./types.js";
 
@@ -199,6 +199,7 @@ export function prepareResearchAgentInvocation(
     appendSystemPromptPath: options.appendSystemPromptPath,
     extensionPaths: options.extensionPaths,
     providerAdmission: createStrictProviderAdmissionPolicy(promptAdmission.tokenBudget),
+    enforceLoadedToolAvailability: true,
   };
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");
   return { prompt, request, invocation, researchRequest: input.request, promptAdmission };
@@ -244,12 +245,12 @@ export async function runResearchAgentStep(
     try {
       preparation = prepareResearchAgentInvocation(cwd, context, options);
     } catch (error) {
-      if (!(error instanceof TaskPromptAdmissionError)) throw error;
+      if (!(error instanceof TaskPromptAdmissionError) && !(error instanceof TaskAgentInvocationAdmissionError)) throw error;
       return {
         accepted: false,
         message: error.message,
         researchRequest: context.request,
-        promptAdmission: error.decision,
+        promptAdmission: error instanceof TaskPromptAdmissionError ? error.decision : undefined,
       };
     }
     await logAgentPromptAudit(cwd, state, {
@@ -269,7 +270,7 @@ export async function runResearchAgentStep(
         agentType: "research",
       });
     }
-    const ingestion = runResult?.exitCode === 0 ? await ingestResearchReport(cwd, runResult.stdoutEvents) : { attempted: false, ingested: false };
+    const ingestion = runResult && taskAgentRunSucceeded(runResult) ? await ingestResearchReport(cwd, runResult.stdoutEvents) : { attempted: false, ingested: false };
     if (ingestion.attempted) {
       await logStructuredReportAudit(cwd, state, {
         reportType: "scaler_research_report",
@@ -405,7 +406,7 @@ export async function recordResearchAgentRun(
   const record: ResearchAgentRunRecord = runResult ? {
     id: `research-agent-${now.getTime()}`,
     requestId,
-    status: runResult.exitCode === 0 ? "passed" : "failed",
+    status: taskAgentRunSucceeded(runResult) ? "passed" : "failed",
     exitCode: runResult.exitCode,
     stdoutEventCount: runResult.stdoutEvents.length,
     stderrSummary: summarizeOutput(runResult.stderr),

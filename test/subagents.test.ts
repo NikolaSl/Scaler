@@ -10,7 +10,7 @@ import { getEventListeners } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { buildTaskAgentInvocation, extractStructuredReportPayloads, getDefaultScalerChildExtensionPath, runTaskAgent } from "../src/subagents.js";
+import { buildTaskAgentInvocation, extractStructuredReportPayloads, getDefaultScalerChildExtensionPath, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError } from "../src/subagents.js";
 import { loadWatchdogCleanupRecords } from "../src/watchdogs.js";
 
 async function withScript<T>(content: string, fn: (script: string, dir: string) => Promise<T>): Promise<T> {
@@ -83,6 +83,29 @@ test("buildTaskAgentInvocation can disable all tools for report-only child agent
   const invocation = buildTaskAgentInvocation({ taskId: "T-no-tools", prompt: "Report only", tools: ["read"], noTools: true });
 
   assert.deepEqual(invocation.args, ["--mode", "json", "-p", "--no-session", "--no-tools", "Report only"]);
+});
+
+test("strict child invocation refuses tool grants that its isolated loader cannot provide", () => {
+  assert.throws(() => buildTaskAgentInvocation({
+    taskId: "T-external",
+    prompt: "Browse",
+    tools: ["browser", "mcp-docs"],
+    enforceLoadedToolAvailability: true,
+    providerAdmission: { requestTokenAllowance: 8_000, outputReserveTokens: 1_024, safetyMarginTokens: 1_024 },
+  }), TaskAgentInvocationAdmissionError);
+});
+
+test("task-agent success rejects Pi JSON-mode terminal abort and error events despite exit zero", () => {
+  for (const stopReason of ["aborted", "error"]) {
+    assert.equal(taskAgentRunSucceeded({
+      taskId: "T-stop", exitCode: 0, stderr: "", timedOut: false, aborted: false,
+      stdoutEvents: [{ type: "message_end", message: { role: "assistant", stopReason } }],
+    }), false);
+  }
+  assert.equal(taskAgentRunSucceeded({
+    taskId: "T-stop", exitCode: 0, stderr: "", timedOut: false, aborted: false,
+    stdoutEvents: [{ type: "message_end", message: { role: "assistant", stopReason: "stop" } }],
+  }), true);
 });
 
 test("extractStructuredReportPayloads accepts direct, nested, and exact Pi assistant JSON reports", () => {

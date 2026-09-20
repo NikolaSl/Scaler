@@ -156,11 +156,10 @@ test("research internet grant policy withholds tools until explicitly allowed", 
   assert.equal(withoutGrant.invocation.args.includes("--tools"), false);
   assert.match(withoutGrant.prompt, /not explicitly granted/);
 
-  const withGrant = prepareResearchAgentInvocation("/repo", baseInput, { command: "pi-test", allowInternet: true, tools: ["browser", "mcp-docs"] });
-  assert.deepEqual(withGrant.request.tools, ["browser", "mcp-docs"]);
-  assert.ok(withGrant.invocation.args.includes("--tools"));
-  assert.ok(withGrant.invocation.args.includes("browser,mcp-docs"));
-  assert.match(withGrant.prompt, /Granted tools=browser, mcp-docs/);
+  assert.throws(
+    () => prepareResearchAgentInvocation("/repo", baseInput, { command: "pi-test", allowInternet: true, tools: ["browser", "mcp-docs"] }),
+    /cannot load granted tools: browser, mcp-docs/,
+  );
 });
 
 test("extractResearchReport validates latest structured research report", () => {
