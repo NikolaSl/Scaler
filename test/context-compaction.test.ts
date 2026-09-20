@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -22,7 +22,7 @@ import {
 import { loadContextSplitRecords, recordContextSplitIfNeeded } from "../src/context-splits.js";
 import { ensureTaskContextManifest, saveTaskContextManifest, type ResolvedContext } from "../src/context.js";
 import { loadMemoryIndex } from "../src/memory.js";
-import { getTaskContextManifestPath } from "../src/paths.js";
+import { getContextHandoffsPath, getContextSplitsPath, getTaskContextManifestPath } from "../src/paths.js";
 import { createDefaultState } from "../src/state.js";
 import type { ScalerState } from "../src/types.js";
 
@@ -63,7 +63,7 @@ function oversizedResolvedContext(): ResolvedContext {
       { id: "state-summary", type: "decision", reason: "Required state", content: "stage=execution task=T-COMPACT", priority: "required", scope: "summary", exactness: "exact" },
       { id: "exact-large", type: "file", reason: "Exact contract", content: "EXACT-CONTRACT\n".repeat(120), priority: "required", scope: "full", exactness: "exact", estimatedTokens: 420 },
       { id: "summary-large", type: "knowledge", reason: "Large research", content: "research finding ".repeat(140), priority: "useful", scope: "summary", exactness: "summary-ok", estimatedTokens: 260 },
-      { id: "ref-only", type: "prd", reason: "Requirement ref", content: "PRD-P02", priority: "useful", scope: "reference-only", exactness: "reference-only" },
+      { id: "runtime-prd-refs", type: "prd", reason: "Requirement ref", content: "PRD-P02", priority: "useful", scope: "reference-only", exactness: "reference-only" },
     ],
     omitted: [],
   };
@@ -285,6 +285,106 @@ test("fresh context handoff rejects a symlink replacement for externalized conte
     await writeFile(target, await readFile(join(dir, ref.path), "utf8"), "utf8");
     await rm(join(dir, ref.path));
     await symlink(target, join(dir, ref.path));
+
+    const result = await prepareFreshContextHandoff(dir, state, { splitId: split!.id, now: new Date("2026-01-01T00:00:04.000Z") });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.prompt, "");
+    assert.match(result.record.diagnostics.join(" "), /externalized context source is unavailable or changed/i);
+  });
+});
+
+test("fresh context handoff rejects an unresolved historical minimal item", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTask();
+    const resolved = oversizedResolvedContext();
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: resolved.estimatedTokens, contextWindowTokens: 1_000, largeItemThresholdTokens: 100 });
+    const split = await recordContextSplitIfNeeded(dir, state, "T-COMPACT", resolved, assessment, new Date("2026-01-01T00:00:03.000Z"));
+    const splitsPath = getContextSplitsPath(dir);
+    const index = JSON.parse(await readFile(splitsPath, "utf8")) as { version: 1; splits: Array<Record<string, unknown>> };
+    index.splits[0]!.minimalContextItemIds = [...split!.minimalContextItemIds, "lost-minimal"];
+    await writeFile(splitsPath, `${JSON.stringify(index, null, 2)}\n`, "utf8");
+
+    const result = await prepareFreshContextHandoff(dir, state, { splitId: split!.id, now: new Date("2026-01-01T00:00:04.000Z") });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.prompt, "");
+    assert.equal(result.record.promptPath, "");
+    assert.match(result.record.diagnostics.join(" "), /historical minimal context is unavailable/i);
+  });
+});
+
+test("fresh context handoff rejects malformed split indexes with a bounded diagnostic", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTask();
+    const splitsPath = getContextSplitsPath(dir);
+    await mkdir(join(dir, ".scaler", "context"), { recursive: true });
+    await writeFile(splitsPath, `${JSON.stringify({ version: 1, splits: [null] }, null, 2)}\n`, "utf8");
+
+    const result = await prepareFreshContextHandoff(dir, state, { splitId: "broken", now: new Date("2026-01-01T00:00:04.000Z") });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.prompt, "");
+    assert.equal(result.record.promptPath, "");
+    assert.deepEqual(result.record.diagnostics, ["Fresh handoff split index is invalid."]);
+  });
+});
+
+test("fresh context handoff preserves malformed handoff evidence and blocks before publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTask();
+    const resolved = oversizedResolvedContext();
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: resolved.estimatedTokens, contextWindowTokens: 1_000, largeItemThresholdTokens: 100 });
+    const split = await recordContextSplitIfNeeded(dir, state, "T-COMPACT", resolved, assessment, new Date("2026-01-01T00:00:03.000Z"));
+    const handoffsPath = getContextHandoffsPath(dir);
+    const malformed = `${JSON.stringify({ version: 1, handoffs: null }, null, 2)}\n`;
+    await writeFile(handoffsPath, malformed, "utf8");
+
+    const result = await prepareFreshContextHandoff(dir, state, { splitId: split!.id, now: new Date("2026-01-01T00:00:04.000Z") });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.prompt, "");
+    assert.equal(result.record.promptPath, "");
+    assert.deepEqual(result.record.diagnostics, ["Fresh handoff index is invalid."]);
+    assert.equal(await readFile(handoffsPath, "utf8"), malformed);
+  });
+});
+
+test("fresh context handoff rejects altered externalized identity headers", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTask();
+    const resolved = oversizedResolvedContext();
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: resolved.estimatedTokens, contextWindowTokens: 1_000, largeItemThresholdTokens: 100 });
+    const split = await recordContextSplitIfNeeded(dir, state, "T-COMPACT", resolved, assessment, new Date("2026-01-01T00:00:03.000Z"));
+    const ref = split!.externalizedMemoryRefs[0]!;
+    const path = join(dir, ref.path);
+    const artifact = await readFile(path, "utf8");
+    await writeFile(path, artifact
+      .replace(`# Externalized Context Item ${ref.itemId}`, "# Externalized Context Item foreign-item")
+      .replace(`- taskId: ${split!.taskId}`, "- taskId: T-FOREIGN"), "utf8");
+
+    const result = await prepareFreshContextHandoff(dir, state, { splitId: split!.id, now: new Date("2026-01-01T00:00:04.000Z") });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.prompt, "");
+    assert.match(result.record.diagnostics.join(" "), /externalized context source is unavailable or changed/i);
+  });
+});
+
+test("fresh context handoff rejects externalized reference alias substitution", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTask();
+    const resolved = oversizedResolvedContext();
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: resolved.estimatedTokens, contextWindowTokens: 1_000, largeItemThresholdTokens: 100 });
+    const split = await recordContextSplitIfNeeded(dir, state, "T-COMPACT", resolved, assessment, new Date("2026-01-01T00:00:03.000Z"));
+    const exactRef = split!.externalizedMemoryRefs.find((ref) => ref.itemId === "exact-large")!;
+    const summaryRef = split!.externalizedMemoryRefs.find((ref) => ref.itemId === "summary-large")!;
+    const splitsPath = getContextSplitsPath(dir);
+    const index = JSON.parse(await readFile(splitsPath, "utf8")) as { version: 1; splits: Array<{ externalizedMemoryRefs: Array<typeof exactRef> }> };
+    index.splits[0]!.externalizedMemoryRefs = index.splits[0]!.externalizedMemoryRefs.map((ref) => ref.itemId === exactRef.itemId
+      ? { ...ref, memoryId: summaryRef.memoryId, path: summaryRef.path, sha256: summaryRef.sha256 }
+      : ref);
+    await writeFile(splitsPath, `${JSON.stringify(index, null, 2)}\n`, "utf8");
 
     const result = await prepareFreshContextHandoff(dir, state, { splitId: split!.id, now: new Date("2026-01-01T00:00:04.000Z") });
 
