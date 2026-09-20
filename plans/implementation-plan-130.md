@@ -25,9 +25,10 @@ new routes, semantic planning changes or model-quality work.
    dispatch or publication of a prepared/successful child run.
 2. Attach the existing runtime-owned strict provider policy to the exact request
    used to render and execute each child invocation.
-3. Preserve each path's current tool grants, model selection, timeout, prepare
-   mode, structured result ingestion, usage accounting and execution-lock
-   ownership.
+3. Preserve supported built-in/SCALER tool grants, model selection, timeout,
+   prepare mode, structured result ingestion, usage accounting and
+   execution-lock ownership. Refuse external extension-backed tool names that
+   the strict isolated loader cannot actually provide.
 4. Keep refusals fail closed: no runner call, no misleading successful/prepared
    run record and no downstream report/proposal/schema mutation.
 5. Keep the provider hook authoritative for the complete live request envelope,
@@ -45,8 +46,9 @@ new routes, semantic planning changes or model-quality work.
 - each admitted runner request carries the strict provider policy and its
   rendered invocation suppresses ambient extensions, skills, templates and
   context files;
-- existing research internet grants, report/proposal/schema ingestion, prepare
-  mode and workflow integrations remain green.
+- supported tool grants, report/proposal/schema ingestion, prepare mode and
+  workflow integrations remain green; browser/MCP extension grants refuse
+  before dispatch until a trusted capability transport exists.
 
 Run focused auxiliary-agent, schema-discovery, spawn-task, stage-workflow and
 debug-conductor tests, then build, the full unit/component suite, mock integration
@@ -73,11 +75,19 @@ and loads the provider-admission hook for the final live envelope.
 
 Focused regressions cover all five bypasses, exact-boundary and one-token-under
 decisions, malformed allowances, zero audit/run publication on auxiliary-agent
-refusal, preserved research/tool contracts and strict prepare-mode invocation.
-The candidate gate passes build, `git diff --check`, 1,003/1,003 unit/component
-tests, 67/67 mock integration tests and 7/7 conformance/autopilot checks.
+refusal, supported tool contracts and strict prepare-mode invocation. Review
+fixes also keep token allowances runtime-owned, avoid charging refused spawns,
+reject unavailable external grants, classify terminal Pi JSON abort/error as
+failure despite exit zero, and preserve successful retry recovery. The exact
+candidate passes build, `git diff --check`, 1,008/1,008 unit/component tests,
+67/67 mock integration tests and 7/7 conformance/autopilot checks.
 
 This evidence closes the reproduced child-launch admission gaps only. Parent
 interactive model calls, provider-internal retries, alternate provider payloads,
 exact tokenization and observed-usage reconciliation remain open, so SC-05 and
 AC-05 are not claimed complete.
+
+Strict children currently load only Pi built-ins plus the SCALER extension.
+Browser/MCP/custom extension tool names therefore fail closed rather than being
+advertised in prompts without an active implementation. This unit does not add
+the missing trusted external-capability adapter.

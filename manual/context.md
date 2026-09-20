@@ -119,6 +119,12 @@ attach this strict policy after early final-prompt admission. Parent interactive
 calls, provider-internal retries and reconciliation against observed usage
 remain later P3 work.
 
+Strict child launches can currently activate only Pi built-in tools and SCALER
+tools loaded by the isolated child profile. Browser, MCP and other external
+extension tool grants are rejected before preparation or dispatch when that
+profile cannot load them. SCALER does not claim those tools are available in a
+child prompt; a trusted external-capability loading adapter remains future work.
+
 ## Missing-context lifecycle
 
 Task agents must report missing data instead of guessing. When an accepted `scaler_task_report` uses `status=needs_data`/`blocked` or includes `missingData`, SCALER creates normalized requests under:

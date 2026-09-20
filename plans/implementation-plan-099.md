@@ -115,6 +115,9 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   replanning, tool-schema discovery and explicit task spawn. Oversized or
   malformed prompts now refuse before child dispatch and successful/prepared
   run publication, and admitted requests carry the strict provider policy.
+  Unsupported browser/MCP/custom extension grants also refuse rather than being
+  promised to a child whose isolated loader cannot provide them; a trusted
+  external-capability adapter remains open.
   Parent interactive calls, provider-internal retries and alternate provider
   payloads remain open; this is not SC-05/AC-05 completion.
 

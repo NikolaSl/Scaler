@@ -57,7 +57,11 @@ refuse malformed or oversized final prompts before runner dispatch and
 successful/prepared child-run publication. Admitted requests carry the strict
 provider policy into the installed host. Exact-boundary, one-token-under,
 malformed allowance, no-audit/run-record refusal and prepare/execute controls
-pass. Candidate gate: build, 1,003 unit/component, 67 mock integration and 7
+pass. Review fixes keep the allowance runtime-owned, prevent refused-spawn
+accounting, reject external tool names that the isolated loader cannot provide,
+and distinguish terminal JSON abort/error from successful retry recovery.
+Browser/MCP child transport remains unavailable and fails closed. Candidate
+gate: build, 1,008 unit/component, 67 mock integration and 7
 conformance/autopilot checks. SC-05 remains Partial because parent calls,
 alternate provider payloads, internal retries, exact tokenization and observed
 usage reconciliation remain open.
