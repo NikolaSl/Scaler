@@ -66,7 +66,7 @@ test("separate tool workers retain all request result and transaction identities
             const {record} = await prepareToolRequest(process.argv[1], state, {toolName:'read',request:'Synthetic',taskId:process.argv[2]});
             await runToolRequestAgent(process.argv[1], state, {requestId:record.id,execute:true}, async request => {
               await recordToolResult(process.argv[1], state, {requestId:record.id,executionId:request.executionId,status:'completed',summary:'Synthetic result',outputs:{ok:true}});
-              return {taskId:request.taskId,exitCode:0,stdoutEvents:[],stderr:'',timedOut:false,aborted:false};
+              return {taskId:request.taskId,exitCode:0,stdoutEvents:[],stderr:'',timedOut:false,aborted:false,stdoutBytes:0,stderrBytes:0};
             });
           } catch (error) { console.error(error); process.exitCode=1; }
           finally { process.disconnect(); }

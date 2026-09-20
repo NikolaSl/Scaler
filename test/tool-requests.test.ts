@@ -318,7 +318,7 @@ test("runToolSchemaDiscoveryAgent recognizes structured scaler_tool_schema compl
         schemaRef: "schema-mcp-search-v1",
         discoveredByAgentId: request.taskId,
       });
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
 
     assert.equal(result.accepted, true);
@@ -339,6 +339,8 @@ test("runToolSchemaDiscoveryAgent treats prose without schema record as missing_
       stderr: "",
       timedOut: false,
       aborted: false,
+      stdoutBytes: 0,
+      stderrBytes: 0,
     }));
 
     assert.equal(result.accepted, false);
@@ -413,7 +415,7 @@ test("runToolSchedule executes parallel then serial requests with structured res
       order.push(request.taskId);
       const requestId = request.taskId.replace(/^tool-/, "");
       await recordToolResult(dir, state, { requestId, executionId: request.executionId, status: "completed", summary: `Completed ${requestId}`, outputs: { ok: true } });
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     }, new Date("2026-01-01T00:00:00.000Z"));
 
     assert.equal(result.accepted, true);
@@ -448,7 +450,7 @@ test("runToolSchedule executes guarded requests sequentially even when paralleli
         outputs: { ok: true },
       } as Parameters<typeof recordToolResult>[2] & { executionId?: string });
       active -= 1;
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
 
     assert.equal(result.accepted, true);
@@ -540,7 +542,7 @@ test("runToolRequestAgent recognizes structured scaler_tool_result closure", asy
         outputs: { refs: ["docs:widget"] },
         validationPerformed: ["checked requested format"],
       });
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
 
     assert.equal(result.accepted, true);
@@ -608,6 +610,45 @@ test("runToolRequestAgent refuses a completed proposal without authoritative tra
     assert.equal((await loadToolResults(dir))[0]?.acceptanceStatus, "rejected");
     assert.match(result.message, /output limits invalid|measurements/i);
   });
+});
+
+test("runToolRequestAgent refuses malformed transport measurements", async () => {
+  const malformed = [
+    { stdoutBytes: null, stderrBytes: 0 },
+    { stdoutBytes: -1, stderrBytes: 0 },
+    { stdoutBytes: 0.5, stderrBytes: 0 },
+    { stdoutBytes: Number.MAX_SAFE_INTEGER + 1, stderrBytes: 0 },
+    { stdoutBytes: 0, stderrBytes: null },
+  ];
+  for (const measurements of malformed) {
+    await withTempDir(async (dir) => {
+      const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+      const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+      assert.ok(prepared.record);
+
+      const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+        await recordToolResult(dir, state, {
+          requestId: prepared.record!.id,
+          executionId: request.executionId,
+          status: "completed",
+          summary: "Completed with malformed transport evidence.",
+          outputs: { ok: true },
+        });
+        return {
+          taskId: request.taskId,
+          exitCode: 0,
+          stdoutEvents: [],
+          stderr: "",
+          timedOut: false,
+          aborted: false,
+          ...measurements,
+        } as unknown as Awaited<ReturnType<typeof import("../src/subagents.js").runTaskAgent>>;
+      });
+
+      assert.equal(result.accepted, false);
+      assert.equal(result.transaction?.status, "blocked");
+    });
+  }
 });
 
 test("result publication uses the same bounded representation as byte measurement", async () => {
@@ -733,7 +774,7 @@ test("runToolRequestAgent rejects a completed result when the child process fail
         summary: "Claimed completion before process failure.",
         outputs: { ok: true },
       } as Parameters<typeof recordToolResult>[2] & { executionId?: string });
-      return { taskId: request.taskId, exitCode: 1, stdoutEvents: [], stderr: "failed after result", timedOut: true, aborted: false };
+      return { taskId: request.taskId, exitCode: 1, stdoutEvents: [], stderr: "failed after result", timedOut: true, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
 
     assert.equal(result.accepted, false);
@@ -777,7 +818,7 @@ test("runToolRequestAgent accepts only a result bound to its execution", async (
         outputs: { ok: true },
       } as Parameters<typeof recordToolResult>[2] & { executionId: string }), /not the active prepared execution/);
       assert.ok((request as typeof request & { executionId?: string }).executionId);
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
 
     assert.equal(result.accepted, false);
@@ -808,7 +849,7 @@ test("runToolRequestAgent preserves replacement ownership when a stale execution
           ? { ...candidate, activeExecutionId: "replacement-live-execution" }
           : candidate),
       }, null, 2)}\n`, "utf8");
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
 
     assert.equal(result.accepted, false);
@@ -833,7 +874,7 @@ test("runToolRequestAgent refuses acceptance when its durable execution disappea
         outputs: { ok: true },
       });
       await writeFile(getToolTransactionsPath(dir), `${JSON.stringify({ version: 1, transactions: [] }, null, 2)}\n`, "utf8");
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
 
     assert.equal(result.accepted, false);
@@ -871,6 +912,8 @@ test("runToolRequestAgent finalizes before accounting usage against fresh state"
         stderr: "",
         timedOut: false,
         aborted: false,
+        stdoutBytes: 0,
+        stderrBytes: 0,
         usage: { totalTokens: 11, sources: ["test"] },
       };
     });
@@ -899,7 +942,7 @@ test("runToolRequestAgent rejects duplicate proposals for one execution", async 
           outputs: { ok: true },
         });
       }
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
 
     assert.equal(result.accepted, false);
@@ -928,13 +971,13 @@ test("runToolRequestAgent refuses a concurrent execution claim for one request",
         summary: "First execution completed.",
         outputs: { ok: true },
       });
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
     await started;
     let secondRunnerCalled = false;
     const second = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
       secondRunnerCalled = true;
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
     releaseFirst();
     const completed = await first;
@@ -965,6 +1008,8 @@ test("runToolRequestAgent treats free-form or missing structured result as incom
       stderr: "",
       timedOut: false,
       aborted: false,
+      stdoutBytes: 0,
+      stderrBytes: 0,
     }));
 
     assert.equal(result.accepted, false);
@@ -1003,6 +1048,8 @@ test("replayToolTransaction executes persisted invocation and recognizes structu
       stderr: "",
       timedOut: false,
       aborted: false,
+      stdoutBytes: 0,
+      stderrBytes: 0,
     }));
     assert.equal(original.transaction?.status, "blocked");
     const approval = await createToolReplayApproval(dir, state, { transactionId: original.transaction!.id, reason: "Explicit retry after ambiguous result" });
@@ -1018,7 +1065,7 @@ test("replayToolTransaction executes persisted invocation and recognizes structu
         outputs: { refs: ["docs-widget"] },
         validationPerformed: ["checked replay output"],
       });
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
 
     assert.equal(replay.accepted, true);
@@ -1035,7 +1082,7 @@ test("replayToolTransaction refuses execute for closed requests", async () => {
     assert.ok(prepared.record);
     const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
       await recordToolResult(dir, state, { requestId: prepared.record!.id, executionId: request.executionId, status: "completed", summary: "Done.", outputs: { ok: true } });
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
 
     const replay = await replayToolTransaction(dir, state, { transactionId: original.transaction!.id, execute: true });
@@ -1054,7 +1101,7 @@ test("tool replay approvals can be created, listed, revoked, and validated", asy
     assert.ok(prepared.record);
     const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
       await recordToolResult(dir, state, { requestId: prepared.record!.id, executionId: request.executionId, status: "completed", summary: "Done.", outputs: { ok: true } });
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
     assert.ok(original.transaction);
 
@@ -1084,14 +1131,14 @@ test("replayToolTransaction executes closed requests only with a matching approv
     assert.ok(prepared.record);
     const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
       await recordToolResult(dir, state, { requestId: prepared.record!.id, executionId: request.executionId, status: "completed", summary: "Done.", outputs: { ok: true } });
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
     assert.ok(original.transaction);
     const approval = await createToolReplayApproval(dir, state, { transactionId: original.transaction.id, reason: "Second pass" });
 
     const approved = await replayToolTransaction(dir, state, { transactionId: original.transaction.id, execute: true, approvalId: approval.id }, async (request) => {
       await recordToolResult(dir, state, { requestId: prepared.record!.id, executionId: request.executionId, status: "completed", summary: "Replay done.", outputs: { replay: true } });
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
 
     assert.equal(approved.accepted, true);
@@ -1115,7 +1162,7 @@ test("replayToolTransaction reserves a one-use approval before dispatch", async 
     assert.ok(prepared.record);
     const original = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
       await recordToolResult(dir, state, { requestId: prepared.record!.id, executionId: request.executionId, status: "completed", summary: "Done.", outputs: { ok: true } });
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
     const approval = await createToolReplayApproval(dir, state, { transactionId: original.transaction!.id, reason: "One retry" });
     let release!: () => void;
@@ -1129,12 +1176,12 @@ test("replayToolTransaction reserves a one-use approval before dispatch", async 
       started();
       await wait;
       await recordToolResult(dir, state, { requestId: prepared.record!.id, executionId: request.executionId, status: "completed", summary: "Replay done.", outputs: { ok: true } });
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
     await didStart;
     const second = await replayToolTransaction(dir, state, { transactionId: original.transaction!.id, execute: true, approvalId: approval.id }, async (request) => {
       runnerCalls += 1;
-      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
     });
     release();
     const completed = await first;
@@ -1163,6 +1210,8 @@ test("replayToolTransaction treats replay prose without result as missing_result
       stderr: "",
       timedOut: false,
       aborted: false,
+      stdoutBytes: 0,
+      stderrBytes: 0,
     }));
 
     assert.equal(replay.accepted, false);
@@ -1217,6 +1266,8 @@ test("runToolIterationWorkflow blocks after an ambiguous missing result without 
         stderr: "",
         timedOut: false,
         aborted: false,
+        stdoutBytes: 0,
+        stderrBytes: 0,
       };
     });
 
@@ -1244,6 +1295,8 @@ test("runToolIterationWorkflow stops after the first ambiguous missing result", 
       stderr: "",
       timedOut: false,
       aborted: false,
+      stdoutBytes: 0,
+      stderrBytes: 0,
     }));
 
     assert.equal(result.accepted, false);

@@ -228,7 +228,7 @@ export async function runTaskAgent(
     child.stdout.on("data", (chunk: Buffer) => {
       const remaining = Math.max(0, outputLimits.stdoutBytes - stdoutBytes);
       const retained = chunk.length <= remaining ? chunk : chunk.subarray(0, remaining);
-      stdoutBytes = chunk.length <= remaining ? stdoutBytes + chunk.length : outputLimits.stdoutBytes + 1;
+      stdoutBytes = addObservedBytes(stdoutBytes, chunk.length);
       if (retained.length > 0) stdoutBuffer += stdoutDecoder.write(retained);
       const lines = stdoutBuffer.split("\n");
       stdoutBuffer = lines.pop() ?? "";
@@ -239,7 +239,7 @@ export async function runTaskAgent(
     child.stderr.on("data", (chunk: Buffer) => {
       const remaining = Math.max(0, outputLimits.stderrBytes - stderrBytes);
       const retained = chunk.length <= remaining ? chunk : chunk.subarray(0, remaining);
-      stderrBytes = chunk.length <= remaining ? stderrBytes + chunk.length : outputLimits.stderrBytes + 1;
+      stderrBytes = addObservedBytes(stderrBytes, chunk.length);
       if (retained.length > 0) stderr += stderrDecoder.write(retained);
       if (chunk.length > remaining) latchOutputLimit("stderr");
     });
@@ -330,6 +330,11 @@ function validateTaskAgentOutputLimits(limits: TaskAgentOutputLimits): TaskAgent
     throw new Error("Invalid task-agent output limit: stdoutBytes and stderrBytes must be positive safe integers.");
   }
   return { stdoutBytes: limits.stdoutBytes, stderrBytes: limits.stderrBytes };
+}
+
+function addObservedBytes(current: number, additional: number): number {
+  if (current > Number.MAX_SAFE_INTEGER - additional) return Number.MAX_SAFE_INTEGER;
+  return current + additional;
 }
 
 function isPositiveSafeInteger(value: unknown): value is number {

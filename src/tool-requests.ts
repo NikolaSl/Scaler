@@ -1709,7 +1709,9 @@ async function writeToolTransactionIndex(cwd: string, transactions: ToolTransact
 
 // Readers see either complete snapshot. This is not a transaction across indexes.
 async function publishToolExecutionIndex(path: string, index: unknown): Promise<void> {
-  const contents = `${JSON.stringify(index, null, 2)}\n`;
+  // Result byte admission measures compact JSON. Use the same representation
+  // on disk so nested values cannot amplify through pretty-print indentation.
+  const contents = `${JSON.stringify(index)}\n`;
   await mkdir(dirname(path), { recursive: true });
   const temporary = `${path}.${randomUUID()}.tmp`;
   const file = await open(temporary, "wx", 0o600);
@@ -1919,28 +1921,14 @@ async function runToolAgentWithOutcome(
 
 function normalizeToolRunMeasurements(result: TaskAgentRunResult, limits: TaskAgentOutputLimits): TaskAgentRunResult {
   const stdoutBytes = result.stdoutBytes === undefined
-    ? measureInjectedStdoutEvents(result.stdoutEvents)
+    ? Number.MAX_SAFE_INTEGER
     : isNonNegativeSafeInteger(result.stdoutBytes) ? result.stdoutBytes : Number.MAX_SAFE_INTEGER;
   const stderrBytes = result.stderrBytes === undefined
-    ? Buffer.byteLength(result.stderr, "utf8")
+    ? Number.MAX_SAFE_INTEGER
     : isNonNegativeSafeInteger(result.stderrBytes) ? result.stderrBytes : Number.MAX_SAFE_INTEGER;
   const outputLimitExceeded = result.outputLimitExceeded
     ?? (stdoutBytes > limits.stdoutBytes ? "stdout" : stderrBytes > limits.stderrBytes ? "stderr" : undefined);
   return { ...result, stdoutBytes, stderrBytes, outputLimitExceeded };
-}
-
-function measureInjectedStdoutEvents(events: unknown[]): number {
-  try {
-    return events.reduce<number>((total, event) => {
-      const serialized = JSON.stringify(event);
-      if (serialized === undefined) throw new Error("unserializable event");
-      const next = total + Buffer.byteLength(serialized, "utf8") + 1;
-      if (!Number.isSafeInteger(next)) throw new Error("event bytes overflow");
-      return next;
-    }, 0);
-  } catch {
-    return Number.MAX_SAFE_INTEGER;
-  }
 }
 
 async function beginToolExecution(

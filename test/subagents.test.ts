@@ -321,6 +321,25 @@ test("runTaskAgent reports all raw bytes observed in the chunk that crosses the 
   });
 });
 
+test("runTaskAgent escalates output overflow when the child ignores TERM", { skip: process.platform === "win32" }, async () => {
+  const script = `#!/usr/bin/env node
+process.on("SIGTERM", () => {});
+process.stdout.write(Buffer.alloc(1024, 120));
+setInterval(() => {}, 1000);
+setTimeout(() => process.exit(0), 7000);
+`;
+  await withScript(script, async (command, dir) => {
+    const result = await runTaskAgent(
+      { taskId: "T-output-ignore-term", prompt: "ignored", cwd: dir },
+      { command, outputLimits: { stdoutBytes: 8, stderrBytes: 64 }, timeoutMs: 10_000 },
+    );
+    assert.equal(result.outputLimitExceeded, "stdout");
+    assert.equal(result.stdoutBytes, 1024);
+    assert.equal(result.exitCode, 125);
+    assert.match((await loadWatchdogCleanupRecords(dir))[0]?.signal ?? "", /SIGKILL/);
+  });
+});
+
 test("runTaskAgent refuses invalid runtime output limits before spawn", async () => {
   await withScript("#!/bin/sh\necho launched > launched.txt\n", async (command, dir) => {
     for (const stdoutBytes of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
