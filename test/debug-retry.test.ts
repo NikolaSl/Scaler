@@ -14,11 +14,12 @@ import { approveDebugRetry, buildNextApproachContextItem, formatDebugRetryPolicy
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult, RunTaskAgentOptions } from "../src/subagents.js";
 import type { ScalerState } from "../src/types.js";
-import { getValidationManifestForTask, saveValidationManifest, runTaskValidation, upsertValidationManifestCommand } from "../src/validation.js";
+import { getValidationManifestForTask, loadValidationRuns, saveValidationManifest, runTaskValidation, upsertValidationManifestCommand } from "../src/validation.js";
 import { getBudgetState, setBudgetLimits } from "../src/budgets.js";
 import { loadTaskAttempts } from "../src/task-attempts.js";
 import { loadTaskAgentReports } from "../src/task-reports.js";
 import { loadExecutionLock } from "../src/locks.js";
+import { saveTaskContextManifest } from "../src/context.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-debug-retry-test-"));
@@ -101,6 +102,36 @@ test("debug retry refuses hard budget before running state or attempt admission"
   });
 });
 
+test("debug retry refuses an oversized final prompt before attempt and runner", async () => {
+  await withTempDir(async (dir) => {
+    const state = await seedDebuggingTask(dir);
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-RETRY",
+      tokenBudget: 100,
+      items: [{
+        id: "huge-exact", type: "file", reason: "The retry requires exact source.",
+        priority: "required", scope: "full", exactness: "exact", source: "inline",
+        content: "x".repeat(20_000),
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.updatedAt,
+    });
+    let runnerCalls = 0;
+    const result = await runDebugNextApproachRetry(dir, state, { execute: true }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.status, "rejected");
+    assert.equal(result.promptAdmission?.accepted, false);
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+    assert.equal((await loadState(dir)).tasks.find((task) => task.id === "T-RETRY")?.status, "debugging");
+    assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents ?? 0, 0);
+  });
+});
+
 test("debug retry refuses an incomplete task contract before dispatch", async () => {
   await withTempDir(async (dir) => {
     const state = await seedDebuggingTask(dir);
@@ -159,6 +190,44 @@ test("debug retry binds reports and rejects stale attempts before exact validati
     assert.equal(result.exactValidationRun, undefined);
     assert.equal((await loadState(dir)).tasks[0]?.status, "blocked");
     assert.deepEqual(await loadTaskAgentReports(dir), []);
+  });
+});
+
+test("debug retry rejects a result after admitted file context is deleted", async () => {
+  await withTempDir(async (dir) => {
+    const state = await seedDebuggingTask(dir);
+    await writeFile(join(dir, "reference.md"), "# Target\nORIGINAL\n", "utf8");
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-RETRY",
+      items: [{
+        id: "target", type: "file", reason: "Required retry context", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.updatedAt,
+    });
+    const validationRunsBefore = await loadValidationRuns(dir);
+
+    const result = await runDebugNextApproachRetry(dir, state, { execute: true }, async (request) => {
+      await rm(join(dir, "reference.md"));
+      await writeFile(join(dir, "fixed.txt"), "ok\n", "utf8");
+      return passingRun(request);
+    });
+
+    assert.equal(result.accepted, false, "debug retry must not validate work based on deleted context");
+    assert.equal(result.status, "rejected");
+    assert.match(result.message, /context.*(missing|changed|stale).*reference\.md/i);
+    assert.equal(result.exactValidationRun, undefined);
+    assert.deepEqual(await loadTaskAgentReports(dir), []);
+    assert.equal((await loadValidationRuns(dir)).length, validationRunsBefore.length);
+    const [attempt] = await loadTaskAttempts(dir);
+    assert.equal(attempt?.status, "interrupted");
+    assert.equal(attempt?.outcome, "unknown");
+    assert.equal(attempt?.reportId, undefined);
+    assert.equal(attempt?.outputFingerprint, undefined);
+    assert.equal(attempt?.validationContextFingerprint, undefined);
   });
 });
 
@@ -266,6 +335,10 @@ test("runDebugNextApproachRetry executes next approach and leaves exact-pass tas
   await withTempDir(async (dir) => {
     const state = await seedDebuggingTask(dir);
     const runner = async (request: TaskAgentRequest, _options?: RunTaskAgentOptions): Promise<TaskAgentRunResult> => {
+      assert.ok(request.providerAdmission);
+      assert.equal(request.providerAdmission.outputReserveTokens, 1_024);
+      assert.equal(request.providerAdmission.safetyMarginTokens, 1_024);
+      assert.ok(request.providerAdmission.requestTokenAllowance > 0);
       await writeFile(join(request.cwd ?? dir, "fixed.txt"), "ok\n", "utf8");
       return passingRun(request);
     };

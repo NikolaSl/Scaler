@@ -49,7 +49,15 @@ interface ContextSplitIndex {
 export async function loadContextSplitRecords(cwd: string): Promise<ContextSplitRecord[]> {
   try {
     const raw = await readFile(getContextSplitsPath(cwd), "utf8");
-    return (JSON.parse(raw) as ContextSplitIndex).splits;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Invalid context split index.");
+    }
+    const index = parsed as Partial<ContextSplitIndex>;
+    if (index.version !== 1 || !Array.isArray(index.splits)) {
+      throw new Error("Invalid context split index.");
+    }
+    return index.splits;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;

@@ -16,9 +16,14 @@ is a durable continuation record; scheduled execution is recorded separately.
 
 Nikola explicitly authorized autonomous implementation and merging PRs after
 review when there are no valid unresolved findings and applicable tests pass.
+Copilot review remains preferred when it executes, but on 2026-09-17 Nikola
+authorized an independent exact-head fallback after repeated accepted review
+requests produced no pending or completed review. The current scheduled window
+still requires a completed exact-head Copilot review; independent review only
+supplements that gate. Nikola renewed autonomous work again on 2026-09-19 at
+20:52:02Z.
 The current unattended mutation deadline is `2026-09-20T20:52:02Z`
-(23:52:02 Europe/Sofia). Nikola renewed this window on 2026-09-19; it supersedes
-all earlier cutoffs.
+(23:52:02 Europe/Sofia). This supersedes all earlier cutoffs.
 Stop unattended mutations then and preserve a handoff unless Nikola extends
 or changes the instruction. No paid model spending or deployment is authorized.
 
@@ -58,10 +63,71 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
 - Report meaningful published commits in Bulgarian with commit links, purpose,
   validation and next action. Group related commits when necessary; do not make
   empty reporting commits or repeatedly announce an unchanged pending review.
-- PRs #3-#21 are merged. PR #21 merged as `cbf2b19` after an exact-head Copilot
-  review. Remaining P2 acceptance work is reconciled with that merge on
-  `implementation/v2-p2-acceptance`; publish one coherent P2 phase PR rather
-  than a PR per plan or defect.
+- PRs #3-#22 are merged. The coherent remaining-P2 PR #22 merged on 2026-09-20
+  as `55bfcc034cb0b570be144f549c040e731ee89e4c` after raw exact-head review
+  commit-id verification for `95c5ea6fe0bdf2cc5ba5e84ca09866a2a68fece8`,
+  resolved threads, two independent reviews and a full gate. P3 is reconciled
+  with that result. PLAN-119 through PLAN-121 cover SCALER prompt admission,
+  provider-envelope admission and exact Markdown-section retrieval. PLAN-122
+  binds admitted file context to its source bytes across dispatch and result
+  acceptance, including exact-output, symlink and non-regular-file boundaries.
+  After its exact-head gate and reviews, reassess the remaining P3 acceptance
+  matrix before selecting the next bounded unit; do not infer phase completion
+  from these isolated components. PLAN-123 corrects first-request active-tool
+  timing in the installed host, binds the selected definitions to a measured
+  identity and fails closed on unsupported prompt composition. PLAN-124 adds a
+  non-authorizing per-request route assessment over complete concrete
+  provider-envelope evidence. It measures every route leg, requires explicit
+  current-agent or worker/continuation roles, fails closed on malformed runtime
+  evidence and records only compact advice. Route execution remains a later
+  unit; neither PLAN-123 nor PLAN-124 is AC-08 completion.
+  PLAN-125 first closes the isolated executor's result-acceptance prerequisite:
+  child results become execution-bound proposals, only a successful parent-
+  observed process outcome may close the request, and scheduled tool work is
+  sequential. Replay approval is reserved atomically with the execution claim,
+  stale finalizers preserve replacement ownership, and request closure is the
+  last multi-index publication. Provider-envelope admission and route execution
+  remain later units; PLAN-125 is not AC-08 completion. PLAN-126 bounds the
+  isolated subprocess transport and compact serialized execution-bound result:
+  raw-byte stdout/stderr caps terminate the owned child, actual measurements and
+  immutable result bytes are rechecked at finalization, and unknown measurements
+  fail closed. Measurement and ledger publication now use the same compact JSON
+  representation. PLAN-124 advice deliberately remains non-authorizing because
+  the live worker and caller-continuation envelopes do not yet share a trusted
+  dispatch-time supplier. PLAN-126 therefore closes an execution prerequisite,
+  not SC-08/AC-08 or any quality/savings claim. PLAN-127 makes a fresh trusted
+  supplier mandatory immediately before isolated execution, binds its worker
+  and caller-continuation evidence to the claimed request/execution identity,
+  binds the exact selected worker model into strict provider admission, and
+  fails closed when that supplier is unavailable. Replay approval is consumed
+  only after a fresh admission and atomic execution claim. The installed Pi command
+  surface cannot yet supply a trustworthy future continuation payload, so
+  execution remains unavailable there instead of reconstructing or inventing
+  one. This closes an unsafe dispatch default but still does not complete
+  SC-08/AC-08. PLAN-128 applies the same fail-closed discipline to the legacy
+  fresh-context handoff route: preparation revalidates complete minimal-item and
+  externalized-source provenance without clipping exact bytes, while `execute`
+  refuses before the runner until conductor-equivalent attempt, provider and
+  result admission exist. It does not complete automatic effective splitting,
+  SC-07, SC-08 or AC-08.
+
+### Renewed continuation policy (2026-09-19)
+
+The current scheduled instruction requires a completed Copilot review covering
+the exact merge candidate; independent reviews supplement, not replace, that
+gate for this window. Do not treat the historical fallback above as permission
+to skip the current gate. Verify the raw review `commit_id`, not only the
+normalized review summary. If a request is stuck, one bounded remove/re-add of
+`copilot-pull-request-reviewer[bot]` is permitted; API success is not evidence of
+execution. Preserve all branch protections and use expected-head merge commits.
+
+Continue coherent phase branches with separate logical commits, at most one PR
+in review and one next unit in preparation. Claim a bounded continuation marker
+after checking live agents, processes, worktrees and Git state; release it at
+handoff. Report published commit links, actual checks, blockers and next steps
+in Bulgarian on each scheduled run. Never imply continuous execution between
+runs or manufacture commits for reports. All delegated reviews remain GPT-6
+Astra/high or higher. Paid model calls and deployments remain out of scope.
 
 ## Architecture direction
 
@@ -184,171 +250,3 @@ gate passes build, 649 unit and 67 mock integration tests. None of these units
 establishes universal output/semantic acceptance or full P2.3 completion.
 
 PLAN-110 binds explicitly declared filesystem outputs independently of Git at
-validation, commit/skip and completion boundaries. Its gate passes build,
-671 unit, 67 mock integration and 7 conformance/autopilot checks. Declaration
-coverage/authority and mandatory admission, plus semantic/integration acceptance,
-remain pending; P2.3 is not complete.
-
-PLAN-111 refuses final completion of skipped tasks without an explicit declared
-output basis, preserving preconfigured output paths across command updates.
-Gate: build, 676 unit, 67 mock integration and 7 conformance/autopilot. Per-task
-skip admission and declaration transport are the next bounded units; adequacy,
-authority and semantic/integration acceptance remain open.
-
-PLAN-112 transports explicit outputPaths through execution plans, structured
-task create/update and stage child reports, preserving omitted versus [] and
-existing/default commands. Combined gate after review corrections: build, 690
-unit, 67 mock integration and 7 conformance/autopilot. Next is per-task skip
-admission with missing output declarations; P2.3 remains incomplete.
-
-PLAN-113 now refuses per-task automatic/explicit commit skips with omitted
-outputPaths. Six baseline failures are fixed; fixture migration retains original
-assertions and independent historical completion/Git-candidate tests. Build,
-696 unit, 67 mock integration and 7 conformance/autopilot pass. Next: inventory
-remaining acceptance/policy-authority and final integration gaps before the next
-bounded regression. Declarations do not establish semantic or authority proof.
-
-PLAN-114 reuses the final-completion proof before dependent worker admission.
-A stale validated-ID label can no longer dispatch downstream work after the
-dependency's current accepted output/evidence changes. Copilot follow-up also
-makes the shared rejection structured and defers projected agent-budget
-publication until the final dependency check succeeds in conductor and debug
-retry. Snapshot failures also become dependency-scoped refusals instead of
-escaping admission as generic exceptions. Seven focused checks cover the
-reproduced false dispatch, both late-race paths, shared admission and snapshot
-failure, current and unrelated controls; build, 703 unit, 67
-mock integration and 7 conformance/autopilot pass. This is
-direct declared-dependency freshness only; graph validity, semantic/integration
-acceptance and policy authority remain open, so P2.3 is not complete.
-
-PLAN-115 adds the missing AC-02 execution-contract admission boundary. Conductor,
-debug retry and shared attempt admission refuse tasks without explicit write
-scope, declared output basis or an acceptance statement before worker, attempt,
-task-transition or spawned-agent side effects. Four bypass regressions failed on
-the prior code; seven focused checks include late mutation, refusal before dirty-tree
-checkpointing, malformed legacy field shapes and a compact explicit
-no-filesystem-output control. Build, 710 unit, 67 mock integration and 7
-conformance/autopilot pass. Declaration sufficiency/authority and semantic or
-integration acceptance remain open; no unrelated task-quality fields or inferred
-defaults were added.
-
-PLAN-116 adds current runtime-requirement coverage to final run completion. Every
-recorded requirement must link only to tasks present in current state and compute
-to `validated`; unlinked requirements and stale explicit task ids fail closed.
-Two baseline failures and one positive control cover the new boundary. Build,
-713 unit, 67 mock integration and 7 conformance/autopilot checks pass. This does
-not verify semantic link correctness, minimality, authority or cross-task
-integration adequacy; P2.3 and SC-10/26 remain incomplete.
-
-PLAN-117 binds validation receipt schema v3 to the current content of every
-runtime requirement referenced by the task. A changed statement/title/source or
-a missing-to-present reference invalidates old evidence across validation,
-commit/skip, dependency admission and completion; identical content rewrites do
-not. Two baseline false completions and the stable-content control pass. Build,
-718 unit, 67 mock integration and 7 conformance/autopilot checks pass. Semantic
-link sufficiency and requirement-level integration acceptance remain open.
-
-1. Add a regression for the concrete defect and observe failure on the prior code.
-2. Implement the smallest sufficient fix; preserve unrelated user changes.
-3. Run focused checks, then build/integration when the boundary warrants it.
-4. Update this record and the affected coverage notes with evidence and limits.
-5. Commit one coherent change with its tests and traceability. Never commit secrets,
-   generated runtime logs, node_modules or unrelated formatting.
-6. Publish a reviewable PR with ordered commits; do not squash away diagnostic
-   boundaries during development. A later fix is a new commit, not rewritten history.
-
-The final P1 gate is build plus unit/mock integration tests, with pre-existing
-failures distinguished from regressions. A failed gate is not silently waived.
-Real-model and full-host end-to-end claims require actual execution in P7.
-
-## Execution record
-
-- Planning: inspected the merged requirements and relevant implementation paths;
-  selected the four bounded P1 units above. All later phases remain pending.
-- Baseline (`8f4cf19`): TypeScript build passed; 488/488 unit tests and 66/67 mock
-  integration tests passed. The sole failure is the known retention fixture using
-  December 2025 timestamps against the current clock. Add P1.0: correct only that
-  fixture's time reference in a separate commit, retaining old/new deletion checks.
-- P1.0: the command-level retention fixture now uses 300-day-old and one-day-old
-  artifacts around the unchanged 200-day boundary. All five storage-maintenance
-  integration tests pass; deletion and preservation assertions remain intact.
-- P1.1: regression tests first reproduced a read-side timestamp rewrite and a torn
-  JSON read. Atomic same-directory publication and exclusive initialization now
-  pass state/checkpoint checks (15/15) and the TypeScript build. Failed publication
-  preserves the destination and cleans temporary data. Multi-writer revision
-  checks and power-loss recovery are not established by these tests.
-- P1.2: four regressions failed before the fix (preview status, rejected spawn
-  accounting, overwritten child updates, replaced-run result). Conductor/autopilot
-  tests now pass 27/27. Preview preserves pending/ready status; only admitted
-  execution sets running. Handoff reloads durable state and rejects a replaced
-  run or ineligible task. This is not general revision-checked concurrency or
-  authenticated attempt acceptance; those remain P2 work.
-- P1.3: four regressions reproduced false-success exits for timeout/abort,
-  ineffective escalation of a TERM-ignoring process, and launching after prior
-  cancellation. Subagent/watchdog checks now pass 20/20; the real resistant child
-  exits on SIGKILL and its PID is gone before completed cleanup is recorded.
-  Normal completion and spawn failure release cancellation listeners. Build passes.
-  The evidence covers the directly owned POSIX process, not descendant containment
-  or equivalent Windows signal semantics.
-- P1.4: the host-shaped regression failed before the API-owner correction. Context
-  focus/restore now uses typed ExtensionAPI methods. Correcting this exposed a
-  necessary child/parent distinction: spawned children preserve their selected
-  tools instead of receiving parent focus. Combined extension/subagent tests pass
-  29/29; build passes. The strengthened real Pi catalog-command test passes 1/1
-  with the installed host, no model request. Full model-driven host acceptance
-  and the three-mode routing migration remain P3/P7 work.
-- Background execution: no cloud job or automation was created. Resume from this
-  plan and repository history, checking current branch/PR state before writing.
-
-## P1 final gate and next handoff
-
-- 2026-09-16: `npm run build` passed; `npm test` passed 501/501 unit tests
-  and 67/67 mocked integration tests. The installed Pi 0.80.3 catalog-command
-  integration passed 1/1 without a model request. `git diff --check` passed.
-- Spark's exact provider/model ID is recognized by installed Pi. The user
-  authorized a test and completed browser-side device authorization, but the
-  environment blocked the request to `auth.openai.com` during token retrieval.
-  Pi reported no saved Codex authentication. No model request was made; the
-  model-backed check remains blocked, not passed. No credentials or device codes
-  are stored in this repository.
-- Next: refine P2 into mutation-path inventory, minimal versioned acceptance
-  contracts, revision checks and interruption fixtures before editing those paths.
-  P1 closes specific regressions; it does not establish overall v2 conformance.
-
-## PR #2 Copilot follow-up
-
-### Subsequent model access verification
-
-- Pi 0.85.1 was configured with `opencode-free-test/big-pickle` using OpenCode
-  Zen's public free access. A no-tools prompt returned exactly `OK`.
-- The existing real contract `task agent report gates validation handoff`
-  passed 1/1 with that model (about 24 seconds, 45-second timeout). It exercises
-  structured report ingestion, persisted task status `validating`, and durable
-  `validation_required` handoff using a synthetic fixture. It does not verify
-  actual coding or QA execution. No full real-model suite was run.
-- Earlier Codex authentication notes above describe the initial attempt only.
-  Subsequent OAuth exchanges saved credentials successfully, but model requests
-  still returned HTTP 401. Free-provider success removes that dependency for
-  these tests; it does not resolve the separate Codex issue.
-- Reproducible non-secret configuration and commands are in `manual/testing.md`
-  and `test/integration/real/pi-free-models.example.json`. Pi's existing auth
-  entries were not changed for the free-provider setup.
-
-### Review changes
-
-- Review comment 4030518863: valid maintainability concern, not a reproduced
-  current failure. Refused dispatch now excludes projected `spawnedAgents` by
-  key instead of retaining only array position zero. All other budget updates
-  remain eligible regardless of ordering. Existing conductor/budget checks pass
-  32/32, covering rejected dispatch and successful context/spawn accounting.
-- Review comment 4030518931: valid readability issue. Corrected indentation
-  throughout the conductor's existing try body; whitespace-insensitive diff
-  confirms no semantic change in this commit.
-- Review comment 4030518996: wording clarification only. The previous comment
-  correctly allowed for an existing state published by a writer, but did not
-  clearly distinguish exclusive initialization from normal replacement. The
-  revised comment explicitly describes link for initialization and rename for
-  saves, preserving the existing-state protection.
-- Follow-up gate: conductor/budget tests 32/32, TypeScript build and
-  `git diff --check` pass. Formatting/comment edits do not change runtime logic;
-  no new model request or full-conformance claim is introduced.

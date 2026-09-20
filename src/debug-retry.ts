@@ -8,7 +8,7 @@ import { dirname } from "node:path";
 import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
 import { captureValidationContext, checkAttemptEvidence } from "./attempt-evidence.js";
 import { verifyTaskDependenciesAccepted } from "./accepted-evidence.js";
-import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult, interruptTaskExecution, reconcileInterruptedTaskAttempt, TaskContractAdmissionError, TaskDependencyAdmissionError, verifyTaskExecutionContract } from "./attempt-execution.js";
+import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult, interruptTaskExecution, reconcileInterruptedTaskAttempt, TaskContextAdmissionError, TaskContractAdmissionError, TaskDependencyAdmissionError, verifyTaskExecutionContract } from "./attempt-execution.js";
 import { completeTaskAttempt, taskAttemptBinding, type TaskAttemptRecord } from "./task-attempts.js";
 import {
   applyTaskRunHandoff,
@@ -17,7 +17,7 @@ import {
   summarizeTaskAgentReportIngestion,
   type TaskAgentRunner,
 } from "./conductor.js";
-import { ensureTaskContextManifest, resolveTaskContextManifest, type ContextItem } from "./context.js";
+import { ensureTaskContextManifest, getRequiredContextDiagnostics, resolveTaskContextManifest, type ContextItem } from "./context.js";
 import {
   loadDebugReports,
   loadDebugRetries,
@@ -30,6 +30,8 @@ import { appendLogEvent, createLogEvent, logAgentPromptAudit, logValidationSumma
 import { commitWithExecutionLock, runValidationWithExecutionLock, type LockedOperationResult } from "./operations.js";
 import { getDebugRetryApprovalsPath, getDebugRetryPolicyPath } from "./paths.js";
 import { recordProviderUsageBudget } from "./provider-usage.js";
+import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
+import { assessTaskPromptAdmission, createPromptSizingAttemptBinding, resolveTaskPromptTokenBudget, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
 import { loadState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import { ingestTaskAgentReportFromRun } from "./task-reports.js";
@@ -104,6 +106,7 @@ export interface DebugNextApproachRetryResult {
   invocation?: TaskAgentInvocation;
   runResult?: TaskAgentRunResult;
   exactValidationRun?: ValidationRunRecord;
+  promptAdmission?: TaskPromptAdmissionDecision;
 }
 
 export interface DebugRetryPolicyWorkflowResult extends DebugNextApproachRetryResult {
@@ -287,13 +290,45 @@ export async function runDebugNextApproachRetry(
     const runningTask = workingState.tasks.find((task) => task.id === selection.task.id) ?? selection.task;
     const manifest = await ensureTaskContextManifest(cwd, workingState, runningTask.id);
     const baseContext = await resolveTaskContextManifest(cwd, workingState, manifest);
+    const requiredContextDiagnostics = getRequiredContextDiagnostics(baseContext);
+    if (requiredContextDiagnostics.length > 0) {
+      const message = requiredContextDiagnostics.join(" ");
+      const retry = await upsertRetryRecord(cwd, buildRetryRecord(selection, "rejected", false, message));
+      await appendLogEvent(cwd, createLogEvent(workingState, {
+        eventType: "rejected_transition", summary: message, taskId: runningTask.id,
+        details: { admission: "required_context", diagnostics: requiredContextDiagnostics },
+      }));
+      return { accepted: false, message, status: "rejected", state: workingState, task: runningTask, retry };
+    }
     const retryContext = buildNextApproachContextItem(selection);
+    const promptTokenBudget = resolveTaskPromptTokenBudget(options.tokenBudget, manifest.tokenBudget);
     let { prompt, resolvedContext } = buildTaskAgentPrompt({
       state: workingState,
       task: runningTask,
       contextItems: [...baseContext, retryContext],
-      tokenBudget: options.tokenBudget ?? manifest.tokenBudget,
+      tokenBudget: promptTokenBudget,
     });
+
+    if (options.execute) {
+      const sizedPrompt = buildTaskAgentPrompt({
+        state: workingState,
+        task: runningTask,
+        contextItems: [...baseContext, retryContext],
+        tokenBudget: promptTokenBudget,
+        attempt: createPromptSizingAttemptBinding(workingState.runId),
+      }).prompt;
+      const promptAdmission = assessTaskPromptAdmission(sizedPrompt, promptTokenBudget);
+      if (!promptAdmission.accepted) {
+        const retry = await upsertRetryRecord(cwd, buildRetryRecord(selection, "rejected", false, promptAdmission.message));
+        await appendLogEvent(cwd, createLogEvent(workingState, {
+          eventType: "rejected_transition",
+          summary: promptAdmission.message,
+          taskId: runningTask.id,
+          details: { admission: "final_prompt", promptAdmission },
+        }));
+        return { accepted: false, message: promptAdmission.message, status: "rejected", state: workingState, task: runningTask, retry, prompt, promptAdmission };
+      }
+    }
 
     const budgetUpdates = [
       { key: "contextTokens", amount: resolvedContext.estimatedTokens, mode: "set" },
@@ -319,12 +354,12 @@ export async function runDebugNextApproachRetry(
       try {
         activeAttempt = await admitTaskExecution(cwd, lock.lock.id, workingState, runningTask, resolvedContext, options.model, options.tools ?? []);
       } catch (error) {
-        if (!(error instanceof TaskDependencyAdmissionError) && !(error instanceof TaskContractAdmissionError)) throw error;
+        if (!(error instanceof TaskDependencyAdmissionError) && !(error instanceof TaskContractAdmissionError) && !(error instanceof TaskContextAdmissionError)) throw error;
         const message = error.message;
         const retry = await upsertRetryRecord(cwd, buildRetryRecord(selection, "rejected", false, message));
         await appendLogEvent(cwd, createLogEvent(workingState, {
           eventType: "rejected_transition", summary: message, taskId: runningTask.id,
-          details: { diagnostics: error.diagnostics, admission: error instanceof TaskContractAdmissionError ? "task_contract" : "dependency_evidence" },
+          details: { diagnostics: error.diagnostics, admission: error instanceof TaskContractAdmissionError ? "task_contract" : error instanceof TaskContextAdmissionError ? "context_freshness" : "dependency_evidence" },
         }));
         return { accepted: false, message, status: "rejected", state: workingState, task: runningTask, retry, prompt };
       }
@@ -334,7 +369,7 @@ export async function runDebugNextApproachRetry(
       ({ prompt, resolvedContext } = buildTaskAgentPrompt({
         state: workingState, task: runningTask,
         contextItems: [...baseContext, retryContext],
-        tokenBudget: options.tokenBudget ?? manifest.tokenBudget,
+        tokenBudget: promptTokenBudget,
         attempt: taskAttemptBinding(activeAttempt),
       }));
     }
@@ -348,7 +383,15 @@ export async function runDebugNextApproachRetry(
       details: { debugReportId: selection.report.id, exactCommandIds: selection.exactCommands.map((command) => command.id) },
     });
 
-    const request = { taskId: runningTask.id, prompt, tools: options.tools, model: options.model, cwd, attempt: binding };
+    const request = {
+      taskId: runningTask.id,
+      prompt,
+      tools: options.tools,
+      model: options.model,
+      cwd,
+      providerAdmission: createStrictProviderAdmissionPolicy(promptTokenBudget),
+      attempt: binding,
+    };
     const invocation = buildTaskAgentInvocation(request);
 
     if (!options.execute) {

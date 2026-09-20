@@ -3,8 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join } from "node:path";
+import { createHash } from "node:crypto";
+import { constants, type Stats } from "node:fs";
+import { lstat, mkdir, open, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { Parser } from "commonmark";
 import { getGitChangedPaths } from "./git.js";
 import { loadMemoryIndex, retrieveMemory, type MemoryEntry } from "./memory.js";
 import { loadExecutionPlan, type ExecutionPlanTask } from "./plans.js";
@@ -29,6 +32,9 @@ export interface ContextItem {
   scope: ContextScope;
   exactness?: ContextExactness;
   estimatedTokens?: number;
+  available?: boolean;
+  diagnostic?: string;
+  fileSource?: FileContextSourceBinding;
 }
 
 export interface ContextResolverInput {
@@ -49,6 +55,21 @@ export interface ResolvedContext {
 
 export type ContextManifestSource = "inline" | "file" | "memory" | "state" | "task" | "prd_refs" | "validation_manifest";
 
+export interface MarkdownHeadingSelector {
+  kind: "markdown-heading";
+  heading: string;
+  maxChars?: number;
+}
+
+export interface FileContextSourceBinding {
+  itemId: string;
+  path: string;
+  scope: ContextScope;
+  selector?: MarkdownHeadingSelector;
+  contentFingerprint: string;
+  outputExemptible: boolean;
+}
+
 export interface TaskContextManifestItem {
   id: string;
   type: ContextItemType;
@@ -61,6 +82,7 @@ export interface TaskContextManifestItem {
   path?: string;
   memoryId?: string;
   taskId?: string;
+  selector?: MarkdownHeadingSelector;
 }
 
 export interface TaskContextManifest {
@@ -87,6 +109,7 @@ export interface ContextCandidate {
   content?: string;
   path?: string;
   memoryId?: string;
+  selector?: MarkdownHeadingSelector;
 }
 
 export interface ContextCandidateSearchOptions {
@@ -216,6 +239,10 @@ export async function saveTaskContextManifest(cwd: string, manifest: TaskContext
       path: item.path?.trim() || undefined,
       memoryId: item.memoryId?.trim() || undefined,
       taskId: item.taskId?.trim() || undefined,
+      selector: item.selector ? {
+        ...item.selector,
+        heading: trimMarkdownHeadingWhitespace(item.selector.heading),
+      } : undefined,
     })),
   };
   validateTaskContextManifest(normalized);
@@ -234,6 +261,9 @@ export async function ensureTaskContextManifest(cwd: string, state: ScalerState,
 export function validateTaskContextManifest(manifest: TaskContextManifest): void {
   if (manifest.version !== 1) throw new Error(`Unsupported task context manifest version: ${String(manifest.version)}`);
   if (!manifest.taskId.trim()) throw new Error("Task context manifest taskId is required.");
+  if (manifest.tokenBudget !== undefined && (!Number.isSafeInteger(manifest.tokenBudget) || manifest.tokenBudget <= 0)) {
+    throw new Error("Task context manifest tokenBudget must be a positive finite integer.");
+  }
   const ids = new Set<string>();
   for (const item of manifest.items) validateTaskContextManifestItem(item, ids);
 }
@@ -242,7 +272,8 @@ export function formatTaskContextManifest(manifest: TaskContextManifest): string
   validateTaskContextManifest(manifest);
   const lines = [`Task context manifest: ${manifest.taskId} items=${manifest.items.length} tokenBudget=${manifest.tokenBudget ?? "default"}`];
   for (const item of manifest.items) {
-    lines.push(`- ${item.id}: ${item.source}/${item.type} ${item.priority} ${item.scope} exactness=${normalizeExactness(item.exactness, item.scope)} reason=${item.reason}`);
+    const selector = item.selector ? ` selector=${item.selector.kind}:${item.selector.heading}` : "";
+    lines.push(`- ${item.id}: ${item.source}/${item.type} ${item.priority} ${item.scope} exactness=${normalizeExactness(item.exactness, item.scope)}${selector} reason=${item.reason}`);
   }
   return lines.join("\n");
 }
@@ -276,6 +307,7 @@ export async function discoverSemanticContextCandidates(
       content: item.content,
       path: item.path,
       memoryId: item.memoryId,
+      selector: item.selector,
     });
   }
 
@@ -417,6 +449,9 @@ async function resolveManifestItem(
   entry: TaskContextManifestItem,
 ): Promise<ContextItem> {
   try {
+    const fileContext = entry.source === "file"
+      ? await resolveFileContextSource(cwd, entry)
+      : undefined;
     return {
       id: entry.id,
       type: entry.type,
@@ -424,7 +459,9 @@ async function resolveManifestItem(
       priority: entry.priority,
       scope: entry.scope,
       exactness: normalizeExactness(entry.exactness, entry.scope),
-      content: await resolveManifestItemContent(cwd, state, manifest, entry),
+      available: true,
+      content: fileContext?.content ?? await resolveManifestItemContent(cwd, state, manifest, entry),
+      fileSource: fileContext?.binding,
     };
   } catch (error) {
     return {
@@ -434,6 +471,8 @@ async function resolveManifestItem(
       priority: entry.priority === "required" ? "required" : "optional",
       scope: "reference-only",
       exactness: "reference-only",
+      available: false,
+      diagnostic: (error as Error).message,
       content: `MISSING CONTEXT: ${entry.id}\nSource: ${entry.source}\nReason: ${(error as Error).message}`,
     };
   }
@@ -446,7 +485,7 @@ async function resolveManifestItemContent(
   entry: TaskContextManifestItem,
 ): Promise<string> {
   if (entry.source === "inline") return entry.content ?? "";
-  if (entry.source === "file") return await resolveFileContextContent(cwd, entry.path!, entry.scope);
+  if (entry.source === "file") return (await resolveFileContextSource(cwd, entry)).content;
   if (entry.source === "memory") return (await retrieveMemory(cwd, entry.memoryId!, { scope: entry.scope })).content;
   if (entry.source === "state") return formatStateContext(state);
   if (entry.source === "task") return formatTaskContext(state, entry.taskId ?? manifest.taskId);
@@ -487,13 +526,168 @@ function formatPrdRefsContext(state: ScalerState, taskId: string): string {
   return refs.length > 0 ? `Runtime PRD refs for ${taskId}: ${refs.join(", ")}` : `Runtime PRD refs for ${taskId}: none`;
 }
 
-async function resolveFileContextContent(cwd: string, path: string, scope: ContextScope): Promise<string> {
-  const content = await readFile(resolveContextPath(cwd, path), "utf8");
+async function resolveFileContextContent(
+  cwd: string,
+  path: string,
+  scope: ContextScope,
+  selector?: MarkdownHeadingSelector,
+): Promise<string> {
+  const content = (await readStableContextFile(cwd, path)).bytes.toString("utf8");
+  return renderFileContextContent(content, path, scope, selector);
+}
+
+async function resolveFileContextSource(
+  cwd: string,
+  entry: TaskContextManifestItem,
+): Promise<{ content: string; binding: FileContextSourceBinding }> {
+  const path = entry.path!;
+  const normalizedPath = normalizeContextSourcePath(cwd, path);
+  const source = await readStableContextFile(cwd, normalizedPath);
+  return {
+    content: renderFileContextContent(source.bytes.toString("utf8"), normalizedPath, entry.scope, entry.selector),
+    binding: {
+      itemId: entry.id,
+      path: normalizedPath,
+      scope: entry.scope,
+      ...(entry.selector ? { selector: { ...entry.selector } } : {}),
+      contentFingerprint: fingerprintFileBytes(source.bytes),
+      outputExemptible: source.outputExemptible,
+    },
+  };
+}
+
+function renderFileContextContent(
+  content: string,
+  path: string,
+  scope: ContextScope,
+  selector?: MarkdownHeadingSelector,
+): string {
   if (scope === "full") return content;
   if (scope === "reference-only") return `File reference: ${path}`;
+  if (scope === "section") {
+    if (!selector) throw new Error(`File section selector is required for ${path}.`);
+    return extractMarkdownHeadingSection(content, path, selector);
+  }
   const maxChars = scope === "snippet" ? 2_400 : 3_200;
   if (content.length <= maxChars) return content;
   return [`File ${scope}: ${path}`, content.slice(0, maxChars), `... [truncated ${content.length - maxChars} chars; request full file if needed]`].join("\n");
+}
+
+export async function verifyFileContextSources(
+  cwd: string,
+  taskId: string,
+  sources: FileContextSourceBinding[],
+  contentMutablePaths: ReadonlySet<string> = new Set(),
+): Promise<string[]> {
+  const diagnostics: string[] = [];
+  for (const source of sources) {
+    try {
+      const current = await readStableContextFile(cwd, source.path);
+      const fingerprint = fingerprintFileBytes(current.bytes);
+      if ((!contentMutablePaths.has(source.path) && fingerprint !== source.contentFingerprint)
+        || (source.outputExemptible && !current.outputExemptible)) {
+        diagnostics.push(`Task ${taskId} context source ${source.itemId} changed or became stale: ${source.path}.`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      diagnostics.push(`Task ${taskId} context source ${source.itemId} is missing or unreadable: ${source.path} (${message}).`);
+    }
+  }
+  return diagnostics;
+}
+
+function fingerprintFileBytes(bytes: Buffer): string {
+  return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+}
+
+function normalizeContextSourcePath(cwd: string, path: string): string {
+  if (isAbsolute(path)) return resolve(path);
+  return relative(resolve(cwd), resolve(cwd, path)).split(sep).join("/") || ".";
+}
+
+async function readStableContextFile(
+  cwd: string,
+  path: string,
+): Promise<{ bytes: Buffer; outputExemptible: boolean }> {
+  const absolute = resolveContextPath(cwd, path);
+  const directBefore = await directProjectFileStat(cwd, path);
+  const file = await open(absolute, constants.O_RDONLY | constants.O_NONBLOCK);
+  try {
+    const before = await file.stat();
+    if (!before.isFile()) throw new Error(`Context source is not a regular file: ${path}`);
+    const bytes = await file.readFile();
+    const after = await file.stat();
+    if (!sameFile(before, after)) throw new Error(`Context source changed while reading: ${path}`);
+    const directAfter = await directProjectFileStat(cwd, path);
+    return {
+      bytes,
+      outputExemptible: directBefore !== undefined && sameFile(directBefore, before)
+        && directAfter !== undefined && sameFile(directAfter, after),
+    };
+  } finally {
+    await file.close();
+  }
+}
+
+async function directProjectFileStat(cwd: string, path: string): Promise<Stats | undefined> {
+  if (isAbsolute(path) || path === ".." || path.startsWith("../")) return undefined;
+  const parts = path.split("/");
+  try {
+    for (let depth = 1; depth < parts.length; depth++) {
+      const ancestor = await lstat(join(cwd, ...parts.slice(0, depth)));
+      if (!ancestor.isDirectory() || ancestor.isSymbolicLink()) return undefined;
+    }
+    const leaf = await lstat(join(cwd, ...parts));
+    return leaf.isFile() && !leaf.isSymbolicLink() ? leaf : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function sameFile(first: Stats, second: Stats): boolean {
+  return first.dev === second.dev && first.ino === second.ino && first.mode === second.mode
+    && first.size === second.size && first.mtimeMs === second.mtimeMs && first.ctimeMs === second.ctimeMs;
+}
+
+export function trimMarkdownHeadingWhitespace(text: string): string {
+  return text.replace(/^[ \t]+|[ \t]+$/g, "");
+}
+
+function extractMarkdownHeadingSection(content: string, path: string, selector: MarkdownHeadingSelector): string {
+  // Parse block structure only to locate document headings. Never render or
+  // rewrite the selected content: source line offsets address the original file.
+  const lineStarts = [0];
+  for (const match of content.matchAll(/\r\n|\r|\n/g)) lineStarts.push(match.index! + match[0].length);
+  const document = new Parser().parse(content);
+  const headings: Array<{ level: number; text: string; start: number; selectable: boolean }> = [];
+  for (let node = document.firstChild; node; node = node.next) {
+    if (node.type !== "heading") continue;
+    const line = node.sourcepos[0][0];
+    const start = lineStarts[line - 1];
+    if (start === undefined || !Number.isSafeInteger(line) || line < 1) {
+      throw new Error(`Cannot map Markdown heading exactly in ${path}.`);
+    }
+    const rawLine = content.slice(start, lineStarts[line] ?? content.length).replace(/[\r\n]+$/, "");
+    const atx = rawLine.match(/^ {0,3}(#{1,6})([ \t]+[^\r\n]*)?$/);
+    headings.push({
+      level: node.level,
+      text: trimMarkdownHeadingWhitespace((atx?.[2] ?? "").replace(/[ \t]+#+[ \t]*$/, "")),
+      start,
+      selectable: atx !== null,
+    });
+  }
+
+  const matches = headings.filter((heading) => heading.selectable && heading.text === selector.heading);
+  if (matches.length === 0) throw new Error(`Markdown heading not found in ${path}: ${selector.heading}`);
+  if (matches.length > 1) throw new Error(`Markdown heading is ambiguous in ${path}: ${selector.heading}`);
+  const selected = matches[0]!;
+  const following = headings.find((heading) => heading.start > selected.start && heading.level <= selected.level);
+  const section = content.slice(selected.start, following?.start ?? content.length);
+  const maxChars = selector.maxChars ?? 3_200;
+  if (section.length > maxChars) {
+    throw new Error(`Markdown section ${selector.heading} in ${path} is oversized: ${section.length}/${maxChars} characters.`);
+  }
+  return section;
 }
 
 async function discoverCandidateFilePaths(cwd: string, task: ScalerTaskState, changedPaths: string[]): Promise<string[]> {
@@ -542,6 +736,7 @@ function contextCandidateToManifestItem(candidate: ContextCandidate): TaskContex
     priority: candidate.priority,
     scope: candidate.scope,
     exactness: candidate.exactness,
+    selector: candidate.selector,
   } satisfies Omit<TaskContextManifestItem, "source">;
   if (candidate.memoryId) return { ...base, source: "memory", memoryId: candidate.memoryId };
   if (candidate.path) return { ...base, source: "file", path: candidate.path };
@@ -550,14 +745,17 @@ function contextCandidateToManifestItem(candidate: ContextCandidate): TaskContex
 
 function contextManifestItemMatchesCandidate(item: TaskContextManifestItem, candidate: ContextCandidate): boolean {
   if (candidate.memoryId && item.memoryId === candidate.memoryId) return true;
-  if (candidate.path && item.path === candidate.path) return true;
+  if (candidate.path && item.path === candidate.path
+      && JSON.stringify(item.selector ?? null) === JSON.stringify(candidate.selector ?? null)) return true;
   return Boolean(candidate.content && item.content === candidate.content);
 }
 
 function dedupeContextCandidates(candidates: ContextCandidate[]): ContextCandidate[] {
   const byKey = new Map<string, ContextCandidate>();
   for (const candidate of candidates) {
-    const key = candidate.memoryId ? `memory:${candidate.memoryId}` : candidate.path ? `path:${candidate.path}` : candidate.content ? `content:${candidate.content}` : candidate.id;
+    const key = candidate.memoryId ? `memory:${candidate.memoryId}`
+      : candidate.path ? `path:${candidate.path}:selector:${JSON.stringify(candidate.selector ?? null)}`
+      : candidate.content ? `content:${candidate.content}` : candidate.id;
     const existing = byKey.get(key);
     if (!existing || candidate.score > existing.score) byKey.set(key, candidate);
   }
@@ -825,7 +1023,26 @@ function validateTaskContextManifestItem(item: TaskContextManifestItem, ids: Set
   if (!item.reason.trim()) throw new Error(`Task context item ${item.id} reason is required.`);
   if (item.source === "inline" && !item.content?.trim()) throw new Error(`Task context item ${item.id} inline content is required.`);
   if (item.source === "file" && !item.path?.trim()) throw new Error(`Task context item ${item.id} file path is required.`);
+  if (item.selector !== undefined) {
+    if (item.source !== "file" || item.scope !== "section") {
+      throw new Error(`Task context item ${item.id} selector requires file section scope.`);
+    }
+    if (item.selector.kind !== "markdown-heading" || typeof item.selector.heading !== "string"
+        || !trimMarkdownHeadingWhitespace(item.selector.heading)) {
+      throw new Error(`Task context item ${item.id} Markdown heading selector is invalid.`);
+    }
+    if (item.selector.maxChars !== undefined
+        && (!Number.isSafeInteger(item.selector.maxChars) || item.selector.maxChars <= 0)) {
+      throw new Error(`Task context item ${item.id} selector maxChars must be a positive finite integer.`);
+    }
+  }
   if (item.source === "memory" && !item.memoryId?.trim()) throw new Error(`Task context item ${item.id} memoryId is required.`);
+}
+
+export function getRequiredContextDiagnostics(items: ContextItem[]): string[] {
+  return items
+    .filter((item) => item.priority === "required" && item.available === false)
+    .map((item) => `Required context ${item.id} is unavailable: ${item.diagnostic ?? "unknown retrieval error"}`);
 }
 
 export function resolveContext(input: ContextResolverInput): ResolvedContext {
@@ -838,7 +1055,8 @@ export function resolveContext(input: ContextResolverInput): ResolvedContext {
   for (const item of sorted) {
     const itemTokens = getEstimatedTokens(item);
     if (item.priority !== "required" && used + itemTokens > budget) {
-      omitted.push(item);
+      const { fileSource: _fileSource, ...omittedItem } = item;
+      omitted.push(omittedItem);
       continue;
     }
     included.push(item);

@@ -247,6 +247,16 @@ test("saveTaskContextManifest and loadTaskContextManifest round trip normalized 
   });
 });
 
+test("task context manifest rejects a non-finite persisted token budget", async () => {
+  await withTempDir(async (dir) => {
+    const manifest = createDefaultTaskContextManifest(createDefaultState(), "T-001");
+    await assert.rejects(
+      saveTaskContextManifest(dir, { ...manifest, tokenBudget: Number.POSITIVE_INFINITY }),
+      /positive finite integer/i,
+    );
+  });
+});
+
 test("ensureTaskContextManifest creates discovered manifest when missing", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState();
@@ -412,6 +422,505 @@ test("resolveTaskContextManifest preserves missing source entries as missing con
   });
 });
 
+for (const [name, prefix] of [
+  ["a blockquote ends a preceding list", "- item\n> quote\n  ```markdown\n"],
+  ["non-one ordered markers cannot interrupt a paragraph", "paragraph\n2. not a list\n   ```markdown\n"],
+] as const) {
+  test(`section retrieval ignores fenced headings after ${name}`, async () => {
+    await withTempDir(async (dir) => {
+      const state = createDefaultState();
+      await writeFile(join(dir, "reference.md"), `${prefix}## Target\nFENCED_FAKE\n  \`\`\`\n\n## Real\nREAL_CONTRACT\n## Next\nNEXT\n`, "utf8");
+      const manifest = {
+        version: 1 as const, taskId: "T-SECTION",
+        items: [{
+          id: "target", type: "file" as const, reason: "Exact Target contract", priority: "required" as const,
+          scope: "section" as const, source: "file" as const, path: "reference.md",
+          selector: { kind: "markdown-heading", heading: "Target" },
+        }],
+        createdAt: state.createdAt, updatedAt: state.createdAt,
+      };
+      const [missing] = await resolveTaskContextManifest(dir, state, manifest as never);
+      assert.equal(missing?.available, false);
+      assert.match(missing?.content ?? "", /not found/i);
+      manifest.items[0]!.selector.heading = "Real";
+      const [real] = await resolveTaskContextManifest(dir, state, manifest as never);
+      assert.equal(real?.available, true);
+      assert.equal(real?.content, "## Real\nREAL_CONTRACT\n");
+    });
+  });
+}
+
+for (const [name, prefix, section] of [
+  ["tab-suffixed closing fence", "", "## Target\n```\ncode\n```\t\n"],
+  ["mixed fence is not a closer", "", "## Target\n```\ncode\n```~\n## Fake\nSTILL_CODE\n```\n"],
+  ["vertical tab is not heading whitespace", "", "## Target\nbody\n##\u000bNotAHeading\nSTILL_TARGET\n"],
+  ["duplicate reference definitions", "[ref]: /target\n[ref]: /target\n\n", "## Target\ncontract\n"],
+] as const) {
+  test(`exact section honors CommonMark ${name}`, async () => {
+    await withTempDir(async (dir) => {
+      const state = createDefaultState();
+      await writeFile(join(dir, "reference.md"), prefix + section + "## Real\nNEXT\n", "utf8");
+      const manifest = {
+        version: 1 as const, taskId: "T-SECTION", createdAt: state.createdAt, updatedAt: state.createdAt,
+        items: [{ id: "target", type: "file" as const, reason: "Exact contract", priority: "required" as const,
+          scope: "section" as const, source: "file" as const, path: "reference.md",
+          selector: { kind: "markdown-heading" as const, heading: "Target" } }],
+      };
+      const [item] = await resolveTaskContextManifest(dir, state, manifest);
+      assert.equal(item?.available, true);
+      assert.equal(item?.content, section);
+      if (name === "mixed fence is not a closer") {
+        manifest.items[0]!.selector.heading = "Fake";
+        const [fake] = await resolveTaskContextManifest(dir, state, manifest);
+        assert.equal(fake?.available, false);
+      }
+    });
+  });
+}
+
+for (const title of ["Target\u00a0", "Target\u202f", "\u00a0"]) {
+  test(`raw heading identity preserves Unicode whitespace ${JSON.stringify(title)}`, async () => {
+    await withTempDir(async (dir) => {
+      const state = createDefaultState();
+      const section = `## ${title}\nUNICODE_TITLE\n`;
+      await writeFile(join(dir, "reference.md"), section + "## Target\nASCII_TITLE\n", "utf8");
+      await saveTaskContextManifest(dir, {
+        version: 1, taskId: "T-SECTION", createdAt: state.createdAt, updatedAt: state.createdAt,
+        items: [{ id: "target", type: "file", reason: "Exact contract", priority: "required",
+          scope: "section", source: "file", path: "reference.md",
+          selector: { kind: "markdown-heading", heading: ` \t${title}\t ` } }],
+      });
+      const manifest = (await loadTaskContextManifest(dir, "T-SECTION"))!;
+      assert.equal(manifest.items[0]!.selector!.heading, title);
+      const [item] = await resolveTaskContextManifest(dir, state, manifest);
+      assert.equal(item?.available, true);
+      assert.equal(item?.content, section);
+      manifest.items[0]!.selector!.heading = "Target";
+      const [ascii] = await resolveTaskContextManifest(dir, state, manifest);
+      assert.equal(ascii?.available, true);
+      assert.equal(ascii?.content, "## Target\nASCII_TITLE\n");
+    });
+  });
+}
+
+for (const eol of ["\n", "\r\n", "\r"]) {
+  test(`block token offsets preserve ${JSON.stringify(eol)} source and Unicode`, async () => {
+    await withTempDir(async (dir) => {
+      const state = createDefaultState();
+      // A blank line keeps Detail out of the following Setext heading's paragraph.
+      const section = ["## Target", "😀 Exact contract", "### Child", "Detail", "", ""].join(eol);
+      const source = ["# Intro", "😀 prefix", "", "[ref]: /target", "", ""].join(eol)
+        + section + ["Next", "----", "NOT_SELECTED", ""].join(eol);
+      await writeFile(join(dir, "reference.md"), source, "utf8");
+      const [item] = await resolveTaskContextManifest(dir, state, {
+        version: 1, taskId: "T-SECTION", createdAt: state.createdAt, updatedAt: state.createdAt,
+        items: [{ id: "target", type: "file", reason: "Exact contract", priority: "required",
+          scope: "section", source: "file", path: "reference.md",
+          selector: { kind: "markdown-heading", heading: "Target" } }],
+      });
+      assert.equal(item?.available, true);
+      assert.equal(item?.content, section);
+    });
+  });
+}
+
+for (const [name, source] of [
+  ["HTML comment", "<!--\n## Target\nFAKE\n-->\n"],
+  ["HTML block", "<div>\n## Target\nFAKE\n</div>\n\n"],
+  ["blockquote", "> ## Target\n> FAKE\n"],
+  ["list", "- ## Target\n  FAKE\n"],
+  ["indented code", "    ## Target\n    FAKE\n"],
+  ["setext heading", "Target\n------\n"],
+] as const) {
+  test(`document ATX selectors do not select ${name} content`, async () => {
+    await withTempDir(async (dir) => {
+      const state = createDefaultState();
+      await writeFile(join(dir, "reference.md"), source, "utf8");
+      const [item] = await resolveTaskContextManifest(dir, state, {
+        version: 1, taskId: "T-SECTION", createdAt: state.createdAt, updatedAt: state.createdAt,
+        items: [{ id: "target", type: "file", reason: "Exact contract", priority: "required",
+          scope: "section", source: "file", path: "reference.md",
+          selector: { kind: "markdown-heading", heading: "Target" } }],
+      });
+      assert.equal(item?.available, false);
+      assert.match(item?.content ?? "", /not found/i);
+    });
+  });
+}
+
+test("file section scope resolves the selected exact Markdown heading", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    const source = [
+      "# Reference",
+      "## Introduction",
+      "UNRELATED_PREFIX",
+      "```markdown",
+      "## Target",
+      "FENCED_PSEUDO_TARGET",
+      "```",
+      "filler line\n".repeat(300),
+      "## Target",
+      "EXACT_TARGET_CONTRACT = keep_this_unchanged;",
+      "### Nested",
+      "NESTED_TARGET_DETAIL",
+      "## Next",
+      "DO_NOT_INCLUDE_NEXT",
+      "",
+    ].join("\r\n");
+    await writeFile(join(dir, "reference.md"), source, "utf8");
+    const manifest = {
+      version: 1 as const,
+      taskId: "T-SECTION",
+      items: [{
+        id: "target", type: "file" as const, reason: "Exact Target contract", priority: "required" as const,
+        scope: "section" as const, source: "file" as const, path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    };
+
+    const [item] = await resolveTaskContextManifest(dir, state, manifest as never);
+
+    assert.match(item?.content ?? "", /^## Target\r\n/);
+    assert.match(item?.content ?? "", /EXACT_TARGET_CONTRACT/);
+    assert.match(item?.content ?? "", /### Nested\r\nNESTED_TARGET_DETAIL/);
+    assert.doesNotMatch(item?.content ?? "", /UNRELATED_PREFIX|FENCED_PSEUDO_TARGET|DO_NOT_INCLUDE_NEXT/);
+    assert.equal(item?.exactness, "exact");
+  });
+});
+
+test("inline backtick text does not hide the next Markdown heading", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await writeFile(
+      join(dir, "reference.md"),
+      "## Target\ncontract\n```inline example```\n## Next\nDO_NOT_INCLUDE_NEXT\n",
+      "utf8",
+    );
+    const [item] = await resolveTaskContextManifest(dir, state, {
+      version: 1,
+      taskId: "T-SECTION",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    assert.equal(item?.available, true);
+    assert.doesNotMatch(item?.content ?? "", /## Next|DO_NOT_INCLUDE_NEXT/);
+  });
+});
+
+test("list-contained code fences do not expose pseudo Markdown headings", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await writeFile(
+      join(dir, "reference.md"),
+      "- ```markdown\n  ## Target\n  FENCED_FAKE\n  ```\n\n## Target\nREAL_CONTRACT\n## Next\nNEXT_CONTENT\n",
+      "utf8",
+    );
+    const [item] = await resolveTaskContextManifest(dir, state, {
+      version: 1,
+      taskId: "T-SECTION",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    assert.equal(item?.available, true);
+    assert.match(item?.content ?? "", /^## Target\nREAL_CONTRACT\n$/);
+    assert.doesNotMatch(item?.content ?? "", /FENCED_FAKE|NEXT_CONTENT/);
+  });
+});
+
+test("an unclosed list fence ends before a following document heading", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await writeFile(
+      join(dir, "reference.md"),
+      "## Target\ncontract\n- ```markdown\n  code\n\n## Next\nNEXT_CONTENT\n",
+      "utf8",
+    );
+    const [item] = await resolveTaskContextManifest(dir, state, {
+      version: 1,
+      taskId: "T-SECTION",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    assert.equal(item?.available, true);
+    assert.match(item?.content ?? "", /^## Target\ncontract\n- ```markdown\n  code\n\n$/);
+    assert.doesNotMatch(item?.content ?? "", /## Next|NEXT_CONTENT/);
+  });
+});
+
+test("over-indented backticks after a list marker do not open a fence", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await writeFile(
+      join(dir, "reference.md"),
+      "## Target\ncontract\n\n-     ```\n\n## Next\nNEXT_CONTENT\n",
+      "utf8",
+    );
+    const [item] = await resolveTaskContextManifest(dir, state, {
+      version: 1,
+      taskId: "T-SECTION",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    assert.equal(item?.available, true);
+    assert.match(item?.content ?? "", /-     ```/);
+    assert.doesNotMatch(item?.content ?? "", /## Next|NEXT_CONTENT/);
+  });
+});
+
+test("a fence on a continued list-item line ends with its container", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await writeFile(
+      join(dir, "reference.md"),
+      "## Target\ncontract\n- item\n\n  ```markdown\n  code\n\n## Next\nNEXT_CONTENT\n",
+      "utf8",
+    );
+    const [item] = await resolveTaskContextManifest(dir, state, {
+      version: 1,
+      taskId: "T-SECTION",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    assert.equal(item?.available, true);
+    assert.doesNotMatch(item?.content ?? "", /## Next|NEXT_CONTENT/);
+  });
+});
+
+test("tabs keep content inside a list-contained fence", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await writeFile(
+      join(dir, "reference.md"),
+      "- ```markdown\n\tcode\n  ## Target\n  FENCED_FAKE\n  ```\n\n## Target\nREAL_CONTRACT\n## Next\nNEXT_CONTENT\n",
+      "utf8",
+    );
+    const [item] = await resolveTaskContextManifest(dir, state, {
+      version: 1,
+      taskId: "T-SECTION",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    assert.equal(item?.available, true);
+    assert.match(item?.content ?? "", /^## Target\nREAL_CONTRACT\n$/);
+    assert.doesNotMatch(item?.content ?? "", /FENCED_FAKE|NEXT_CONTENT/);
+  });
+});
+
+test("a thematic break does not create a phantom list container", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await writeFile(
+      join(dir, "reference.md"),
+      "- - -\n  ```markdown\n## Target\nFENCED_FAKE\n  ```\n\n## Target\nREAL_CONTRACT\n## Next\nNEXT_CONTENT\n",
+      "utf8",
+    );
+    const [item] = await resolveTaskContextManifest(dir, state, {
+      version: 1,
+      taskId: "T-SECTION",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    assert.equal(item?.available, true);
+    assert.match(item?.content ?? "", /^## Target\nREAL_CONTRACT\n$/);
+    assert.doesNotMatch(item?.content ?? "", /FENCED_FAKE|NEXT_CONTENT/);
+  });
+});
+
+test("dedenting from a nested list fence restores the parent container", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await writeFile(
+      join(dir, "reference.md"),
+      "## Target\ncontract\n- outer\n  - inner\n\n  ```markdown\n  code\n\n## Next\nNEXT_CONTENT\n",
+      "utf8",
+    );
+    const [item] = await resolveTaskContextManifest(dir, state, {
+      version: 1,
+      taskId: "T-SECTION",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    assert.equal(item?.available, true);
+    assert.doesNotMatch(item?.content ?? "", /## Next|NEXT_CONTENT/);
+  });
+});
+
+test("a lazy list paragraph preserves its container for a following fence", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await writeFile(
+      join(dir, "reference.md"),
+      "## Target\ncontract\n- item\ncontinued text\n  ```markdown\n  code\n\n## Next\nNEXT_CONTENT\n",
+      "utf8",
+    );
+    const [item] = await resolveTaskContextManifest(dir, state, {
+      version: 1,
+      taskId: "T-SECTION",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    assert.equal(item?.available, true);
+    assert.doesNotMatch(item?.content ?? "", /## Next|NEXT_CONTENT/);
+  });
+});
+
+test("mixed space and tab list padding uses Markdown columns", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await writeFile(
+      join(dir, "reference.md"),
+      "## Target\ncontract\n- \t```markdown\n    code\n\n  ## Next\nNEXT_CONTENT\n",
+      "utf8",
+    );
+    const [item] = await resolveTaskContextManifest(dir, state, {
+      version: 1,
+      taskId: "T-SECTION",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    assert.equal(item?.available, true);
+    assert.doesNotMatch(item?.content ?? "", /## Next|NEXT_CONTENT/);
+  });
+});
+
+for (const [description, source, selector, diagnostic] of [
+  ["missing heading", "## Other\ncontent\n", { kind: "markdown-heading", heading: "Target" }, /not found/i],
+  ["ambiguous heading", "## Target\nfirst\n## Target\nsecond\n", { kind: "markdown-heading", heading: "Target" }, /ambiguous/i],
+  ["oversized heading", "## Target\n123456789\n", { kind: "markdown-heading", heading: "Target", maxChars: 8 }, /oversized/i],
+] as const) {
+  test(`file section scope reports ${description} as unavailable`, async () => {
+    await withTempDir(async (dir) => {
+      const state = createDefaultState();
+      await writeFile(join(dir, "reference.md"), source, "utf8");
+      const [item] = await resolveTaskContextManifest(dir, state, {
+        version: 1,
+        taskId: "T-SECTION",
+        items: [{
+          id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+          scope: "section", source: "file", path: "reference.md", selector,
+        }],
+        createdAt: state.createdAt,
+        updatedAt: state.createdAt,
+      });
+
+      assert.equal(item?.available, false);
+      assert.match(item?.diagnostic ?? "", diagnostic);
+    });
+  });
+}
+
+test("task context manifest round trips two selectors for the same file", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    const saved = await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-SECTION",
+      items: [
+        {
+          id: "one", type: "file", reason: "First section", priority: "required", scope: "section",
+          source: "file", path: "reference.md", selector: { kind: "markdown-heading", heading: " One ", maxChars: 200 },
+        },
+        {
+          id: "two", type: "file", reason: "Second section", priority: "required", scope: "section",
+          source: "file", path: "reference.md", selector: { kind: "markdown-heading", heading: "Two", maxChars: 300 },
+        },
+      ],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+    const loaded = await loadTaskContextManifest(dir, "T-SECTION");
+
+    assert.equal(saved.items[0]?.selector?.heading, "One");
+    assert.deepEqual(loaded?.items.map((item) => item.selector), [
+      { kind: "markdown-heading", heading: "One", maxChars: 200 },
+      { kind: "markdown-heading", heading: "Two", maxChars: 300 },
+    ]);
+  });
+});
+
+test("file section scope without a selector is explicitly unavailable", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await writeFile(join(dir, "reference.md"), "## Target\ncontract\n", "utf8");
+    const [item] = await resolveTaskContextManifest(dir, state, {
+      version: 1,
+      taskId: "T-SECTION",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    assert.equal(item?.available, false);
+    assert.match(item?.content ?? "", /MISSING CONTEXT.*selector/is);
+  });
+});
+
 test("validateTaskContextManifest rejects invalid and incomplete items", () => {
   const base = {
     version: 1 as const,
@@ -425,4 +934,10 @@ test("validateTaskContextManifest rejects invalid and incomplete items", () => {
   assert.throws(() => validateTaskContextManifest({ ...base, items: [{ ...base.items[0]!, exactness: "lossy" as never }] }), /Invalid task context item exactness/);
   assert.throws(() => validateTaskContextManifest({ ...base, items: [{ ...base.items[0]!, path: undefined }] }), /file path is required/);
   assert.throws(() => validateTaskContextManifest({ ...base, items: [base.items[0]!, base.items[0]!] }), /Duplicate task context item id/);
+  assert.throws(() => validateTaskContextManifest({ ...base, items: [{
+    ...base.items[0]!, scope: "section", selector: { kind: "markdown-heading", heading: "", maxChars: 10 },
+  }] }), /selector is invalid/);
+  assert.throws(() => validateTaskContextManifest({ ...base, items: [{
+    ...base.items[0]!, scope: "section", selector: { kind: "markdown-heading", heading: "Target", maxChars: 0 },
+  }] }), /maxChars must be a positive finite integer/);
 });

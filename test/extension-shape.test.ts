@@ -31,6 +31,15 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
+async function buildHostSystemPrompt(options: unknown): Promise<string> {
+  const packageEntry = import.meta.resolve("@earendil-works/pi-coding-agent");
+  const moduleUrl = new URL("./core/system-prompt.js", packageEntry);
+  const hostModule = await import(moduleUrl.href) as { buildSystemPrompt?: (input: unknown) => string };
+  const builder = hostModule.buildSystemPrompt;
+  assert.equal(typeof builder, "function");
+  return builder!(options);
+}
+
 test("extension factory exports a function", () => {
   assert.equal(typeof scalerExtension, "function");
 });
@@ -283,6 +292,9 @@ test("extension context hook focuses parent tools and injects compact runtime ca
     const runtimeCtx = { cwd: dir, hasUI: false };
 
     scalerExtension(fakePi as never);
+    const systemPromptOptions = { cwd: dir, customPrompt: "system", selectedTools: [...activeTools] };
+    const systemPrompt = await buildHostSystemPrompt(systemPromptOptions);
+    await handlers.get("before_agent_start")?.({ type: "before_agent_start", prompt: "hello", systemPrompt, systemPromptOptions }, runtimeCtx);
     const result = await handlers.get("context")?.({ type: "context", messages: [{ role: "user", content: "hello" }] }, runtimeCtx) as { messages?: unknown[] } | undefined;
 
     assert.deepEqual(activeTools, ["scaler_task_report", "scaler_tool_request"]);
@@ -291,6 +303,14 @@ test("extension context hook focuses parent tools and injects compact runtime ca
     assert.match(injected, /scaler_tool_request/);
     assert.doesNotMatch(injected, /SECRET_SCHEMA/);
     assert.doesNotMatch(injected, /SECRET_GUIDELINES/);
+
+    const focusEvent = (await readLogEvents(dir)).find((event) => event.summary === "SCALER parent tool focus applied");
+    const focusDetails = focusEvent?.details as { lifecycle?: string; envelopeProfile?: { footprint?: string; byteSize?: number | null; fingerprint?: string | null; toolNames?: string[] } } | undefined;
+    assert.equal(focusDetails?.lifecycle, "before_agent_start");
+    assert.equal(focusDetails?.envelopeProfile?.footprint, "selected");
+    assert.ok((focusDetails?.envelopeProfile?.byteSize ?? 0) > 0);
+    assert.match(focusDetails?.envelopeProfile?.fingerprint ?? "", /^[a-f0-9]{64}$/);
+    assert.deepEqual(focusDetails?.envelopeProfile?.toolNames, ["scaler_task_report", "scaler_tool_request"]);
 
     await handlers.get("turn_end")?.({ type: "turn_end", message: {}, toolResults: [] }, runtimeCtx);
     assert.deepEqual(activeTools, ["bash", "read", "scaler_tool_request", "scaler_task_report"]);

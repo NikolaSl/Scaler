@@ -152,6 +152,22 @@ test("runTaskAgent marks children so host hooks preserve their selected tools", 
   });
 });
 
+test("runTaskAgent supplies only the runtime-owned tool execution identity", async () => {
+  await withScript('#!/bin/sh\nprintf \'{"execution":"%s"}\\n\' "$SCALER_TOOL_EXECUTION_ID"\n', async (script, dir) => {
+    const previous = process.env.SCALER_TOOL_EXECUTION_ID;
+    process.env.SCALER_TOOL_EXECUTION_ID = "ambient-spoof";
+    try {
+      const bound = await runTaskAgent({ taskId: "T-bound", executionId: "execution-123", prompt: "ignored", cwd: dir }, { command: script });
+      const unbound = await runTaskAgent({ taskId: "T-unbound", prompt: "ignored", cwd: dir }, { command: script });
+      assert.deepEqual(bound.stdoutEvents, [{ execution: "execution-123" }]);
+      assert.deepEqual(unbound.stdoutEvents, [{ execution: "" }]);
+    } finally {
+      if (previous === undefined) delete process.env.SCALER_TOOL_EXECUTION_ID;
+      else process.env.SCALER_TOOL_EXECUTION_ID = previous;
+    }
+  });
+});
+
 test("runTaskAgent reports timeout diagnostics", async () => {
   await withScript("#!/bin/sh\nsleep 0.2\n", async (script, dir) => {
     const result = await runTaskAgent({ taskId: "T-005", prompt: "ignored", cwd: dir }, { command: script, timeoutMs: 10 });
@@ -238,5 +254,218 @@ test("runTaskAgent removes cancellation listeners after normal completion", asyn
     assert.equal(getEventListeners(controller.signal, "abort").length, 0);
     controller.abort();
     assert.deepEqual(await loadWatchdogCleanupRecords(dir), []);
+  });
+});
+
+test("runTaskAgent enforces raw stdout bytes before decoding or parsing", async () => {
+  const script = `#!/usr/bin/env node
+const bytes = Buffer.from("f09f99820a", "hex");
+process.stdout.write(bytes.subarray(0, 2));
+setTimeout(() => process.stdout.write(bytes.subarray(2)), 5);
+`;
+  await withScript(script, async (command, dir) => {
+    const exact = await runTaskAgent(
+      { taskId: "T-output-exact", prompt: "ignored", cwd: dir },
+      { command, outputLimits: { stdoutBytes: 5, stderrBytes: 32 }, timeoutMs: 2_000 },
+    );
+    assert.equal(exact.exitCode, 0);
+    assert.equal(exact.stdoutBytes, 5);
+    assert.equal(exact.outputLimitExceeded, undefined);
+    assert.deepEqual(exact.stdoutEvents, [{ type: "unparsed", text: "🙂" }]);
+
+    const over = await runTaskAgent(
+      { taskId: "T-output-over", prompt: "ignored", cwd: dir },
+      { command, outputLimits: { stdoutBytes: 4, stderrBytes: 32 }, timeoutMs: 2_000 },
+    );
+    assert.equal(over.exitCode, 125);
+    assert.equal(over.stdoutBytes, 5);
+    assert.equal(over.outputLimitExceeded, "stdout");
+  });
+});
+
+test("runTaskAgent bounds newline-free stdout and stderr floods", async () => {
+  const stdoutScript = "#!/usr/bin/env node\nprocess.stdout.write('x'.repeat(257));\n";
+  await withScript(stdoutScript, async (command, dir) => {
+    const result = await runTaskAgent(
+      { taskId: "T-stdout-flood", prompt: "ignored", cwd: dir },
+      { command, outputLimits: { stdoutBytes: 256, stderrBytes: 64 }, timeoutMs: 2_000 },
+    );
+    assert.equal(result.outputLimitExceeded, "stdout");
+    assert.equal(result.stdoutBytes, 257);
+    assert.equal(result.exitCode, 125);
+  });
+
+  const stderrScript = "#!/usr/bin/env node\nprocess.stderr.write('e'.repeat(65));\n";
+  await withScript(stderrScript, async (command, dir) => {
+    const result = await runTaskAgent(
+      { taskId: "T-stderr-flood", prompt: "ignored", cwd: dir },
+      { command, outputLimits: { stdoutBytes: 256, stderrBytes: 64 }, timeoutMs: 2_000 },
+    );
+    assert.equal(result.outputLimitExceeded, "stderr");
+    assert.equal(result.stderrBytes, 65);
+    assert.equal(result.exitCode, 125);
+    assert.ok(Buffer.byteLength(result.stderr, "utf8") < 256);
+  });
+});
+
+test("runTaskAgent reports all raw bytes observed in the chunk that crosses the cap", async () => {
+  const script = "#!/usr/bin/env node\nprocess.stdout.write(Buffer.alloc(1024, 120));\n";
+  await withScript(script, async (command, dir) => {
+    const result = await runTaskAgent(
+      { taskId: "T-observed-output", prompt: "ignored", cwd: dir },
+      { command, outputLimits: { stdoutBytes: 8, stderrBytes: 64 }, timeoutMs: 2_000 },
+    );
+    assert.equal(result.outputLimitExceeded, "stdout");
+    assert.equal(result.stdoutBytes, 1024);
+    assert.equal(result.exitCode, 125);
+  });
+});
+
+test("runTaskAgent escalates output overflow when the child ignores TERM", { skip: process.platform === "win32" }, async () => {
+  const script = `#!/usr/bin/env node
+process.on("SIGTERM", () => {});
+process.stdout.write(Buffer.alloc(1024, 120));
+setInterval(() => {}, 1000);
+setTimeout(() => process.exit(0), 7000);
+`;
+  await withScript(script, async (command, dir) => {
+    const result = await runTaskAgent(
+      { taskId: "T-output-ignore-term", prompt: "ignored", cwd: dir },
+      { command, outputLimits: { stdoutBytes: 8, stderrBytes: 64 }, timeoutMs: 10_000 },
+    );
+    assert.equal(result.outputLimitExceeded, "stdout");
+    assert.equal(result.stdoutBytes, 1024);
+    assert.equal(result.exitCode, 125);
+    assert.match((await loadWatchdogCleanupRecords(dir))[0]?.signal ?? "", /SIGKILL/);
+  });
+});
+
+test("runTaskAgent refuses invalid runtime output limits before spawn", async () => {
+  await withScript("#!/bin/sh\necho launched > launched.txt\n", async (command, dir) => {
+    for (const stdoutBytes of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      await assert.rejects(runTaskAgent(
+        { taskId: "T-invalid-output-limit", prompt: "ignored", cwd: dir },
+        { command, outputLimits: { stdoutBytes, stderrBytes: 64 } },
+      ), /output limit|positive safe integer/i);
+    }
+    await assert.rejects(readFile(join(dir, "launched.txt")), { code: "ENOENT" });
+  });
+});
+
+const strictProviderPolicy = { requestTokenAllowance: 8_000, outputReserveTokens: 32, safetyMarginTokens: 1_024 };
+const providerPolicyEnvKeys = [
+  "SCALER_PROVIDER_ADMISSION", "SCALER_REQUEST_TOKEN_ALLOWANCE",
+  "SCALER_OUTPUT_RESERVE_TOKENS", "SCALER_REQUEST_MARGIN_TOKENS",
+  "SCALER_EXPECTED_PROVIDER_API", "SCALER_EXPECTED_PROVIDER",
+  "SCALER_EXPECTED_MODEL_ID", "SCALER_EXPECTED_CONTEXT_WINDOW",
+] as const;
+
+async function withInheritedProviderPolicy<T>(fn: () => Promise<T>): Promise<T> {
+  const previous = Object.fromEntries(providerPolicyEnvKeys.map((key) => [key, process.env[key]]));
+  for (const key of providerPolicyEnvKeys) process.env[key] = "inherited-invalid-value";
+  try { return await fn(); } finally {
+    for (const key of providerPolicyEnvKeys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  }
+}
+
+const providerPolicyEchoScript = `#!/usr/bin/env node
+const keys = ${JSON.stringify(providerPolicyEnvKeys)};
+console.log(JSON.stringify({type:"test_policy",policy:Object.fromEntries(keys.filter(key => process.env[key] !== undefined).map(key=>[key,process.env[key]]))}));
+`;
+
+test("strict child invocation suppresses ambient resources and loads admission last even without tools", async () => {
+  const { getProviderAdmissionExtensionPath } = await import("../src/subagents.js");
+  for (const tools of [[], ["read"]]) {
+    const invocation = buildTaskAgentInvocation({ taskId: "T-strict", prompt: "Inspect.", tools, providerAdmission: strictProviderPolicy });
+    for (const flag of ["--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files"]) {
+      assert.ok(invocation.args.includes(flag), `missing ${flag}`);
+    }
+    const lastExtensionIndex = invocation.args.lastIndexOf("-e");
+    assert.ok(lastExtensionIndex >= 0);
+    assert.equal(invocation.args[lastExtensionIndex + 1], getProviderAdmissionExtensionPath());
+    if (tools.length === 0) assert.ok(invocation.args.includes("--no-tools"));
+    else assert.ok(invocation.args.includes("read"));
+  }
+});
+
+test("strict child invocation refuses additional extension configurations", () => {
+  assert.throws(() => buildTaskAgentInvocation({
+    taskId: "T-strict", prompt: "Inspect.", providerAdmission: strictProviderPolicy,
+    extensionPaths: ["./unverified-payload-rewriter.ts"],
+  }), /extension/i);
+});
+
+test("runTaskAgent transports only validated numeric provider policy and a strict marker", async () => {
+  await withInheritedProviderPolicy(async () => {
+    await withScript(providerPolicyEchoScript, async (script, dir) => {
+      const result = await runTaskAgent({ taskId: "T-strict", prompt: "Private prompt must not be an environment value", cwd: dir, providerAdmission: strictProviderPolicy }, { command: script });
+      assert.equal(result.exitCode, 0);
+      assert.deepEqual(result.stdoutEvents, [{ type: "test_policy", policy: {
+        SCALER_PROVIDER_ADMISSION: "strict",
+        SCALER_REQUEST_TOKEN_ALLOWANCE: "8000",
+        SCALER_OUTPUT_RESERVE_TOKENS: "32",
+        SCALER_REQUEST_MARGIN_TOKENS: "1024",
+      } }]);
+    });
+  });
+});
+
+test("runTaskAgent transports an exact parent-admitted provider model identity", async () => {
+  await withInheritedProviderPolicy(async () => {
+    await withScript(providerPolicyEchoScript, async (script, dir) => {
+      const result = await runTaskAgent({
+        taskId: "T-bound-model",
+        prompt: "Inspect.",
+        cwd: dir,
+        providerAdmission: strictProviderPolicy,
+        providerAdmissionModel: { api: "openai-completions", provider: "synthetic", id: "synthetic-8k", contextWindow: 8_000 },
+      }, { command: script });
+      assert.deepEqual(result.stdoutEvents, [{ type: "test_policy", policy: {
+        SCALER_PROVIDER_ADMISSION: "strict",
+        SCALER_REQUEST_TOKEN_ALLOWANCE: "8000",
+        SCALER_OUTPUT_RESERVE_TOKENS: "32",
+        SCALER_REQUEST_MARGIN_TOKENS: "1024",
+        SCALER_EXPECTED_PROVIDER_API: "openai-completions",
+        SCALER_EXPECTED_PROVIDER: "synthetic",
+        SCALER_EXPECTED_MODEL_ID: "synthetic-8k",
+        SCALER_EXPECTED_CONTEXT_WINDOW: "8000",
+      } }]);
+    });
+  });
+});
+
+test("exact provider model identity requires strict admission and complete fields", () => {
+  assert.throws(() => buildTaskAgentInvocation({
+    taskId: "T-model-without-policy", prompt: "Inspect.",
+    providerAdmissionModel: { api: "openai-completions", provider: "synthetic", id: "synthetic-8k", contextWindow: 8_000 },
+  }), /requires strict provider admission/i);
+  assert.throws(() => buildTaskAgentInvocation({
+    taskId: "T-invalid-model-binding", prompt: "Inspect.", providerAdmission: strictProviderPolicy,
+    providerAdmissionModel: { api: "openai-completions", provider: "", id: "synthetic-8k", contextWindow: 8_000 },
+  }), /model binding/i);
+});
+
+test("runTaskAgent removes inherited provider policy for children without an explicit policy", async () => {
+  await withInheritedProviderPolicy(async () => {
+    await withScript(providerPolicyEchoScript, async (script, dir) => {
+      const result = await runTaskAgent({ taskId: "T-no-policy", prompt: "Inspect.", cwd: dir }, { command: script });
+      assert.equal(result.exitCode, 0);
+      assert.deepEqual(result.stdoutEvents, [{ type: "test_policy", policy: {} }]);
+    });
+  });
+});
+
+test("runTaskAgent refuses invalid provider policy before spawning", async () => {
+  await withScript('#!/bin/sh\necho launched > launched.txt\n', async (script, dir) => {
+    for (const requestTokenAllowance of [0, -1, NaN, Infinity, 1.5]) {
+      await assert.rejects(runTaskAgent({
+        taskId: "T-invalid-policy", prompt: "Inspect.", cwd: dir,
+        providerAdmission: { ...strictProviderPolicy, requestTokenAllowance },
+      }, { command: script }), /policy|allowance|positive|integer/i);
+    }
+    await assert.rejects(readFile(join(dir, "launched.txt")), { code: "ENOENT" });
   });
 });

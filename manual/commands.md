@@ -319,7 +319,13 @@ Lists SCALER-aware compaction records and summary artifact paths.
 
 ## `/scaler-context-handoff [splitId|taskId] [execute]`
 
-Prepares a fresh minimal-context continuation from the selected context split. The prompt keeps task metadata plus externalized memory refs instead of reinjecting large content. With `execute`, SCALER runs the handoff agent only if the prompt is smaller than the split context and below the active-context target.
+Prepares a fresh minimal-context continuation from the selected context split.
+Before publishing a prompt, SCALER revalidates the versioned split and handoff
+ledgers, current manifest, complete minimal-item selection, and externalized
+artifact identity/content. The prompt keeps verified memory refs instead of
+reinjecting large content and preserves inline exact items without clipping.
+The legacy `execute` argument is intentionally blocked before runner invocation
+until this route has conductor-equivalent attempt, provider and result admission.
 
 ## `/scaler-context-handoffs [taskId|splitId|handoffId]`
 
@@ -507,7 +513,7 @@ Lists schema discovery probe records from `.scaler/tool-requests/schema-runs.jso
 
 ## `/scaler-tool-replay <transactionId> [execute] [approval=<id>]`
 
-Prepares or executes a replay of a persisted isolated tool-agent transaction. Replay uses the stored prompt/tools invocation and writes a new transaction linked by `replayOfTransactionId`. Execute mode is allowed for open `prepared` requests. Requests already closed as `completed`, `failed`, or `blocked` remain refused unless `approval=<id>` names an active exact replay approval for the original transaction/request; successful approved closed replay consumes one approval use. Free-form/no-result output is recorded as `missing_result`.
+Prepares or executes a replay of a persisted isolated tool-agent transaction. Replay uses the stored prompt/tools invocation and writes a new transaction linked by `replayOfTransactionId`. Execute mode is allowed for open `prepared` requests. Requests already closed as `completed`, `failed`, or `blocked` remain refused unless `approval=<id>` names an active exact replay approval for the original transaction/request. The approval use is revalidated and reserved atomically with the execution claim before dispatch, so a one-use approval cannot authorize two concurrent replays. Free-form, missing, duplicate, stale, or foreign-bound results block the new execution without automatic replay.
 
 ## `/scaler-tool-replay-approval [approve|revoke] ...`
 
@@ -522,19 +528,19 @@ Examples:
 /scaler-tool-replay <transactionId> execute approval=<approvalId>
 ```
 
-Approvals are not auto-selected by `/scaler-tool-replay`; closed replay execution requires the explicit approval id.
+Approvals are not auto-selected by `/scaler-tool-replay`; closed replay execution requires the explicit approval id. A reserved use remains consumed even if the worker later fails, because reusing execution authority after a possible external effect would be unsafe.
 
 ## `/scaler-tool-run [requestId] [execute]`
 
-Prepares or executes an isolated tool-agent transaction for a prepared `scaler_tool_request`. Prepare mode rebuilds the stored request prompt/invocation and writes `.scaler/tool-requests/transactions.json`. With `execute`, SCALER runs the child agent with only the request's allowed tools, reloads request/result ledgers, and marks the transaction complete only when a structured `scaler_tool_result` closed the request. Child prose without `scaler_tool_result` becomes `missing_result` and is not treated as completion.
+Prepares or executes an isolated tool-agent transaction for a prepared `scaler_tool_request`. Prepare mode rebuilds the stored request prompt/invocation and writes `.scaler/tool-requests/transactions.json`. With `execute`, SCALER first persists an active execution identity, passes only that runtime-owned id to the child, and runs the child with the request's allowed tools. `scaler_tool_result` records a proposal without closing the request. The parent accepts exactly one fresh proposal for that execution only after exit `0` without timeout/abort and unchanged ownership. Child prose, missing or duplicate proposals, runner failure, and late/foreign bindings block the execution and do not authorize a retry.
 
 ## `/scaler-tool-iteration-policy [max=N] [auto-replay=on|off]`
 
-Shows or updates `.scaler/tool-requests/iteration-policy.json`. `max` is clamped to 1..10 and defaults to 3. `auto-replay` controls whether `/scaler-tool-iterate execute` replays the latest `missing_result` transaction after a failed structured-result attempt; it defaults to on.
+Shows or updates `.scaler/tool-requests/iteration-policy.json`. `max` is clamped to 1..10 and defaults to 3. The persisted `auto-replay` setting is retained for compatibility with legacy open `missing_result` ledgers. New ambiguous executions become `blocked`, so this setting never automatically replays their possible effects.
 
 ## `/scaler-tool-iterate [requestId] [execute] [max=N]`
 
-Prepares or executes a bounded correction loop for an open prepared tool request. Prepare mode records one prepared transaction and one iteration-run ledger. Execute mode runs the request once, then replays the latest `missing_result` transaction while the request is still `prepared`, `auto-replay` is enabled, and the iteration cap has not been reached. The loop stops when a structured `scaler_tool_result` closes the request as `completed`, `failed`, or `blocked`, or records `exhausted` when child agents continue to produce no structured result. It does not replay closed requests.
+Prepares or executes a bounded correction loop for an open prepared tool request. Prepare mode records one prepared transaction and one iteration-run ledger. Execute mode inherits the parent execution/result boundary. A newly ambiguous run blocks and ends the loop rather than replaying a possible external effect. Compatible legacy open `missing_result` records can still be selected when the retained policy permits it. The loop does not replay a closed request without the separate explicit replay command and approval boundary.
 
 ## `/scaler-tool-iteration-runs [requestId]`
 
@@ -542,7 +548,7 @@ Lists bounded tool-agent correction loop records from `.scaler/tool-requests/ite
 
 ## `/scaler-tool-schedule [execute] [parallel=N]`
 
-Plans or executes all currently prepared tool requests and records `.scaler/tool-requests/schedules.json`. Requests are eligible for the parallel batch only when the request risk is `low` and every allowed tool's compact/discovered catalog entry is also low risk. Unknown, medium/high, destructive, external, secret, or otherwise uncertain requests are serialized. Without `execute`, the command only records the schedule plan. With `execute`, SCALER runs parallelizable requests in bounded batches (`parallel` defaults to 2 and clamps to 1..8), then runs serialized requests one at a time. Each child transaction still requires structured `scaler_tool_result` completion.
+Plans or executes all currently prepared tool requests and records `.scaler/tool-requests/schedules.json`. Planning still classifies low-risk/read-only requests as advisory `parallel` candidates and retains `parallel` (default 2, clamped to 1..8) for compatible input and audit. Without `execute`, the command only records that plan. With `execute`, SCALER runs every request sequentially in one workspace, regardless of the advisory mode; no child runners overlap. Each child transaction uses the execution-bound parent acceptance boundary described above.
 
 ## `/scaler-tool-schedules [requestId]`
 

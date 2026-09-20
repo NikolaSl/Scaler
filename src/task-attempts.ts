@@ -8,6 +8,7 @@ import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { loadExecutionLock } from "./locks.js";
 import { getTaskAttemptsPath } from "./paths.js";
+import { trimMarkdownHeadingWhitespace, type ContextScope, type FileContextSourceBinding } from "./context.js";
 
 export type TaskAttemptStatus = "admitted" | "dispatching" | "completed" | "failed" | "interrupted";
 export type TaskAttemptOutcome = "not_started" | "succeeded" | "failed" | "unknown";
@@ -20,6 +21,7 @@ export interface TaskAttemptRecord {
   inputFingerprint: string;
   routeFingerprint: string;
   validationPolicyFingerprint: string;
+  contextSources?: FileContextSourceBinding[];
   status: TaskAttemptStatus;
   outcome?: TaskAttemptOutcome;
   outputFingerprint?: string;
@@ -46,6 +48,7 @@ export interface TaskAttemptAdmissionInput {
   inputFingerprint: string;
   routeFingerprint: string;
   validationPolicyFingerprint: string;
+  contextSources?: FileContextSourceBinding[];
 }
 
 export interface TaskAttemptCompletionInput {
@@ -109,6 +112,7 @@ export async function admitTaskAttempt(
     ...input,
     runId: input.runId.trim(),
     taskId: input.taskId.trim(),
+    contextSources: input.contextSources?.map(cloneContextSource) ?? [],
     status: "admitted",
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -172,6 +176,7 @@ function validateAdmission(input: TaskAttemptAdmissionInput): void {
   })) {
     if (!fingerprintPattern.test(value)) throw new Error(`Task attempt requires valid ${name}.`);
   }
+  if (input.contextSources !== undefined) validateContextSources(input.contextSources);
 }
 
 function validateCompletion(input: TaskAttemptCompletionInput): void {
@@ -211,6 +216,48 @@ function validateStoredAttempt(attempt: TaskAttemptRecord): void {
   } else if (attempt.outcome || attempt.outputFingerprint || attempt.validationContextFingerprint || attempt.reportId) {
     throw new Error(`Open task attempt ${attempt.id} contains terminal fields.`);
   }
+}
+
+function validateContextSources(sources: FileContextSourceBinding[]): void {
+  if (!Array.isArray(sources)) throw new Error("Task attempt contextSources must be an array.");
+  const scopes = new Set<ContextScope>(["full", "section", "snippet", "summary", "reference-only"]);
+  const identities = new Set<string>();
+  for (const source of sources) {
+    if (!source || typeof source !== "object" || typeof source.itemId !== "string" || !source.itemId.trim()) {
+      throw new Error("Task attempt context source requires itemId.");
+    }
+    if (typeof source.path !== "string" || !source.path.trim()) {
+      throw new Error(`Task attempt context source ${source.itemId} requires path.`);
+    }
+    if (!scopes.has(source.scope)) throw new Error(`Task attempt context source ${source.itemId} has invalid scope.`);
+    if (!fingerprintPattern.test(source.contentFingerprint)) {
+      throw new Error(`Task attempt context source ${source.itemId} requires valid contentFingerprint.`);
+    }
+    if (typeof source.outputExemptible !== "boolean") {
+      throw new Error(`Task attempt context source ${source.itemId} requires outputExemptible.`);
+    }
+    if (source.selector !== undefined) {
+      const selector = source.selector;
+      if (typeof selector !== "object" || selector === null || Array.isArray(selector)
+        || source.scope !== "section" || selector.kind !== "markdown-heading"
+        || typeof selector.heading !== "string" || !trimMarkdownHeadingWhitespace(selector.heading)
+        || (selector.maxChars !== undefined
+          && (!Number.isSafeInteger(selector.maxChars) || selector.maxChars <= 0))) {
+        throw new Error(`Task attempt context source ${source.itemId} has invalid selector.`);
+      }
+    }
+    const identity = `${source.itemId}\0${source.path}`;
+    if (identities.has(identity)) throw new Error(`Task attempt has duplicate context source ${source.itemId}: ${source.path}.`);
+    identities.add(identity);
+  }
+}
+
+function cloneContextSource(source: FileContextSourceBinding): FileContextSourceBinding {
+  const { selector, ...rest } = source;
+  return {
+    ...rest,
+    ...(selector ? { selector: { ...selector } } : {}),
+  };
 }
 
 export async function assertAttemptWriter(cwd: string, executionLockId: string, taskId: string): Promise<void> {

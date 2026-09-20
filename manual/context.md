@@ -11,6 +11,9 @@ Context items include:
 - `reason`
 - `priority`: `required`, `useful`, or `optional`
 - `scope`: `full`, `section`, `snippet`, `summary`, or `reference-only`
+- `selector`: file-backed `section` items use
+  `{ "kind": "markdown-heading", "heading": "...", "maxChars": N }`;
+  `maxChars` defaults to 3,200
 - `exactness`: optional `exact`, `summary-ok`, or `reference-only`
 - `content`
 
@@ -56,7 +59,63 @@ Existing manifests are preserved; discovery only runs when a manifest is created
 
 Operators can also run deterministic semantic-style candidate search without injecting the results. Candidate search scores task metadata, query terms, memory summaries/tags, allowed files, changed files, PRD refs, and existing manifest items, then returns a small candidate list with reasons. Candidates become active only after explicit approval into the task manifest.
 
-If a source cannot be resolved, SCALER preserves a `MISSING CONTEXT` item instead of silently dropping it.
+If a source cannot be resolved, SCALER preserves a structured unavailable
+`MISSING CONTEXT` item instead of silently dropping it. Required unavailable
+items refuse conductor and debug-retry dispatch before attempt, task transition
+or spawned-agent accounting.
+
+File-backed `section` scope is exact document-level Markdown ATX-heading retrieval,
+not prefix truncation. A pinned CommonMark parser distinguishes headings from code,
+HTML, blockquotes and lists; headings inside those containers are not selectable.
+Setext headings are not selectable but do end a preceding section at equal or
+higher level. The selector matches the unique raw heading text (including inline
+Markdown syntax), without rendering or semantic inference.
+Only ASCII spaces/tabs are trimmed from selectors and heading text. Unicode
+spacing characters (including NBSP) remain part of the exact heading identity.
+Retrieval includes its nested subsections and stops before the next equal-or-higher
+heading while preserving the original substring and line endings. Missing,
+ambiguous or oversized selections are unavailable; SCALER does not truncate them
+while claiming exactness. Two selectors may reference distinct sections of the
+same file. CRLF, standalone CR and LF line endings are preserved in the returned
+substring. If a heading position cannot be mapped back to the original source,
+the context is unavailable rather than approximately selected.
+
+## Final prompt admission
+
+Execution uses the task manifest allowance, an explicit caller allowance, or an
+8,000-token default. Allowances must be positive safe integers; malformed
+explicit or persisted values fail closed. Conductor and debug retry estimate the
+complete SCALER-owned prompt after context resolution and wrapper construction,
+including a fixed-length execution-attempt identity envelope. An oversized
+prompt is refused before runner dispatch, attempt creation, task `running`
+transition, or spawned-agent accounting. Required exact bytes are not silently
+dropped or summarized to force admission. Prepare mode and split diagnostics
+remain available because they do not launch a worker.
+
+This early estimator remains the documented `characters / 4` approximation.
+Executable conductor and debug-retry children then use a second, stricter gate
+at Pi's `before_provider_request` boundary. For the supported OpenAI Chat
+Completions text/tool payload emitted by installed Pi 0.80.3, SCALER counts the serialized UTF-8 bytes
+of the final provider request. That conservative upper bound includes Pi system
+instructions, tool schemas, history, injected context, pending tool results and
+protocol fields. The gate adds the provider's actual output limit and a 1,024
+token safety margin, then compares the total with both the task allowance and
+the selected model context window. Pi output clamping below the required 1,024
+token useful reserve is also refused.
+
+Strict children disable ambient extension, skill, prompt-template and context
+file discovery, load the admission extension last, and reject extra extension
+paths. Policy transport contains validated numeric limits only. A refusal calls
+`ctx.abort()` before the transport; a thrown hook error is not treated as
+enforcement. The strict profile also cancels Pi's provider-backed compaction,
+whose summary request bypasses `before_provider_request` in Pi 0.80.3.
+
+The provider gate currently supports only the installed Pi 0.80.3 OpenAI Chat
+Completions text/tool shape. Alternate APIs, image/audio and multiple-completion
+payloads fail closed. The byte bound can conservatively reject a request that an
+exact tokenizer would admit. Parent interactive calls, other child routes,
+provider-internal retries and reconciliation against observed usage remain
+later P3 work.
 
 ## Missing-context lifecycle
 
@@ -83,7 +142,7 @@ SCALER uses deterministic compression policy helpers for task-agent prompts:
 - SCALER registers a Pi `context` hook that injects only approved manifest items for the current task when they are compact (`summary`, `snippet`, or `reference-only`) and non-optional. Full and optional items remain pull-based and are not automatically inserted into the parent-session LLM context.
 - Fresh minimal-context continuation handoffs are recorded in `.scaler/context/handoffs.json` with prompt artifacts under `.scaler/context/handoffs/`; execution is blocked unless the generated handoff prompt is below the active-context target and smaller than the split context.
 
-Default/discovered manifests mark file snippets, task metadata, validation evidence, execution-plan entries, changed paths, and PRD coverage as `exact`; memory summaries are `summary-ok`; PRD id-only links are `reference-only`. Summary/reference-only memory items inject id/title/path/tags/summary only; full memory content is injected only when a context item or retrieval request asks for `full`, and `section:<heading>` retrieval injects the matching Markdown section when found.
+Default/discovered manifests mark file snippets, task metadata, validation evidence, execution-plan entries, changed paths, and PRD coverage as `exact`; memory summaries are `summary-ok`; PRD id-only links are `reference-only`. Summary/reference-only memory items inject id/title/path/tags/summary only; full memory content is injected only when a context item or retrieval request asks for `full`. Memory's `section:<heading>` retrieval remains separate from file-manifest selectors.
 
 ## Commands
 
@@ -117,6 +176,11 @@ Default/discovered manifests mark file snippets, task metadata, validation evide
 
 `/scaler-compactions` lists recent compaction records and summary artifact paths.
 
-`/scaler-context-handoff` prepares, or with `execute` runs, a fresh minimal-context continuation agent from a split record. It refuses execution if the generated prompt does not shrink below the split target.
+`/scaler-context-handoff` prepares a fresh minimal-context continuation from a
+split record only after revalidating the split, current manifest, every selected
+minimal item, and each externalized source's stored identity and bytes. The
+legacy `execute` argument now fails closed before invoking a runner because this
+route does not yet have conductor-equivalent attempt, provider and result
+admission. Execute prepared work through the normal conductor boundary.
 
 `/scaler-context-handoffs` lists fresh handoff records.

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { BuildSystemPromptOptions, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { applyAdaptiveOrchestration, assessAdaptiveOrchestration, formatAdaptiveAssessment, startScalerRun } from "./adaptive.js";
 import { runScalerAutomation } from "./autopilot.js";
 import { formatBudgetStatus, getBudgetState, isBudgetUsageKey, persistBudgetDecision, setBudgetLimits, setBudgetUsage } from "./budgets.js";
@@ -114,7 +114,7 @@ import {
   validateStageArtifactReadiness,
 } from "./stages.js";
 import { formatStorageInventory, formatStorageMaintenanceReport, formatStorageMaintenanceSchedule, loadStorageMaintenanceSchedule, runScheduledStorageMaintenance, runStorageMaintenance, saveStorageInventory, scanScalerStorageInventory, updateStorageMaintenanceSchedule, type StorageMaintenancePolicy } from "./storage.js";
-import { buildRuntimeToolCatalog, createToolReplayApproval, formatKnownToolCatalog, formatMcpEnumerationRuns, formatMcpServerRecords, formatRuntimeToolCatalog, formatToolIterationPolicy, formatToolIterationRuns, formatToolReplayApprovals, formatToolSchedules, formatToolSchemaDiscoveryRuns, formatToolTransactions, loadMcpEnumerationRuns, loadMcpServerRecords, loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolSchedules, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, replayToolTransaction, revokeToolReplayApproval, runMcpServerEnumeration, runToolIterationWorkflow, runToolRequestAgent, runToolSchedule, runToolSchemaDiscoveryAgent, saveToolIterationPolicy, selectParentRequesterActiveTools, shouldApplyParentToolFocus } from "./tool-requests.js";
+import { buildRuntimeToolCatalog, buildRuntimeToolEnvelopeProfile, createToolReplayApproval, formatKnownToolCatalog, formatMcpEnumerationRuns, formatMcpServerRecords, formatRuntimeToolCatalog, formatToolIterationPolicy, formatToolIterationRuns, formatToolReplayApprovals, formatToolSchedules, formatToolSchemaDiscoveryRuns, formatToolTransactions, loadMcpEnumerationRuns, loadMcpServerRecords, loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolSchedules, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, replayToolTransaction, revokeToolReplayApproval, runMcpServerEnumeration, runToolIterationWorkflow, runToolRequestAgent, runToolSchedule, runToolSchemaDiscoveryAgent, saveToolIterationPolicy, selectParentRequesterActiveTools, shouldApplyParentToolFocus } from "./tool-requests.js";
 import { registerScalerTools } from "./tools.js";
 import { formatValidationChecklist, recordValidationChecklist, upsertValidationManifestCommand } from "./validation.js";
 import { runValidationDebugLoopWorkflow, selectTaskForValidationDebugLoop } from "./validation-debug-loop.js";
@@ -122,6 +122,52 @@ import { applyComplexityBudgetPolicy, formatComplexityBudgetPolicies, formatResu
 import { formatWorkflowSummary, summarizeWorkflow } from "./workflow.js";
 
 type RuntimeToolAPI = Partial<Pick<ExtensionAPI, "getAllTools" | "getActiveTools" | "setActiveTools">>;
+
+type HostSystemPromptBuilder = (options: BuildSystemPromptOptions) => string;
+
+let hostSystemPromptBuilderPromise: Promise<HostSystemPromptBuilder> | undefined;
+
+async function loadHostSystemPromptBuilder(): Promise<HostSystemPromptBuilder> {
+  hostSystemPromptBuilderPromise ??= (async () => {
+    const packageEntry = import.meta.resolve("@earendil-works/pi-coding-agent");
+    const moduleUrl = new URL("./core/system-prompt.js", packageEntry);
+    const hostModule = await import(moduleUrl.href) as { buildSystemPrompt?: unknown };
+    if (typeof hostModule.buildSystemPrompt !== "function") {
+      throw new Error(`Pi host system-prompt builder is unavailable at ${moduleUrl.href}`);
+    }
+    return hostModule.buildSystemPrompt as HostSystemPromptBuilder;
+  })();
+  return hostSystemPromptBuilderPromise;
+}
+
+async function rebuildSelectedHostSystemPrompt(
+  incomingPrompt: string,
+  options: BuildSystemPromptOptions,
+  selectedToolNames: string[],
+  allTools: ReturnType<ExtensionAPI["getAllTools"]>,
+): Promise<string> {
+  const buildSystemPrompt = await loadHostSystemPromptBuilder();
+  const baseline = buildSystemPrompt(options);
+  if (baseline !== incomingPrompt) {
+    throw new Error("Pi system prompt was modified before SCALER tool selection; selected-envelope composition is unsupported for this request.");
+  }
+  const selected = new Set(selectedToolNames);
+  const selectedDefinitions = new Map(allTools.filter((tool) => selected.has(tool.name)).map((tool) => [tool.name, tool]));
+  if (selectedDefinitions.size !== selected.size) {
+    throw new Error("Pi selected-tool definitions changed while rebuilding the request system prompt.");
+  }
+  const toolSnippets = Object.fromEntries(Object.entries(options.toolSnippets ?? {}).filter(([name]) => selected.has(name)));
+  const promptGuidelines = selectedToolNames.flatMap((name) => {
+    const guidelines = selectedDefinitions.get(name)?.promptGuidelines;
+    return Array.isArray(guidelines) ? guidelines.filter((value): value is string => typeof value === "string") : [];
+  });
+  return buildSystemPrompt({
+    ...options,
+    selectedTools: selectedToolNames,
+    toolSnippets,
+    promptGuidelines,
+  });
+}
 
 function runtimeToolApisAvailable(ctx: RuntimeToolAPI): ctx is Required<RuntimeToolAPI> {
   return typeof ctx.getAllTools === "function" && typeof ctx.getActiveTools === "function" && typeof ctx.setActiveTools === "function";
@@ -184,6 +230,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
 
   let lastAutoCompactKey: string | undefined;
   const activeToolFocusSnapshots = new Map<string, string[]>();
+  const blockedParentPromptCompositions = new Map<string, string>();
 
   pi.on("turn_end", async (event, ctx) => {
     const usage = extractProviderUsage([event]);
@@ -227,16 +274,70 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     return { compaction };
   });
 
+  pi.on("before_agent_start", async (event, ctx) => {
+    if (isChildAgent) return undefined;
+    const state = await ensureState(ctx.cwd);
+    const focus = applyParentToolFocus(ctx.cwd, state, pi, activeToolFocusSnapshots);
+    if (focus) {
+      let systemPrompt: string;
+      try {
+        systemPrompt = await rebuildSelectedHostSystemPrompt(event.systemPrompt, event.systemPromptOptions, focus.active, pi.getAllTools());
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        if (focus.applied) restoreParentToolFocus(ctx.cwd, pi, activeToolFocusSnapshots);
+        blockedParentPromptCompositions.set(ctx.cwd, reason);
+        try {
+          await logStateEvent(ctx.cwd, state, "SCALER parent tool focus refused", {
+            taskId: state.currentTaskId,
+            reason,
+            lifecycle: "before_agent_start",
+          });
+        } catch {
+          // Admission and refusal must not depend on audit storage availability.
+        }
+        return undefined;
+      }
+      const envelopeProfile = buildRuntimeToolEnvelopeProfile(pi.getAllTools(), pi.getActiveTools(), {
+        requestedToolNames: focus.active,
+        selectionApisAvailable: true,
+      });
+      blockedParentPromptCompositions.delete(ctx.cwd);
+      try {
+        await logStateEvent(ctx.cwd, state, focus.applied ? "SCALER parent tool focus applied" : "SCALER parent tool focus verified", {
+          taskId: state.currentTaskId,
+          previousActiveTools: focus.previous,
+          activeTools: focus.active,
+          lifecycle: "before_agent_start",
+          envelopeProfile,
+        });
+      } catch {
+        // The selected prompt must still reach the host when telemetry is unavailable.
+      }
+      return { systemPrompt };
+    }
+    blockedParentPromptCompositions.delete(ctx.cwd);
+    return undefined;
+  });
+
+  pi.on("before_provider_request", async (_event, ctx) => {
+    const reason = blockedParentPromptCompositions.get(ctx.cwd);
+    if (!reason) return undefined;
+    ctx.abort();
+    try {
+      const state = await ensureState(ctx.cwd);
+      await logStateEvent(ctx.cwd, state, "SCALER parent provider request refused", {
+        taskId: state.currentTaskId,
+        reason,
+        lifecycle: "before_provider_request",
+      });
+    } catch {
+      // The refusal remains latched across continuations even if telemetry fails.
+    }
+    return undefined;
+  });
+
   pi.on("context", async (event, ctx) => {
     const state = await ensureState(ctx.cwd);
-    const focus = isChildAgent ? undefined : applyParentToolFocus(ctx.cwd, state, pi, activeToolFocusSnapshots);
-    if (focus?.applied) {
-      await logStateEvent(ctx.cwd, state, "SCALER parent tool focus applied", {
-        taskId: state.currentTaskId,
-        previousActiveTools: focus.previous,
-        activeTools: focus.active,
-      });
-    }
     const injection = await buildContextHookInjection(ctx.cwd, state);
     const runtimeToolCatalog = !isChildAgent && shouldApplyParentToolFocus(state) ? await buildParentRuntimeToolCatalogText(ctx.cwd, pi) : undefined;
     const sections = [injection, runtimeToolCatalog].filter((section): section is string => Boolean(section));
@@ -245,7 +346,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     await logStateEvent(ctx.cwd, state, "SCALER context hook injected approved manifest context", {
       taskId: state.currentTaskId,
       characters: message.length,
-      parentToolFocusApplied: Boolean(focus?.applied),
+      parentToolFocusApplied: activeToolFocusSnapshots.has(ctx.cwd),
       parentToolCatalog: Boolean(runtimeToolCatalog),
     });
     return {

@@ -269,6 +269,129 @@ model's agreement as a substitute. This is an explicit capability limitation,
 not a claim of complete P2.3 or SC-10 support.
 # Completion provenance regression
 
+PLAN-119 covers final SCALER prompt admission. Conductor and debug retry measure
+the fully rendered task prompt rather than trusting context-item estimates, and
+refuse an oversized or malformed allowance before runner, attempt, task-state or
+spawn-budget effects. The regressions cover oversized required exact context,
+understated item estimates, wrapper-only overflow, debug retry, non-finite
+explicit/persisted allowances and sufficient-budget controls. Run
+`node --test --import tsx test/conductor.test.ts test/debug-retry.test.ts test/context.test.ts test/context-splits.test.ts`.
+This remains the early SCALER-owned-envelope gate.
+
+PLAN-120 adds strict provider-payload admission for executable conductor and
+debug-retry children using the installed Pi 0.80.3 OpenAI Chat Completions
+adapter. Pure tests cover the final serialized system/tool/history/tool-result
+payload, UTF-8 sizing, task/model limits, useful output reserve, margin,
+malformed limits, audio/images and multiple completions. Subprocess tests cover
+ambient-resource suppression, extension ordering and numeric-only policy
+transport. Installed-host SDK tests replace `fetch` before session creation and
+make no network request; they prove that `ctx.abort()` stops an oversized
+request, that throwing does not, that a sufficient request still reaches the
+stub, and that strict children cancel provider-backed auto-compaction because
+Pi's compaction route bypasses the provider-request hook. Run
+`node --test --import tsx test/provider-admission.test.ts test/provider-admission-host.test.ts test/subagents.test.ts test/conductor.test.ts test/debug-retry.test.ts`.
+This is not tokenizer-accurate evidence and does not validate alternate provider
+APIs, real model quality, token savings or scale.
+
+PLAN-121 replaces file `scope: "section"` prefix truncation with explicit,
+exact Markdown-heading selection. The conductor fixture puts the required
+section after a 72k-character unrelated prefix and proves that the actual worker
+prompt contains only the selected section (including nested headings), not the
+prefix or following peer section. Missing selectors/headings, ambiguous matches
+and oversized selected sections fail before runner, attempt, task-transition or
+spawn-budget effects. Fenced pseudo-headings, nested/lazy list containers,
+blockquote termination, ordered-list interruption, strict fence closing syntax,
+duplicate references, HTML/container exclusions and two selectors for one file
+are covered. Unicode and LF/CRLF/standalone-CR fixtures assert exact original
+substrings, including Setext section boundaries. Run
+`node --test --import tsx test/context.test.ts test/conductor.test.ts test/debug-retry.test.ts`.
+This is bounded ATX-heading retrieval, not AST/semantic retrieval or automatic
+task splitting.
+
+PLAN-122 binds every admitted file-backed context item to the complete source
+bytes used to render it. The durable attempt stores normalized path, scope,
+selector, byte fingerprint and exact-output eligibility. Sources are re-read
+before dispatch and before accepting the worker report. Missing, changed,
+replaced, symlink-backed or non-regular sources fail closed before successful
+report persistence, validation accounting or completion evidence. A direct
+regular file may change after dispatch only when it is an exact declared output
+inside the existing write scope; an allowed-prefix match alone is insufficient.
+Budget-omitted and inline context retain their prior behavior.
+
+Run `node --test --import tsx test/context.test.ts test/attempt-execution.test.ts test/conductor.test.ts test/debug-retry.test.ts test/task-attempts.test.ts`.
+The regressions include selected-section ambiguity, deletion, byte-level drift,
+descriptor tampering, legacy open attempts, exact-output controls, leaf and
+ancestor symlinks, and FIFO replacement. This check is not a filesystem
+transaction or authenticated writer attribution: change-and-restore and a race
+after the final read remain explicit limitations.
+
+PLAN-126 bounds the isolated tool-worker transport and structured result
+acceptance introduced by PLAN-125. `runTaskAgent` counts raw stdout/stderr bytes
+before streaming UTF-8 decode, retains no bytes beyond the 4 MiB/1 MiB caps and
+terminates through the existing confirmed TERM/KILL lifecycle. The parent
+accepts a result only when both observed transport counters are present and
+valid, no limit was crossed, the durable execution still carries the exact
+runtime-owned limits, and the proposed plus accepted compact-JSON result stays
+within 1 MiB. Missing or malformed counters are not inferred from decoded text.
+
+Run `node --test --import tsx test/subagents.test.ts test/tool-requests.test.ts test/tool-ledger-concurrency.test.ts test/tool-routing.test.ts`.
+The focused coverage includes split UTF-8, newline-free output, large crossing
+chunks, stderr overflow, a TERM-ignoring overflow child, a proposal followed by
+overflow, malformed/missing measurements, deep nested JSON, durable byte/limit
+tampering, replay, schedule, iteration and concurrent ledger publication. The
+compact result size is an acceptance and persistence bound for one record, not
+a child memory/filesystem sandbox or total historical-ledger quota. PLAN-124
+route advice remains non-authorizing until dispatch-time provider evidence and
+caller-continuation identity have a trusted live supplier; these tests do not
+prove SC-08/AC-08, local-model quality, savings or scale.
+
+PLAN-127 adds the missing dispatch-time admission boundary. Every executable
+isolated tool run, replay, iteration step and schedule step must receive fresh
+host-owned worker and caller-continuation provider evidence bound to a newly
+allocated execution identity. SCALER rebuilds the request basis from its durable
+tool request, recomputes PLAN-124 routing and admits only the isolated route.
+Missing, throwing, malformed, foreign, stale or non-isolated evidence records a
+rejected transaction before runner invocation and without consuming replay
+approval. The claim then atomically rechecks the request and final strict child
+invocation before taking ownership.
+
+The admitted worker API/provider/model/context window is transported through
+strict provider admission. The installed Pi hook aborts before provider
+transport if the live model identity differs. The new route-admission receipt
+retains compact request, invocation, route-evidence and selected-profile
+fingerprints plus the overhead bound; it does not add supplier provider payloads
+or messages. The existing transaction record still retains its replay invocation
+and rendered child prompt. Finalization rejects a result if the durable admission
+receipt is missing or changed.
+
+Run `node --test --import tsx test/provider-admission-host.test.ts test/subagents.test.ts test/tool-routing.test.ts test/tool-requests.test.ts test/integration/mock/tool-request-flow.test.ts` for the focused host, route, replay and result boundary, and
+`node --test --import tsx test/tool-ledger-concurrency.test.ts` for separate
+worker-process publication. The final candidate passes build, 960 unit/component
+tests, 67 mock integration tests and 7 conformance/autopilot checks.
+
+The installed command surface still cannot observe a trustworthy future caller
+continuation envelope, so execution fails closed there while preparation stays
+available. Synthetic evidence is limited to tests and does not establish a
+production supplier, route execution completeness, local-model quality, token
+savings or scale. SC-08/AC-08 remains partial.
+
+PLAN-128 revalidates fresh-context handoff evidence before prompt publication.
+Run `node --test --import tsx test/context-compaction.test.ts test/context-splits.test.ts`
+for exact-inline preservation (including explicit exactness overriding a
+reference-only presentation scope) plus malformed/foreign ledger, missing minimal
+item, mutated/deleted/symlinked source, hash/header/alias substitution and legacy
+execute-refusal coverage. Preparation writes no prompt for invalid source or
+identity evidence, and malformed handoff evidence is preserved rather than
+overwritten. The `execute` argument invokes no runner; normal conductor
+admission remains the only executable task-agent boundary. These checks do not
+prove automatic effective splitting, a live continuation supplier, route
+execution, local-model quality, savings or scale.
+
+The PLAN-128 candidate passes the TypeScript build, `git diff --check`, 979 unit
+and component tests, 67 mock integration tests and 7 conformance/autopilot
+checks. These are repository-owned gates; no paid or deployed model execution is
+claimed.
+
 PLAN-113 requires declared `outputPaths` before automatic non-Git/clean/runtime
 commit skips or explicit commit skips can accept a task. A successful command
 may still have `status: passed` while `acceptance.accepted` is false; callers

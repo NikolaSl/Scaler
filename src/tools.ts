@@ -582,6 +582,9 @@ export function registerScalerTools(pi: ExtensionAPI): void {
       const state = await ensureState(ctx.cwd);
       const result = await recordToolResult(ctx.cwd, state, {
         requestId: params.requestId,
+        executionId: process.env.SCALER_CHILD_AGENT === "1"
+          ? process.env.SCALER_TOOL_EXECUTION_ID
+          : undefined,
         status: params.status,
         summary: params.summary,
         outputs: params.outputs,

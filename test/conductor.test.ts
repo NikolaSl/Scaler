@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -263,6 +263,99 @@ test("runConductorStep records context split artifacts for oversized resolved co
   });
 });
 
+test("runConductorStep refuses an oversized required prompt before execution side effects", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, {
+      execute: true,
+      tokenBudget: 1_000,
+      contextItems: [{
+        id: "huge-exact", type: "file", reason: "The task requires the exact source.",
+        content: `EXACT_START\n${"x".repeat(40_000)}\nEXACT_END`,
+        priority: "required", scope: "full", exactness: "exact",
+      }],
+    }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.promptAdmission?.accepted, false);
+    assert.ok((result.promptAdmission?.estimatedTokens ?? 0) > 1_000);
+    assert.match(result.message, /final SCALER prompt refused/i);
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+    assert.equal(result.state.tasks[0]?.status, "ready");
+    assert.equal(getBudgetState(result.state).usage.spawnedAgents ?? 0, 0);
+    assert.ok(result.contextSplit);
+  });
+});
+
+test("runConductorStep measures prompt bytes instead of trusting understated item estimates", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, {
+      execute: true,
+      tokenBudget: 1_000,
+      contextItems: [{
+        id: "understated", type: "file", reason: "Caller estimate is not dispatch authority.",
+        content: "x".repeat(20_000), priority: "required", scope: "full", exactness: "exact", estimatedTokens: 1,
+      }],
+    }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.promptAdmission?.accepted, false);
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+    assert.equal(result.contextSplit, undefined);
+  });
+});
+
+test("runConductorStep refuses when the final wrapper alone exceeds the allowance", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, { execute: true, tokenBudget: 1, contextItems: [] }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.promptAdmission?.accepted, false);
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+    assert.equal(result.state.tasks[0]?.status, "ready");
+  });
+});
+
+test("runConductorStep refuses a non-finite prompt allowance", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, {
+      execute: true,
+      tokenBudget: Number.POSITIVE_INFINITY,
+      contextItems: [{ id: "huge", type: "file", reason: "Must not become unbounded.", content: "x".repeat(40_000), priority: "required", scope: "full" }],
+    }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.promptAdmission?.accepted, false);
+    assert.match(result.message, /positive finite integer/i);
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+  });
+});
+
 test("runConductorStep uses task context manifest when explicit context is absent", async () => {
   await withTempDir(async (dir) => {
     const state = stateWithTasks(["ready"]);
@@ -283,6 +376,206 @@ test("runConductorStep uses task context manifest when explicit context is absen
     assert.equal(result.accepted, true);
     assert.match(result.prompt ?? "", /Manifest file context/);
     assert.deepEqual(result.prompt?.match(/## Context: file/g), ["## Context: file"]);
+  });
+});
+
+test("runConductorStep dispatches the selected exact Markdown section", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    const source = [
+      "# Reference",
+      "## Introduction",
+      "UNRELATED_PREFIX",
+      "filler line\n".repeat(6_000),
+      "## Target",
+      "EXACT_TARGET_CONTRACT = keep_this_unchanged;",
+      "### Nested",
+      "NESTED_TARGET_DETAIL",
+      "## Next",
+      "DO_NOT_INCLUDE_NEXT",
+      "",
+    ].join("\n");
+    await writeFile(join(dir, "reference.md"), source, "utf8");
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-001",
+      tokenBudget: 8_000,
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      } as never],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+    let dispatchedPrompt = "";
+
+    const result = await runConductorStep(dir, state, { execute: true, tools: ["read"] }, async (request) => {
+      dispatchedPrompt = request.prompt;
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [completedTaskReport(request)],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
+
+    assert.equal(result.accepted, true, result.message);
+    assert.match(dispatchedPrompt, /EXACT_TARGET_CONTRACT/);
+    assert.match(dispatchedPrompt, /NESTED_TARGET_DETAIL/);
+    assert.doesNotMatch(dispatchedPrompt, /UNRELATED_PREFIX|DO_NOT_INCLUDE_NEXT/);
+  });
+});
+
+test("runConductorStep rejects a result after selected file context becomes ambiguous", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    const source = "# Target\nORIGINAL\n# Other\nTAIL\n";
+    await writeFile(join(dir, "reference.md"), source, "utf8");
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-001",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+        selector: { kind: "markdown-heading", heading: "Target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
+      await writeFile(join(dir, "reference.md"), `${source}# Target\nSECOND\n`, "utf8");
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [completedTaskReport(request)],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
+
+    assert.equal(result.accepted, false, "a returned result must not use stale selected file context");
+    assert.match(result.message, /context.*(changed|stale).*reference\.md/i);
+    assert.deepEqual(await loadTaskAgentReports(dir), []);
+    assert.deepEqual(await loadValidationHandoffs(dir), []);
+    const [attempt] = await loadTaskAttempts(dir);
+    assert.equal(attempt?.status, "interrupted");
+    assert.equal(attempt?.outcome, "unknown");
+    assert.equal(attempt?.reportId, undefined);
+    assert.equal(attempt?.outputFingerprint, undefined);
+    assert.equal(attempt?.validationContextFingerprint, undefined);
+    assert.notEqual((await loadState(dir)).tasks[0]?.status, "validated");
+  });
+});
+
+test("runConductorStep permits an admitted file to change only as an exact declared task output", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    await mkdir(join(dir, "src"), { recursive: true });
+    await writeFile(join(dir, "src", "app.ts"), "export const value = 1;\n", "utf8");
+    await saveValidationManifest(dir, {
+      taskId: "T-001",
+      outputPaths: ["src/app.ts"],
+      acceptanceCriteria: ["The synthetic task report is handed to validation."],
+      commands: [],
+      createdAt: "",
+      updatedAt: "",
+    });
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-001",
+      items: [{
+        id: "implementation", type: "file", reason: "Implementation being changed", priority: "required",
+        scope: "full", source: "file", path: "src/app.ts",
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
+      await writeFile(join(dir, "src", "app.ts"), "export const value = 2;\n", "utf8");
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [completedTaskReport(request)],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
+
+    assert.equal(result.accepted, true, result.message);
+    assert.equal((await loadTaskAgentReports(dir)).length, 1);
+    assert.equal((await loadValidationHandoffs(dir)).length, 1);
+  });
+});
+
+test("runConductorStep blocks a required section without a selector before dispatch", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    await writeFile(join(dir, "reference.md"), "## Target\ncontract\n", "utf8");
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-001",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+    let runnerCalls = 0;
+
+    const result = await runConductorStep(dir, state, { execute: true }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /required context.*selector|selector.*required context/i);
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+    assert.equal(result.state.tasks[0]?.status, "ready");
+    assert.equal(getBudgetState(result.state).usage.spawnedAgents ?? 0, 0);
+  });
+});
+
+test("required context refusal does not promote a pending task", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["pending"]);
+    state.stage = "execution";
+    await writeFile(join(dir, "reference.md"), "## Target\ncontract\n", "utf8");
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-001",
+      items: [{
+        id: "target", type: "file", reason: "Exact Target contract", priority: "required",
+        scope: "section", source: "file", path: "reference.md",
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+    let runnerCalls = 0;
+
+    const result = await runConductorStep(dir, state, { execute: true }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.state.tasks[0]?.status, "pending");
+    assert.equal(result.task?.status, "pending");
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+    assert.equal(getBudgetState(result.state).usage.spawnedAgents ?? 0, 0);
   });
 });
 
@@ -404,6 +697,10 @@ test("runConductorStep executes task with injected runner", async () => {
         assert.ok(request.tools?.includes("edit"));
         assert.ok(request.tools?.includes("write"));
         assert.ok(request.tools?.includes("scaler_task_report"));
+        assert.ok(request.providerAdmission);
+        assert.equal(request.providerAdmission.outputReserveTokens, 1_024);
+        assert.equal(request.providerAdmission.safetyMarginTokens, 1_024);
+        assert.ok(request.providerAdmission.requestTokenAllowance > 0);
         return {
           taskId: request.taskId,
           exitCode: options?.timeoutMs === 123 ? 0 : 1,

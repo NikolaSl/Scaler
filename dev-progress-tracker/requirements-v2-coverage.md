@@ -24,10 +24,10 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-02 | Partial | Task fields/report contracts exist; complete versioned attempt/executor contract not established. | `src/types.ts`, `src/tasks.ts`, `src/task-reports.ts` | [AC-02](../specs/acceptance-scenarios.md#ac-02) |
 | SC-03 | Partial | Dependencies and plans exist; minimal/incremental planning and all admission guards need scenario coverage. | `src/plans.ts`, `src/conductor.ts` | [AC-03](../specs/acceptance-scenarios.md#ac-03) |
 | SC-04 | Failed | English keyword classifier routes 'What is Docker?' to level 4 and a complex Bulgarian request to level 1. | `src/adaptive.ts` | [AC-04](../specs/acceptance-scenarios.md#ac-04) |
-| SC-05 | Failed | Required context bypass and unchanged oversized dispatch prompt reproduced. | `src/context.ts`, `src/conductor.ts` | [AC-05](../specs/acceptance-scenarios.md#ac-05) |
+| SC-05 | Partial | Conductor/debug children now fail closed at both the rendered SCALER prompt and final OpenAI Chat Completions payload boundaries, including system/tool/history, output reserve, model window and compaction-route isolation. Exact tokenization, alternate providers, parent/other child routes, internal retries and observed-usage reconciliation remain open. | `src/prompt-admission.ts`, `src/provider-admission.ts`, `src/provider-admission-extension.ts`, `src/subagents.ts`, `src/conductor.ts`, `src/debug-retry.ts`, `test/provider-admission.test.ts`, `test/provider-admission-host.test.ts`, `test/subagents.test.ts` | [AC-05](../specs/acceptance-scenarios.md#ac-05) |
 | SC-06 | Partial | Validity labels and memory references exist; dependency-based freshness and invalidation unverified. | `src/memory.ts`, `src/context.ts` | [AC-06](../specs/acceptance-scenarios.md#ac-06) |
-| SC-07 | Partial | Retrieval exists; file section scope uses prefix truncation rather than the requested section. | `src/context.ts` | [AC-07](../specs/acceptance-scenarios.md#ac-07) |
-| SC-08 | Partial | Isolated tools and catalogs exist; measured per-request three-mode policy not established; active-tool API mismatch found. | `src/tool-requests.ts`, `src/index.ts` | [AC-08](../specs/acceptance-scenarios.md#ac-08) |
+| SC-07 | Partial | Exact Markdown-heading retrieval preserves source bytes and rejects missing, ambiguous or oversized required sections. Admitted file context is now byte-bound and revalidated before dispatch and result acceptance, including symlink, non-regular-file and exact-output boundaries. AST/function selectors and automatic effective splitting remain open. | `src/context.ts`, `src/attempt-execution.ts`, `src/conductor.ts`, `src/debug-retry.ts`, `test/context.test.ts`, `test/attempt-execution.test.ts`, `test/conductor.test.ts` | [AC-07](../specs/acceptance-scenarios.md#ac-07) |
+| SC-08 | Partial | Installed Pi binds the selected tool envelope before its first provider snapshot. Request-specific assessment compares direct/current-agent/isolated evidence; isolated execution now recomputes that assessment at dispatch, binds the exact worker/provider/model and caller-continuation evidence, limits transport/result bytes and accepts one execution-bound proposal only after a successful parent-observed outcome. The installed command blocks without a trustworthy future continuation supplier. Direct/current-agent adapters, a production continuation supplier and the complete three-route scenario remain open. | `src/tool-routing.ts`, `src/tool-requests.ts`, `src/index.ts`, `test/tool-routing.test.ts`, `test/tool-requests.test.ts`, `test/provider-admission-host.test.ts` | [AC-08](../specs/acceptance-scenarios.md#ac-08) |
 | SC-09 | Not assessed | Model option exists; local-only envelope and end-to-end acceptance not demonstrated in this review. | `src/subagents.ts` | [AC-09](../specs/acceptance-scenarios.md#ac-09) |
 | SC-10 | Failed | Accepted status can be obtained without validation runs; evidence/version acceptance needs repair. | `src/validation.ts`, `src/tools.ts` | [AC-10](../specs/acceptance-scenarios.md#ac-10) |
 | SC-11 | Partial | Failure/attempt ledgers exist; revised combined retry/effect/validation criteria need verification. | `src/debug.ts`, `src/debug-retry.ts` | [AC-11](../specs/acceptance-scenarios.md#ac-11) |
@@ -44,11 +44,106 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-22 | Partial | Sequential lock exists; all-entry-point ownership and interrupted-worker reconciliation require verification. | `src/locks.ts`, `src/operations.ts` | [AC-22](../specs/acceptance-scenarios.md#ac-22) |
 | SC-23 | Not assessed | No declared large-run envelope or scale result established in this review. | `src/context.ts`, `src/storage.ts` | [AC-23](../specs/acceptance-scenarios.md#ac-23) |
 | SC-24 | Partial | Tests and usage reports exist; representative outcome evaluation and revision 2 coverage gate are pending. | `src/provider-usage.ts`, `src/conformance.ts` | [AC-24](../specs/acceptance-scenarios.md#ac-24) |
-| SC-25 | Failed | Tool focus reads methods from ctx although reviewed Pi exposes them on ExtensionAPI; permissive mock masks this. | `src/index.ts`, `test/extension-shape.test.ts` | [AC-25](../specs/acceptance-scenarios.md#ac-25) |
+| SC-25 | Partial | Tool discovery/focus/restore now uses Pi ExtensionAPI and an installed Pi 0.80.3 catalog check verifies the real API owner without a model call. First-request focus and provider-prompt rebuilding are covered against the installed host shape. Actual-host model execution across context accounting, usage, cancellation and every supported child route remains incomplete. | `src/index.ts`, `src/subagents.ts`, `src/provider-admission-extension.ts`, `test/extension-shape.test.ts`, `test/provider-admission-host.test.ts` | [AC-25](../specs/acceptance-scenarios.md#ac-25) |
 | SC-26 | Partial | Automation loop exists; revised complete-run, cancellation and recovery guarantees not demonstrated. | `src/autopilot.ts` | [AC-26](../specs/acceptance-scenarios.md#ac-26) |
 | SC-27 | Partial | Current named command evidence and participant identity gate declared integration criteria; revision-checked user amendments and immutable history prevent model-route criterion changes. Semantic necessity and non-software evidence remain open. | `src/prd.ts`, `src/run-completion.ts`, `test/requirement-integration.test.ts`, `test/prd.test.ts` | [AC-27](../specs/acceptance-scenarios.md#ac-27) |
 
 ## Implementation progress — PLAN-099
+
+PLAN-125 through PLAN-127 close the unsafe isolated-execution prerequisites
+without claiming the complete three-route scenario. Results are
+execution-bound proposals; the parent accepts exactly one only after a successful
+observed process outcome and unchanged request/transaction ownership. Runtime-
+owned stdout, stderr and compact-result byte limits terminate overflow and are
+rechecked at finalization. Immediately before dispatch, a fresh host-owned route
+assessment must admit the exact request to the exact selected worker provider,
+model and context envelope while retaining caller-continuation evidence. The
+installed command cannot provide a trustworthy future continuation envelope and
+therefore blocks instead of reconstructing one. Direct/current-agent execution,
+a production continuation supplier and complete AC-08 evidence remain open.
+
+PLAN-128 closes the unsafe legacy fresh-context handoff preparation and direct
+execution defaults. Preparation now validates both ledger envelopes, the current
+task/manifest, every historical minimal item, and each externalized artifact's
+workspace path, regular-file identity, memory provenance, item/task/split/scope/
+exactness header, and content hash before prompt publication. Required inline
+exact bytes are never clipped, including when an explicit `exact` contract is
+paired with a `reference-only` presentation scope. The legacy `execute` argument refuses before the
+runner because this path lacks conductor-equivalent attempt, provider and result
+admission. Focused context-compaction/context-split coverage passes 25 checks.
+SC-07 and SC-08 remain Partial: this does not implement automatic effective
+splitting, a production continuation supplier, route execution, or savings and
+quality evidence.
+
+PLAN-124 adds the bounded SC-08 route-assessment prerequisite without changing
+execution. Runtime-owned evidence can recommend `direct`, `current-agent`,
+`isolated` or `blocked`, always with `executionAuthorized: false`. Direct advice
+requires confirmed authority, exact validated arguments and an explicit
+adapter. Model candidates carry concrete provider payloads, policies, models,
+additional bounded context and repeat counts; isolated candidates must include
+both worker and caller-continuation legs. Strict per-leg admission and safe
+aggregate upper bounds drive the comparison. Malformed runtime evidence fails
+closed and is normalized before compact audit persistence. Build and 63 focused
+routing/provider/tool-request checks pass. SC-08 remains Partial because the
+assessment is not consumed at dispatch, no generic direct adapter exists, and
+result-size/recomputation boundaries remain open.
+
+PLAN-123 moves parent selected-tool focus ahead of the installed Pi provider
+snapshot and rebuilds the verified host prompt with only selected tool snippets
+and guidelines. A complete type-tagged identity covers selected names,
+descriptions, schemas, guidelines and source metadata without injecting that
+large evidence into the prompt. Unreconcilable earlier prompt changes restore
+the original tools and latch a provider refusal across retries/continuations;
+cancellation precedes fallible audit I/O, while audit failure cannot suppress a
+successfully rebuilt prompt. Build, 910 unit, 67 mock integration, 7
+conformance/autopilot and 58 focused checks pass. SC-08 remains Partial because
+the request-specific route decision, complete-envelope admission, direct
+adapter, isolated-agent admission and observed result-size accounting are open.
+
+PLAN-122 closes the reproduced stale file-context acceptance boundary. Every
+included file item carries a durable normalized source descriptor and complete
+byte fingerprint in admitted input identity; admission, pre-dispatch and result
+acceptance revalidate it without following a changed identity. Only a direct
+regular project file that is also an exact declared output can use the
+post-dispatch output exception. Symlink-backed context, FIFO/non-regular inputs,
+deleted sources and newly ambiguous selectors fail closed. Budget-omitted and
+inline context preserve their prior behavior. The exact-head gate passes build,
+903 unit, 67 mock integration and 7 conformance checks. SC-07 remains Partial:
+broader selector kinds and automatic effective task splitting are still open.
+
+PLAN-120 adds the next bounded SC-05 layer for conductor and debug-retry child
+calls. Strict child invocations suppress ambient resources and load a final
+provider-admission extension. The extension measures the actual serialized
+installed Pi 0.80.3 OpenAI Chat Completions text/tool payload with a conservative UTF-8
+byte upper bound, includes the provider output limit plus an explicit useful
+reserve and safety margin, and compares against task and model limits. Refusal
+uses `ctx.abort()` before transport. Review regressions additionally close Pi's
+unguarded provider-backed compaction route and reject audio or multiple-output
+payloads. This remains Partial: alternate APIs/routes, exact tokenizers,
+provider-internal retries and observed usage reconciliation are not covered.
+
+PLAN-121 closes the reproduced file-section prefix substitution: manifests carry
+an explicit Markdown-heading selector, exact retrieval includes nested headings
+and stops at the next peer/ancestor, and required unavailable selections block
+conductor/debug dispatch. The 72k-character fixture now dispatches the exact
+Target section rather than an unrelated 3,200-character prefix. Review-driven
+regressions replaced manual block tracking and an intermediate Marked lexer
+with CommonMark source positions. Build, 862 unit, 99 focused,
+67 mock integration and 7 conformance/autopilot checks pass. SC-07 remains
+Partial because source-version binding, broader selector kinds and automatic
+effective task splitting are not established.
+
+PLAN-119 fixes the reproduced oversized-required-context dispatch at the final
+SCALER prompt boundary. Conductor and debug retry use a shared pre-dispatch
+admission decision after wrapper construction, with a fixed-length attempt
+identity sizing envelope; malformed explicit and persisted allowances fail
+closed. Required exact bytes are preserved, and rejection precedes runner,
+attempt, running-state and spawned-agent effects. Gate: build, 796 unit,
+67 mock integration and 7 conformance/autopilot. Two independent GPT-6
+Astra/high exact-head reviews found no remaining issue after the non-finite
+allowance fix. SC-05 advances from Failed to Partial only: provider system/tool
+schemas/hooks/history, output reserve, later tool results and provider-specific
+tokenization remain outside this bounded admission check.
 
 P2.1 follows merged P1 (`90f3478`). `saveState` now compares run identity and
 revision under a short cross-process publication lock. Stale snapshots and

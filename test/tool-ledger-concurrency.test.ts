@@ -40,7 +40,7 @@ test("concurrent readers never observe a partially published result index", asyn
     const results = await Promise.allSettled([
       (async () => {
         for (let i = 0; i < 8; i++) await recordToolResult(dir, state, {
-          requestId: request.id, status: "completed", summary: `Result ${i}`, outputs: "x".repeat(2 * 1024 * 1024),
+          requestId: request.id, status: "completed", summary: `Result ${i}`, outputs: "x".repeat(256 * 1024),
         });
       })(),
       (async () => {
@@ -61,11 +61,30 @@ test("separate tool workers retain all request result and transaction identities
         import { prepareToolRequest, recordToolResult, runToolRequestAgent } from ${JSON.stringify(moduleUrl)};
         import { createDefaultState } from ${JSON.stringify(stateUrl)};
         const state = createDefaultState();
+        const routeEvidenceSupplier = basis => {
+          const payload = {model:'synthetic',messages:[{role:'user',content:'bounded'}],max_completion_tokens:1024};
+          const model = {api:'openai-completions',provider:'synthetic',id:'synthetic-4m',contextWindow:4000000};
+          const policy = {requestTokenAllowance:4000000,outputReserveTokens:1024,safetyMarginTokens:1024};
+          return {
+            version:1,requestId:basis.requestId,executionId:basis.executionId,
+            evidence:{
+              profile:{version:1,footprint:'selected',toolNames:[...basis.toolNames],byteSize:64,fingerprint:'a'.repeat(64)},
+              authority:'allowed',direct:{exactArgumentsAvailable:false,argumentsValidated:false},
+              currentAgent:{available:false,legs:[]},
+              isolated:{available:true,legs:[
+                {id:'worker',role:'worker',payload,model,policy,additionalContextBytes:0,repeatCount:1},
+                {id:'caller-continuation',role:'caller-continuation',payload,model,policy,additionalContextBytes:basis.resultBytesReserve,repeatCount:1}
+              ]},isolationRequirement:'capability'
+            }
+          };
+        };
         process.once('message', async () => {
           try {
             const {record} = await prepareToolRequest(process.argv[1], state, {toolName:'read',request:'Synthetic',taskId:process.argv[2]});
-            await runToolRequestAgent(process.argv[1], state, {requestId:record.id,execute:false});
-            await recordToolResult(process.argv[1], state, {requestId:record.id,status:'completed',summary:'Synthetic result',outputs:{ok:true}});
+            await runToolRequestAgent(process.argv[1], state, {requestId:record.id,execute:true,routeEvidenceSupplier}, async request => {
+              await recordToolResult(process.argv[1], state, {requestId:record.id,executionId:request.executionId,status:'completed',summary:'Synthetic result',outputs:{ok:true}});
+              return {taskId:request.taskId,exitCode:0,stdoutEvents:[],stderr:'',timedOut:false,aborted:false,stdoutBytes:0,stderrBytes:0};
+            });
           } catch (error) { console.error(error); process.exitCode=1; }
           finally { process.disconnect(); }
         });

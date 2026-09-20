@@ -8,13 +8,14 @@ import { dirname } from "node:path";
 import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
 import { captureValidationContext } from "./attempt-evidence.js";
 import { verifyTaskDependenciesAccepted } from "./accepted-evidence.js";
-import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult, interruptTaskExecution, reconcileInterruptedTaskAttempt, TaskContractAdmissionError, TaskDependencyAdmissionError, verifyTaskExecutionContract } from "./attempt-execution.js";
+import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult, interruptTaskExecution, reconcileInterruptedTaskAttempt, TaskContextAdmissionError, TaskContractAdmissionError, TaskDependencyAdmissionError, verifyTaskExecutionContract } from "./attempt-execution.js";
 import { writeCheckpoint } from "./checkpoints.js";
 import { assessCompression, formatCompressionGuidance, type CompressionAssessment } from "./compression.js";
 import { assessDebugRetryGate } from "./debug.js";
 import { assessGitStatusSafety } from "./git.js";
 import {
   ensureTaskContextManifest,
+  getRequiredContextDiagnostics,
   resolveContext,
   resolveTaskContextManifest,
   type ContextItem,
@@ -26,6 +27,8 @@ import { appendLogEvent, createLogEvent, logAgentPromptAudit } from "./logging.j
 import { createMissingContextRequestsFromTaskReport, refreshAndUnblockMissingContext } from "./missing-context.js";
 import { getTaskAgentRunsPath, getValidationHandoffsPath } from "./paths.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
+import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
+import { assessTaskPromptAdmission, createPromptSizingAttemptBinding, resolveTaskPromptTokenBudget, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
 import { saveState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import {
@@ -116,6 +119,7 @@ export interface ConductorStepResult {
   checkpointPath?: string;
   validationHandoff?: ValidationHandoffRecord;
   contextSplit?: ContextSplitRecord;
+  promptAdmission?: TaskPromptAdmissionDecision;
 }
 
 export type TaskAgentRunner = typeof runTaskAgent;
@@ -245,20 +249,51 @@ export async function runConductorStep(
       return { accepted: false, message, state, task: selection.task };
     }
     let nextState = state;
-    if (options.execute && selection.promotePending) {
-      nextState = transitionTask(nextState, selection.task.id, "ready", { reason: "Conductor selected pending task." });
-    }
-
-    const runningTask = nextState.tasks.find((task) => task.id === selection.task!.id)!;
+    let runningTask = selection.task;
     const contextManifest = options.contextItems ? undefined : await ensureTaskContextManifest(cwd, nextState, runningTask.id);
     const contextItems = options.contextItems ?? (await resolveTaskContextManifest(cwd, nextState, contextManifest!));
+    const requiredContextDiagnostics = getRequiredContextDiagnostics(contextItems);
+    if (requiredContextDiagnostics.length > 0) {
+      const message = requiredContextDiagnostics.join(" ");
+      await appendLogEvent(cwd, createLogEvent(nextState, {
+        eventType: "rejected_transition",
+        summary: message,
+        taskId: runningTask.id,
+        details: { admission: "required_context", diagnostics: requiredContextDiagnostics },
+      }));
+      return { accepted: false, message, state: nextState, task: runningTask };
+    }
+    if (options.execute && selection.promotePending) {
+      nextState = transitionTask(nextState, selection.task.id, "ready", { reason: "Conductor selected pending task." });
+      runningTask = nextState.tasks.find((task) => task.id === selection.task!.id)!;
+    }
+    const promptTokenBudget = resolveTaskPromptTokenBudget(options.tokenBudget, contextManifest?.tokenBudget);
     let { prompt, resolvedContext, compressionAssessment } = buildTaskAgentPrompt({
       state: nextState,
       task: runningTask,
       contextItems,
-      tokenBudget: options.tokenBudget ?? contextManifest?.tokenBudget,
+      tokenBudget: promptTokenBudget,
     });
     const contextSplit = await recordContextSplitIfNeeded(cwd, nextState, runningTask.id, resolvedContext, compressionAssessment);
+    if (options.execute) {
+      const sizedPrompt = buildTaskAgentPrompt({
+        state: nextState,
+        task: runningTask,
+        contextItems,
+        tokenBudget: promptTokenBudget,
+        attempt: createPromptSizingAttemptBinding(nextState.runId),
+      }).prompt;
+      const promptAdmission = assessTaskPromptAdmission(sizedPrompt, promptTokenBudget);
+      if (!promptAdmission.accepted) {
+        await appendLogEvent(cwd, createLogEvent(nextState, {
+          eventType: "rejected_transition",
+          summary: promptAdmission.message,
+          taskId: runningTask.id,
+          details: { admission: "final_prompt", promptAdmission },
+        }));
+        return { accepted: false, message: promptAdmission.message, state: nextState, task: runningTask, prompt, contextSplit, promptAdmission };
+      }
+    }
     const budgetUpdates = [
       { key: "contextTokens" as const, amount: resolvedContext.estimatedTokens, mode: "set" as const },
       ...(options.execute ? [{ key: "spawnedAgents" as const, amount: 1, mode: "increment" as const }] : []),
@@ -287,11 +322,11 @@ export async function runConductorStep(
         // cannot consume agent budget for work that never started.
         activeAttempt = await admitTaskExecution(cwd, lock.lock.id, state, runningTask, resolvedContext, options.model, tools);
       } catch (error) {
-        if (!(error instanceof TaskDependencyAdmissionError) && !(error instanceof TaskContractAdmissionError)) throw error;
+        if (!(error instanceof TaskDependencyAdmissionError) && !(error instanceof TaskContractAdmissionError) && !(error instanceof TaskContextAdmissionError)) throw error;
         const message = error.message;
         await appendLogEvent(cwd, createLogEvent(state, {
           eventType: "rejected_transition", summary: message, taskId: runningTask.id,
-          details: { diagnostics: error.diagnostics, admission: error instanceof TaskContractAdmissionError ? "task_contract" : "dependency_evidence" },
+          details: { diagnostics: error.diagnostics, admission: error instanceof TaskContractAdmissionError ? "task_contract" : error instanceof TaskContextAdmissionError ? "context_freshness" : "dependency_evidence" },
         }));
         return { accepted: false, message, state, task: runningTask, prompt, contextSplit };
       }
@@ -303,7 +338,7 @@ export async function runConductorStep(
         state: nextState,
         task: runningTask,
         contextItems,
-        tokenBudget: options.tokenBudget ?? contextManifest?.tokenBudget,
+        tokenBudget: promptTokenBudget,
         attempt: attemptBinding,
       }));
     }
@@ -313,7 +348,7 @@ export async function runConductorStep(
       taskId: runningTask.id,
       prompt,
       inputRefs: contextItems.map((item) => item.id),
-      details: { tokenBudget: options.tokenBudget ?? contextManifest?.tokenBudget, attempt: attemptBinding },
+      details: { tokenBudget: promptTokenBudget, attempt: attemptBinding },
     });
     const request = {
       taskId: runningTask.id,
@@ -321,6 +356,7 @@ export async function runConductorStep(
       tools,
       model: options.model,
       cwd,
+      providerAdmission: createStrictProviderAdmissionPolicy(promptTokenBudget),
       attempt: attemptBinding,
     };
     const invocation = buildTaskAgentInvocation(request);
