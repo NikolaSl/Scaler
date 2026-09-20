@@ -386,7 +386,7 @@ admission remains the only executable task-agent boundary. These checks do not
 prove automatic effective splitting, a live continuation supplier, route
 execution, local-model quality, savings or scale.
 
-The PLAN-128 candidate passes the TypeScript build, `git diff --check`, 976 unit
+The PLAN-128 candidate passes the TypeScript build, `git diff --check`, 978 unit
 and component tests, 67 mock integration tests and 7 conformance/autopilot
 checks. These are repository-owned gates; no paid or deployed model execution is
 claimed.

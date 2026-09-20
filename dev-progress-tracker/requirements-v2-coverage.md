@@ -57,7 +57,7 @@ workspace path, regular-file identity, memory provenance, item/task/split/scope/
 exactness header, and content hash before prompt publication. Required inline
 exact bytes are never clipped. The legacy `execute` argument refuses before the
 runner because this path lacks conductor-equivalent attempt, provider and result
-admission. Focused context-compaction/context-split coverage passes 22 checks.
+admission. Focused context-compaction/context-split coverage passes 24 checks.
 SC-07 and SC-08 remain Partial: this does not implement automatic effective
 splitting, a production continuation supplier, route execution, or savings and
 quality evidence.

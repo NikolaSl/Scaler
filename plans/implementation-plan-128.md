@@ -69,8 +69,8 @@ rejected. Required inline exact content is emitted byte-for-byte.
 Malformed evidence returns fixed diagnostics, preserves an invalid handoff
 ledger for diagnosis and publishes no prompt. The legacy `execute` argument
 records a blocked handoff without invoking the injected runner or persisting an
-invocation. The focused context-compaction/context-split selection passes 22/22.
-The candidate gate passes the TypeScript build, `git diff --check`, 976/976
+invocation. The focused context-compaction/context-split selection passes 24/24.
+The candidate gate passes the TypeScript build, `git diff --check`, 978/978
 unit/component tests, 67/67 mock integration tests and 7/7
 conformance/autopilot checks. This evidence covers the repository-owned mock and
 conformance boundaries only; it does not establish production continuation
