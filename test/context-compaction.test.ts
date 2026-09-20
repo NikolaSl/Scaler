@@ -371,6 +371,79 @@ test("fresh context handoff rejects altered externalized identity headers", asyn
   });
 });
 
+test("fresh context handoff rejects deleted externalized sources", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTask();
+    const resolved = oversizedResolvedContext();
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: resolved.estimatedTokens, contextWindowTokens: 1_000, largeItemThresholdTokens: 100 });
+    const split = await recordContextSplitIfNeeded(dir, state, "T-COMPACT", resolved, assessment, new Date("2026-01-01T00:00:03.000Z"));
+    await rm(join(dir, split!.externalizedMemoryRefs[0]!.path));
+
+    const result = await prepareFreshContextHandoff(dir, state, { splitId: split!.id, now: new Date("2026-01-01T00:00:04.000Z") });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.prompt, "");
+    assert.match(result.record.diagnostics.join(" "), /externalized context source is unavailable or changed/i);
+  });
+});
+
+test("fresh context handoff rejects tampered externalized hashes", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTask();
+    const resolved = oversizedResolvedContext();
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: resolved.estimatedTokens, contextWindowTokens: 1_000, largeItemThresholdTokens: 100 });
+    const split = await recordContextSplitIfNeeded(dir, state, "T-COMPACT", resolved, assessment, new Date("2026-01-01T00:00:03.000Z"));
+    const splitsPath = getContextSplitsPath(dir);
+    const index = JSON.parse(await readFile(splitsPath, "utf8")) as { version: 1; splits: Array<{ externalizedMemoryRefs: Array<{ sha256: string }> }> };
+    index.splits[0]!.externalizedMemoryRefs[0]!.sha256 = "0".repeat(64);
+    await writeFile(splitsPath, `${JSON.stringify(index, null, 2)}\n`, "utf8");
+
+    const result = await prepareFreshContextHandoff(dir, state, { splitId: split!.id, now: new Date("2026-01-01T00:00:04.000Z") });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.prompt, "");
+    assert.match(result.record.diagnostics.join(" "), /externalized context source is unavailable or changed/i);
+  });
+});
+
+test("fresh context handoff rejects unsupported split ledger versions", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTask();
+    const resolved = oversizedResolvedContext();
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: resolved.estimatedTokens, contextWindowTokens: 1_000, largeItemThresholdTokens: 100 });
+    const split = await recordContextSplitIfNeeded(dir, state, "T-COMPACT", resolved, assessment, new Date("2026-01-01T00:00:03.000Z"));
+    const splitsPath = getContextSplitsPath(dir);
+    const index = JSON.parse(await readFile(splitsPath, "utf8")) as { version: number; splits: unknown[] };
+    index.version = 2;
+    await writeFile(splitsPath, `${JSON.stringify(index, null, 2)}\n`, "utf8");
+
+    const result = await prepareFreshContextHandoff(dir, state, { splitId: split!.id, now: new Date("2026-01-01T00:00:04.000Z") });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.prompt, "");
+    assert.deepEqual(result.record.diagnostics, ["Fresh handoff split index is invalid."]);
+  });
+});
+
+test("fresh context handoff rejects unsupported handoff ledger versions without overwriting them", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTask();
+    const resolved = oversizedResolvedContext();
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: resolved.estimatedTokens, contextWindowTokens: 1_000, largeItemThresholdTokens: 100 });
+    const split = await recordContextSplitIfNeeded(dir, state, "T-COMPACT", resolved, assessment, new Date("2026-01-01T00:00:03.000Z"));
+    const handoffsPath = getContextHandoffsPath(dir);
+    const unsupported = `${JSON.stringify({ version: 2, handoffs: [] }, null, 2)}\n`;
+    await writeFile(handoffsPath, unsupported, "utf8");
+
+    const result = await prepareFreshContextHandoff(dir, state, { splitId: split!.id, now: new Date("2026-01-01T00:00:04.000Z") });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.prompt, "");
+    assert.deepEqual(result.record.diagnostics, ["Fresh handoff index is invalid."]);
+    assert.equal(await readFile(handoffsPath, "utf8"), unsupported);
+  });
+});
+
 test("fresh context handoff rejects externalized reference alias substitution", async () => {
   await withTempDir(async (dir) => {
     const state = stateWithTask();
