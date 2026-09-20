@@ -71,3 +71,31 @@ adapters, prove the worker and caller-continuation payloads, certify every
 provider call, contain descendant memory/filesystem effects, or prove local
 model quality or savings. Strict isolated-provider admission, a trusted live
 envelope supplier and dispatch-basis freshness remain later SC-08 work.
+
+## Implementation evidence
+
+- Runtime-owned defaults cap isolated stdout at 4 MiB, stderr at 1 MiB and one
+  complete compact-JSON result proposal at 1 MiB. Every prepared execution
+  persists its exact limit identity before dispatch.
+- The subprocess boundary counts raw bytes before streaming UTF-8 decoding,
+  retains only bytes within the cap, reports every byte observed before process
+  close with safe integer saturation, and uses the confirmed TERM/KILL lifecycle
+  on overflow. A latched overflow blocks acceptance even after a zero exit or an
+  already-recorded completed proposal.
+- Result-controlled values are normalized to stable JSON. Measurement and
+  ledger publication use the same compact representation, preventing nested
+  indentation amplification. Parent finalization remeasures the durable result,
+  the accepted projection and the unchanged transaction limits.
+- Missing, `null`, negative, fractional, unsafe or excessive transport counters
+  fail closed. Decoded events and text are never used to reconstruct missing
+  wire evidence. Replay, iteration and schedule retain the same runtime limits.
+- The test-first reproduction is `eda971a8f682519c6f2595ef27df9b6392ee0fcc`;
+  implementation and independent-review fixes are in
+  `b56305ca452fc40c24241ad6d77fe837a74e0e69`. Build and the 95-test focused
+  subagent/tool/ledger/routing gate pass, including a TERM-ignoring overflow,
+  deep compact result, malformed measurements and multi-process ledger writers.
+
+These checks establish bounded parent-owned acceptance, not child memory or
+filesystem containment, provider-payload freshness, route authority, model
+quality, savings or scale. Full exact-head gate and review results belong to the
+phase handoff and must be rerun after any later change.

@@ -325,6 +325,26 @@ ancestor symlinks, and FIFO replacement. This check is not a filesystem
 transaction or authenticated writer attribution: change-and-restore and a race
 after the final read remain explicit limitations.
 
+PLAN-126 bounds the isolated tool-worker transport and structured result
+acceptance introduced by PLAN-125. `runTaskAgent` counts raw stdout/stderr bytes
+before streaming UTF-8 decode, retains no bytes beyond the 4 MiB/1 MiB caps and
+terminates through the existing confirmed TERM/KILL lifecycle. The parent
+accepts a result only when both observed transport counters are present and
+valid, no limit was crossed, the durable execution still carries the exact
+runtime-owned limits, and the proposed plus accepted compact-JSON result stays
+within 1 MiB. Missing or malformed counters are not inferred from decoded text.
+
+Run `node --test --import tsx test/subagents.test.ts test/tool-requests.test.ts test/tool-ledger-concurrency.test.ts test/tool-routing.test.ts`.
+The focused coverage includes split UTF-8, newline-free output, large crossing
+chunks, stderr overflow, a TERM-ignoring overflow child, a proposal followed by
+overflow, malformed/missing measurements, deep nested JSON, durable byte/limit
+tampering, replay, schedule, iteration and concurrent ledger publication. The
+compact result size is an acceptance and persistence bound for one record, not
+a child memory/filesystem sandbox or total historical-ledger quota. PLAN-124
+route advice remains non-authorizing until dispatch-time provider evidence and
+caller-continuation identity have a trusted live supplier; these tests do not
+prove SC-08/AC-08, local-model quality, savings or scale.
+
 PLAN-113 requires declared `outputPaths` before automatic non-Git/clean/runtime
 commit skips or explicit commit skips can accept a task. A successful command
 may still have `status: passed` while `acceptance.accepted` is false; callers
