@@ -577,15 +577,14 @@ export async function verifyFileContextSources(
   cwd: string,
   taskId: string,
   sources: FileContextSourceBinding[],
-  ignoredPaths: ReadonlySet<string> = new Set(),
+  contentMutablePaths: ReadonlySet<string> = new Set(),
 ): Promise<string[]> {
   const diagnostics: string[] = [];
   for (const source of sources) {
-    if (ignoredPaths.has(source.path)) continue;
     try {
       const current = await readStableContextFile(cwd, source.path);
       const fingerprint = fingerprintFileBytes(current.bytes);
-      if (fingerprint !== source.contentFingerprint
+      if ((!contentMutablePaths.has(source.path) && fingerprint !== source.contentFingerprint)
         || (source.outputExemptible && !current.outputExemptible)) {
         diagnostics.push(`Task ${taskId} context source ${source.itemId} changed or became stale: ${source.path}.`);
       }
