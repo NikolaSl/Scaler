@@ -314,6 +314,29 @@ test("fresh context handoff rejects an unresolved historical minimal item", asyn
   });
 });
 
+test("fresh context handoff rejects a selected historical item that is currently unavailable", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTask();
+    const resolved = oversizedResolvedContext();
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: resolved.estimatedTokens, contextWindowTokens: 1_000, largeItemThresholdTokens: 100 });
+    const split = await recordContextSplitIfNeeded(dir, state, "T-COMPACT", resolved, assessment, new Date("2026-01-01T00:00:03.000Z"));
+    const manifest = await ensureTaskContextManifest(dir, state, "T-COMPACT");
+    await saveTaskContextManifest(dir, {
+      ...manifest,
+      items: manifest.items.map((item) => item.id === "runtime-prd-refs"
+        ? { ...item, source: "file" as const, path: "missing-selected-context.md", priority: "useful" as const }
+        : item),
+    });
+
+    const result = await prepareFreshContextHandoff(dir, state, { splitId: split!.id, now: new Date("2026-01-01T00:00:04.000Z") });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.prompt, "");
+    assert.equal(result.record.promptPath, "");
+    assert.match(result.record.diagnostics.join(" "), /historical minimal context is unavailable/i);
+  });
+});
+
 test("fresh context handoff rejects malformed split indexes with a bounded diagnostic", async () => {
   await withTempDir(async (dir) => {
     const state = stateWithTask();
@@ -347,6 +370,34 @@ test("fresh context handoff preserves malformed handoff evidence and blocks befo
     assert.equal(result.record.promptPath, "");
     assert.deepEqual(result.record.diagnostics, ["Fresh handoff index is invalid."]);
     assert.equal(await readFile(handoffsPath, "utf8"), malformed);
+  });
+});
+
+test("fresh context handoff sanitizes malformed split evidence in its blocked record", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTask();
+    const resolved = oversizedResolvedContext();
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: resolved.estimatedTokens, contextWindowTokens: 1_000, largeItemThresholdTokens: 100 });
+    const split = await recordContextSplitIfNeeded(dir, state, "T-COMPACT", resolved, assessment, new Date("2026-01-01T00:00:03.000Z"));
+    const splitsPath = getContextSplitsPath(dir);
+    const original = await readFile(splitsPath, "utf8");
+    const index = JSON.parse(original) as { version: 1; splits: Array<Record<string, unknown>> };
+    index.splits[0]!.externalizedMemoryRefs = [null];
+    index.splits[0]!.estimatedTokens = -1;
+    index.splits[0]!.activeContextLimitTokens = -2;
+    await writeFile(splitsPath, `${JSON.stringify(index, null, 2)}\n`, "utf8");
+
+    const blocked = await prepareFreshContextHandoff(dir, state, { splitId: split!.id, now: new Date("2026-01-01T00:00:04.000Z") });
+
+    assert.equal(blocked.accepted, false);
+    assert.deepEqual(blocked.record.externalizedMemoryRefs, []);
+    assert.equal(blocked.record.previousEstimatedTokens, 0);
+    assert.equal(blocked.record.activeContextLimitTokens, 0);
+    assert.equal((await loadFreshContextHandoffRecords(dir)).length, 1);
+
+    await writeFile(splitsPath, original, "utf8");
+    const prepared = await prepareFreshContextHandoff(dir, state, { splitId: split!.id, now: new Date("2026-01-01T00:00:05.000Z") });
+    assert.equal(prepared.accepted, true);
   });
 });
 
