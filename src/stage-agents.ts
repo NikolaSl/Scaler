@@ -8,6 +8,8 @@ import { dirname } from "node:path";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { logAgentPromptAudit, logStructuredReportAudit } from "./logging.js";
 import { getStageAgentRunsPath } from "./paths.js";
+import { assessTaskPromptAdmission, resolveTaskPromptTokenBudget, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
+import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
@@ -27,6 +29,7 @@ export interface StageAgentInvocationOptions {
   appendSystemPromptPath?: string;
   extensionPaths?: string[];
   command?: string;
+  tokenBudget?: number;
 }
 
 export interface StageAgentPreparation {
@@ -34,6 +37,7 @@ export interface StageAgentPreparation {
   prompt: string;
   request: TaskAgentRequest;
   invocation: TaskAgentInvocation;
+  promptAdmission: TaskPromptAdmissionDecision;
 }
 
 export interface StageAgentRunRecord {
@@ -76,6 +80,7 @@ export interface StageAgentStepResult {
   runResult?: TaskAgentRunResult;
   runRecord?: StageAgentRunRecord;
   ingestion?: StageAgentArtifactIngestionResult;
+  promptAdmission?: TaskPromptAdmissionDecision;
 }
 
 export type StageAgentRunner = typeof runTaskAgent;
@@ -97,6 +102,13 @@ export interface StageAgentReportExtractionResult {
   ok: boolean;
   artifactInput?: StageArtifactInput;
   reason?: string;
+}
+
+export class StageAgentPromptAdmissionError extends Error {
+  constructor(readonly decision: TaskPromptAdmissionDecision) {
+    super(decision.message);
+    this.name = "StageAgentPromptAdmissionError";
+  }
 }
 
 export function buildStageAgentPrompt(input: StageAgentPromptInput): string {
@@ -138,6 +150,9 @@ export function prepareStageAgentInvocation(
 ): StageAgentPreparation {
   const stage = normalizeStage(input.stage);
   const prompt = buildStageAgentPrompt({ ...input, stage });
+  const promptTokenBudget = resolveTaskPromptTokenBudget(options.tokenBudget);
+  const promptAdmission = assessTaskPromptAdmission(prompt, promptTokenBudget);
+  if (!promptAdmission.accepted) throw new StageAgentPromptAdmissionError(promptAdmission);
   const grantedTools = options.tools ?? defaultStageAgentTools(stage);
   const request: TaskAgentRequest = {
     taskId: `stage-${stage}`,
@@ -147,9 +162,10 @@ export function prepareStageAgentInvocation(
     model: options.model,
     appendSystemPromptPath: options.appendSystemPromptPath,
     extensionPaths: options.extensionPaths,
+    providerAdmission: createStrictProviderAdmissionPolicy(promptTokenBudget),
   };
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");
-  return { stage, prompt, request, invocation };
+  return { stage, prompt, request, invocation, promptAdmission };
 }
 
 export function defaultStageAgentTools(stageInput: StageArtifactStage | string, extraTools: string[] = []): string[] {
@@ -182,12 +198,23 @@ export async function runStageAgentStep(
 
   try {
     const artifacts = await loadStageArtifacts(cwd);
-    const preparation = prepareStageAgentInvocation(cwd, {
-      stage,
-      state,
-      artifacts,
-      extraInstructions: options.extraInstructions,
-    }, options);
+    let preparation: StageAgentPreparation;
+    try {
+      preparation = prepareStageAgentInvocation(cwd, {
+        stage,
+        state,
+        artifacts,
+        extraInstructions: options.extraInstructions,
+      }, options);
+    } catch (error) {
+      if (!(error instanceof StageAgentPromptAdmissionError)) throw error;
+      return {
+        accepted: false,
+        message: error.message,
+        stage,
+        promptAdmission: error.decision,
+      };
+    }
     await logAgentPromptAudit(cwd, state, {
       agentType: "stage",
       agentId: stage,

@@ -238,6 +238,37 @@ test("runStageAgentStep refuses an oversized final prompt before runner or run-r
   assert.deepEqual(await loadStageAgentRunRecords(cwd), []);
 });
 
+for (const tokenBudget of [0, Number.POSITIVE_INFINITY]) {
+  test(`runStageAgentStep refuses invalid token allowance ${String(tokenBudget)}`, async () => {
+    const cwd = await tempDir();
+    const state = createDefaultState();
+    let runnerCalled = false;
+    const result = await runStageAgentStep(cwd, state, "prd", {
+      execute: true,
+      tokenBudget,
+    }, async () => {
+      runnerCalled = true;
+      throw new Error("runner must not be called");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(runnerCalled, false);
+    assert.match(result.message, /positive finite integer/i);
+    assert.deepEqual(await loadStageAgentRunRecords(cwd), []);
+  });
+}
+
+test("prepareStageAgentInvocation admits the exact final prompt boundary", () => {
+  const state = createDefaultState();
+  const baseline = prepareStageAgentInvocation("/repo", { stage: "knowledge", state });
+  const exact = prepareStageAgentInvocation("/repo", { stage: "knowledge", state }, {
+    tokenBudget: baseline.promptAdmission.estimatedTokens,
+  });
+
+  assert.equal(exact.promptAdmission.accepted, true);
+  assert.equal(exact.promptAdmission.estimatedTokens, exact.promptAdmission.tokenBudget);
+});
+
 test("runStageAgentStep ingests successful stage-agent artifact reports", async () => {
   const cwd = await tempDir();
   const state = createDefaultState();
