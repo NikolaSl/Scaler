@@ -85,11 +85,16 @@ both the worker request and the caller continuation, and every leg must pass its
 own provider-envelope limit before aggregate overhead is compared. Unknown
 bounds and malformed evidence fail closed.
 
-Route advice is deliberately non-authorizing (`executionAuthorized: false`) and
-is not consumed by the executor. A direct recommendation requires authority,
-validated exact arguments and a named deterministic adapter; the installed host
-does not provide a generic adapter. The audit helper records hashes, reason codes
-and measurements without raw provider history or request arguments. Dispatch
-must later recompute and bind the assessment at the execution boundary.
+Persisted route advice remains deliberately non-authorizing
+(`executionAuthorized: false`). Isolated execution instead requires a fresh,
+host-owned route-evidence supplier at every dispatch. The executor recomputes the
+route, binds the current request, selected-tool profile, invocation, worker
+provider/model identity and caller continuation to one execution, and refuses
+anything other than an isolated result. The caller-continuation envelope must
+include the runtime-owned serialized-result reserve. A direct recommendation
+still requires authority, validated exact arguments and a named deterministic
+adapter; the installed host does not provide a generic adapter. Audit records
+contain hashes, reason codes and measurements without raw provider history or
+request arguments.
 
-The current tool/MCP implementation covers catalog isolation, pre-snapshot parent active-tool focus, prompt-chain-safe selected instruction composition for the verified Pi host, selected-definition envelope identity, non-authorizing request-specific route assessment, schema discovery, local MCP enumeration, execution-bound isolated result acceptance, atomically reserved closed replay approvals, bounded correction loops, and sequential schedule execution. Route execution, direct adapters, dispatch-time reassessment, isolated-executor admission and observed result-size accounting remain open. Execution-ledger indexes are individually atomic but not one multi-file transaction; request closure is published last, so an interrupted publication retains active ownership for explicit reconciliation instead of advertising request completion or inviting automatic replay.
+The current tool/MCP implementation covers catalog isolation, pre-snapshot parent active-tool focus, prompt-chain-safe selected instruction composition for the verified Pi host, selected-definition envelope identity, non-authorizing request-specific route assessment, schema discovery, local MCP enumeration, fresh dispatch-time isolated-route admission, exact worker provider/model binding, bounded child transport and serialized results, execution-bound result acceptance, atomically reserved closed replay approvals, bounded correction loops, and sequential schedule execution. The installed commands intentionally refuse execution because no production continuation-envelope supplier is wired yet. Direct/current-agent adapters and a complete production three-route execution scenario also remain open. Execution-ledger indexes are individually atomic but not one multi-file transaction; request closure is published last, so an interrupted publication retains active ownership for explicit reconciliation instead of advertising request completion or inviting automatic replay.
