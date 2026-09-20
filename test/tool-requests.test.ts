@@ -338,6 +338,8 @@ test("runToolSchemaDiscoveryAgent records prepare-mode probes", async () => {
     assert.equal(result.run?.status, "prepared");
     assert.equal(result.run?.executed, false);
     assert.deepEqual(result.run?.allowedTools, ["scaler_tool_schema", "read"]);
+    assert.ok(result.invocation?.args.includes("--no-extensions"));
+    assert.ok(result.invocation?.args.includes("--no-context-files"));
     assert.match(formatToolSchemaDiscoveryRuns(await loadToolSchemaDiscoveryRuns(dir)), /status=prepared/);
   });
 });

@@ -321,5 +321,6 @@ test("runResearchAgentStep refuses an oversized final prompt before audit, runne
     assert.match(result.message, /final SCALER prompt refused/i);
     assert.deepEqual(await loadResearchAgentRunRecords(dir), []);
     assert.deepEqual(await loadResearchReports(dir), []);
+    assert.deepEqual(await readLogEvents(dir), []);
   });
 });

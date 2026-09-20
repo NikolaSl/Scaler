@@ -35,7 +35,10 @@ test("prepareOrRunSpawnTask prepares invocation when execute is false", async ()
 
   assert.equal(called, false);
   assert.match(result.text, /prepared/);
-  assert.deepEqual((result.details as { status: string }).status, "prepared");
+  const details = result.details as { status: string; invocation: { args: string[] } };
+  assert.equal(details.status, "prepared");
+  assert.ok(details.invocation.args.includes("--no-extensions"));
+  assert.ok(details.invocation.args.includes("--no-context-files"));
 });
 
 test("prepareOrRunSpawnTask refuses executed spawn when lock is held", async () => {

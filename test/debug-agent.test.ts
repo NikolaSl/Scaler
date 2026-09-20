@@ -19,6 +19,7 @@ import {
   runDebugAgentStep,
 } from "../src/debug-agent.js";
 import { loadDebugReports, recordDebugAttempt } from "../src/debug.js";
+import { readLogEvents } from "../src/logging.js";
 import { loadResearchRequests } from "../src/research.js";
 import { createDefaultState } from "../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../src/subagents.js";
@@ -251,5 +252,6 @@ test("runDebugAgentStep refuses an oversized final prompt before audit, runner, 
     assert.equal(runnerCalled, false);
     assert.match(result.message, /final SCALER prompt refused/i);
     assert.deepEqual(await loadDebugAgentRunRecords(dir), []);
+    assert.deepEqual(await readLogEvents(dir), []);
   });
 });

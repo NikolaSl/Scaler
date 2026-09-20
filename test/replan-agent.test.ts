@@ -18,6 +18,7 @@ import {
   recordReplanAgentRun,
   runReplanAgentStep,
 } from "../src/replan-agent.js";
+import { readLogEvents } from "../src/logging.js";
 import { appendReplanRequest, loadProposedExecutionPlan, loadReplanRequests, saveExecutionPlan } from "../src/plans.js";
 import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
 import { createDefaultState } from "../src/state.js";
@@ -270,5 +271,6 @@ test("runReplanAgentStep refuses an oversized final prompt before audit, runner,
     assert.match(result.message, /final SCALER prompt refused/i);
     assert.deepEqual(await loadReplanAgentRunRecords(dir), []);
     assert.equal(await loadProposedExecutionPlan(dir), undefined);
+    assert.deepEqual(await readLogEvents(dir), []);
   });
 });
