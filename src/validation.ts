@@ -467,6 +467,9 @@ export async function loadValidationManifests(cwd: string): Promise<TaskValidati
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new Error("Persisted validation manifest index is malformed: expected an object.");
     }
+    if ((parsed as { version?: unknown }).version !== 1) {
+      throw new Error("Persisted validation manifest index is malformed: version must be 1.");
+    }
     const manifests = (parsed as { manifests?: unknown }).manifests;
     if (!Array.isArray(manifests)) {
       throw new Error("Persisted validation manifest index is malformed: manifests must be an array.");
