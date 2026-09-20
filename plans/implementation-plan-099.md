@@ -84,8 +84,10 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   PLAN-125 first closes the isolated executor's result-acceptance prerequisite:
   child results become execution-bound proposals, only a successful parent-
   observed process outcome may close the request, and scheduled tool work is
-  sequential. Provider-envelope admission and route execution remain later
-  units; PLAN-125 is not AC-08 completion.
+  sequential. Replay approval is reserved atomically with the execution claim,
+  stale finalizers preserve replacement ownership, and request closure is the
+  last multi-index publication. Provider-envelope admission and route execution
+  remain later units; PLAN-125 is not AC-08 completion.
 
 ### Renewed continuation policy (2026-09-19)
 

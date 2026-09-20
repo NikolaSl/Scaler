@@ -64,3 +64,36 @@ bound child stdout/process memory, or enforce a serialized result byte limit.
 Those remain subsequent dispatch prerequisites. A bound structured result also
 does not prove that an external side effect did or did not occur; ambiguous
 process failure therefore blocks rather than retries.
+
+## Implementation evidence
+
+- `d076ddd1a2be70938617bd67a5ecd54caf2bdf77` preserves the failing baseline for
+  false acceptance after failed process outcomes, overlapping schedule runners
+  and missing execution identity.
+- `2755dc416a374d8d7474896ef4fe8499ecc5de6f` adds runtime-owned execution ids,
+  proposal-only child results, parent-side outcome acceptance, sequential
+  schedule execution and blocked ambiguous iteration behavior.
+- `1ff383afe7a573f60467f1cff5bcd9be2b19aa42` closes adversarial review gaps:
+  replay approval is reserved atomically before dispatch, stale finalizers do
+  not erase replacement ownership, result APIs return the finalized acceptance
+  record, central usage/audit failures cannot precede the durable outcome, and
+  request closure is the last execution-ledger publication.
+
+The subsequent exact-head review also requires the parent to revalidate the
+durable prepared transaction itself under the ledger lock. A missing or changed
+execution record cannot accept a proposal or close the request; active request
+ownership is retained for explicit reconciliation.
+
+The result, transaction and request indexes remain separate individually atomic
+snapshots. Publication failure can therefore require explicit reconciliation,
+but request closure is never published before the transaction outcome; active
+ownership is retained instead of making an ambiguous execution replayable.
+Shared budget usage is also copied into the durable transaction. If the later
+central budget/audit update fails, SCALER emits a reconciliation warning and
+does not report the external execution as failed or invite a retry.
+
+Focused build/review gates cover successful, failed, timed-out, aborted,
+missing, foreign, late, duplicate and ownership-drift results; concurrent
+one-use approval attempts; child state updates before usage accounting; and
+sequential schedules. Final full-gate counts and exact-head review verdicts are
+recorded in the continuation handoff rather than inferred from this plan.
