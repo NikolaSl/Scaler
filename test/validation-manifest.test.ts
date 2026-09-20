@@ -246,6 +246,91 @@ test("manifest revisions must be positive safe integers before read or write", a
   });
 });
 
+test("manifest readers reject malformed audit metadata without rewriting", async () => {
+  await withTempDir(async (dir) => {
+    await saveValidationManifest(dir, {
+      taskId: "T-AUDIT",
+      commands: [{ id: "unit", command: "npm test", required: true }],
+      createdAt: "",
+      updatedAt: "",
+    });
+    const indexPath = join(dir, ".scaler", "reports", "validation-manifests.json");
+    const manifest = (await loadValidationManifests(dir))[0]!;
+    const validHistory = {
+      revision: 1,
+      reason: "Record the prior policy.",
+      authority: "user_command",
+      changedAt: "2026-09-20T00:00:00.000Z",
+      policy: { commands: manifest.commands },
+    };
+    const malformedMetadata: Array<Record<string, unknown>> = [
+      { establishedAuthority: null },
+      { establishedAuthority: "bogus" },
+      { versionHistory: null },
+      { versionHistory: "bad" },
+      { versionHistory: {} },
+      { versionHistory: [null] },
+      { versionHistory: [[]] },
+      { versionHistory: [{}] },
+      { versionHistory: [{ ...validHistory, revision: 0 }] },
+      { versionHistory: [{ ...validHistory, reason: " " }] },
+      { versionHistory: [{ ...validHistory, authority: "model" }] },
+      { versionHistory: [{ ...validHistory, changedAt: "" }] },
+      { versionHistory: [{ ...validHistory, policy: null }] },
+      { versionHistory: [{ ...validHistory, policy: {} }] },
+      { versionHistory: [{ ...validHistory, policy: { commands: [null] } }] },
+    ];
+
+    for (const metadata of malformedMetadata) {
+      const bytes = `${JSON.stringify({
+        version: 1,
+        manifests: [{ ...manifest, ...metadata }],
+      })}\n`;
+      await writeFile(indexPath, bytes, "utf8");
+
+      await assert.rejects(
+        loadValidationManifests(dir),
+        /Persisted validation manifest for T-AUDIT is malformed: (establishedAuthority|versionHistory)/,
+      );
+      await assert.rejects(
+        upsertValidationManifestCommand(dir, {
+          taskId: "T-AUDIT",
+          id: "build",
+          command: "npm run build",
+        }),
+        /Persisted validation manifest for T-AUDIT is malformed: (establishedAuthority|versionHistory)/,
+      );
+      assert.equal(await readFile(indexPath, "utf8"), bytes);
+    }
+  });
+});
+
+test("manifest saves preserve authoritative audit history", async () => {
+  await withTempDir(async (dir) => {
+    const original = await saveValidationManifest(dir, {
+      taskId: "T-HISTORY",
+      commands: [{ id: "unit", command: "npm test", required: true }],
+      createdAt: "",
+      updatedAt: "",
+    });
+    const amended = await saveValidationManifest(dir, {
+      ...original,
+      commands: [{ id: "unit", command: "npm test -- --runInBand", required: true }],
+    }, {
+      authority: "user_command",
+      reason: "Correct the established validation command.",
+    });
+    assert.equal(amended.versionHistory?.length, 1);
+
+    const attemptedErase = await saveValidationManifest(dir, {
+      ...amended,
+      versionHistory: [],
+    }, { authority: "model" });
+    assert.deepEqual(attemptedErase.versionHistory, amended.versionHistory);
+    assert.deepEqual((await loadValidationManifests(dir))[0]?.versionHistory, amended.versionHistory);
+  });
+});
+
 test("authorized manifest amendment refuses revision overflow without mutation", async () => {
   await withTempDir(async (dir) => {
     const current = await saveValidationManifest(dir, {
