@@ -73,11 +73,12 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   acceptance, including exact-output, symlink and non-regular-file boundaries.
   After its exact-head gate and reviews, reassess the remaining P3 acceptance
   matrix before selecting the next bounded unit; do not infer phase completion
-  from these isolated components. PLAN-123 is the next bounded SC-08 prerequisite:
-  it corrects first-request active-tool timing in the installed host and binds
-  the actual selected tool definitions to a measured byte size and fingerprint.
-  Route selection and execution remain a later unit; PLAN-123 is not AC-08
-  completion.
+  from these isolated components. PLAN-123 corrects first-request active-tool
+  timing in the installed host, binds the selected definitions to a measured
+  identity and fails closed on unsupported prompt composition. PLAN-124 is the
+  next bounded SC-08 prerequisite: a non-authorizing per-request route assessment
+  over complete concrete provider-envelope evidence. Route execution remains a
+  later unit; neither PLAN-123 nor PLAN-124 is AC-08 completion.
 
 ### Renewed continuation policy (2026-09-19)
 
