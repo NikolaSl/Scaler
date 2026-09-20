@@ -158,11 +158,12 @@ test("mock integration: tool transaction execution requires structured scaler_to
       stderr: "",
       timedOut: false,
       aborted: false,
-      stdoutBytes: 0,
+      stdoutBytes: Buffer.byteLength("Free-form answer only.\n", "utf8"),
       stderrBytes: 0,
     }));
     assert.equal(missing.accepted, false);
     assert.equal(missing.transaction?.status, "blocked");
+    assert.match(missing.message, /no fresh result matched/i);
     assert.equal((await loadToolRequests(dir))[0]?.status, "blocked");
     const approval = await createToolReplayApproval(dir, state, { transactionId: missing.transaction!.id, reason: "Explicit retry after ambiguous result" });
 
@@ -294,7 +295,7 @@ test("mock integration: tool iteration workflow blocks an ambiguous missing resu
         stderr: "",
         timedOut: false,
         aborted: false,
-        stdoutBytes: 0,
+        stdoutBytes: calls === 1 ? Buffer.byteLength("Free-form answer only.\n", "utf8") : 0,
         stderrBytes: 0,
       };
     });
@@ -303,6 +304,7 @@ test("mock integration: tool iteration workflow blocks an ambiguous missing resu
     assert.equal(result.run?.status, "rejected");
     assert.deepEqual(result.run?.steps.map((step) => step.action), ["run"]);
     assert.deepEqual(result.run?.steps.map((step) => step.transactionStatus), ["blocked"]);
+    assert.match((await loadToolTransactions(dir))[0]?.message ?? "", /no fresh result matched/i);
     assert.equal((await loadToolIterationRuns(dir))[0]?.status, "rejected");
     assert.equal((await loadToolRequests(dir))[0]?.status, "blocked");
     const transactions = await loadToolTransactions(dir);
