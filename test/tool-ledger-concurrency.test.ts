@@ -40,7 +40,7 @@ test("concurrent readers never observe a partially published result index", asyn
     const results = await Promise.allSettled([
       (async () => {
         for (let i = 0; i < 8; i++) await recordToolResult(dir, state, {
-          requestId: request.id, status: "completed", summary: `Result ${i}`, outputs: "x".repeat(2 * 1024 * 1024),
+          requestId: request.id, status: "completed", summary: `Result ${i}`, outputs: "x".repeat(256 * 1024),
         });
       })(),
       (async () => {

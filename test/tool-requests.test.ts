@@ -637,6 +637,34 @@ test("finalization rechecks durable result bytes and transaction limits", async 
   });
 });
 
+test("finalization rejects durable execution-limit drift without releasing replacement ownership", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find docs." });
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgent(dir, state, { requestId: prepared.record.id, execute: true }, async (request) => {
+      await recordToolResult(dir, state, {
+        requestId: prepared.record!.id,
+        executionId: request.executionId,
+        status: "completed",
+        summary: "Bounded proposal.",
+        outputs: { ok: true },
+      });
+      const transactions = await loadToolTransactions(dir);
+      transactions[0]!.limits!.resultBytes -= 1;
+      await writeFile(getToolTransactionsPath(dir), `${JSON.stringify({ version: 1, transactions }, null, 2)}\n`, "utf8");
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
+    });
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /durable execution .* no longer matches/);
+    assert.equal((await loadToolRequests(dir))[0]?.status, "prepared");
+    assert.ok((await loadToolRequests(dir))[0]?.activeExecutionId);
+    assert.equal((await loadToolResults(dir))[0]?.acceptanceStatus, "rejected");
+  });
+});
+
 test("runToolRequestAgent rejects a completed result when the child process fails", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));

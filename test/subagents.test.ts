@@ -271,7 +271,7 @@ setTimeout(() => process.stdout.write(bytes.subarray(2)), 5);
     assert.equal(exact.exitCode, 0);
     assert.equal(exact.stdoutBytes, 5);
     assert.equal(exact.outputLimitExceeded, undefined);
-    assert.deepEqual(exact.stdoutEvents, [{ type: "unparsed", text: "🙂\n" }]);
+    assert.deepEqual(exact.stdoutEvents, [{ type: "unparsed", text: "🙂" }]);
 
     const over = await runTaskAgent(
       { taskId: "T-output-over", prompt: "ignored", cwd: dir },
