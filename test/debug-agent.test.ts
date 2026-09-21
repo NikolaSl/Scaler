@@ -14,14 +14,21 @@ import {
   formatDebugAgentRunList,
   ingestDebugReport,
   loadDebugAgentRunRecords,
-  prepareDebugAgentInvocation,
+  prepareDebugAgentInvocation as prepareDebugAgentInvocationImpl,
   recordDebugAgentRun,
-  runDebugAgentStep,
+  runDebugAgentStep as runDebugAgentStepImpl,
 } from "../src/debug-agent.js";
 import { loadDebugReports, recordDebugAttempt } from "../src/debug.js";
+import { readLogEvents } from "../src/logging.js";
 import { loadResearchRequests } from "../src/research.js";
 import { createDefaultState } from "../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../src/subagents.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const prepareDebugAgentInvocation: typeof prepareDebugAgentInvocationImpl = (cwd, input, options = {}) =>
+  prepareDebugAgentInvocationImpl(cwd, input, { ...options, providerAdmissionModel: testProviderAdmissionModel });
+const runDebugAgentStep: typeof runDebugAgentStepImpl = (cwd, state, options = {}, runner) =>
+  runDebugAgentStepImpl(cwd, state, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runner);
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-debug-agent-test-"));
@@ -91,12 +98,17 @@ test("prepareDebugAgentInvocation builds isolated Pi invocation", () => {
     reports: [],
     researchSummary: "No research.",
     replanRequests: [],
-  }, { tools: ["read"], model: "m", command: "pi-test" });
+  }, { tools: ["read"], model: "synthetic-8k", command: "pi-test" });
 
   assert.equal(preparation.task.id, "T-001");
   assert.equal(preparation.request.taskId, "debug-agent-T-001");
   assert.equal(preparation.invocation.command, "pi-test");
   assert.ok(preparation.invocation.args.includes("--tools"));
+  assert.deepEqual(preparation.request.providerAdmission, {
+    requestTokenAllowance: 8_000,
+    outputReserveTokens: 1_024,
+    safetyMarginTokens: 1_024,
+  });
 });
 
 test("extractDebugReport validates latest structured debug report candidate", () => {
@@ -225,5 +237,27 @@ test("runDebugAgentStep executes and ingests report", async () => {
     assert.equal(result.accepted, true);
     assert.equal(result.ingestion?.ingested, true);
     assert.equal((await loadDebugReports(dir))[0]?.status, "next_approach");
+  });
+});
+
+test("runDebugAgentStep refuses an oversized final prompt before audit, runner, or run publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = debugState();
+    let runnerCalled = false;
+    const result = await runDebugAgentStep(dir, state, {
+      taskId: "T-001",
+      execute: true,
+      tokenBudget: 1,
+      extraInstructions: "EXACT-SOURCE\n".repeat(4_000),
+    } as never, async () => {
+      runnerCalled = true;
+      throw new Error("runner must not be called");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(runnerCalled, false);
+    assert.match(result.message, /final SCALER prompt refused/i);
+    assert.deepEqual(await loadDebugAgentRunRecords(dir), []);
+    assert.deepEqual(await readLogEvents(dir), []);
   });
 });

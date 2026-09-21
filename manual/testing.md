@@ -97,6 +97,7 @@ The current mocked integration harness covers:
 - typed validation gate metadata plus dependency/test-first and CI/sandbox environment policy diagnostics, deterministic CI/CD wrapper provisioning, validation environment lifecycle evidence, and `/scaler-validation-envs`/`/scaler-cicd-envs` status persisted through `/scaler-validation-add`, validation runs, lifecycle/provision records, and audit logs;
 - deterministic non-software validation checklists persisted through `/scaler-validation-checklist`, task status transitions, evidence-required acceptance/completeness/source policies, and audit logs;
 - rich `scaler_tool_request` metadata, `scaler_tool_schema` discovery ledgers, supervised schema discovery probe ledgers, project-local MCP server enumeration ledgers, compact selected-tool catalog prompts with discovered schema injection, compact parent-session runtime tool catalog injection, active-tool focus/restore, child-agent deny-by-default `--no-tools` invocation, automatic SCALER extension loading when child tools are granted, isolated allowed-tool invocation prep, tool transaction prepare/execute/replay ledgers, closed replay approval ledgers, bounded tool-iteration correction ledgers/policy, safe low-risk tool scheduling ledgers, `missing_result`/`missing_schema` handling for free-form child output, and structured `scaler_tool_result` request closure;
+- strict child tool-load parity across stage, conductor, debug-retry and isolated execution/replay, including structured refusal of unavailable, malformed and sparse grants before runner, attempt, budget, run-record or execution-claim publication;
 - deterministic context discovery feeding conductor prompts with exactness/compression guidance, semantic-style candidate curation/approval, parent-session `context` hook injection filtering, automatic context-split artifacts for oversized resolved context, externalized exact/summary-ok memory refs, and fresh minimal-context handoff shrink checks;
 - unsafe replan proposal acceptance rejection;
 - debug report → replan request → replanner proposal → acceptance retry-gate clearance;
@@ -391,6 +392,23 @@ The PLAN-128 candidate passes the TypeScript build, `git diff --check`, 979 unit
 and component tests, 67 mock integration tests and 7 conformance/autopilot
 checks. These are repository-owned gates; no paid or deployed model execution is
 claimed.
+
+PLAN-132 binds every strict child launch to one trusted exact host model
+identity. Run `node --test --import tsx test/provider-admission-host.test.ts test/extension-shape.test.ts test/tools.test.ts test/tool-requests.test.ts test/stage-workflow.test.ts test/debug-conductor.test.ts`
+for installed-host and nested-flow coverage, then the complete unit, mock
+integration and conformance gates. The regressions cover missing/malformed and
+conflicting identity, duplicate model ids under different providers, explicit
+provider/model CLI selection, final-hook drift, host-owned explicit spawn,
+nested fan-out propagation and refusal before attempts or other execution-side
+publication. Mock integration workflows use one descriptor-preserving synthetic
+host binding so they exercise the production admission path instead of bypassing
+it.
+
+These checks execute no paid model and establish selection integrity only. They
+do not configure a local profile, prove model eligibility or quality, admit
+parent interactive calls, cover provider-internal retries, complete the three
+tool routes, or demonstrate savings and scale. SC-05/25 remain Partial and
+SC-09 remains Not assessed.
 
 PLAN-113 requires declared `outputPaths` before automatic non-Git/clean/runtime
 commit skips or explicit commit skips can accept a task. A successful command

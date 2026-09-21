@@ -11,17 +11,15 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { test } from "node:test";
 import { assessDebugRetryGate, loadDebugAttempts, loadDebugReports, recordDebugAttempt } from "../../../src/debug.js";
-import { runDebugAgentStep } from "../../../src/debug-agent.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { runValidationWithExecutionLock } from "../../../src/operations.js";
 import { loadReplanRequests } from "../../../src/plans.js";
 import { loadResearchReports, loadResearchRequests } from "../../../src/research.js";
-import { runResearchAgentStep } from "../../../src/research-agent.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
 import { createTask } from "../../../src/tasks.js";
 import { loadValidationRuns } from "../../../src/validation.js";
-import { runConductorStep } from "../../../src/conductor.js";
+import { runConductorStep, runDebugAgentStep, runResearchAgentStep } from "./provider-bound-helpers.js";
 
 const execFileAsync = promisify(execFile);
 

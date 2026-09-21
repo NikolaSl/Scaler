@@ -11,7 +11,11 @@ import { test } from "node:test";
 import { loadDebugReports } from "../src/debug.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../src/subagents.js";
-import { runValidationDebugLoopWorkflow, selectTaskForValidationDebugLoop, type ValidationDebugLoopValidator } from "../src/validation-debug-loop.js";
+import { runValidationDebugLoopWorkflow as runValidationDebugLoopWorkflowImpl, selectTaskForValidationDebugLoop, type ValidationDebugLoopValidator } from "../src/validation-debug-loop.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const runValidationDebugLoopWorkflow: typeof runValidationDebugLoopWorkflowImpl = (cwd, state, taskId, options = {}, runners, validator) =>
+  runValidationDebugLoopWorkflowImpl(cwd, state, taskId, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runners, validator);
 import type { ScalerState } from "../src/types.js";
 import { getValidationManifestForTask, saveValidationManifest } from "../src/validation.js";
 

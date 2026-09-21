@@ -8,12 +8,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { loadTaskAgentRunRecords, loadValidationHandoffs, runConductorStep } from "../../../src/conductor.js";
+import { loadTaskAgentRunRecords, loadValidationHandoffs } from "../../../src/conductor.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { createDefaultState, loadState } from "../../../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
 import { loadTaskAgentReports } from "../../../src/task-reports.js";
 import { saveValidationManifest } from "../../../src/validation.js";
+import { runConductorStep } from "./provider-bound-helpers.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-task-report-integration-test-"));

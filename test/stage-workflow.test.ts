@@ -12,14 +12,19 @@ import { loadExecutionPlan, saveExecutionPlan } from "../src/plans.js";
 import { loadCurrentPrd, loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
 import { loadResearchReports, loadResearchRequests } from "../src/research.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
+import { loadStageArtifacts } from "../src/stages.js";
 import {
   deriveKnowledgeResearchRequests,
   ingestPrdWriteReport,
   loadStageWorkflowRunRecords,
-  runAutonomousStageWorkflow,
+  runAutonomousStageWorkflow as runAutonomousStageWorkflowImpl,
 } from "../src/stage-workflow.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../src/subagents.js";
 import type { ScalerState } from "../src/types.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const runAutonomousStageWorkflow: typeof runAutonomousStageWorkflowImpl = (cwd, state, options = {}, runners) =>
+  runAutonomousStageWorkflowImpl(cwd, state, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runners);
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-stage-workflow-test-"));
@@ -166,6 +171,7 @@ test("PRD stage preserves an omitted source on an existing source-less requireme
 });
 
 async function stageRunner(request: TaskAgentRequest): Promise<TaskAgentRunResult> {
+  assert.deepEqual(request.providerAdmissionModel, testProviderAdmissionModel);
   if (request.taskId === "stage-prd") {
     assert.ok(request.tools?.includes("read"));
     assert.ok(request.tools?.includes("bash"));
@@ -222,6 +228,7 @@ async function stageRunner(request: TaskAgentRequest): Promise<TaskAgentRunResul
 
 async function researchRunner(request: TaskAgentRequest): Promise<TaskAgentRunResult> {
   assert.equal(request.taskId, "research-agent-RESEARCH-REQ-1");
+  assert.deepEqual(request.providerAdmissionModel, testProviderAdmissionModel);
   return {
     taskId: request.taskId,
     exitCode: 0,
@@ -273,8 +280,45 @@ test("runAutonomousStageWorkflow executes PRD, Stage II research merge, and plan
   });
 });
 
+for (const stopReason of ["aborted", "error"] as const) {
+  test(`runAutonomousStageWorkflow rejects supplemental PRD from a zero-exit terminal ${stopReason}`, async () => {
+    await withTempDir(async (dir) => {
+      const state = createState("prd");
+      await saveState(dir, state);
+
+      const result = await runAutonomousStageWorkflow(dir, state, { execute: true, maxSteps: 1 }, {
+        stage: async (request) => ({
+          taskId: request.taskId,
+          exitCode: 0,
+          stdoutEvents: [
+            {
+              type: "scaler_prd_write",
+              content: "# Must not be published",
+              requirements: [{ id: "REQ-REJECT", statement: "Reject failed stage output." }],
+            },
+            { type: "message_end", message: { role: "assistant", stopReason } },
+          ],
+          stderr: "",
+          timedOut: false,
+          aborted: false,
+        }),
+      });
+
+      assert.equal(result.accepted, false);
+      assert.equal(result.stopReason, "step_rejected");
+      assert.equal(result.finalState.stage, "prd");
+      assert.equal(result.steps[0]?.stageAgent?.runRecord?.status, "failed");
+      assert.deepEqual(result.steps[0]?.supplemental, {});
+      assert.equal(await loadCurrentPrd(dir), "");
+      assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+      assert.deepEqual(await loadStageArtifacts(dir), []);
+    });
+  });
+}
+
 async function replanRunner(request: TaskAgentRequest): Promise<TaskAgentRunResult> {
   assert.equal(request.taskId, "replan-agent");
+  assert.deepEqual(request.providerAdmissionModel, testProviderAdmissionModel);
   assert.match(request.prompt, /REQ-NEW/);
   return {
     taskId: request.taskId,
@@ -306,12 +350,12 @@ test("runAutonomousStageWorkflow augments explicit tools with required stage too
     const state = createState("planning");
     await saveState(dir, state);
 
-    const result = await runAutonomousStageWorkflow(dir, state, { execute: true, maxSteps: 1, tools: ["custom-inspector"] }, {
+    const result = await runAutonomousStageWorkflow(dir, state, { execute: true, maxSteps: 1, tools: ["grep"] }, {
       stage: async (request) => {
         assert.equal(request.taskId, "stage-planning");
         assert.ok(request.tools?.includes("read"));
         assert.ok(request.tools?.includes("bash"));
-        assert.ok(request.tools?.includes("custom-inspector"));
+        assert.ok(request.tools?.includes("grep"));
         assert.ok(request.tools?.includes("scaler_planning_report"));
         return {
           taskId: request.taskId,

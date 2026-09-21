@@ -110,12 +110,34 @@ paths. Policy transport contains validated numeric limits only. A refusal calls
 enforcement. The strict profile also cancels Pi's provider-backed compaction,
 whose summary request bypasses `before_provider_request` in Pi 0.80.3.
 
+Every strict child also receives one runtime-owned API/provider/model/context-
+window identity captured from the host (or, for isolated tool dispatch, its
+fresh trusted worker supplier). SCALER renders explicit `--provider` and
+`--model` selectors from that identity and the final provider hook requires an
+exact match before transport. Missing, malformed or conflicting identity fails
+before runner invocation or execution-side publication; a model-authored spawn
+selector cannot choose a different provider/model. The same qualified identity
+is included in task-attempt route fingerprints.
+
 The provider gate currently supports only the installed Pi 0.80.3 OpenAI Chat
 Completions text/tool shape. Alternate APIs, image/audio and multiple-completion
 payloads fail closed. The byte bound can conservatively reject a request that an
-exact tokenizer would admit. Parent interactive calls, other child routes,
-provider-internal retries and reconciliation against observed usage remain
-later P3 work.
+exact tokenizer would admit. Conductor, debug retry, stage agents, research,
+diagnostic debug, replanning, tool-schema discovery and explicit task spawns now
+attach this strict policy after early final-prompt admission. Parent interactive
+calls, provider-internal retries, model eligibility policy and reconciliation
+against observed usage remain later P3 work.
+
+Strict child launches can currently activate only Pi built-in tools and SCALER
+tools loaded by the isolated child profile. The shared strict invocation
+boundary rejects browser, MCP and other external-extension grants—and malformed
+or sparse runtime grant lists—before strict child preparation, attempt/budget
+publication or dispatch when that profile cannot load them. This applies to
+task, debug-retry, stage and isolated-tool execution/replay as well as the
+auxiliary launch paths. A generic non-strict isolated prepare-only record may
+retain external tool metadata, but it confers no load or dispatch authority.
+SCALER does not claim those tools are available to a strict child; a trusted
+external-capability loading adapter remains future work.
 
 ## Missing-context lifecycle
 

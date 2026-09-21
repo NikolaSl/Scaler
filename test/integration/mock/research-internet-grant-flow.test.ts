@@ -12,12 +12,13 @@ import { test } from "node:test";
 import { promisify } from "node:util";
 import { readLogEvents } from "../../../src/logging.js";
 import { loadMemoryIndex } from "../../../src/memory.js";
-import { loadResearchAgentRunRecords, runResearchAgentStep } from "../../../src/research-agent.js";
+import { loadResearchAgentRunRecords } from "../../../src/research-agent.js";
 import { loadResearchReports, upsertResearchRequest } from "../../../src/research.js";
-import { loadResearchWebTransactions, runResearchWebWorkflow } from "../../../src/research-web.js";
+import { loadResearchWebTransactions } from "../../../src/research-web.js";
 import { createDefaultState, saveState } from "../../../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
 import { recordToolSchema } from "../../../src/tool-requests.js";
+import { runResearchAgentStep, runResearchWebWorkflow } from "./provider-bound-helpers.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -57,35 +58,17 @@ test("mock integration: web research workflow discovers tools and records query/
       schemaRef: "schema:mcp-docs-search",
     });
 
-    const result = await runResearchWebWorkflow(dir, state, { requestId: "RESEARCH-WEB-TXN", execute: true, allowInternet: true, maxQueries: 2 }, async (request) => {
-      assert.deepEqual(request.tools, ["mcp_docs_search"]);
-      assert.match(request.prompt, /multi-step web research transaction/);
-      assert.match(request.prompt, /official documentation/);
-      return {
-        taskId: request.taskId,
-        exitCode: 0,
-        stdoutEvents: [{
-          type: "scaler_research_report",
-          requestId: "RESEARCH-WEB-TXN",
-          question: "Which external API is current?",
-          status: "complete",
-          sources: [{ id: "official", title: "Official API docs", quality: "official", url: "https://example.invalid/api", version: "v1", checkedAt: "2026-01-01T00:00:00.000Z", summary: "Versioned API reference." }],
-          conclusions: [{ summary: "Use the versioned official API reference.", confidence: "high", sourceRefs: ["official"] }],
-          rawEvidence: [{ title: "Official excerpt", content: "Use /v1/widgets for current widgets.", sourceId: "official" }],
-        }],
-        stderr: "",
-        timedOut: false,
-        aborted: false,
-      };
+    let runnerCalled = false;
+    const result = await runResearchWebWorkflow(dir, state, { requestId: "RESEARCH-WEB-TXN", execute: true, allowInternet: true, maxQueries: 2 }, async () => {
+      runnerCalled = true;
+      throw new Error("unavailable external tool must refuse before dispatch");
     });
 
-    assert.equal(result.accepted, true);
+    assert.equal(result.accepted, false);
+    assert.equal(runnerCalled, false);
     assert.equal(result.tools[0], "mcp_docs_search");
-    const transactions = await loadResearchWebTransactions(dir);
-    assert.ok(transactions.some((transaction) => transaction.kind === "tool_discovery" && transaction.status === "completed"));
-    assert.ok(transactions.some((transaction) => transaction.kind === "query" && transaction.status === "completed"));
-    assert.ok(transactions.some((transaction) => transaction.kind === "source_review" && transaction.freshnessStatus === "versioned"));
-    assert.equal((await loadMemoryIndex(dir)).entries.length, 1);
+    assert.equal((await loadResearchWebTransactions(dir)).length > 0, true);
+    assert.equal((await loadMemoryIndex(dir)).entries.length, 0);
   });
 });
 
@@ -106,48 +89,28 @@ test("mock integration: internet research tools are withheld until explicitly gr
     assert.equal(prepared.invocation?.args.includes("--tools"), false);
     assert.match(prepared.prompt ?? "", /internet tools are not explicitly granted/);
 
-    const runner = async (request: TaskAgentRequest): Promise<TaskAgentRunResult> => {
-      assert.deepEqual(request.tools, ["browser", "mcp-docs"]);
-      assert.match(request.prompt, /explicit internet grant/);
-      assert.match(request.prompt, /Granted tools=browser, mcp-docs/);
-      return {
-        taskId: request.taskId,
-        exitCode: 0,
-        stdoutEvents: [{
-          type: "scaler_research_report",
-          requestId: "RESEARCH-WEB",
-          question: "Which external API is current?",
-          status: "complete",
-          sources: [{ id: "official", title: "Official API docs", quality: "official", url: "https://example.invalid/api", summary: "Versioned API reference." }],
-          conclusions: [{ summary: "Use the versioned official API reference.", confidence: "high", sourceRefs: ["official"] }],
-          rawEvidence: [{ title: "Official excerpt", content: "Use /v1/widgets for current widgets.", sourceId: "official" }],
-        }],
-        stderr: "",
-        timedOut: false,
-        aborted: false,
-      };
+    let runnerCalled = false;
+    const runner = async (_request: TaskAgentRequest): Promise<TaskAgentRunResult> => {
+      runnerCalled = true;
+      throw new Error("unavailable grant must refuse before dispatch");
     };
 
     const executed = await runResearchAgentStep(dir, state, { requestId: "RESEARCH-WEB", execute: true, allowInternet: true, tools: ["browser", "mcp-docs"] }, runner);
-    assert.equal(executed.accepted, true);
-    assert.ok(executed.invocation?.args.includes("--tools"));
-    assert.ok(executed.invocation?.args.includes("browser,mcp-docs"));
-    assert.equal(executed.ingestion?.ingested, true);
-
-    const report = (await loadResearchReports(dir))[0];
-    assert.equal(report?.requestId, "RESEARCH-WEB");
-    assert.equal(report?.sources[0]?.url, "https://example.invalid/api");
-    assert.equal((await loadMemoryIndex(dir)).entries.length, 1);
+    assert.equal(executed.accepted, false);
+    assert.equal(runnerCalled, false);
+    assert.match(executed.message, /cannot load granted tools: browser, mcp-docs/);
+    assert.equal((await loadResearchReports(dir)).length, 0);
+    assert.equal((await loadMemoryIndex(dir)).entries.length, 0);
 
     const runs = await loadResearchAgentRunRecords(dir);
-    assert.deepEqual(runs.map((run) => run.status), ["passed", "prepared"]);
+    assert.deepEqual(runs.map((run) => run.status), ["prepared"]);
 
     const events = await readLogEvents(dir);
     const agentEvents = events.filter((event) => event.eventType === "agent" && event.detailsPath);
-    assert.equal(agentEvents.length >= 2, true);
+    assert.equal(agentEvents.length, 1);
     const detailPath = agentEvents[agentEvents.length - 1]?.detailsPath ?? "";
     const latestAgentDetail = JSON.parse(await readFile(detailPath.startsWith("/") ? detailPath : join(dir, detailPath), "utf8")) as { payload?: { details?: { invocation?: { args?: string[] }; scope?: string } } };
     assert.equal(latestAgentDetail.payload?.details?.scope, "internet");
-    assert.ok(latestAgentDetail.payload?.details?.invocation?.args?.includes("browser,mcp-docs"));
+    assert.equal(latestAgentDetail.payload?.details?.invocation?.args?.includes("browser,mcp-docs"), false);
   });
 });

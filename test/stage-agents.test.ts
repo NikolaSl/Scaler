@@ -14,12 +14,19 @@ import {
   formatStageAgentRunList,
   loadStageAgentRunRecords,
   normalizeStage,
-  prepareStageAgentInvocation,
+  prepareStageAgentInvocation as prepareStageAgentInvocationImpl,
   recordStageAgentRun,
-  runStageAgentStep,
+  runStageAgentStep as runStageAgentStepImpl,
+  type RunStageAgentOptions,
 } from "../src/stage-agents.js";
 import { createDefaultState } from "../src/state.js";
 import { loadStageArtifacts } from "../src/stages.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const prepareStageAgentInvocation: typeof prepareStageAgentInvocationImpl = (cwd, input, options = {}) =>
+  prepareStageAgentInvocationImpl(cwd, input, { ...options, providerAdmissionModel: testProviderAdmissionModel });
+const runStageAgentStep: typeof runStageAgentStepImpl = (cwd, state, stage, options = {}, runner) =>
+  runStageAgentStepImpl(cwd, state, stage, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runner);
 
 async function tempDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "scaler-stage-agents-test-"));
@@ -129,9 +136,9 @@ test("prepareStageAgentInvocation builds isolated Pi invocation", () => {
   }, {
     command: "pi-test",
     tools: ["read", "write"],
-    model: "test-model",
-    extensionPaths: [".pi/extensions/scaler"],
-  });
+    model: "synthetic-8k",
+    tokenBudget: 4_096,
+  } as RunStageAgentOptions);
 
   assert.equal(preparation.stage, "prd");
   assert.equal(preparation.invocation.command, "pi-test");
@@ -140,7 +147,16 @@ test("prepareStageAgentInvocation builds isolated Pi invocation", () => {
   assert.ok(preparation.invocation.args.includes("--tools"));
   assert.ok(preparation.invocation.args.includes("read,write"));
   assert.ok(preparation.invocation.args.includes("--model"));
-  assert.ok(preparation.invocation.args.includes("test-model"));
+  assert.ok(preparation.invocation.args.includes("synthetic-8k"));
+  assert.ok(preparation.invocation.args.includes("--no-extensions"));
+  assert.ok(preparation.invocation.args.includes("--no-skills"));
+  assert.ok(preparation.invocation.args.includes("--no-prompt-templates"));
+  assert.ok(preparation.invocation.args.includes("--no-context-files"));
+  assert.deepEqual(preparation.request.providerAdmission, {
+    requestTokenAllowance: 4_096,
+    outputReserveTokens: 1_024,
+    safetyMarginTokens: 1_024,
+  });
   assert.equal(preparation.request.taskId, "stage-prd");
   assert.match(preparation.prompt, /Persist the polished runtime PRD through `scaler_prd_write`/);
 });
@@ -182,6 +198,11 @@ test("runStageAgentStep prepares and executes under lock", async () => {
     assert.ok(request.tools?.includes("read"));
     assert.ok(request.tools?.includes("bash"));
     assert.ok(request.tools?.includes("scaler_planning_report"));
+    assert.deepEqual(request.providerAdmission, {
+      requestTokenAllowance: 8_000,
+      outputReserveTokens: 1_024,
+      safetyMarginTokens: 1_024,
+    });
     return {
       taskId: request.taskId,
       exitCode: 0,
@@ -200,6 +221,123 @@ test("runStageAgentStep prepares and executes under lock", async () => {
     ingested: false,
     reason: "No scaler_stage_artifact report found in stage-agent output.",
   });
+});
+
+for (const stopReason of ["aborted", "error"] as const) {
+  test(`runStageAgentStep rejects a zero-exit terminal ${stopReason} without ingesting artifacts`, async () => {
+    const cwd = await tempDir();
+    const state = createDefaultState();
+    const result = await runStageAgentStep(cwd, state, "execution", { execute: true }, async (request) => ({
+      taskId: request.taskId,
+      exitCode: 0,
+      stdoutEvents: [
+        {
+          type: "scaler_stage_artifact",
+          stage: "execution",
+          status: "ready",
+          title: "Must not be accepted",
+        },
+        { type: "message_end", message: { role: "assistant", stopReason } },
+      ],
+      stderr: "",
+      timedOut: false,
+      aborted: false,
+    }));
+
+    assert.equal(result.runRecord?.status, "failed");
+    assert.deepEqual(result.ingestion, { attempted: false, ingested: false });
+    assert.deepEqual(await loadStageArtifacts(cwd), []);
+  });
+}
+
+test("runStageAgentStep refuses unavailable strict child grants without publishing a run", async () => {
+  const cwd = await tempDir();
+  const state = createDefaultState();
+  let runnerCalled = false;
+
+  const result = await runStageAgentStep(cwd, state, "prd", {
+    execute: true,
+    tools: ["browser_search"],
+  }, async (request) => {
+    runnerCalled = true;
+    return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+  });
+
+  assert.equal(result.accepted, false);
+  assert.match(result.message, /cannot load granted tools: browser_search/);
+  assert.equal(runnerCalled, false);
+  assert.deepEqual(await loadStageAgentRunRecords(cwd), []);
+});
+
+test("runStageAgentStep returns a structured refusal for malformed strict grants", async () => {
+  const cwd = await tempDir();
+  const state = createDefaultState();
+  let runnerCalled = false;
+
+  const result = await runStageAgentStep(cwd, state, "prd", {
+    execute: true,
+    tools: [null] as unknown as string[],
+  }, async (request) => {
+    runnerCalled = true;
+    return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false };
+  });
+
+  assert.equal(result.accepted, false);
+  assert.match(result.message, /malformed granted tools/i);
+  assert.equal(runnerCalled, false);
+  assert.deepEqual(await loadStageAgentRunRecords(cwd), []);
+});
+
+test("runStageAgentStep refuses an oversized final prompt before runner or run-record publication", async () => {
+  const cwd = await tempDir();
+  const state = createDefaultState();
+  let runnerCalled = false;
+  const options = {
+    execute: true,
+    tokenBudget: 1,
+    extraInstructions: "x".repeat(8_000),
+  } as RunStageAgentOptions & { tokenBudget: number };
+
+  const result = await runStageAgentStep(cwd, state, "planning", options, async () => {
+    runnerCalled = true;
+    throw new Error("runner must not be called");
+  });
+
+  assert.equal(result.accepted, false);
+  assert.equal(runnerCalled, false);
+  assert.match(result.message, /final SCALER prompt refused/i);
+  assert.deepEqual(await loadStageAgentRunRecords(cwd), []);
+});
+
+for (const tokenBudget of [0, Number.POSITIVE_INFINITY]) {
+  test(`runStageAgentStep refuses invalid token allowance ${String(tokenBudget)}`, async () => {
+    const cwd = await tempDir();
+    const state = createDefaultState();
+    let runnerCalled = false;
+    const result = await runStageAgentStep(cwd, state, "prd", {
+      execute: true,
+      tokenBudget,
+    }, async () => {
+      runnerCalled = true;
+      throw new Error("runner must not be called");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(runnerCalled, false);
+    assert.match(result.message, /positive finite integer/i);
+    assert.deepEqual(await loadStageAgentRunRecords(cwd), []);
+  });
+}
+
+test("prepareStageAgentInvocation admits the exact final prompt boundary", () => {
+  const state = createDefaultState();
+  const baseline = prepareStageAgentInvocation("/repo", { stage: "knowledge", state });
+  const exact = prepareStageAgentInvocation("/repo", { stage: "knowledge", state }, {
+    tokenBudget: baseline.promptAdmission.estimatedTokens,
+  });
+
+  assert.equal(exact.promptAdmission.accepted, true);
+  assert.equal(exact.promptAdmission.estimatedTokens, exact.promptAdmission.tokenBudget);
 });
 
 test("runStageAgentStep ingests successful stage-agent artifact reports", async () => {

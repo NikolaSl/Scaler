@@ -9,9 +9,11 @@ import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { getMcpServersPath, getToolCatalogPath, getToolIterationPolicyPath, getToolIterationRunsPath, getToolReplayApprovalsPath, getToolRequestsIndexPath, getToolResultsPath, getToolSchedulesPath, getToolSchemaDiscoveryRunsPath, getToolTransactionsPath } from "./paths.js";
+import { requireTaskPromptAdmission, TaskPromptAdmissionError, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
+import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { loadState } from "./state.js";
-import { DEFAULT_TASK_AGENT_OUTPUT_LIMITS, buildTaskAgentInvocation, runTaskAgent, type RunTaskAgentOptions, type TaskAgentInvocation, type TaskAgentOutputLimits, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
+import { DEFAULT_TASK_AGENT_OUTPUT_LIMITS, buildTaskAgentInvocation, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type RunTaskAgentOptions, type TaskAgentInvocation, type TaskAgentOutputLimits, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { assessToolRoute, type ToolRouteAssessment, type ToolRouteAssessmentInput } from "./tool-routing.js";
 import type { ScalerState } from "./types.js";
 
@@ -425,6 +427,8 @@ export interface ToolSchemaDiscoveryRunOptions {
   tools?: string[];
   timeoutMs?: number;
   command?: string;
+  tokenBudget?: number;
+  providerAdmissionModel?: ProviderAdmissionModel;
 }
 
 export interface ToolRequestRunResult {
@@ -459,6 +463,7 @@ export interface ToolSchemaDiscoveryRunResult {
   runResult?: TaskAgentRunResult;
   run?: ToolSchemaDiscoveryRunRecord;
   schemaRecord?: ToolSchemaRecord;
+  promptAdmission?: TaskPromptAdmissionDecision;
 }
 
 export interface ToolIterationWorkflowResult {
@@ -1217,14 +1222,35 @@ export async function runToolSchemaDiscoveryAgent(
 
   const existingRecords = await loadToolSchemaRecords(cwd);
   const prompt = buildToolSchemaDiscoveryPrompt(toolName, existingRecords, options.tools ?? []);
+  let promptAdmission: TaskPromptAdmissionDecision;
+  try {
+    promptAdmission = requireTaskPromptAdmission(prompt, options.tokenBudget);
+  } catch (error) {
+    if (!(error instanceof TaskPromptAdmissionError)) throw error;
+    return {
+      accepted: false,
+      message: error.message,
+      toolName,
+      promptAdmission: error.decision,
+    };
+  }
   const allowedTools = uniqueNonEmpty(["scaler_tool_schema", ...(options.tools ?? [])]);
   const agentRequest: TaskAgentRequest = {
     taskId: `tool-schema-${toolName}`,
     prompt,
     tools: allowedTools,
     cwd,
+    providerAdmission: createStrictProviderAdmissionPolicy(promptAdmission.tokenBudget),
+    providerAdmissionModel: options.providerAdmissionModel,
+    enforceLoadedToolAvailability: true,
   };
-  const invocation = buildTaskAgentInvocation(agentRequest, options.command ?? "pi");
+  let invocation: TaskAgentInvocation;
+  try {
+    invocation = buildTaskAgentInvocation(agentRequest, options.command ?? "pi");
+  } catch (error) {
+    if (!(error instanceof TaskAgentInvocationAdmissionError)) throw error;
+    return { accepted: false, message: error.message, toolName, prompt, promptAdmission };
+  }
 
   if (!options.execute) {
     const run = await recordToolSchemaDiscoveryRun(cwd, {
@@ -1236,7 +1262,7 @@ export async function runToolSchemaDiscoveryAgent(
       message: `Tool schema discovery prepared: ${toolName}`,
     });
     await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: run.message, details: { run } }));
-    return { accepted: true, message: run.message, toolName, prompt, invocation, run };
+    return { accepted: true, message: run.message, toolName, prompt, invocation, run, promptAdmission };
   }
 
   const beforeIds = new Set(existingRecords.map((record) => record.id));
@@ -1249,7 +1275,7 @@ export async function runToolSchemaDiscoveryAgent(
     });
   }
   const schemaRecord = (await loadToolSchemaRecords(cwd)).find((record) => record.toolName === toolName && !beforeIds.has(record.id));
-  const status: ToolSchemaDiscoveryRunStatus = schemaRecord ? "completed" : "missing_schema";
+  const status: ToolSchemaDiscoveryRunStatus = taskAgentRunSucceeded(runResult) && schemaRecord ? "completed" : "missing_schema";
   const run = await recordToolSchemaDiscoveryRun(cwd, {
     toolName,
     status,
@@ -1263,7 +1289,7 @@ export async function runToolSchemaDiscoveryAgent(
       : `Tool schema discovery completed: ${toolName}`,
   });
   await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: run.message, details: { run, runResult, schemaRecord } }));
-  return { accepted: status === "completed", message: run.message, toolName, prompt, invocation, runResult, run, schemaRecord };
+  return { accepted: status === "completed", message: run.message, toolName, prompt, invocation, runResult, run, schemaRecord, promptAdmission };
 }
 
 export function formatToolSchemaDiscoveryRuns(records: ToolSchemaDiscoveryRunRecord[], toolName?: string, limit = 10): string {

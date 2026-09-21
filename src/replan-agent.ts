@@ -22,8 +22,10 @@ import {
   type ReplanRequest,
 } from "./plans.js";
 import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdCoverageSummary, type RuntimePrdRequirementsFile } from "./prd.js";
+import { requireTaskPromptAdmission, TaskPromptAdmissionError, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
+import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
-import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
 import type { ScalerState } from "./types.js";
 
@@ -39,15 +41,18 @@ export interface ReplanAgentPromptInput {
 export interface ReplanAgentInvocationOptions {
   tools?: string[];
   model?: string;
+  providerAdmissionModel?: ProviderAdmissionModel;
   appendSystemPromptPath?: string;
   extensionPaths?: string[];
   command?: string;
+  tokenBudget?: number;
 }
 
 export interface ReplanAgentPreparation {
   prompt: string;
   request: TaskAgentRequest;
   invocation: TaskAgentInvocation;
+  promptAdmission: TaskPromptAdmissionDecision;
 }
 
 export interface RunReplanAgentOptions extends ReplanAgentInvocationOptions {
@@ -97,6 +102,7 @@ export interface ReplanAgentStepResult {
   runResult?: TaskAgentRunResult;
   runRecord?: ReplanAgentRunRecord;
   ingestion?: ReplanProposalIngestionResult;
+  promptAdmission?: TaskPromptAdmissionDecision;
 }
 
 export type ReplanAgentRunner = typeof runTaskAgent;
@@ -176,6 +182,7 @@ export function prepareReplanAgentInvocation(
   options: ReplanAgentInvocationOptions = {},
 ): ReplanAgentPreparation {
   const prompt = buildReplanAgentPrompt(input);
+  const promptAdmission = requireTaskPromptAdmission(prompt, options.tokenBudget);
   const request: TaskAgentRequest = {
     taskId: "replan-agent",
     prompt,
@@ -184,9 +191,12 @@ export function prepareReplanAgentInvocation(
     model: options.model,
     appendSystemPromptPath: options.appendSystemPromptPath,
     extensionPaths: options.extensionPaths,
+    providerAdmission: createStrictProviderAdmissionPolicy(promptAdmission.tokenBudget),
+    providerAdmissionModel: options.providerAdmissionModel,
+    enforceLoadedToolAvailability: true,
   };
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");
-  return { prompt, request, invocation };
+  return { prompt, request, invocation, promptAdmission };
 }
 
 export async function runReplanAgentStep(
@@ -203,7 +213,17 @@ export async function runReplanAgentStep(
 
   try {
     const context = await loadReplanAgentContext(cwd, state, options.extraInstructions);
-    const preparation = prepareReplanAgentInvocation(cwd, context, options);
+    let preparation: ReplanAgentPreparation;
+    try {
+      preparation = prepareReplanAgentInvocation(cwd, context, options);
+    } catch (error) {
+      if (!(error instanceof TaskPromptAdmissionError) && !(error instanceof TaskAgentInvocationAdmissionError)) throw error;
+      return {
+        accepted: false,
+        message: error.message,
+        promptAdmission: error instanceof TaskPromptAdmissionError ? error.decision : undefined,
+      };
+    }
     await logAgentPromptAudit(cwd, state, {
       agentType: "replan",
       agentId: "replan-agent",
@@ -219,7 +239,7 @@ export async function runReplanAgentStep(
         agentType: "replan",
       });
     }
-    const ingestion = runResult?.exitCode === 0 ? await ingestReplanProposalReport(cwd, runResult.stdoutEvents, state) : { attempted: false, ingested: false };
+    const ingestion = runResult && taskAgentRunSucceeded(runResult) ? await ingestReplanProposalReport(cwd, runResult.stdoutEvents, state) : { attempted: false, ingested: false };
     if (ingestion.attempted) {
       await logStructuredReportAudit(cwd, state, {
         reportType: "scaler_replan_proposal",
@@ -238,6 +258,7 @@ export async function runReplanAgentStep(
       runResult,
       runRecord,
       ingestion,
+      promptAdmission: preparation.promptAdmission,
     };
   } finally {
     await releaseExecutionLock(cwd, lock.lock.id);
@@ -325,7 +346,7 @@ export async function recordReplanAgentRun(
   const timestamp = now.toISOString();
   const record: ReplanAgentRunRecord = runResult ? {
     id: `replan-agent-${now.getTime()}`,
-    status: runResult.exitCode === 0 ? "passed" : "failed",
+    status: taskAgentRunSucceeded(runResult) ? "passed" : "failed",
     exitCode: runResult.exitCode,
     stdoutEventCount: runResult.stdoutEvents.length,
     stderrSummary: summarizeOutput(runResult.stderr),

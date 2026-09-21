@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { loadDebugAttempts, loadDebugRetries, recordDebugReport } from "../src/debug.js";
-import { approveDebugRetry, buildNextApproachContextItem, formatDebugRetryPolicy, loadDebugRetryApprovals, loadDebugRetryPolicy, runDebugNextApproachRetry, runDebugRetryPolicyWorkflow, saveDebugRetryPolicy, selectDebugRetryWork } from "../src/debug-retry.js";
+import { approveDebugRetry, buildNextApproachContextItem, formatDebugRetryPolicy, loadDebugRetryApprovals, loadDebugRetryPolicy, runDebugNextApproachRetry as runDebugNextApproachRetryImpl, runDebugRetryPolicyWorkflow as runDebugRetryPolicyWorkflowImpl, saveDebugRetryPolicy, selectDebugRetryWork } from "../src/debug-retry.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult, RunTaskAgentOptions } from "../src/subagents.js";
 import type { ScalerState } from "../src/types.js";
@@ -20,6 +20,12 @@ import { loadTaskAttempts } from "../src/task-attempts.js";
 import { loadTaskAgentReports } from "../src/task-reports.js";
 import { loadExecutionLock } from "../src/locks.js";
 import { saveTaskContextManifest } from "../src/context.js";
+import { withTestProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const runDebugNextApproachRetry: typeof runDebugNextApproachRetryImpl = (cwd, state, options = {}, runner) =>
+  runDebugNextApproachRetryImpl(cwd, state, withTestProviderAdmissionModel(options), runner);
+const runDebugRetryPolicyWorkflow: typeof runDebugRetryPolicyWorkflowImpl = (cwd, state, options = {}, runner) =>
+  runDebugRetryPolicyWorkflowImpl(cwd, state, withTestProviderAdmissionModel(options), runner);
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-debug-retry-test-"));
@@ -129,6 +135,25 @@ test("debug retry refuses an oversized final prompt before attempt and runner", 
     assert.deepEqual(await loadTaskAttempts(dir), []);
     assert.equal((await loadState(dir)).tasks.find((task) => task.id === "T-RETRY")?.status, "debugging");
     assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents ?? 0, 0);
+  });
+});
+
+test("debug retry refuses unavailable strict child grants before attempt or budget publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = await seedDebuggingTask(dir);
+    let runnerCalls = 0;
+
+    const result = await runDebugNextApproachRetry(dir, state, { execute: true, tools: ["browser_search"] }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.status, "rejected");
+    assert.match(result.message, /cannot load granted tools: browser_search/i);
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+    assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents ?? 0, 0);
+    assert.equal((await loadDebugRetries(dir))[0]?.status, "rejected");
   });
 });
 

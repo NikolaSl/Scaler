@@ -65,6 +65,63 @@ test("registerScalerTools registers all tool definitions", () => {
   assert.deepEqual(registered, [...scalerToolNames]);
 });
 
+test("scaler_spawn_task admission refusal does not charge a spawned agent", async () => {
+  await withTempDir(async (dir) => {
+    const registered = new Map<string, { execute: (...args: any[]) => Promise<any> }>();
+    registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<any> }) {
+      registered.set(definition.name, definition);
+    } } as never);
+
+    const result = await registered.get("scaler_spawn_task")?.execute(
+      "spawn-refused",
+      {
+        taskId: "T-LARGE",
+        prompt: "EXACT-SOURCE\n".repeat(4_000),
+        execute: true,
+      },
+      undefined,
+      undefined,
+      { cwd: dir },
+    );
+
+    assert.equal(result?.details.status, "refused");
+    assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents ?? 0, 0);
+  });
+});
+
+test("scaler_spawn_task binds preparation to the host-selected provider and rejects model-authored overrides", async () => {
+  await withTempDir(async (dir) => {
+    const registered = new Map<string, { execute: (...args: any[]) => Promise<any> }>();
+    registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<any> }) {
+      registered.set(definition.name, definition);
+    } } as never);
+    const execute = registered.get("scaler_spawn_task")!.execute;
+    const ctx = {
+      cwd: dir,
+      model: { api: "openai-completions", provider: "local-only", id: "shared-model", contextWindow: 8_000 },
+    };
+
+    const prepared = await execute("spawn-bound", {
+      taskId: "T-BOUND",
+      prompt: "Inspect the bounded task.",
+      execute: false,
+    }, undefined, undefined, ctx);
+    const args = prepared.details.invocation.args as string[];
+    assert.deepEqual(args.slice(args.indexOf("--provider"), args.indexOf("--provider") + 4), [
+      "--provider", "local-only", "--model", "shared-model",
+    ]);
+
+    const refused = await execute("spawn-conflict", {
+      taskId: "T-CONFLICT",
+      prompt: "Inspect the bounded task.",
+      model: "cloud/shared-model",
+      execute: false,
+    }, undefined, undefined, ctx);
+    assert.equal(refused.details.status, "refused");
+    assert.match(refused.content[0].text, /conflicts with the exact provider model binding/i);
+  });
+});
+
 test("validation manifest tool preserves commands omitted from a partial draft update", async () => {
   await withTempDir(async (dir) => {
     await saveValidationManifest(dir, {

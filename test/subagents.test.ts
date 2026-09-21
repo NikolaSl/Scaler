@@ -10,8 +10,9 @@ import { getEventListeners } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { buildTaskAgentInvocation, extractStructuredReportPayloads, getDefaultScalerChildExtensionPath, runTaskAgent } from "../src/subagents.js";
+import { buildTaskAgentInvocation, extractStructuredReportPayloads, getDefaultScalerChildExtensionPath, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError } from "../src/subagents.js";
 import { loadWatchdogCleanupRecords } from "../src/watchdogs.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
 
 async function withScript<T>(content: string, fn: (script: string, dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-subagent-test-"));
@@ -83,6 +84,60 @@ test("buildTaskAgentInvocation can disable all tools for report-only child agent
   const invocation = buildTaskAgentInvocation({ taskId: "T-no-tools", prompt: "Report only", tools: ["read"], noTools: true });
 
   assert.deepEqual(invocation.args, ["--mode", "json", "-p", "--no-session", "--no-tools", "Report only"]);
+});
+
+test("strict child invocation refuses tool grants that its isolated loader cannot provide", () => {
+  for (const enforceLoadedToolAvailability of [undefined, false, true]) {
+    assert.throws(() => buildTaskAgentInvocation({
+      taskId: "T-external",
+      prompt: "Browse",
+      tools: ["browser", "mcp-docs"],
+      enforceLoadedToolAvailability,
+      providerAdmission: { requestTokenAllowance: 8_000, outputReserveTokens: 1_024, safetyMarginTokens: 1_024 },
+      providerAdmissionModel: testProviderAdmissionModel,
+    }), {
+      name: "TaskAgentInvocationAdmissionError",
+      message: /cannot load granted tools: browser, mcp-docs/i,
+    });
+  }
+});
+
+test("strict child invocation returns structured admission errors for malformed tool grants", () => {
+  const sparse = Array(1) as string[];
+  for (const tools of [[null], [1], "read", { name: "read" }, sparse]) {
+    assert.throws(() => buildTaskAgentInvocation({
+      taskId: "T-malformed-tools",
+      prompt: "Inspect",
+      tools: tools as string[],
+      providerAdmission: { requestTokenAllowance: 8_000, outputReserveTokens: 1_024, safetyMarginTokens: 1_024 },
+      providerAdmissionModel: testProviderAdmissionModel,
+    }), {
+      name: "TaskAgentInvocationAdmissionError",
+      message: /malformed granted tools/i,
+    });
+  }
+});
+
+test("task-agent success rejects Pi JSON-mode terminal abort and error events despite exit zero", () => {
+  for (const stopReason of ["aborted", "error"]) {
+    assert.equal(taskAgentRunSucceeded({
+      taskId: "T-stop", exitCode: 0, stderr: "", timedOut: false, aborted: false,
+      stdoutEvents: [{ type: "message_end", message: { role: "assistant", stopReason } }],
+    }), false);
+  }
+  assert.equal(taskAgentRunSucceeded({
+    taskId: "T-stop", exitCode: 0, stderr: "", timedOut: false, aborted: false,
+    stdoutEvents: [{ type: "message_end", message: { role: "assistant", stopReason: "stop" } }],
+  }), true);
+  assert.equal(taskAgentRunSucceeded({
+    taskId: "T-retry", exitCode: 0, stderr: "", timedOut: false, aborted: false,
+    stdoutEvents: [
+      { type: "message_end", message: { role: "assistant", stopReason: "error" } },
+      { type: "auto_retry_start" },
+      { type: "message_end", message: { role: "assistant", stopReason: "stop" } },
+      { type: "auto_retry_end", success: true },
+    ],
+  }), true);
 });
 
 test("extractStructuredReportPayloads accepts direct, nested, and exact Pi assistant JSON reports", () => {
@@ -353,6 +408,7 @@ test("runTaskAgent refuses invalid runtime output limits before spawn", async ()
 });
 
 const strictProviderPolicy = { requestTokenAllowance: 8_000, outputReserveTokens: 32, safetyMarginTokens: 1_024 };
+const strictProviderModel = { api: "openai-completions", provider: "synthetic", id: "shared-model", contextWindow: 8_000 };
 const providerPolicyEnvKeys = [
   "SCALER_PROVIDER_ADMISSION", "SCALER_REQUEST_TOKEN_ALLOWANCE",
   "SCALER_OUTPUT_RESERVE_TOKENS", "SCALER_REQUEST_MARGIN_TOKENS",
@@ -379,7 +435,7 @@ console.log(JSON.stringify({type:"test_policy",policy:Object.fromEntries(keys.fi
 test("strict child invocation suppresses ambient resources and loads admission last even without tools", async () => {
   const { getProviderAdmissionExtensionPath } = await import("../src/subagents.js");
   for (const tools of [[], ["read"]]) {
-    const invocation = buildTaskAgentInvocation({ taskId: "T-strict", prompt: "Inspect.", tools, providerAdmission: strictProviderPolicy });
+    const invocation = buildTaskAgentInvocation({ taskId: "T-strict", prompt: "Inspect.", tools, providerAdmission: strictProviderPolicy, providerAdmissionModel: strictProviderModel });
     for (const flag of ["--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files"]) {
       assert.ok(invocation.args.includes(flag), `missing ${flag}`);
     }
@@ -391,6 +447,40 @@ test("strict child invocation suppresses ambient resources and loads admission l
   }
 });
 
+test("strict child invocation refuses a missing exact provider model identity", () => {
+  assert.throws(() => buildTaskAgentInvocation({
+    taskId: "T-missing-model-binding",
+    prompt: "Inspect.",
+    providerAdmission: strictProviderPolicy,
+  }), TaskAgentInvocationAdmissionError);
+});
+
+test("strict child invocation selects the exact admitted provider and model", () => {
+  const invocation = buildTaskAgentInvocation({
+    taskId: "T-exact-model-binding",
+    prompt: "Inspect.",
+    providerAdmission: strictProviderPolicy,
+    providerAdmissionModel: strictProviderModel,
+  });
+
+  const providerIndex = invocation.args.indexOf("--provider");
+  const modelIndex = invocation.args.indexOf("--model");
+  assert.ok(providerIndex >= 0);
+  assert.ok(modelIndex >= 0);
+  assert.equal(invocation.args[providerIndex + 1], "synthetic");
+  assert.equal(invocation.args[modelIndex + 1], "shared-model");
+});
+
+test("strict child invocation refuses a caller model that conflicts with the admitted identity", () => {
+  assert.throws(() => buildTaskAgentInvocation({
+    taskId: "T-conflicting-model-binding",
+    prompt: "Inspect.",
+    model: "cloud/shared-model",
+    providerAdmission: strictProviderPolicy,
+    providerAdmissionModel: strictProviderModel,
+  }), TaskAgentInvocationAdmissionError);
+});
+
 test("strict child invocation refuses additional extension configurations", () => {
   assert.throws(() => buildTaskAgentInvocation({
     taskId: "T-strict", prompt: "Inspect.", providerAdmission: strictProviderPolicy,
@@ -398,16 +488,20 @@ test("strict child invocation refuses additional extension configurations", () =
   }), /extension/i);
 });
 
-test("runTaskAgent transports only validated numeric provider policy and a strict marker", async () => {
+test("runTaskAgent transports validated provider policy and exact model identity", async () => {
   await withInheritedProviderPolicy(async () => {
     await withScript(providerPolicyEchoScript, async (script, dir) => {
-      const result = await runTaskAgent({ taskId: "T-strict", prompt: "Private prompt must not be an environment value", cwd: dir, providerAdmission: strictProviderPolicy }, { command: script });
+      const result = await runTaskAgent({ taskId: "T-strict", prompt: "Private prompt must not be an environment value", cwd: dir, providerAdmission: strictProviderPolicy, providerAdmissionModel: strictProviderModel }, { command: script });
       assert.equal(result.exitCode, 0);
       assert.deepEqual(result.stdoutEvents, [{ type: "test_policy", policy: {
         SCALER_PROVIDER_ADMISSION: "strict",
         SCALER_REQUEST_TOKEN_ALLOWANCE: "8000",
         SCALER_OUTPUT_RESERVE_TOKENS: "32",
         SCALER_REQUEST_MARGIN_TOKENS: "1024",
+        SCALER_EXPECTED_PROVIDER_API: "openai-completions",
+        SCALER_EXPECTED_PROVIDER: "synthetic",
+        SCALER_EXPECTED_MODEL_ID: "shared-model",
+        SCALER_EXPECTED_CONTEXT_WINDOW: "8000",
       } }]);
     });
   });

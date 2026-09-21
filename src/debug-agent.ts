@@ -22,9 +22,11 @@ import {
 } from "./debug.js";
 import { getDebugAgentRunsPath } from "./paths.js";
 import { loadReplanRequests } from "./plans.js";
+import { requireTaskPromptAdmission, TaskPromptAdmissionError, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
+import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { formatResearchSummary, loadResearchReports, loadResearchRequests } from "./research.js";
-import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
 
@@ -42,9 +44,11 @@ export interface DebugAgentPromptInput {
 export interface DebugAgentInvocationOptions {
   tools?: string[];
   model?: string;
+  providerAdmissionModel?: ProviderAdmissionModel;
   appendSystemPromptPath?: string;
   extensionPaths?: string[];
   command?: string;
+  tokenBudget?: number;
 }
 
 export interface RunDebugAgentOptions extends DebugAgentInvocationOptions {
@@ -59,6 +63,7 @@ export interface DebugAgentPreparation {
   request: TaskAgentRequest;
   invocation: TaskAgentInvocation;
   task: ScalerTaskState;
+  promptAdmission: TaskPromptAdmissionDecision;
 }
 
 export interface DebugReportExtractionResult {
@@ -105,6 +110,7 @@ export interface DebugAgentStepResult {
   runRecord?: DebugAgentRunRecord;
   ingestion?: DebugReportIngestionResult;
   task?: ScalerTaskState;
+  promptAdmission?: TaskPromptAdmissionDecision;
 }
 
 export type DebugAgentRunner = typeof runTaskAgent;
@@ -180,6 +186,7 @@ export function prepareDebugAgentInvocation(
   options: DebugAgentInvocationOptions = {},
 ): DebugAgentPreparation {
   const prompt = buildDebugAgentPrompt(input);
+  const promptAdmission = requireTaskPromptAdmission(prompt, options.tokenBudget);
   const request: TaskAgentRequest = {
     taskId: `debug-agent-${input.task.id}`,
     prompt,
@@ -188,9 +195,12 @@ export function prepareDebugAgentInvocation(
     model: options.model,
     appendSystemPromptPath: options.appendSystemPromptPath,
     extensionPaths: options.extensionPaths,
+    providerAdmission: createStrictProviderAdmissionPolicy(promptAdmission.tokenBudget),
+    providerAdmissionModel: options.providerAdmissionModel,
+    enforceLoadedToolAvailability: true,
   };
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");
-  return { prompt, request, invocation, task: input.task };
+  return { prompt, request, invocation, task: input.task, promptAdmission };
 }
 
 export async function runDebugAgentStep(
@@ -213,7 +223,18 @@ export async function runDebugAgentStep(
       return { accepted: false, message: detail };
     }
 
-    const preparation = prepareDebugAgentInvocation(cwd, context, options);
+    let preparation: DebugAgentPreparation;
+    try {
+      preparation = prepareDebugAgentInvocation(cwd, context, options);
+    } catch (error) {
+      if (!(error instanceof TaskPromptAdmissionError) && !(error instanceof TaskAgentInvocationAdmissionError)) throw error;
+      return {
+        accepted: false,
+        message: error.message,
+        task: context.task,
+        promptAdmission: error instanceof TaskPromptAdmissionError ? error.decision : undefined,
+      };
+    }
     await logAgentPromptAudit(cwd, state, {
       agentType: "debug",
       agentId: context.task.id,
@@ -231,7 +252,7 @@ export async function runDebugAgentStep(
         agentType: "debug",
       });
     }
-    const ingestion = runResult?.exitCode === 0 ? await ingestDebugReport(cwd, state, runResult.stdoutEvents) : { attempted: false, ingested: false };
+    const ingestion = runResult && taskAgentRunSucceeded(runResult) ? await ingestDebugReport(cwd, state, runResult.stdoutEvents) : { attempted: false, ingested: false };
     if (ingestion.attempted) {
       await logStructuredReportAudit(cwd, state, {
         reportType: "scaler_debug_report",
@@ -252,6 +273,7 @@ export async function runDebugAgentStep(
       runRecord,
       ingestion,
       task: context.task,
+      promptAdmission: preparation.promptAdmission,
     };
   } finally {
     await releaseExecutionLock(cwd, lock.lock.id);
@@ -329,7 +351,7 @@ export async function recordDebugAgentRun(
   const record: DebugAgentRunRecord = runResult ? {
     id: `debug-agent-${now.getTime()}`,
     taskId,
-    status: runResult.exitCode === 0 ? "passed" : "failed",
+    status: taskAgentRunSucceeded(runResult) ? "passed" : "failed",
     exitCode: runResult.exitCode,
     stdoutEventCount: runResult.stdoutEvents.length,
     stderrSummary: summarizeOutput(runResult.stderr),

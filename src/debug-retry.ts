@@ -30,10 +30,10 @@ import { appendLogEvent, createLogEvent, logAgentPromptAudit, logValidationSumma
 import { commitWithExecutionLock, runValidationWithExecutionLock, type LockedOperationResult } from "./operations.js";
 import { getDebugRetryApprovalsPath, getDebugRetryPolicyPath } from "./paths.js";
 import { recordProviderUsageBudget } from "./provider-usage.js";
-import { createStrictProviderAdmissionPolicy } from "./provider-admission.js";
+import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { assessTaskPromptAdmission, createPromptSizingAttemptBinding, resolveTaskPromptTokenBudget, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
 import { loadState } from "./state.js";
-import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, runTaskAgent, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import { ingestTaskAgentReportFromRun } from "./task-reports.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
 import {
@@ -92,6 +92,7 @@ export interface DebugNextApproachRetryOptions {
   tokenBudget?: number;
   tools?: string[];
   model?: string;
+  providerAdmissionModel?: ProviderAdmissionModel;
   timeoutMs?: number;
 }
 
@@ -330,6 +331,29 @@ export async function runDebugNextApproachRetry(
       }
     }
 
+    const tools = options.tools ?? [];
+    try {
+      buildTaskAgentInvocation({
+        taskId: runningTask.id,
+        prompt,
+        tools,
+        model: options.model,
+        providerAdmissionModel: options.providerAdmissionModel,
+        cwd,
+        providerAdmission: createStrictProviderAdmissionPolicy(promptTokenBudget),
+      });
+    } catch (error) {
+      if (!(error instanceof TaskAgentInvocationAdmissionError)) throw error;
+      const retry = await upsertRetryRecord(cwd, buildRetryRecord(selection, "rejected", false, error.message));
+      await appendLogEvent(cwd, createLogEvent(workingState, {
+        eventType: "rejected_transition",
+        summary: error.message,
+        taskId: runningTask.id,
+        details: { admission: "child_invocation" },
+      }));
+      return { accepted: false, message: error.message, status: "rejected", state: workingState, task: runningTask, retry, prompt };
+    }
+
     const budgetUpdates = [
       { key: "contextTokens", amount: resolvedContext.estimatedTokens, mode: "set" },
       ...(options.execute ? [{ key: "spawnedAgents" as const, amount: 1, mode: "increment" as const }] : []),
@@ -352,7 +376,7 @@ export async function runDebugNextApproachRetry(
 
     if (options.execute) {
       try {
-        activeAttempt = await admitTaskExecution(cwd, lock.lock.id, workingState, runningTask, resolvedContext, options.model, options.tools ?? []);
+        activeAttempt = await admitTaskExecution(cwd, lock.lock.id, workingState, runningTask, resolvedContext, exactModelSelector(options.providerAdmissionModel, options.model), tools);
       } catch (error) {
         if (!(error instanceof TaskDependencyAdmissionError) && !(error instanceof TaskContractAdmissionError) && !(error instanceof TaskContextAdmissionError)) throw error;
         const message = error.message;
@@ -386,10 +410,11 @@ export async function runDebugNextApproachRetry(
     const request = {
       taskId: runningTask.id,
       prompt,
-      tools: options.tools,
+      tools,
       model: options.model,
       cwd,
       providerAdmission: createStrictProviderAdmissionPolicy(promptTokenBudget),
+      providerAdmissionModel: options.providerAdmissionModel,
       attempt: binding,
     };
     const invocation = buildTaskAgentInvocation(request);
@@ -569,6 +594,10 @@ export async function runDebugNextApproachRetry(
   } finally {
     await releaseExecutionLock(cwd, lock.lock.id);
   }
+}
+
+function exactModelSelector(binding: ProviderAdmissionModel | undefined, fallback: string | undefined): string | undefined {
+  return binding ? `${binding.provider}/${binding.id}` : fallback;
 }
 
 export async function selectDebugRetryWork(cwd: string, state: ScalerState, taskId?: string): Promise<DebugRetrySelection | undefined> {

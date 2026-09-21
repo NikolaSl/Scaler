@@ -12,9 +12,10 @@ import { readLogEvents } from "../../../src/logging.js";
 import { loadExecutionPlan, saveExecutionPlan } from "../../../src/plans.js";
 import { upsertPrdRequirement } from "../../../src/prd.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
-import { loadStageWorkflowRunRecords, runAutonomousStageWorkflow } from "../../../src/stage-workflow.js";
+import { loadStageWorkflowRunRecords } from "../../../src/stage-workflow.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
 import type { ScalerState } from "../../../src/types.js";
+import { runAutonomousStageWorkflow } from "./provider-bound-helpers.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-stage-workflow-mock-"));

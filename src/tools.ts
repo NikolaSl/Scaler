@@ -12,6 +12,8 @@ import { logToolAudit } from "./logging.js";
 import { applyPlanningReport, type ExecutionPlanStatus } from "./plans.js";
 import { formatMemorySearchResults, retrieveMemory, searchMemory, writeMemory, type MemoryValidity } from "./memory.js";
 import { recordProviderUsageBudget } from "./provider-usage.js";
+import { requireTaskPromptAdmission, TaskPromptAdmissionError } from "./prompt-admission.js";
+import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import {
   createPrdVersionSnapshot,
   loadPrdRequirements,
@@ -24,7 +26,7 @@ import {
 import { ingestReport } from "./reports.js";
 import { recordResearchReport } from "./research.js";
 import { ensureState } from "./state.js";
-import { buildTaskAgentInvocation, runTaskAgent, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentRunResult } from "./subagents.js";
 import { recordTaskAgentReport } from "./task-reports.js";
 import { createTask, updateTask } from "./tasks.js";
 import { prepareToolRequest, recordToolResult, recordToolSchema } from "./tool-requests.js";
@@ -153,6 +155,9 @@ export interface SpawnTaskToolParams {
   model?: string;
   execute?: boolean;
   timeoutMs?: number;
+  tokenBudget?: number;
+  /** Runtime-owned host identity; intentionally absent from the tool schema. */
+  providerAdmissionModel?: ProviderAdmissionModel;
 }
 
 const SpawnTaskParams = Type.Object({
@@ -512,8 +517,24 @@ export function registerScalerTools(pi: ExtensionAPI): void {
     description: "Prepare or execute an isolated task-agent spawn.",
     parameters: SpawnTaskParams,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const result = await prepareOrRunSpawnTask(ctx.cwd, params, signal);
-      if (params.execute) await recordBudgetUsage(ctx.cwd, "spawnedAgents");
+      const result = await prepareOrRunSpawnTask(ctx.cwd, {
+        taskId: params.taskId,
+        prompt: params.prompt,
+        tools: params.tools,
+        model: params.model,
+        execute: params.execute,
+        timeoutMs: params.timeoutMs,
+        providerAdmissionModel: snapshotHostModel(ctx.model),
+      }, signal);
+      const status = typeof result.details === "object"
+        && result.details !== null
+        && "status" in result.details
+        && typeof result.details.status === "string"
+        ? result.details.status
+        : undefined;
+      if (params.execute && (status === "executed" || status === "failed")) {
+        await recordBudgetUsage(ctx.cwd, "spawnedAgents");
+      }
       await logTool(ctx.cwd, "scaler_spawn_task", result.summary, result.details);
       return textResult(result.text, result.details);
     },
@@ -854,20 +875,44 @@ export async function prepareOrRunSpawnTask(
   signal?: AbortSignal,
   runner: typeof runTaskAgent = runTaskAgent,
 ): Promise<{ text: string; summary: string; details: unknown }> {
+  let promptAdmission;
+  try {
+    promptAdmission = requireTaskPromptAdmission(params.prompt, params.tokenBudget);
+  } catch (error) {
+    if (!(error instanceof TaskPromptAdmissionError)) throw error;
+    return {
+      text: error.message,
+      summary: `Task spawn refused: ${params.taskId}`,
+      details: { status: "refused", promptAdmission: error.decision },
+    };
+  }
   const request = {
     taskId: params.taskId,
     prompt: params.prompt,
     tools: params.tools,
     model: params.model,
     cwd,
+    providerAdmission: createStrictProviderAdmissionPolicy(promptAdmission.tokenBudget),
+    providerAdmissionModel: params.providerAdmissionModel,
+    enforceLoadedToolAvailability: true,
   };
-  const invocation = buildTaskAgentInvocation(request);
+  let invocation;
+  try {
+    invocation = buildTaskAgentInvocation(request);
+  } catch (error) {
+    if (!(error instanceof TaskAgentInvocationAdmissionError)) throw error;
+    return {
+      text: error.message,
+      summary: `Task spawn refused: ${params.taskId}`,
+      details: { status: "refused", promptAdmission },
+    };
+  }
 
   if (!params.execute) {
     return {
       text: `Task spawn prepared: ${params.taskId}`,
       summary: `Task spawn prepared: ${params.taskId}`,
-      details: { status: "prepared", invocation },
+      details: { status: "prepared", invocation, promptAdmission },
     };
   }
 
@@ -880,7 +925,7 @@ export async function prepareOrRunSpawnTask(
     return {
       text: lock.message,
       summary: `Task spawn refused: ${params.taskId}`,
-      details: { status: "locked", invocation, existingLock: lock.existingLock },
+      details: { status: "locked", invocation, existingLock: lock.existingLock, promptAdmission },
     };
   }
 
@@ -898,11 +943,21 @@ export async function prepareOrRunSpawnTask(
     return {
       text: `Task spawn executed: ${params.taskId} exit=${runResult.exitCode}`,
       summary: `Task spawn executed: ${params.taskId}`,
-      details: { status: runResult.exitCode === 0 ? "executed" : "failed", invocation, result: runResult },
+      details: { status: taskAgentRunSucceeded(runResult) ? "executed" : "failed", invocation, result: runResult, promptAdmission },
     };
   } finally {
     await releaseExecutionLock(cwd, lock.lock.id);
   }
+}
+
+function snapshotHostModel(model: ProviderAdmissionModel | undefined): ProviderAdmissionModel | undefined {
+  if (!model) return undefined;
+  return {
+    api: model.api,
+    provider: model.provider,
+    id: model.id,
+    contextWindow: model.contextWindow,
+  };
 }
 
 async function logTool(cwd: string, toolName: ScalerToolName, summary: string, details: unknown): Promise<void> {

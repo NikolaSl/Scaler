@@ -12,7 +12,11 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { test } from "node:test";
 import { getBudgetState } from "../src/budgets.js";
-import { buildTaskAgentPrompt, runConductorStep, type ConductorStepOptions } from "../src/conductor.js";
+import { buildTaskAgentPrompt, runConductorStep as runConductorStepImpl, type ConductorStepOptions } from "../src/conductor.js";
+import { withTestProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const runConductorStep: typeof runConductorStepImpl = (cwd, state, options = {}, runner) =>
+  runConductorStepImpl(cwd, state, withTestProviderAdmissionModel(options), runner);
 import { admitTaskExecution, TaskDependencyAdmissionError } from "../src/attempt-execution.js";
 import { acquireExecutionLock, releaseExecutionLock } from "../src/locks.js";
 import { loadState, saveState } from "../src/state.js";

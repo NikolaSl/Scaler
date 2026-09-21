@@ -14,13 +14,20 @@ import {
   formatReplanAgentRunList,
   ingestReplanProposalReport,
   loadReplanAgentRunRecords,
-  prepareReplanAgentInvocation,
+  prepareReplanAgentInvocation as prepareReplanAgentInvocationImpl,
   recordReplanAgentRun,
-  runReplanAgentStep,
+  runReplanAgentStep as runReplanAgentStepImpl,
 } from "../src/replan-agent.js";
+import { readLogEvents } from "../src/logging.js";
 import { appendReplanRequest, loadProposedExecutionPlan, loadReplanRequests, saveExecutionPlan } from "../src/plans.js";
 import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
 import { createDefaultState } from "../src/state.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const prepareReplanAgentInvocation: typeof prepareReplanAgentInvocationImpl = (cwd, input, options = {}) =>
+  prepareReplanAgentInvocationImpl(cwd, input, { ...options, providerAdmissionModel: testProviderAdmissionModel });
+const runReplanAgentStep: typeof runReplanAgentStepImpl = (cwd, state, options = {}, runner) =>
+  runReplanAgentStepImpl(cwd, state, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runner);
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-replan-agent-test-"));
@@ -74,13 +81,18 @@ test("prepareReplanAgentInvocation builds isolated Pi invocation", async () => {
     requirements: { version: 1, requirements: [] },
     coverageSummary: { entries: [], countsByStatus: { pending: 0, in_progress: 0, implemented: 0, validated: 0, blocked: 0, needs_replan: 0 }, unlinkedRequirementIds: [], linkedRequirementIds: [] },
     replanRequests: [],
-  }, { command: "pi-test", model: "test-model", tools: ["read", "write"] });
+  }, { command: "pi-test", model: "synthetic-8k", tools: ["read", "write"] });
 
   assert.equal(preparation.request.taskId, "replan-agent");
   assert.equal(preparation.invocation.command, "pi-test");
   assert.equal(preparation.invocation.cwd, "/repo");
   assert.ok(preparation.invocation.args.includes("--model"));
-  assert.ok(preparation.invocation.args.includes("test-model"));
+  assert.ok(preparation.invocation.args.includes("synthetic-8k"));
+  assert.deepEqual(preparation.request.providerAdmission, {
+    requestTokenAllowance: 8_000,
+    outputReserveTokens: 1_024,
+    safetyMarginTokens: 1_024,
+  });
   assert.match(preparation.prompt, /Required preservation rules/);
 });
 
@@ -235,5 +247,36 @@ test("runReplanAgentStep prepares and executes with proposal ingestion", async (
     assert.equal(executed.runRecord?.status, "passed");
     assert.equal(executed.ingestion?.ingested, true);
     assert.equal((await loadProposedExecutionPlan(dir))?.planVersion, 2);
+  });
+});
+
+test("runReplanAgentStep refuses an oversized final prompt before audit, runner, or run publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "replanning";
+    await saveExecutionPlan(dir, {
+      version: 1,
+      planVersion: 1,
+      status: "active",
+      tasks: [],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+    let runnerCalled = false;
+    const result = await runReplanAgentStep(dir, state, {
+      execute: true,
+      tokenBudget: 1,
+      extraInstructions: "EXACT-SOURCE\n".repeat(4_000),
+    } as never, async () => {
+      runnerCalled = true;
+      throw new Error("runner must not be called");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(runnerCalled, false);
+    assert.match(result.message, /final SCALER prompt refused/i);
+    assert.deepEqual(await loadReplanAgentRunRecords(dir), []);
+    assert.equal(await loadProposedExecutionPlan(dir), undefined);
+    assert.deepEqual(await readLogEvents(dir), []);
   });
 });

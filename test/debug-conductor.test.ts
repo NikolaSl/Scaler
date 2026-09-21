@@ -9,8 +9,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  runDebugConductorLoop,
-  runDebugConductorStep,
+  runDebugConductorLoop as runDebugConductorLoopImpl,
+  runDebugConductorStep as runDebugConductorStepImpl,
   selectDebugConductorTask,
   type DebugConductorRunners,
 } from "../src/debug-conductor.js";
@@ -20,6 +20,12 @@ import { loadResearchReports, loadResearchRequests } from "../src/research.js";
 import { createDefaultState, saveState } from "../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../src/subagents.js";
 import type { ScalerState } from "../src/types.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const runDebugConductorStep: typeof runDebugConductorStepImpl = (cwd, state, options = {}, runners) =>
+  runDebugConductorStepImpl(cwd, state, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runners);
+const runDebugConductorLoop: typeof runDebugConductorLoopImpl = (cwd, state, options = {}, runners) =>
+  runDebugConductorLoopImpl(cwd, state, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runners);
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-debug-conductor-test-"));
@@ -46,6 +52,7 @@ function debuggingState(): ScalerState {
 }
 
 function runResult(request: TaskAgentRequest, stdoutEvents: unknown[]): TaskAgentRunResult {
+  assert.deepEqual(request.providerAdmissionModel, testProviderAdmissionModel);
   return {
     taskId: request.taskId,
     exitCode: 0,

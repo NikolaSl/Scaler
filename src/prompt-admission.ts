@@ -15,6 +15,13 @@ export interface TaskPromptAdmissionDecision {
   message: string;
 }
 
+export class TaskPromptAdmissionError extends Error {
+  constructor(readonly decision: TaskPromptAdmissionDecision) {
+    super(decision.message);
+    this.name = "TaskPromptAdmissionError";
+  }
+}
+
 const sizingFingerprint = `sha256:${"0".repeat(64)}`;
 
 export function resolveTaskPromptTokenBudget(explicit?: number, manifest?: number): number {
@@ -51,4 +58,17 @@ export function assessTaskPromptAdmission(prompt: string, tokenBudget: number): 
       ? `Final SCALER prompt admitted: estimated ${estimatedTokens}/${tokenBudget} tokens.`
       : `Final SCALER prompt refused: estimated ${estimatedTokens} tokens exceeds allowance ${tokenBudget}. Required context was preserved; split or enlarge the declared allowance before execution.`,
   };
+}
+
+export function requireTaskPromptAdmission(
+  prompt: string,
+  explicitTokenBudget?: number,
+  manifestTokenBudget?: number,
+): TaskPromptAdmissionDecision {
+  const decision = assessTaskPromptAdmission(
+    prompt,
+    resolveTaskPromptTokenBudget(explicitTokenBudget, manifestTokenBudget),
+  );
+  if (!decision.accepted) throw new TaskPromptAdmissionError(decision);
+  return decision;
 }

@@ -109,7 +109,28 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   externalized-source provenance without clipping exact bytes, while `execute`
   refuses before the runner until conductor-equivalent attempt, provider and
   result admission exist. It does not complete automatic effective splitting,
-  SC-07, SC-08 or AC-08.
+  SC-07, SC-08 or AC-08. PLAN-129 applies the existing prompt and provider
+  admission boundary to the shared stage-agent path. PLAN-130 then closes the
+  five reproduced remaining child-launch bypasses: research, diagnostic debug,
+  replanning, tool-schema discovery and explicit task spawn. Oversized or
+  malformed prompts now refuse before child dispatch and successful/prepared
+  run publication, and admitted requests carry the strict provider policy.
+  Unsupported browser/MCP/custom extension grants also refuse rather than being
+  promised to a child whose isolated loader cannot provide them; a trusted
+  external-capability adapter remains open. PLAN-131 makes that loaded-tool
+  check intrinsic to every strict child invocation, including conductor, debug
+  retry, stage agents and isolated tool execution/replay. Callers cannot disable
+  it with the legacy opt-in flag; malformed or sparse runtime grants also return
+  structured refusal before attempt, budget, run-record or execution-claim
+  publication. PLAN-132 then makes the exact host-selected API/provider/model/
+  context-window identity mandatory for every strict child. The same trusted
+  identity renders explicit `--provider` and `--model` selectors, is transported
+  to the final provider hook, and fingerprints task attempts. Missing,
+  malformed or conflicting identity refuses before dispatch or execution-side
+  publication; model-authored explicit-spawn selectors cannot override it.
+  Isolated-tool dispatch retains its fresher supplier-owned binding.
+  Parent interactive calls, provider-internal retries and alternate provider
+  payloads remain open; this is not SC-05/AC-05 completion.
 
 ### Renewed continuation policy (2026-09-19)
 

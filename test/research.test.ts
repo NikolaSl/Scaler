@@ -21,7 +21,11 @@ import {
   validateResearchRequest,
 } from "../src/research.js";
 import { recordToolSchema } from "../src/tool-requests.js";
-import { assessResearchSourceFreshness, buildResearchQueryPlan, discoverResearchToolCandidates, formatResearchWebRunResult, loadResearchWebTransactions, runResearchWebWorkflow } from "../src/research-web.js";
+import { assessResearchSourceFreshness, buildResearchQueryPlan, discoverResearchToolCandidates, formatResearchWebRunResult, loadResearchWebTransactions, runResearchWebWorkflow as runResearchWebWorkflowImpl } from "../src/research-web.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const runResearchWebWorkflow: typeof runResearchWebWorkflowImpl = (cwd, state, options = {}, runner) =>
+  runResearchWebWorkflowImpl(cwd, state, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runner);
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-research-test-"));
@@ -182,36 +186,17 @@ test("web research workflow discovers tools, records transactions, and ingests r
     assert.equal(planned.queries.length, 2);
     assert.match(formatResearchWebRunResult(planned), /queries=2 tools=1/);
 
-    const executed = await runResearchWebWorkflow(dir, state, { requestId: "RESEARCH-WEB", execute: true, allowInternet: true, maxQueries: 2 }, async (request) => {
-      assert.deepEqual(request.tools, ["browser_search"]);
-      assert.match(request.prompt, /multi-step web research transaction/);
-      assert.match(request.prompt, /Which Widget API version should be used\?/);
-      return {
-        taskId: request.taskId,
-        exitCode: 0,
-        stdoutEvents: [{
-          type: "scaler_research_report",
-          id: "RPT-WEB",
-          requestId: "RESEARCH-WEB",
-          question: "Which Widget API version should be used?",
-          status: "complete",
-          sources: [{ id: "official", title: "Official Widget docs", quality: "official", url: "https://example.invalid/widget", version: "2.0", checkedAt: "2026-01-01T00:00:00.000Z", summary: "Version 2.0 API." }],
-          conclusions: [{ summary: "Use Widget API v2.0.", confidence: "high", sourceRefs: ["official"] }],
-          contradictions: [],
-          unresolvedUnknowns: [],
-          recommendations: ["Pin validation to v2.0 docs."],
-        }],
-        stderr: "",
-        timedOut: false,
-        aborted: false,
-      };
+    let runnerCalled = false;
+    const executed = await runResearchWebWorkflow(dir, state, { requestId: "RESEARCH-WEB", execute: true, allowInternet: true, maxQueries: 2 }, async () => {
+      runnerCalled = true;
+      throw new Error("unavailable external tool must refuse before dispatch");
     });
 
-    assert.equal(executed.accepted, true);
-    assert.equal(executed.researchAgent?.ingestion?.report?.id, "RPT-WEB");
+    assert.equal(executed.accepted, false);
+    assert.equal(runnerCalled, false);
+    assert.match(executed.message, /cannot load granted tools: browser_search/);
     const transactions = await loadResearchWebTransactions(dir);
-    assert.ok(transactions.some((transaction) => transaction.kind === "query" && transaction.status === "completed" && transaction.reportId === "RPT-WEB"));
-    assert.ok(transactions.some((transaction) => transaction.kind === "source_review" && transaction.sourceId === "official" && transaction.freshnessStatus === "versioned"));
-    assert.equal((await loadResearchRequests(dir))[0]?.status, "resolved");
+    assert.equal(transactions.some((transaction) => transaction.reportId === "RPT-WEB"), false);
+    assert.equal((await loadResearchRequests(dir))[0]?.status, "open");
   });
 });
