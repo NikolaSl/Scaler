@@ -99,3 +99,42 @@ test("an explicit follow-on external effect overrides informational framing", ()
     assert.equal(decision.stage, "prd", request);
   }
 });
+
+test("advice about a workspace effect remains an information request", () => {
+  const requests = [
+    "Explain how to fix the parser without changing it.",
+    "Обясни как да поправя парсера, без да го променяш.",
+  ];
+
+  for (const request of requests) {
+    const decision = selectComplexity(request);
+    assert.equal(decision.level, 1, request);
+    assert.equal(decision.stage, "execution", request);
+  }
+});
+
+test("explicit follow-on workspace effects override informational framing", () => {
+  const requests = [
+    "Explain the parser failure, then fix it and update the tests.",
+    "Обясни грешката в парсера и после я поправи и обнови тестовете.",
+  ];
+
+  for (const request of requests) {
+    const decision = selectComplexity(request);
+    assert.equal(decision.level, 2, request);
+    assert.equal(decision.stage, "planning", request);
+  }
+});
+
+test("explicit follow-on multi-workstream changes override informational framing", () => {
+  const requests = [
+    "List the options, then plan a parser migration and integration.",
+    "Изброй вариантите и после планирай миграция и интеграция на парсера.",
+  ];
+
+  for (const request of requests) {
+    const decision = selectComplexity(request);
+    assert.equal(decision.level, 3, request);
+    assert.equal(decision.stage, "prd", request);
+  }
+});
