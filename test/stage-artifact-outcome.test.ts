@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { loadStageAgentRunRecords, type StageAgentRunner } from "../src/stage-agents.js";
 import { runStageConductorLoop } from "../src/stage-conductor.js";
+import { advanceStageAfterReadyArtifact } from "../src/stage-advancement.js";
 import { runAutonomousStageWorkflow } from "../src/stage-workflow.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { loadStageArtifacts, upsertStageArtifact } from "../src/stages.js";
@@ -59,6 +60,9 @@ for (const kind of ["conductor", "workflow"] as const) {
         assert.equal(first.finalState.stage, "replanning");
         assert.equal((await loadStageArtifacts(cwd)).find((artifact) => artifact.id === "ART-REPLAN")?.status, "blocked");
         assert.deepEqual((await loadStageAgentRunRecords(cwd))[0]?.blockedArtifactIds, ["ART-REPLAN"]);
+        const directAdvance = await advanceStageAfterReadyArtifact(cwd, await loadState(cwd), "replanning");
+        assert.equal(directAdvance.accepted, false);
+        assert.equal(directAdvance.state.stage, "replanning");
 
         // A fresh call has no in-memory outcome from the failed invocation.
         const resumed = await invoke(kind, cwd, async () => {
