@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -12,7 +12,7 @@ import { loadExecutionPlan, saveExecutionPlan } from "../src/plans.js";
 import { loadCurrentPrd, loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
 import { loadResearchReports, loadResearchRequests } from "../src/research.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
-import { loadStageArtifacts } from "../src/stages.js";
+import { loadStageArtifacts, upsertStageArtifact } from "../src/stages.js";
 import {
   deriveKnowledgeResearchRequests,
   ingestPrdWriteReport,
@@ -312,6 +312,45 @@ for (const stopReason of ["aborted", "error"] as const) {
       assert.equal(await loadCurrentPrd(dir), "");
       assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
       assert.deepEqual(await loadStageArtifacts(dir), []);
+    });
+  });
+}
+
+for (const stopReason of ["aborted", "error"] as const) {
+  test(`runAutonomousStageWorkflow does not advance a replanning artifact written by a terminal ${stopReason}`, async () => {
+    await withTempDir(async (dir) => {
+      const state = createState("replanning");
+      await saveState(dir, state);
+
+      const result = await runAutonomousStageWorkflow(dir, state, { execute: true, maxSteps: 1 }, {
+        stage: async (request) => {
+          assert.equal(request.taskId, "stage-replanning");
+          await writeFile(join(dir, "replan.md"), "# Untrusted failed output\n");
+          await upsertStageArtifact(dir, {
+            stage: "replanning",
+            status: "ready",
+            title: "Failed child artifact",
+            path: "replan.md",
+            evidenceRefs: ["test-evidence"],
+            requirementRefs: ["REQ-1"],
+          });
+          return {
+            taskId: request.taskId,
+            exitCode: 0,
+            stdoutEvents: [{ type: "message_end", message: { role: "assistant", stopReason } }],
+            stderr: "",
+            timedOut: false,
+            aborted: false,
+          };
+        },
+      });
+
+      assert.equal(result.accepted, false);
+      assert.equal(result.stopReason, "step_rejected");
+      assert.equal(result.finalState.stage, "replanning");
+      assert.equal(result.steps[0]?.stageAgent?.runRecord?.status, "failed");
+      assert.equal(result.steps[0]?.advancement, undefined);
+      assert.equal((await loadState(dir)).stage, "replanning");
     });
   });
 }
