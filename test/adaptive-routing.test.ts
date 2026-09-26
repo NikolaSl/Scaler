@@ -138,3 +138,29 @@ test("explicit follow-on multi-workstream changes override informational framing
     assert.equal(decision.stage, "prd", request);
   }
 });
+
+test("complex-work nouns alone remain lightweight information", () => {
+  const requests = [
+    "Migration architecture and integration overview.",
+    "Преглед на архитектурата, миграцията и интеграцията.",
+  ];
+
+  for (const request of requests) {
+    const decision = selectComplexity(request);
+    assert.equal(decision.level, 1, request);
+    assert.equal(decision.stage, "execution", request);
+  }
+});
+
+test("workspace edits about complex-work nouns remain workspace changes", () => {
+  const requests = [
+    "Update the documentation about migration architecture and integration.",
+    "Обнови документацията за архитектура, миграция и интеграция.",
+  ];
+
+  for (const request of requests) {
+    const decision = selectComplexity(request);
+    assert.equal(decision.level, 2, request);
+    assert.equal(decision.stage, "planning", request);
+  }
+});
