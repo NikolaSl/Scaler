@@ -56,9 +56,11 @@ lookups and long repetitive lookups remain lightweight. Paired English and
 Bulgarian workspace/multi-workstream changes select the same planning route.
 External actions require request evidence: advice or documentation that merely
 mentions `deploy` does not authorize a full workflow, while an imperative or
-explicit follow-on deployment does. This bounded deterministic vocabulary does
-not prove general multilingual understanding, isolation choice or later
-direction-check policy, so SC-04 remains Partial.
+explicit follow-on deployment does. Complex-work nouns do not escalate without
+a requested planning/investigation action; polite modals and explicit follow-on
+workspace/planning actions retain their requested route. This bounded
+deterministic vocabulary does not prove general multilingual understanding,
+isolation choice or later direction-check policy, so SC-04 remains Partial.
 
 PLAN-133 durably rejects stage artifacts written by failed children. The parent
 snapshots the persisted artifact index before dispatch, quarantines only exact

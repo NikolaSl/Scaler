@@ -671,6 +671,8 @@ The paired English/Bulgarian cases distinguish information requests, workspace
 changes, multi-workstream changes and actual external effects. Additional
 controls ensure that domain words and raw length do not escalate, advice or
 documentation mentioning deployment does not grant effect authority, and an
-explicit `then deploy` step cannot hide behind informational framing. These are
-bounded deterministic fixtures, not evidence of general multilingual quality or
-automatic isolation/decomposition.
+explicit follow-on workspace, planning or deployment step cannot hide behind
+informational framing. Complex-work nouns do not escalate without an action;
+polite English/Bulgarian modal requests retain their effects. These are bounded
+deterministic fixtures, not evidence of general multilingual quality or automatic
+isolation/decomposition.

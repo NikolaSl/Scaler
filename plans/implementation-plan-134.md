@@ -55,3 +55,16 @@ review. No model calls, paid provider, deployment, broad language classifier,
 automatic task splitting, quality, savings or scale claim is in scope. Passing
 the bounded bilingual cases will make SC-04 better evidenced, not prove general
 multilingual semantic equivalence.
+
+## Implemented evidence
+
+Initial routing now distinguishes bounded information, workspace-change,
+multi-workstream and external-effect requests. English and Bulgarian controls
+cover direct imperatives, polite modals and explicit follow-on actions. Domain
+and complex-work nouns, advisory or quoted action verbs, and raw length carry no
+effect authority by themselves. Follow-on workspace, planning and deployment
+steps cannot hide behind an informational prefix.
+
+The selector remains a deterministic bounded vocabulary, not semantic language
+understanding. General paraphrase coverage, justified isolated execution and
+risk-triggered direction checks remain open, so SC-04 stays Partial.

@@ -146,10 +146,11 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   PLAN-134 replaces the initial English domain-keyword and raw-length
   escalation with bounded request-effect evidence. Equivalent English and
   Bulgarian lookups, workspace changes and multi-workstream changes now select
-  equivalent routes; informational mentions of external actions remain
-  lightweight while an imperative or explicit follow-on external effect selects
-  the full workflow. This does not establish general multilingual semantics,
-  justified isolated execution or risk-triggered direction checks.
+  equivalent routes; domain or complex-work nouns and advisory action mentions
+  remain lightweight. Imperatives, polite modals and explicit follow-on changes
+  preserve their requested workspace, planning or external-effect route. This
+  does not establish general multilingual semantics, justified isolated
+  execution or risk-triggered direction checks.
   Parent interactive calls, provider-internal retries and alternate provider
   payloads remain open; this is not SC-05/AC-05 completion.
 
