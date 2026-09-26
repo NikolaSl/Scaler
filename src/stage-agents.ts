@@ -238,6 +238,9 @@ export async function runStageAgentStep(
         throw error;
       }
     }
+    const blockedArtifactIds = runResult && !taskAgentRunSucceeded(runResult)
+      ? await blockArtifactsChangedDuringFailedRun(cwd, artifacts)
+      : [];
     if (runResult?.usage) {
       await recordProviderUsageBudget(cwd, state, runResult.usage, {
         source: "stage-agent-run",
@@ -245,9 +248,6 @@ export async function runStageAgentStep(
         agentType: "stage",
       });
     }
-    const blockedArtifactIds = runResult && !taskAgentRunSucceeded(runResult)
-      ? await blockArtifactsChangedDuringFailedRun(cwd, artifacts)
-      : [];
     const runRecord = await recordStageAgentRun(cwd, stage, runResult, options.execute ? undefined : "prepared", new Date(), blockedArtifactIds);
     const ingestion = runResult && taskAgentRunSucceeded(runResult) ? await ingestStageAgentArtifactReport(cwd, stage, runResult.stdoutEvents) : { attempted: false, ingested: false };
     if (ingestion.attempted) {
