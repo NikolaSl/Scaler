@@ -92,7 +92,9 @@ export async function runStageConductorStep(
     : undefined;
 
   return {
-    accepted: stageAgent.accepted && (advancement?.accepted ?? true),
+    accepted: stageAgent.accepted
+      && (!options.execute || stageAgent.runRecord?.status === "passed")
+      && (advancement?.accepted ?? true),
     action: "run_stage_agent",
     message: formatStageConductorMessage(readiness, stageAgent, advancement, Boolean(options.execute)),
     stage,
