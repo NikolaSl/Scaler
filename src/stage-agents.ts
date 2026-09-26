@@ -13,7 +13,7 @@ import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
-import { loadStageArtifacts, stageArtifactStatuses, stageArtifactStages, upsertStageArtifact, type StageArtifact, type StageArtifactInput, type StageArtifactStage } from "./stages.js";
+import { loadStageArtifacts, saveStageArtifacts, stageArtifactStatuses, stageArtifactStages, upsertStageArtifact, type StageArtifact, type StageArtifactInput, type StageArtifactStage } from "./stages.js";
 import type { ScalerState } from "./types.js";
 
 export interface StageAgentPromptInput {
@@ -50,6 +50,7 @@ export interface StageAgentRunRecord {
   stderrSummary?: string;
   timedOut?: boolean;
   aborted?: boolean;
+  blockedArtifactIds?: string[];
   createdAt: string;
   usage?: ProviderUsage;
 }
@@ -235,7 +236,10 @@ export async function runStageAgentStep(
         agentType: "stage",
       });
     }
-    const runRecord = await recordStageAgentRun(cwd, stage, runResult, options.execute ? undefined : "prepared");
+    const blockedArtifactIds = runResult && !taskAgentRunSucceeded(runResult)
+      ? await blockArtifactsChangedDuringFailedRun(cwd, artifacts)
+      : [];
+    const runRecord = await recordStageAgentRun(cwd, stage, runResult, options.execute ? undefined : "prepared", new Date(), blockedArtifactIds);
     const ingestion = runResult && taskAgentRunSucceeded(runResult) ? await ingestStageAgentArtifactReport(cwd, stage, runResult.stdoutEvents) : { attempted: false, ingested: false };
     if (ingestion.attempted) {
       await logStructuredReportAudit(cwd, state, {
@@ -279,6 +283,7 @@ export async function recordStageAgentRun(
   runResult: TaskAgentRunResult | undefined,
   preparedStatus?: "prepared",
   now = new Date(),
+  blockedArtifactIds: string[] = [],
 ): Promise<StageAgentRunRecord> {
   const timestamp = now.toISOString();
   const record: StageAgentRunRecord = runResult ? {
@@ -290,6 +295,7 @@ export async function recordStageAgentRun(
     stderrSummary: summarizeOutput(runResult.stderr),
     timedOut: runResult.timedOut,
     aborted: runResult.aborted,
+    blockedArtifactIds: blockedArtifactIds.length > 0 ? [...new Set(blockedArtifactIds)].sort() : undefined,
     createdAt: timestamp,
     usage: runResult.usage,
   } : {
@@ -303,6 +309,24 @@ export async function recordStageAgentRun(
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify({ version: 1, runs }, null, 2)}\n`, "utf8");
   return record;
+}
+
+export async function blockArtifactsChangedDuringFailedRun(
+  cwd: string,
+  before: StageArtifact[],
+  now = new Date(),
+): Promise<string[]> {
+  const after = await loadStageArtifacts(cwd);
+  const beforeById = new Map(before.map((artifact) => [artifact.id, JSON.stringify(artifact)]));
+  const changed = after.filter((artifact) => beforeById.get(artifact.id) !== JSON.stringify(artifact));
+  if (changed.length === 0) return [];
+
+  const changedIds = new Set(changed.map((artifact) => artifact.id));
+  const timestamp = now.toISOString();
+  await saveStageArtifacts(cwd, after.map((artifact) => changedIds.has(artifact.id)
+    ? { ...artifact, status: "blocked", updatedAt: timestamp }
+    : artifact));
+  return [...changedIds].sort();
 }
 
 export function formatStageAgentRunList(records: StageAgentRunRecord[], stage?: StageArtifactStage | string, limit = 10): string {

@@ -50,6 +50,8 @@ import { advanceStageAfterReadyArtifact, type StageAdvancementResult } from "./s
 import { defaultStageAgentTools, runStageAgentStep, type StageAgentRunner, type StageAgentStepResult } from "./stage-agents.js";
 import {
   loadStageArtifacts,
+  stageArtifactStages,
+  summarizeStageArtifacts,
   upsertStageArtifact,
   validateStageArtifactReadiness,
   type StageArtifact,
@@ -62,6 +64,7 @@ import { completeRunWithEvidence } from "./run-completion.js";
 
 export type StageWorkflowAction =
   | "advance_ready_stage"
+  | "blocked_artifact"
   | "stage_agent"
   | "research_requests"
   | "research_agents"
@@ -272,6 +275,23 @@ export async function runAutonomousStageWorkflowStep(
   options: StageWorkflowOptions = {},
   runners: StageWorkflowRunners = {},
 ): Promise<StageWorkflowStepResult> {
+  if (stageArtifactStages.includes(state.stage as StageArtifactStage)) {
+    const stage = state.stage as StageArtifactStage;
+    const artifact = summarizeStageArtifacts(await loadStageArtifacts(cwd)).latestByStage[stage];
+    if (artifact?.status === "blocked") {
+      return {
+        accepted: false,
+        action: "blocked_artifact",
+        message: `Stage ${stage} artifact ${artifact.id} is blocked and requires an explicit replacement or recovery before another child launch.`,
+        state,
+        continueWorkflow: false,
+        stopReason: "step_rejected",
+        stage,
+        artifact,
+      };
+    }
+  }
+
   switch (state.stage) {
     case "prd":
       return await runArtifactStageWorkflowStep(cwd, state, "prd", options, runners.stage);

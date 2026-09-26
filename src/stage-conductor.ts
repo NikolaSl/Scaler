@@ -22,7 +22,7 @@ import {
 import type { ScalerState } from "./types.js";
 import { completeRunWithEvidence } from "./run-completion.js";
 
-export type StageConductorAction = "advance" | "run_stage_agent" | "unsupported_stage";
+export type StageConductorAction = "advance" | "blocked_artifact" | "run_stage_agent" | "unsupported_stage";
 export type StageConductorLoopStopReason =
   | "completed"
   | "max_steps"
@@ -83,6 +83,16 @@ export async function runStageConductorStep(
       stage,
       readiness,
       advancement,
+    };
+  }
+
+  if (readiness.artifact?.status === "blocked") {
+    return {
+      accepted: false,
+      action: "blocked_artifact",
+      message: formatStageArtifactReadiness(readiness),
+      stage,
+      readiness,
     };
   }
 
