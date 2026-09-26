@@ -417,7 +417,8 @@ test/stage-conductor.test.ts test/stage-workflow.test.ts`. The matrix crosses
 conductor and autonomous workflow with terminal abort/error, nonzero exit,
 timeout, cancellation and thrown runner outcomes. Positive controls preserve a
 legitimate pre-existing ready artifact and permit explicit replacement of a
-quarantined artifact. These model-free tests do not authenticate arbitrary
+quarantined artifact. A fallible usage-telemetry probe verifies that quarantine
+occurs before accounting. These model-free tests do not authenticate arbitrary
 filesystem writers or prove crash-atomic publication.
 
 PLAN-113 requires declared `outputPaths` before automatic non-Git/clean/runtime

@@ -57,11 +57,13 @@ only artifacts whose exact persisted record was added or changed during that
 run, records those artifact ids with the failed run, and makes both conductor
 and autonomous workflow stop before another child launch. A later explicit
 replacement can restore `ready` and advance; an unrelated pre-existing ready
-artifact remains eligible.
+artifact remains eligible. Quarantine precedes usage telemetry so a fallible
+accounting write cannot leave a failed artifact eligible.
 
 Model-free coverage crosses conductor/workflow with terminal abort/error,
-nonzero exit, timeout, cancellation and thrown runner outcomes, plus legitimate
-pre-existing and explicit-recovery controls. Focused build and 59 tests pass.
+nonzero exit, timeout, cancellation, thrown runner and telemetry-I/O outcomes,
+plus legitimate pre-existing and explicit-recovery controls. Focused build and
+60 tests pass.
 Integrate this unit into the coherent PR #24 candidate only after the full gate,
 own review and current-head Copilot review.
 
