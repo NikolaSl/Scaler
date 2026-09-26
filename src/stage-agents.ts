@@ -228,7 +228,16 @@ export async function runStageAgentStep(
       inputRefs: artifacts.map((artifact) => artifact.id),
       details: { invocation: preparation.invocation },
     });
-    const runResult = options.execute ? await runner(preparation.request, { timeoutMs: options.timeoutMs }) : undefined;
+    let runResult: TaskAgentRunResult | undefined;
+    if (options.execute) {
+      try {
+        runResult = await runner(preparation.request, { timeoutMs: options.timeoutMs });
+      } catch (error) {
+        const blockedArtifactIds = await blockArtifactsChangedDuringFailedRun(cwd, artifacts);
+        await recordThrownStageAgentRun(cwd, stage, error, blockedArtifactIds);
+        throw error;
+      }
+    }
     if (runResult?.usage) {
       await recordProviderUsageBudget(cwd, state, runResult.usage, {
         source: "stage-agent-run",
@@ -304,11 +313,7 @@ export async function recordStageAgentRun(
     status: preparedStatus ?? "prepared",
     createdAt: timestamp,
   };
-  const runs = [record, ...(await loadStageAgentRunRecords(cwd))];
-  const path = getStageAgentRunsPath(cwd);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify({ version: 1, runs }, null, 2)}\n`, "utf8");
-  return record;
+  return await appendStageAgentRunRecord(cwd, record);
 }
 
 export async function blockArtifactsChangedDuringFailedRun(
@@ -327,6 +332,32 @@ export async function blockArtifactsChangedDuringFailedRun(
     ? { ...artifact, status: "blocked", updatedAt: timestamp }
     : artifact));
   return [...changedIds].sort();
+}
+
+async function recordThrownStageAgentRun(
+  cwd: string,
+  stage: StageArtifactStage,
+  error: unknown,
+  blockedArtifactIds: string[],
+  now = new Date(),
+): Promise<StageAgentRunRecord> {
+  const record: StageAgentRunRecord = {
+    id: `stage-${stage}-${now.getTime()}`,
+    stage,
+    status: "failed",
+    stderrSummary: summarizeOutput(error instanceof Error ? error.message : String(error)),
+    blockedArtifactIds: blockedArtifactIds.length > 0 ? [...new Set(blockedArtifactIds)].sort() : undefined,
+    createdAt: now.toISOString(),
+  };
+  return await appendStageAgentRunRecord(cwd, record);
+}
+
+async function appendStageAgentRunRecord(cwd: string, record: StageAgentRunRecord): Promise<StageAgentRunRecord> {
+  const runs = [record, ...(await loadStageAgentRunRecords(cwd))];
+  const path = getStageAgentRunsPath(cwd);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify({ version: 1, runs }, null, 2)}\n`, "utf8");
+  return record;
 }
 
 export function formatStageAgentRunList(records: StageAgentRunRecord[], stage?: StageArtifactStage | string, limit = 10): string {
