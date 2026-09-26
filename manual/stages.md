@@ -62,6 +62,14 @@ Consistency advancement gates compare available ledgers/artifacts:
 
 `/scaler-stage-loop` runs bounded stage-conductor steps, carrying forward supervisor state after each advancement. It stops on completion, `max=N` steps, unsupported stages, rejected steps, prepare-mode stage-agent handoff, or executed stage-agent output that does not advance. Default max is 5; accepted bounds are normalized to 1..20.
 
+Executed child success uses the shared process-outcome check: zero exit code
+alone is insufficient after timeout, cancellation, output overflow or a terminal
+Pi `aborted`/`error` event. Such runs are recorded as failed, their output is not
+ingested, and the stage conductor returns `accepted: false`; its loop stops with
+`step_rejected`. The autonomous workflow also refuses supplemental report
+ingestion and post-child advancement, including the replanning fallback. These
+checks do not roll back files or ledgers a child already wrote directly.
+
 `/scaler-stage-workflow` is the autonomous Stage I-III/replanning coordinator. It advances ready artifacts; runs PRD and planning stage agents when artifacts are missing; grants only SCALER ledger tools needed for PRD/plan ingestion by default; creates Stage II research requests from runtime PRD requirements; runs bounded research-agent fanout; merges/deduplicates reports and memory refs into `.scaler/knowledge/knowledge-report.md`; ingests `scaler_prd_write` and `scaler_planning_report` child outputs; applies current plans before Stage IV; detects execution-time coverage gaps; and refreshes Stage III through preservation-gated replanner proposal acceptance. It records runs under `.scaler/reports/stage-workflow-runs.json`. Without `execute`, it prepares the next needed child agent or records the deterministic next action.
 
 `/scaler-stage-run` prepares a focused Pi subprocess prompt for a selected stage. The complete final prompt must fit the runtime-owned allowance (8,000 estimated tokens by default), and the child invocation uses strict provider admission with ambient extensions, skills, templates and context files disabled. Refusal occurs before prompt audit, run-record publication or process launch. The runtime-owned host API/provider/model/context-window identity renders explicit provider/model selectors, and the provider hook requires the actual live model to match it exactly before transport. Passing `execute` runs the stage agent under the repo-wide execution lock. Runs are recorded under `.scaler/reports/stage-agent-runs.json`. Successful executed stage runs extract the latest `scaler_stage_artifact` JSON event from child output, record it as a stage artifact when valid, and attempt ready-artifact advancement automatically.
