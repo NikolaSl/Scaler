@@ -4,11 +4,11 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { loadStageAgentRunRecords, type StageAgentRunner } from "../src/stage-agents.js";
+import { loadStageAgentRunRecords, runStageAgentStep, type StageAgentRunner } from "../src/stage-agents.js";
 import { runStageConductorLoop } from "../src/stage-conductor.js";
 import { advanceStageAfterReadyArtifact } from "../src/stage-advancement.js";
 import { runAutonomousStageWorkflow } from "../src/stage-workflow.js";
@@ -36,6 +36,36 @@ async function invoke(kind: "conductor" | "workflow", cwd: string, runner: Stage
     ? await runStageConductorLoop(cwd, state, options, runner)
     : await runAutonomousStageWorkflow(cwd, state, options, { stage: runner });
 }
+
+test("failed stage result is quarantined before fallible usage telemetry", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "scaler-stage-outcome-telemetry-"));
+  try {
+    const state = createDefaultState();
+    state.stage = "replanning";
+    await saveState(cwd, state);
+    await assert.rejects(runStageAgentStep(cwd, state, "replanning", {
+      execute: true,
+      providerAdmissionModel: testProviderAdmissionModel,
+    }, async (request) => {
+      await readyArtifact(cwd);
+      const eventLog = join(cwd, ".scaler", "logs", "events.jsonl");
+      await rm(eventLog, { force: true });
+      await mkdir(eventLog, { recursive: true });
+      return {
+        taskId: request.taskId,
+        exitCode: 7,
+        stdoutEvents: [],
+        stderr: "failed",
+        timedOut: false,
+        aborted: false,
+        usage: { totalTokens: 1, sources: ["test"] },
+      };
+    }));
+    assert.equal((await loadStageArtifacts(cwd)).find((artifact) => artifact.id === "ART-REPLAN")?.status, "blocked");
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
 
 for (const kind of ["conductor", "workflow"] as const) {
   for (const stopReason of ["aborted", "error"] as const) {
