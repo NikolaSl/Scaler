@@ -55,8 +55,8 @@ export interface AdaptiveApplyResult {
 }
 
 const informationRequestPattern = /^(?:(?:please|моля)[\s,:-]+)*(?:(?:what|why|how|explain|describe|compare|summarize|define|tell|find|list|read|show)\b|(?:какво|как|защо|обясни|опиши|сравни|обобщи|дефинирай|кажи|намери|изброй|прочети|покажи)(?:\s|$))/iu;
-const requestedExternalEffectPattern = /^(?:(?:please|моля)[\s,:-]+)*(?:(?:(?:can|could|would)\s+you|(?:можеш|може|бихте)\s+ли(?:\s+да)?)\s+)?(?:deploy|publish|release|ship|send|submit|purchase|pay|grant|revoke|rotate)\b|^(?:(?:please|моля)[\s,:-]+)*(?:(?:(?:можеш|може|бихте)\s+ли(?:\s+да)?)\s+)?(?:разгърн|публикува|изпрат|подад|закуп|плат|предостав|отнем|завърт)\p{L}*(?=$|[\s\p{P}])|(?:\b(?:and(?:\s+then)?|then)\b|(?:^|[\s\p{P}])(?:и\s+после|после)(?=$|[\s\p{P}])|[,;]\s*(?:then|после)?)[\s,:-]*(?:(?:please|моля)\s+)?(?:(?:it|them|го|я|ги)\s+)?(?:(?:deploy|publish|release|ship|send|submit|purchase|pay|grant|revoke|rotate)\b|(?:разгърн|публикува|изпрат|подад|закуп|плат|предостав|отнем|завърт)\p{L}*(?=$|[\s\p{P}]))/iu;
-const requestedComplexWorkPattern = /^(?:(?:please|моля)[\s,:-]+)*(?:(?:(?:can|could|would)\s+you|(?:можеш|може|бихте)\s+ли(?:\s+да)?)\s+)?(?:plan|migrate|refactor|integrate|research|investigate|orchestrate)\b|^(?:(?:please|моля)[\s,:-]+)*(?:(?:(?:можеш|може|бихте)\s+ли(?:\s+да)?)\s+)?(?:планира|планирай|мигрира|рефактор|интегрира|проуч|изследва|оркестрира)\p{L}*(?=$|[\s\p{P}])/iu;
+const requestedExternalEffectPattern = /^(?:(?:please|моля)[\s,:-]+)*(?:(?:(?:can|could|would)\s+you(?:\s+please)?|(?:можеш|може|бихте)\s+ли(?:\s*,?\s*моля)?(?:\s*,?\s*да)?)\s+)?(?:deploy|publish|release|ship|send|submit|purchase|pay|grant|revoke|rotate)\b|^(?:(?:please|моля)[\s,:-]+)*(?:(?:(?:можеш|може|бихте)\s+ли(?:\s*,?\s*моля)?(?:\s*,?\s*да)?)\s+)?(?:разгърн|публикува|изпрат|подад|закуп|плат|предостав|отнем|завърт)\p{L}*(?=$|[\s\p{P}])|(?:\b(?:and(?:\s+then)?|then)\b|(?:^|[\s\p{P}])(?:и\s+после|после)(?=$|[\s\p{P}])|[,;]\s*(?:then|после)?)[\s,:-]*(?:(?:please|моля)\s+)?(?:(?:it|them|го|я|ги)\s+)?(?:(?:deploy|publish|release|ship|send|submit|purchase|pay|grant|revoke|rotate)\b|(?:разгърн|публикува|изпрат|подад|закуп|плат|предостав|отнем|завърт)\p{L}*(?=$|[\s\p{P}]))/iu;
+const requestedComplexWorkPattern = /^(?:(?:please|моля)[\s,:-]+)*(?:(?:(?:can|could|would)\s+you(?:\s+please)?|(?:можеш|може|бихте)\s+ли(?:\s*,?\s*моля)?(?:\s*,?\s*да)?)\s+)?(?:plan|migrate|refactor|integrate|research|investigate|orchestrate)\b|^(?:(?:please|моля)[\s,:-]+)*(?:(?:(?:можеш|може|бихте)\s+ли(?:\s*,?\s*моля)?(?:\s*,?\s*да)?)\s+)?(?:планира|планирай|мигрира|рефактор|интегрира|проуч|изследва|оркестрира)\p{L}*(?=$|[\s\p{P}])/iu;
 const workspaceEffectPattern = /\b(implement|build|fix|test|change|modify|add|update|remove|delete)\b|(?:^|[\s\p{P}])(?:реализира|внедри|изгради|поправи|тествай|промени|добави|обнови|актуализира|премах|изтри)\p{L}*(?=$|[\s\p{P}])/iu;
 const followOnComplexWorkPattern = /(?:\b(?:and(?:\s+then)?|then)\b|(?:^|[\s\p{P}])(?:и\s+после|после)(?=$|[\s\p{P}])|[,;]\s*(?:then|после)?)[\s,:-]*(?:(?:please|моля)\s+)?(?:(?:plan|migrate|refactor|integrate|research|investigate|orchestrate)\b|(?:планира|планирай|мигрира|рефактор|интегрира|проуч|изследва|оркестрира)\p{L}*(?=$|[\s\p{P}]))/iu;
 const followOnWorkspaceEffectPattern = /(?:\b(?:and(?:\s+then)?|then)\b|(?:^|[\s\p{P}])(?:и\s+после|после)(?=$|[\s\p{P}])|[,;]\s*(?:then|после)?)[\s,:-]*(?:(?:please|моля)\s+)?(?:(?:it|them|го|я|ги)\s+)?(?:(?:implement|build|fix|test|change|modify|add|update|remove|delete)\b|(?:реализира|внедри|изгради|поправи|тествай|промени|добави|обнови|актуализира|премах|изтри)\p{L}*(?=$|[\s\p{P}]))/iu;
@@ -168,3 +168,13 @@ export function assessAdaptiveOrchestration(
     targetLevel,
     stageTransitionAvailable,
     reasons,
+    signals,
+    budgetDecision,
+    recommendedCommand: action === "stay" ? "/scaler-status" : "/scaler-adapt apply",
+  };
+}
+
+export function applyAdaptiveOrchestration(
+  state: ScalerState,
+  assessment = assessAdaptiveOrchestration(state),
+  now = new Date(),
