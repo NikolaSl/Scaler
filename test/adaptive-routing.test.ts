@@ -164,3 +164,18 @@ test("workspace edits about complex-work nouns remain workspace changes", () => 
     assert.equal(decision.stage, "planning", request);
   }
 });
+
+test("politeness inside English and Bulgarian modals preserves requested effects", () => {
+  const cases = [
+    ["Could you please deploy the service?", 4, "prd"],
+    ["Можеш ли, моля, да разгърнеш услугата?", 4, "prd"],
+    ["Could you please plan the migration?", 3, "prd"],
+    ["Можеш ли, моля, да планираш миграцията?", 3, "prd"],
+  ] as const;
+
+  for (const [request, level, stage] of cases) {
+    const decision = selectComplexity(request);
+    assert.equal(decision.level, level, request);
+    assert.equal(decision.stage, stage, request);
+  }
+});
