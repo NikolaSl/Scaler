@@ -8,11 +8,11 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import type { StageAgentRunner } from "../src/stage-agents.js";
+import { loadStageAgentRunRecords, type StageAgentRunner } from "../src/stage-agents.js";
 import { runStageConductorLoop } from "../src/stage-conductor.js";
 import { runAutonomousStageWorkflow } from "../src/stage-workflow.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
-import { upsertStageArtifact } from "../src/stages.js";
+import { loadStageArtifacts, upsertStageArtifact } from "../src/stages.js";
 import { testProviderAdmissionModel } from "./provider-model-fixture.js";
 
 async function readyArtifact(cwd: string) {
@@ -57,6 +57,8 @@ for (const kind of ["conductor", "workflow"] as const) {
         });
         assert.equal(first.accepted, false);
         assert.equal(first.finalState.stage, "replanning");
+        assert.equal((await loadStageArtifacts(cwd)).find((artifact) => artifact.id === "ART-REPLAN")?.status, "blocked");
+        assert.deepEqual((await loadStageAgentRunRecords(cwd))[0]?.blockedArtifactIds, ["ART-REPLAN"]);
 
         // A fresh call has no in-memory outcome from the failed invocation.
         const resumed = await invoke(kind, cwd, async () => {
@@ -81,6 +83,28 @@ for (const kind of ["conductor", "workflow"] as const) {
       const result = await invoke(kind, cwd, async () => { throw new Error("No child needed."); });
       assert.equal(result.accepted, true);
       assert.equal(result.finalState.stage, "execution");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test(`${kind} durably blocks a ready artifact when the child runner throws`, async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "scaler-stage-outcome-exception-"));
+    try {
+      const state = createDefaultState();
+      state.stage = "replanning";
+      await saveState(cwd, state);
+      await assert.rejects(invoke(kind, cwd, async () => {
+        await readyArtifact(cwd);
+        throw new Error("spawn transport failed");
+      }), /spawn transport failed/);
+
+      assert.equal((await loadStageArtifacts(cwd)).find((artifact) => artifact.id === "ART-REPLAN")?.status, "blocked");
+      const resumed = await invoke(kind, cwd, async () => {
+        throw new Error("Blocked artifact must stop before another child launch.");
+      });
+      assert.equal(resumed.accepted, false);
+      assert.equal(resumed.finalState.stage, "replanning");
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
