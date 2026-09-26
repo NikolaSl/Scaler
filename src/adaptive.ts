@@ -58,6 +58,8 @@ const informationRequestPattern = /^(?:(?:please|моля)[\s,:-]+)*(?:(?:what|w
 const requestedExternalEffectPattern = /^(?:(?:please|моля)[\s,:-]+)*(?:(?:(?:can|could|would)\s+you|(?:можеш|може|бихте)\s+ли(?:\s+да)?)\s+)?(?:deploy|publish|release|ship|send|submit|purchase|pay|grant|revoke|rotate)\b|^(?:(?:please|моля)[\s,:-]+)*(?:(?:(?:можеш|може|бихте)\s+ли(?:\s+да)?)\s+)?(?:разгърн|публикува|изпрат|подад|закуп|плат|предостав|отнем|завърт)\p{L}*(?=$|[\s\p{P}])|(?:\b(?:and(?:\s+then)?|then)\b|(?:^|[\s\p{P}])(?:и\s+после|после)(?=$|[\s\p{P}])|[,;]\s*(?:then|после)?)[\s,:-]*(?:(?:please|моля)\s+)?(?:(?:it|them|го|я|ги)\s+)?(?:(?:deploy|publish|release|ship|send|submit|purchase|pay|grant|revoke|rotate)\b|(?:разгърн|публикува|изпрат|подад|закуп|плат|предостав|отнем|завърт)\p{L}*(?=$|[\s\p{P}]))/iu;
 const complexWorkPattern = /\b(architecture|multi[- ]?stage|orchestrat|migration|migrate|refactor|integration|integrate|research|investigate|plan)\b|(?:^|[\s\p{P}])(?:архитектур|многоетап|оркестрира|миграци|мигрира|рефактор|интегрира|проуч|изследва|планира|планирай)\p{L}*(?=$|[\s\p{P}])/iu;
 const workspaceEffectPattern = /\b(implement|build|fix|test|change|modify|add|update|remove|delete)\b|(?:^|[\s\p{P}])(?:реализира|внедри|изгради|поправи|тествай|промени|добави|обнови|актуализира|премах|изтри)\p{L}*(?=$|[\s\p{P}])/iu;
+const followOnComplexWorkPattern = /(?:\b(?:and(?:\s+then)?|then)\b|(?:^|[\s\p{P}])(?:и\s+после|после)(?=$|[\s\p{P}])|[,;]\s*(?:then|после)?)[\s,:-]*(?:(?:please|моля)\s+)?(?:(?:plan|migrate|refactor|integrate|research|investigate|orchestrate)\b|(?:планира|планирай|мигрира|рефактор|интегрира|проуч|изследва|оркестрира)\p{L}*(?=$|[\s\p{P}]))/iu;
+const followOnWorkspaceEffectPattern = /(?:\b(?:and(?:\s+then)?|then)\b|(?:^|[\s\p{P}])(?:и\s+после|после)(?=$|[\s\p{P}])|[,;]\s*(?:then|после)?)[\s,:-]*(?:(?:please|моля)\s+)?(?:(?:it|them|го|я|ги)\s+)?(?:(?:implement|build|fix|test|change|modify|add|update|remove|delete)\b|(?:реализира|внедри|изгради|поправи|тествай|промени|добави|обнови|актуализира|премах|изтри)\p{L}*(?=$|[\s\p{P}]))/iu;
 
 export function selectComplexity(request: string): ComplexityDecision {
   const trimmed = request.trim();
@@ -67,6 +69,14 @@ export function selectComplexity(request: string): ComplexityDecision {
 
   if (requestedExternalEffectPattern.test(trimmed)) {
     return { level: 4, stage: "prd", reason: "Requested external effect needs the full Scaler workflow before execution." };
+  }
+
+  if (followOnComplexWorkPattern.test(trimmed)) {
+    return { level: 3, stage: "prd", reason: "Explicit follow-on multi-workstream change needs staged planning and execution." };
+  }
+
+  if (followOnWorkspaceEffectPattern.test(trimmed)) {
+    return { level: 2, stage: "planning", reason: "Explicit follow-on implementation needs lightweight planning before execution." };
   }
 
   if (informationRequestPattern.test(trimmed)) {
@@ -138,3 +148,18 @@ export function assessAdaptiveOrchestration(
     reasons.push(`Rejected-transition uncertainty threshold reached (${signals.rejectedTransitions}/${rejectedTransitionThreshold}).`);
   } else if (budgetDecision.status === "soft_limit") {
     action = "deescalate";
+    targetLevel = Math.max(1, state.complexityLevel - 1);
+    reasons.push(`Budget soft limit recommends reduced scope: ${budgetDecision.reason}`);
+  } else if (shouldDeescalateClearRun(state, signals)) {
+    action = "deescalate";
+    targetLevel = Math.max(1, state.complexityLevel - 1);
+    reasons.push("Run is low-risk and clear: no blocked/debugging/failed tasks, no rejection uncertainty, and budget is healthy.");
+  } else {
+    reasons.push("No adaptive escalation or de-escalation trigger is active.");
+  }
+
+  const stageTransitionAvailable = targetStage === state.stage || canTransitionStage(state, targetStage).ok;
+
+  return {
+    action,
+    currentStage: state.stage,
