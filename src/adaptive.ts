@@ -55,11 +55,28 @@ export interface AdaptiveApplyResult {
 }
 
 const informationRequestPattern = /^(?:(?:please|моля)[\s,:-]+)*(?:(?:what|why|how|explain|describe|compare|summarize|define|tell|find|list|read|show)\b|(?:какво|как|защо|обясни|опиши|сравни|обобщи|дефинирай|кажи|намери|изброй|прочети|покажи)(?:\s|$))/iu;
-const requestedExternalEffectPattern = /^(?:(?:please|моля)[\s,:-]+)*(?:(?:(?:can|could|would)\s+you(?:\s+please)?|(?:можеш|може|бихте)\s+ли(?:\s*,?\s*моля)?(?:\s*,?\s*да)?)\s+)?(?:deploy|publish|release|ship|send|submit|purchase|pay|grant|revoke|rotate)\b|^(?:(?:please|моля)[\s,:-]+)*(?:(?:(?:можеш|може|бихте)\s+ли(?:\s*,?\s*моля)?(?:\s*,?\s*да)?)\s+)?(?:разгърн|публикува|изпрат|подад|закуп|плат|предостав|отнем|завърт)\p{L}*(?=$|[\s\p{P}])|(?:\b(?:and(?:\s+then)?|then)\b|(?:^|[\s\p{P}])(?:и\s+после|после)(?=$|[\s\p{P}])|[,;]\s*(?:then|после)?)[\s,:-]*(?:(?:please|моля)\s+)?(?:(?:it|them|го|я|ги)\s+)?(?:(?:deploy|publish|release|ship|send|submit|purchase|pay|grant|revoke|rotate)\b|(?:разгърн|публикува|изпрат|подад|закуп|плат|предостав|отнем|завърт)\p{L}*(?=$|[\s\p{P}]))/iu;
-const requestedComplexWorkPattern = /^(?:(?:please|моля)[\s,:-]+)*(?:(?:(?:can|could|would)\s+you(?:\s+please)?|(?:можеш|може|бихте)\s+ли(?:\s*,?\s*моля)?(?:\s*,?\s*да)?)\s+)?(?:plan|migrate|refactor|integrate|research|investigate|orchestrate)\b|^(?:(?:please|моля)[\s,:-]+)*(?:(?:(?:можеш|може|бихте)\s+ли(?:\s*,?\s*моля)?(?:\s*,?\s*да)?)\s+)?(?:планира|планирай|мигрира|рефактор|интегрира|проуч|изследва|оркестрира)\p{L}*(?=$|[\s\p{P}])/iu;
-const workspaceEffectPattern = /\b(implement|build|fix|test|change|modify|add|update|remove|delete)\b|(?:^|[\s\p{P}])(?:реализира|внедри|изгради|поправи|тествай|промени|добави|обнови|актуализира|премах|изтри)\p{L}*(?=$|[\s\p{P}])/iu;
-const followOnComplexWorkPattern = /(?:\b(?:and(?:\s+then)?|then)\b|(?:^|[\s\p{P}])(?:и\s+после|после)(?=$|[\s\p{P}])|[,;]\s*(?:then|после)?)[\s,:-]*(?:(?:please|моля)\s+)?(?:(?:plan|migrate|refactor|integrate|research|investigate|orchestrate)\b|(?:планира|планирай|мигрира|рефактор|интегрира|проуч|изследва|оркестрира)\p{L}*(?=$|[\s\p{P}]))/iu;
-const followOnWorkspaceEffectPattern = /(?:\b(?:and(?:\s+then)?|then)\b|(?:^|[\s\p{P}])(?:и\s+после|после)(?=$|[\s\p{P}])|[,;]\s*(?:then|после)?)[\s,:-]*(?:(?:please|моля)\s+)?(?:(?:it|them|го|я|ги)\s+)?(?:(?:implement|build|fix|test|change|modify|add|update|remove|delete)\b|(?:реализира|внедри|изгради|поправи|тествай|промени|добави|обнови|актуализира|премах|изтри)\p{L}*(?=$|[\s\p{P}]))/iu;
+const initialRequestedActionPrefix = String.raw`^(?:(?:please|моля)[\s,:-]+)*(?:(?:(?:can|could|would)\s+you(?:\s+please)?|(?:можеш|може|бихте)\s+ли(?:\s*,?\s*моля)?(?:\s*,?\s*да)?)\s+)?`;
+const sequentialActionPrefix = String.raw`(?:\b(?:and\s+then|then)\b|(?:^|[\s\p{P}])(?:и\s+после|после)(?=$|[\s\p{P}])|[,;]\s*(?:then|после)\b)[\s,:-]*(?:(?:please|моля)\s+)?(?:(?:it|them|го|я|ги)\s+)?`;
+const informationConjunctionPrefix = String.raw`(?:\band\b|(?:^|[\s\p{P}])и(?=$|[\s\p{P}]))[\s,:-]*(?:(?:please|моля)\s+)?(?:(?:it|them|го|я|ги)\s+)?`;
+
+interface RequestedActionPatterns {
+  requested: RegExp;
+  informationalFollowOn: RegExp;
+}
+
+function createRequestedActionPatterns(actionPattern: string): RequestedActionPatterns {
+  return {
+    requested: new RegExp(`${initialRequestedActionPrefix}(?:${actionPattern})|${sequentialActionPrefix}(?:${actionPattern})`, "iu"),
+    informationalFollowOn: new RegExp(`${informationConjunctionPrefix}(?:${actionPattern})`, "iu"),
+  };
+}
+
+const externalActionPattern = String.raw`(?:deploy|publish|ship|submit|purchase|pay|grant|revoke|rotate)\b|release\b(?!\s+notes?\b)|send\b(?=\s+(?:(?:me|us|him|her|them)\s+)?(?:(?:a|an|the)\s+)?(?:email|message|notification|request|form|file|data|payment)\b)|(?:(?:разгърн|публикува|изпрат|подад|закуп|предостав|отнем|завърт)|плат(?:и|ете|я|им|иш|ят))\p{L}*(?=$|[\s\p{P}])`;
+const complexActionPattern = String.raw`(?:plan|migrate|refactor|integrate|research|investigate|orchestrate)\b|(?:планира|планирай|мигрира|рефактор|интегрира|проуч|изследва|оркестрира)\p{L}*(?=$|[\s\p{P}])`;
+const workspaceActionPattern = String.raw`(?:implement|build|fix|test|change|modify|add|update|remove|delete|create|edit|write|rename|move|copy)\b|(?:реализира|внедри|изгради|поправи|тествай|промени|добави|обнови|актуализира|премах|изтри|създа|редактира|напиш|преименува|премести|копира)\p{L}*(?=$|[\s\p{P}])`;
+const externalEffectPatterns = createRequestedActionPatterns(externalActionPattern);
+const complexWorkPatterns = createRequestedActionPatterns(complexActionPattern);
+const workspaceEffectPatterns = createRequestedActionPatterns(workspaceActionPattern);
 
 export function selectComplexity(request: string): ComplexityDecision {
   const trimmed = request.trim();
@@ -67,28 +84,22 @@ export function selectComplexity(request: string): ComplexityDecision {
     return { level: 0, stage: "idle", reason: "Empty request." };
   }
 
-  if (requestedExternalEffectPattern.test(trimmed)) {
+  const informationRequest = informationRequestPattern.test(trimmed);
+
+  if (externalEffectPatterns.requested.test(trimmed) || (informationRequest && externalEffectPatterns.informationalFollowOn.test(trimmed))) {
     return { level: 4, stage: "prd", reason: "Requested external effect needs the full Scaler workflow before execution." };
   }
 
-  if (followOnComplexWorkPattern.test(trimmed)) {
-    return { level: 3, stage: "prd", reason: "Explicit follow-on multi-workstream change needs staged planning and execution." };
+  if (complexWorkPatterns.requested.test(trimmed) || (informationRequest && complexWorkPatterns.informationalFollowOn.test(trimmed))) {
+    return { level: 3, stage: "prd", reason: "Requested multi-workstream or investigative change needs staged planning and execution." };
   }
 
-  if (followOnWorkspaceEffectPattern.test(trimmed)) {
-    return { level: 2, stage: "planning", reason: "Explicit follow-on implementation needs lightweight planning before execution." };
-  }
-
-  if (informationRequestPattern.test(trimmed)) {
-    return { level: 1, stage: "execution", reason: "Information request can use lightweight execution without inferring effects from domain vocabulary." };
-  }
-
-  if (requestedComplexWorkPattern.test(trimmed)) {
-    return { level: 3, stage: "prd", reason: "Multi-workstream or investigative change needs staged planning and execution." };
-  }
-
-  if (workspaceEffectPattern.test(trimmed)) {
+  if (workspaceEffectPatterns.requested.test(trimmed) || (informationRequest && workspaceEffectPatterns.informationalFollowOn.test(trimmed))) {
     return { level: 2, stage: "planning", reason: "Implementation request needs lightweight planning before execution." };
+  }
+
+  if (informationRequest) {
+    return { level: 1, stage: "execution", reason: "Information request can use lightweight execution without inferring effects from domain vocabulary." };
   }
 
   return { level: 1, stage: "execution", reason: "Simple request can use lightweight execution." };
@@ -178,3 +189,32 @@ export function applyAdaptiveOrchestration(
   state: ScalerState,
   assessment = assessAdaptiveOrchestration(state),
   now = new Date(),
+): AdaptiveApplyResult {
+  let nextState = state;
+  let stageTransitionApplied = false;
+
+  if (assessment.targetStage !== state.stage && canTransitionStage(state, assessment.targetStage).ok) {
+    nextState = transitionStage(state, assessment.targetStage, {
+      reason: formatAdaptiveReason(assessment),
+      now,
+    });
+    stageTransitionApplied = nextState.stage === assessment.targetStage;
+  }
+
+  const complexityChanged = nextState.complexityLevel !== assessment.targetLevel;
+  nextState = {
+    ...nextState,
+    complexityLevel: assessment.targetLevel,
+    orchestrationReason: formatAdaptiveReason(assessment),
+    updatedAt: now.toISOString(),
+  };
+
+  return {
+    state: nextState,
+    assessment,
+    stageTransitionApplied,
+    complexityChanged,
+  };
+}
+
+export function formatAdaptiveAssessment(assessment: AdaptiveAssessment): string {
