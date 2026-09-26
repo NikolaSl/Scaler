@@ -807,7 +807,8 @@ async function runReplanningWorkflowStep(
     providerAdmissionModel: options.providerAdmissionModel,
     timeoutMs: options.timeoutMs,
   }, stageRunner);
-  const postAdvance = options.execute ? await advanceIfReady(cwd, state, "replanning") : undefined;
+  const runSucceeded = Boolean(stageAgent.runResult && taskAgentRunSucceeded(stageAgent.runResult));
+  const postAdvance = options.execute && runSucceeded ? await advanceIfReady(cwd, state, "replanning") : undefined;
   return {
     accepted: stageAgent.accepted && (!options.execute || Boolean(postAdvance?.accepted)),
     action: "stage_agent",
