@@ -65,3 +65,37 @@ test("actual sensitive deployment remains a full-workflow positive control", () 
   assert.equal(decision.level, 4);
   assert.equal(decision.stage, "prd");
 });
+
+test("advice about an external effect does not authorize that effect", () => {
+  const requests = [
+    "Explain how to deploy the service without making changes.",
+    "Обясни как да разгърна услугата, без да правиш промени.",
+    "Explain why we must not deploy the service.",
+  ];
+
+  for (const request of requests) {
+    const decision = selectComplexity(request);
+    assert.equal(decision.level, 1, request);
+    assert.equal(decision.stage, "execution", request);
+  }
+});
+
+test("a workspace edit that quotes an external verb does not become an external effect", () => {
+  const decision = selectComplexity("Update the documentation about how to deploy the service.");
+
+  assert.equal(decision.level, 2);
+  assert.equal(decision.stage, "planning");
+});
+
+test("an explicit follow-on external effect overrides informational framing", () => {
+  const requests = [
+    "Explain the release, then deploy it to production.",
+    "Обясни release-а и после го разгърни в production.",
+  ];
+
+  for (const request of requests) {
+    const decision = selectComplexity(request);
+    assert.equal(decision.level, 4, request);
+    assert.equal(decision.stage, "prd", request);
+  }
+});
