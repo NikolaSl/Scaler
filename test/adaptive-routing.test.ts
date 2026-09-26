@@ -179,3 +179,45 @@ test("politeness inside English and Bulgarian modals preserves requested effects
     assert.equal(decision.stage, stage, request);
   }
 });
+
+test("noun and response phrases do not masquerade as external effects", () => {
+  const requests = [
+    "Send me a Docker explanation.",
+    "Release notes overview.",
+    "Платформа за Docker.",
+  ];
+
+  for (const request of requests) {
+    const decision = selectComplexity(request);
+    assert.equal(decision.level, 1, request);
+    assert.equal(decision.stage, "execution", request);
+  }
+});
+
+test("explicit communication and payment effects remain full-workflow controls", () => {
+  const cases = [
+    "Send an email notification to the maintainer.",
+    "Плати сметката към доставчика.",
+  ];
+
+  for (const request of cases) {
+    const decision = selectComplexity(request);
+    assert.equal(decision.level, 4, request);
+    assert.equal(decision.stage, "prd", request);
+  }
+});
+
+test("common English and Bulgarian create or edit requests are workspace changes", () => {
+  const requests = [
+    "Create a parser test.",
+    "Edit the parser tests.",
+    "Създай тест за парсера.",
+    "Редактирай тестовете на парсера.",
+  ];
+
+  for (const request of requests) {
+    const decision = selectComplexity(request);
+    assert.equal(decision.level, 2, request);
+    assert.equal(decision.stage, "planning", request);
+  }
+});
