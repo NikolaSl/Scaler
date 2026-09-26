@@ -221,3 +221,16 @@ test("common English and Bulgarian create or edit requests are workspace changes
     assert.equal(decision.stage, "planning", request);
   }
 });
+
+test("workspace-effect nouns alone remain lightweight information", () => {
+  const requests = [
+    "Unit test and build overview.",
+    "Преглед на теста и промените.",
+  ];
+
+  for (const request of requests) {
+    const decision = selectComplexity(request);
+    assert.equal(decision.level, 1, request);
+    assert.equal(decision.stage, "execution", request);
+  }
+});
