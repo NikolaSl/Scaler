@@ -55,7 +55,7 @@ export interface AdaptiveApplyResult {
 }
 
 const informationRequestPattern = /^(?:(?:please|моля)[\s,:-]+)*(?:(?:what|why|how|explain|describe|compare|summarize|define|tell|find|list|read|show)\b|(?:какво|как|защо|обясни|опиши|сравни|обобщи|дефинирай|кажи|намери|изброй|прочети|покажи)(?:\s|$))/iu;
-const externalEffectPattern = /\b(deploy|publish|release|ship|send|submit|purchase|pay|grant|revoke|rotate)\b|(?:^|[\s\p{P}])(?:разгърн|публикува|изпрат|подад|закуп|плат|предостав|отнем|завърт)\p{L}*(?=$|[\s\p{P}])/iu;
+const requestedExternalEffectPattern = /^(?:(?:please|моля)[\s,:-]+)*(?:(?:(?:can|could|would)\s+you|(?:можеш|може|бихте)\s+ли(?:\s+да)?)\s+)?(?:deploy|publish|release|ship|send|submit|purchase|pay|grant|revoke|rotate)\b|^(?:(?:please|моля)[\s,:-]+)*(?:(?:(?:можеш|може|бихте)\s+ли(?:\s+да)?)\s+)?(?:разгърн|публикува|изпрат|подад|закуп|плат|предостав|отнем|завърт)\p{L}*(?=$|[\s\p{P}])|(?:\b(?:and(?:\s+then)?|then)\b|(?:^|[\s\p{P}])(?:и\s+после|после)(?=$|[\s\p{P}])|[,;]\s*(?:then|после)?)[\s,:-]*(?:(?:please|моля)\s+)?(?:(?:it|them|го|я|ги)\s+)?(?:(?:deploy|publish|release|ship|send|submit|purchase|pay|grant|revoke|rotate)\b|(?:разгърн|публикува|изпрат|подад|закуп|плат|предостав|отнем|завърт)\p{L}*(?=$|[\s\p{P}]))/iu;
 const complexWorkPattern = /\b(architecture|multi[- ]?stage|orchestrat|migration|migrate|refactor|integration|integrate|research|investigate|plan)\b|(?:^|[\s\p{P}])(?:архитектур|многоетап|оркестрира|миграци|мигрира|рефактор|интегрира|проуч|изследва|планира|планирай)\p{L}*(?=$|[\s\p{P}])/iu;
 const workspaceEffectPattern = /\b(implement|build|fix|test|change|modify|add|update|remove|delete)\b|(?:^|[\s\p{P}])(?:реализира|внедри|изгради|поправи|тествай|промени|добави|обнови|актуализира|премах|изтри)\p{L}*(?=$|[\s\p{P}])/iu;
 
@@ -65,12 +65,12 @@ export function selectComplexity(request: string): ComplexityDecision {
     return { level: 0, stage: "idle", reason: "Empty request." };
   }
 
-  if (informationRequestPattern.test(trimmed)) {
-    return { level: 1, stage: "execution", reason: "Information request can use lightweight execution without inferring effects from domain vocabulary." };
+  if (requestedExternalEffectPattern.test(trimmed)) {
+    return { level: 4, stage: "prd", reason: "Requested external effect needs the full Scaler workflow before execution." };
   }
 
-  if (externalEffectPattern.test(trimmed)) {
-    return { level: 4, stage: "prd", reason: "Requested external effect needs the full Scaler workflow before execution." };
+  if (informationRequestPattern.test(trimmed)) {
+    return { level: 1, stage: "execution", reason: "Information request can use lightweight execution without inferring effects from domain vocabulary." };
   }
 
   if (complexWorkPattern.test(trimmed)) {
@@ -128,3 +128,13 @@ export function assessAdaptiveOrchestration(
     reasons.push(`Blocked/replan signal detected (${signals.blockedTasks} blocked, ${signals.needsReplanTasks} needs_replan, ${signals.blockers} run blockers).`);
   } else if (signals.validationFailures >= validationFailureThreshold) {
     action = "escalate";
+    targetStage = selectableStage(state, "debugging");
+    targetLevel = Math.max(state.complexityLevel, 3);
+    reasons.push(`Validation/debug failure threshold reached (${signals.validationFailures}/${validationFailureThreshold}).`);
+  } else if (signals.rejectedTransitions >= rejectedTransitionThreshold) {
+    action = "escalate";
+    targetStage = selectableStage(state, state.stage === "execution" || state.stage === "debugging" ? "replanning" : "planning");
+    targetLevel = Math.max(state.complexityLevel, 3);
+    reasons.push(`Rejected-transition uncertainty threshold reached (${signals.rejectedTransitions}/${rejectedTransitionThreshold}).`);
+  } else if (budgetDecision.status === "soft_limit") {
+    action = "deescalate";
