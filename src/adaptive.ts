@@ -56,7 +56,7 @@ export interface AdaptiveApplyResult {
 
 const informationRequestPattern = /^(?:(?:please|моля)[\s,:-]+)*(?:(?:what|why|how|explain|describe|compare|summarize|define|tell|find|list|read|show)\b|(?:какво|как|защо|обясни|опиши|сравни|обобщи|дефинирай|кажи|намери|изброй|прочети|покажи)(?:\s|$))/iu;
 const requestedExternalEffectPattern = /^(?:(?:please|моля)[\s,:-]+)*(?:(?:(?:can|could|would)\s+you|(?:можеш|може|бихте)\s+ли(?:\s+да)?)\s+)?(?:deploy|publish|release|ship|send|submit|purchase|pay|grant|revoke|rotate)\b|^(?:(?:please|моля)[\s,:-]+)*(?:(?:(?:можеш|може|бихте)\s+ли(?:\s+да)?)\s+)?(?:разгърн|публикува|изпрат|подад|закуп|плат|предостав|отнем|завърт)\p{L}*(?=$|[\s\p{P}])|(?:\b(?:and(?:\s+then)?|then)\b|(?:^|[\s\p{P}])(?:и\s+после|после)(?=$|[\s\p{P}])|[,;]\s*(?:then|после)?)[\s,:-]*(?:(?:please|моля)\s+)?(?:(?:it|them|го|я|ги)\s+)?(?:(?:deploy|publish|release|ship|send|submit|purchase|pay|grant|revoke|rotate)\b|(?:разгърн|публикува|изпрат|подад|закуп|плат|предостав|отнем|завърт)\p{L}*(?=$|[\s\p{P}]))/iu;
-const complexWorkPattern = /\b(architecture|multi[- ]?stage|orchestrat|migration|migrate|refactor|integration|integrate|research|investigate|plan)\b|(?:^|[\s\p{P}])(?:архитектур|многоетап|оркестрира|миграци|мигрира|рефактор|интегрира|проуч|изследва|планира|планирай)\p{L}*(?=$|[\s\p{P}])/iu;
+const requestedComplexWorkPattern = /^(?:(?:please|моля)[\s,:-]+)*(?:(?:(?:can|could|would)\s+you|(?:можеш|може|бихте)\s+ли(?:\s+да)?)\s+)?(?:plan|migrate|refactor|integrate|research|investigate|orchestrate)\b|^(?:(?:please|моля)[\s,:-]+)*(?:(?:(?:можеш|може|бихте)\s+ли(?:\s+да)?)\s+)?(?:планира|планирай|мигрира|рефактор|интегрира|проуч|изследва|оркестрира)\p{L}*(?=$|[\s\p{P}])/iu;
 const workspaceEffectPattern = /\b(implement|build|fix|test|change|modify|add|update|remove|delete)\b|(?:^|[\s\p{P}])(?:реализира|внедри|изгради|поправи|тествай|промени|добави|обнови|актуализира|премах|изтри)\p{L}*(?=$|[\s\p{P}])/iu;
 const followOnComplexWorkPattern = /(?:\b(?:and(?:\s+then)?|then)\b|(?:^|[\s\p{P}])(?:и\s+после|после)(?=$|[\s\p{P}])|[,;]\s*(?:then|после)?)[\s,:-]*(?:(?:please|моля)\s+)?(?:(?:plan|migrate|refactor|integrate|research|investigate|orchestrate)\b|(?:планира|планирай|мигрира|рефактор|интегрира|проуч|изследва|оркестрира)\p{L}*(?=$|[\s\p{P}]))/iu;
 const followOnWorkspaceEffectPattern = /(?:\b(?:and(?:\s+then)?|then)\b|(?:^|[\s\p{P}])(?:и\s+после|после)(?=$|[\s\p{P}])|[,;]\s*(?:then|после)?)[\s,:-]*(?:(?:please|моля)\s+)?(?:(?:it|them|го|я|ги)\s+)?(?:(?:implement|build|fix|test|change|modify|add|update|remove|delete)\b|(?:реализира|внедри|изгради|поправи|тествай|промени|добави|обнови|актуализира|премах|изтри)\p{L}*(?=$|[\s\p{P}]))/iu;
@@ -83,7 +83,7 @@ export function selectComplexity(request: string): ComplexityDecision {
     return { level: 1, stage: "execution", reason: "Information request can use lightweight execution without inferring effects from domain vocabulary." };
   }
 
-  if (complexWorkPattern.test(trimmed)) {
+  if (requestedComplexWorkPattern.test(trimmed)) {
     return { level: 3, stage: "prd", reason: "Multi-workstream or investigative change needs staged planning and execution." };
   }
 
@@ -163,3 +163,8 @@ export function assessAdaptiveOrchestration(
   return {
     action,
     currentStage: state.stage,
+    targetStage,
+    currentLevel: state.complexityLevel,
+    targetLevel,
+    stageTransitionAvailable,
+    reasons,
