@@ -148,6 +148,41 @@ test("runStageConductorStep rejects unsupported supervisor stages", async () => 
   assert.equal(result.message, "Stage conductor cannot run for supervisor stage idle.");
 });
 
+for (const failure of ["terminal-aborted", "terminal-error", "nonzero", "timeout", "cancelled"] as const) {
+  test(`runStageConductorLoop rejects ${failure} child outcome at both step and loop boundaries`, async () => {
+    const cwd = await tempDir();
+    const state = createDefaultState();
+    state.stage = "prd";
+    await saveState(cwd, state);
+    let calls = 0;
+
+    const result = await runStageConductorLoop(cwd, state, { execute: true, maxSteps: 5 }, async (request) => {
+      calls += 1;
+      return {
+        taskId: request.taskId,
+        exitCode: failure === "nonzero" ? 1 : 0,
+        stdoutEvents: failure.startsWith("terminal-")
+          ? [{ type: "message_end", message: { role: "assistant", stopReason: failure.slice("terminal-".length) } }]
+          : [],
+        stderr: "",
+        timedOut: failure === "timeout",
+        aborted: failure === "cancelled",
+      };
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.stopReason, "step_rejected");
+    assert.equal(result.completed, false);
+    assert.equal(result.steps.length, 1);
+    assert.equal(result.steps[0]?.accepted, false);
+    assert.equal(result.steps[0]?.stageAgent?.runRecord?.status, "failed");
+    assert.equal(result.steps[0]?.advancement, undefined);
+    assert.equal(result.finalState.stage, "prd");
+    assert.equal((await loadState(cwd)).stage, "prd");
+    assert.equal(calls, 1);
+  });
+}
+
 test("runStageConductorLoop chains pre-existing ready artifacts until completion", async () => {
   const cwd = await tempDir();
   await writeFile(join(cwd, "agent-prd.md"), "# PRD\n", "utf8");
