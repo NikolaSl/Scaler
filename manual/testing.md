@@ -590,6 +590,7 @@ PLAN-118 unit D closes reproduced Git and policy-authority routes. The Git
 regressions refuse clean/runtime-only commit skips without declared outputs,
 reject pre/post-commit hook changes before publishing accepted evidence, and
 preserve the resulting Git commit for diagnosis instead of resetting it.
+
 Dependency admission runs before validation commands and budget consumption.
 
 `test/acceptance-policy-authority.test.ts` covers exercised command/DoD/link
@@ -659,3 +660,17 @@ the focused regression. The reconciled exact candidate passes the TypeScript
 build, 799 unit tests, 67 mock integration tests and 7 conformance/autopilot
 checks. These tests do not make arbitrary hooks transactional or authorize an
 automatic reset/replay.
+
+PLAN-134 covers proportional initial routing with:
+
+```bash
+node --test --import tsx test/adaptive-routing.test.ts test/adaptive.test.ts
+```
+
+The paired English/Bulgarian cases distinguish information requests, workspace
+changes, multi-workstream changes and actual external effects. Additional
+controls ensure that domain words and raw length do not escalate, advice or
+documentation mentioning deployment does not grant effect authority, and an
+explicit `then deploy` step cannot hide behind informational framing. These are
+bounded deterministic fixtures, not evidence of general multilingual quality or
+automatic isolation/decomposition.

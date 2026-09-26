@@ -143,6 +143,13 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   conductor/workflow resume refuses the blocked artifact until explicit
   replacement. This is a parent-observed process boundary, not authentication
   of arbitrary filesystem writers or a crash-atomic multi-ledger transaction.
+  PLAN-134 replaces the initial English domain-keyword and raw-length
+  escalation with bounded request-effect evidence. Equivalent English and
+  Bulgarian lookups, workspace changes and multi-workstream changes now select
+  equivalent routes; informational mentions of external actions remain
+  lightweight while an imperative or explicit follow-on external effect selects
+  the full workflow. This does not establish general multilingual semantics,
+  justified isolated execution or risk-triggered direction checks.
   Parent interactive calls, provider-internal retries and alternate provider
   payloads remain open; this is not SC-05/AC-05 completion.
 
