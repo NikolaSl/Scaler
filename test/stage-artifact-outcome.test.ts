@@ -73,6 +73,41 @@ for (const kind of ["conductor", "workflow"] as const) {
     });
   }
 
+  for (const failure of [
+    { label: "nonzero exit", exitCode: 9, timedOut: false, aborted: false },
+    { label: "timeout", exitCode: 0, timedOut: true, aborted: false },
+    { label: "cancellation", exitCode: 0, timedOut: false, aborted: true },
+  ] as const) {
+    test(`${kind} durably blocks a failed child's artifact after ${failure.label}`, async () => {
+      const cwd = await mkdtemp(join(tmpdir(), "scaler-stage-outcome-process-"));
+      try {
+        const state = createDefaultState();
+        state.stage = "replanning";
+        await saveState(cwd, state);
+        const first = await invoke(kind, cwd, async (request) => {
+          await readyArtifact(cwd);
+          return {
+            taskId: request.taskId,
+            exitCode: failure.exitCode,
+            stdoutEvents: [],
+            stderr: "",
+            timedOut: failure.timedOut,
+            aborted: failure.aborted,
+          };
+        });
+        assert.equal(first.accepted, false);
+        assert.equal((await loadStageArtifacts(cwd)).find((artifact) => artifact.id === "ART-REPLAN")?.status, "blocked");
+        const resumed = await invoke(kind, cwd, async () => {
+          throw new Error("Blocked artifact must stop before another child launch.");
+        });
+        assert.equal(resumed.accepted, false);
+        assert.equal(resumed.finalState.stage, "replanning");
+      } finally {
+        await rm(cwd, { recursive: true, force: true });
+      }
+    });
+  }
+
   test(`${kind} preserves a pre-existing ready artifact without a failed child writer`, async () => {
     const cwd = await mkdtemp(join(tmpdir(), "scaler-stage-outcome-control-"));
     try {
@@ -105,6 +140,37 @@ for (const kind of ["conductor", "workflow"] as const) {
       });
       assert.equal(resumed.accepted, false);
       assert.equal(resumed.finalState.stage, "replanning");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test(`${kind} advances after explicit replacement of a quarantined artifact`, async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "scaler-stage-outcome-recovery-"));
+    try {
+      const state = createDefaultState();
+      state.stage = "replanning";
+      await saveState(cwd, state);
+      const first = await invoke(kind, cwd, async (request) => {
+        await readyArtifact(cwd);
+        return {
+          taskId: request.taskId,
+          exitCode: 4,
+          stdoutEvents: [],
+          stderr: "failed",
+          timedOut: false,
+          aborted: false,
+        };
+      });
+      assert.equal(first.accepted, false);
+      assert.equal((await loadStageArtifacts(cwd)).find((artifact) => artifact.id === "ART-REPLAN")?.status, "blocked");
+
+      await readyArtifact(cwd);
+      const recovered = await invoke(kind, cwd, async () => {
+        throw new Error("Replacement artifact should advance without a child launch.");
+      });
+      assert.equal(recovered.accepted, true);
+      assert.equal(recovered.finalState.stage, "execution");
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
