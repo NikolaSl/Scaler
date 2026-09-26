@@ -137,6 +137,12 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   malformed or conflicting identity refuses before dispatch or execution-side
   publication; model-authored explicit-spawn selectors cannot override it.
   Isolated-tool dispatch retains its fresher supplier-owned binding.
+  PLAN-133 closes the reproduced cross-invocation stage-artifact acceptance
+  bypass: failed or throwing children quarantine only artifact records added or
+  changed during their run, failed run records retain those artifact ids, and
+  conductor/workflow resume refuses the blocked artifact until explicit
+  replacement. This is a parent-observed process boundary, not authentication
+  of arbitrary filesystem writers or a crash-atomic multi-ledger transaction.
   Parent interactive calls, provider-internal retries and alternate provider
   payloads remain open; this is not SC-05/AC-05 completion.
 

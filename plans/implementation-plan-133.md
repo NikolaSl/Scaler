@@ -51,13 +51,23 @@ demonstrate live model behavior or quality.
 ## Pipeline and current status
 
 Preparation only on `implementation/v2-p3-stage-artifact-outcomes`, based on
-the current PR #24 candidate; no second PR. Production fix is not implemented.
-The four deliberately failing regressions are evidence, not an accepted gate.
-Do not merge this branch before its prerequisite or while tests remain red.
-Before merging PR #24, explicitly account for this residual scope in the review
-and handoff; do not claim that its per-invocation fix closes durable artifact
-acceptance. Integrate this unit into the coherent phase scope if review requires
-closure there rather than deferring it.
+the current PR #24 candidate; no second PR. The runtime snapshots the stage
+artifact index before child dispatch. A failed result or thrown runner blocks
+only artifacts whose exact persisted record was added or changed during that
+run, records those artifact ids with the failed run, and makes both conductor
+and autonomous workflow stop before another child launch. A later explicit
+replacement can restore `ready` and advance; an unrelated pre-existing ready
+artifact remains eligible.
+
+Model-free coverage crosses conductor/workflow with terminal abort/error,
+nonzero exit, timeout, cancellation and thrown runner outcomes, plus legitimate
+pre-existing and explicit-recovery controls. Focused build and 59 tests pass.
+Integrate this unit into the coherent PR #24 candidate only after the full gate,
+own review and current-head Copilot review.
 
 No model calls, new provider adapter, general filesystem transaction engine,
 automatic planning/decomposition, quality, savings or scale claims are in scope.
+This boundary does not authenticate arbitrary direct filesystem writers or make
+the artifact file and run ledger one crash-atomic transaction. A hard process
+crash between a child write and parent quarantine still requires operator
+reconciliation and remains outside this unit.

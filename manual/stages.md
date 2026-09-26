@@ -67,8 +67,13 @@ alone is insufficient after timeout, cancellation, output overflow or a terminal
 Pi `aborted`/`error` event. Such runs are recorded as failed, their output is not
 ingested, and the stage conductor returns `accepted: false`; its loop stops with
 `step_rejected`. The autonomous workflow also refuses supplemental report
-ingestion and post-child advancement, including the replanning fallback. These
-checks do not roll back files or ledgers a child already wrote directly.
+ingestion and post-child advancement, including the replanning fallback. If a
+failed child added or changed a stage-artifact record directly, the parent marks
+that exact record `blocked`, records its id with the failed run and refuses a
+fresh conductor/workflow invocation before another child launch. Unchanged
+pre-existing artifacts are preserved; an explicit replacement may restore a
+blocked artifact to `ready`. This is not rollback of arbitrary workspace files
+or crash-atomic publication across the artifact and run ledgers.
 
 `/scaler-stage-workflow` is the autonomous Stage I-III/replanning coordinator. It advances ready artifacts; runs PRD and planning stage agents when artifacts are missing; grants only SCALER ledger tools needed for PRD/plan ingestion by default; creates Stage II research requests from runtime PRD requirements; runs bounded research-agent fanout; merges/deduplicates reports and memory refs into `.scaler/knowledge/knowledge-report.md`; ingests `scaler_prd_write` and `scaler_planning_report` child outputs; applies current plans before Stage IV; detects execution-time coverage gaps; and refreshes Stage III through preservation-gated replanner proposal acceptance. It records runs under `.scaler/reports/stage-workflow-runs.json`. Without `execute`, it prepares the next needed child agent or records the deterministic next action.
 

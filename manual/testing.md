@@ -410,6 +410,16 @@ parent interactive calls, cover provider-internal retries, complete the three
 tool routes, or demonstrate savings and scale. SC-05/25 remain Partial and
 SC-09 remains Not assessed.
 
+PLAN-133 covers durable stage-artifact refusal after a failed child directly
+publishes to the artifact ledger. Run `node --test --import tsx
+test/stage-artifact-outcome.test.ts test/stage-agents.test.ts
+test/stage-conductor.test.ts test/stage-workflow.test.ts`. The matrix crosses
+conductor and autonomous workflow with terminal abort/error, nonzero exit,
+timeout, cancellation and thrown runner outcomes. Positive controls preserve a
+legitimate pre-existing ready artifact and permit explicit replacement of a
+quarantined artifact. These model-free tests do not authenticate arbitrary
+filesystem writers or prove crash-atomic publication.
+
 PLAN-113 requires declared `outputPaths` before automatic non-Git/clean/runtime
 commit skips or explicit commit skips can accept a task. A successful command
 may still have `status: passed` while `acceptance.accepted` is false; callers

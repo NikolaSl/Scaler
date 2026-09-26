@@ -45,10 +45,18 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-23 | Not assessed | No declared large-run envelope or scale result established in this review. | `src/context.ts`, `src/storage.ts` | [AC-23](../specs/acceptance-scenarios.md#ac-23) |
 | SC-24 | Partial | Tests and usage reports exist; representative outcome evaluation and revision 2 coverage gate are pending. | `src/provider-usage.ts`, `src/conformance.ts` | [AC-24](../specs/acceptance-scenarios.md#ac-24) |
 | SC-25 | Partial | Tool discovery/focus/restore uses Pi ExtensionAPI and installed-host checks verify real API ownership without a model call. Strict production child entrypoints capture the host-selected API/provider/model/context window and enforce it again at the provider hook, including duplicate model ids under different providers. Actual-host model execution across context accounting, usage, cancellation and every supported child route remains incomplete. | `src/index.ts`, `src/subagents.ts`, `src/provider-admission-extension.ts`, `test/extension-shape.test.ts`, `test/provider-admission-host.test.ts` | [AC-25](../specs/acceptance-scenarios.md#ac-25) |
-| SC-26 | Partial | Automation loop exists; revised complete-run, cancellation and recovery guarantees not demonstrated. | `src/autopilot.ts` | [AC-26](../specs/acceptance-scenarios.md#ac-26) |
+| SC-26 | Partial | Stage conductor/workflow now reject terminal abort/error, nonzero exit, timeout, cancellation and thrown runners; artifact records added or changed by the failed child are durably blocked across resume until explicit replacement. Full automation completion, arbitrary-writer authentication and crash reconciliation remain unverified. | `src/stage-agents.ts`, `src/stage-conductor.ts`, `src/stage-workflow.ts`, `test/stage-artifact-outcome.test.ts`, `src/autopilot.ts` | [AC-26](../specs/acceptance-scenarios.md#ac-26) |
 | SC-27 | Partial | Current named command evidence and participant identity gate declared integration criteria; revision-checked user amendments and immutable history prevent model-route criterion changes. Semantic necessity and non-software evidence remain open. | `src/prd.ts`, `src/run-completion.ts`, `test/requirement-integration.test.ts`, `test/prd.test.ts` | [AC-27](../specs/acceptance-scenarios.md#ac-27) |
 
 ## Implementation progress — PLAN-099
+
+PLAN-133 durably rejects stage artifacts written by failed children. The parent
+snapshots the persisted artifact index before dispatch, quarantines only exact
+records added or changed by terminal abort/error, nonzero exit, timeout,
+cancellation or a thrown runner, and records their ids with the failed run.
+Fresh conductor/workflow entrypoints stop on the blocked artifact; explicit
+replacement is the recovery path. This does not authenticate arbitrary direct
+writers or establish crash-atomic publication, so SC-26 remains Partial.
 
 PLAN-132 closes the reproduced ambient child-model selection gap. All strict
 child entrypoints and nested stage/debug/research/replan/schema flows carry the
