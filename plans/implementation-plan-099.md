@@ -27,6 +27,14 @@ The current unattended mutation deadline is `2026-09-20T20:52:02Z`
 Stop unattended mutations then and preserve a handoff unless Nikola extends
 or changes the instruction. No paid model spending or deployment is authorized.
 
+Nikola renewed continuation for another 24 hours on 2026-09-26 at
+19:56:50Z. The current unattended mutation deadline is
+`2026-09-27T19:56:50Z` (22:56:50 Europe/Sofia), superseding the September 20
+cutoff. Continue from live Git and review state, report each published commit
+or an hourly no-commit status, and release checked ownership at handoff. The
+Copilot, test, expected-head merge, no-spending and no-deployment gates below
+remain in force.
+
 After that handoff, Nikola explicitly requested continuation again. PLAN-106
 records this direct continuation and its bounded scope; the same completed
 Copilot review, test, separate-commit and expected-head merge gates apply.
