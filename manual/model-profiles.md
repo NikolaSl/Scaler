@@ -74,5 +74,8 @@ cloud provider or a paid/stronger model.
 No installed command consumes this assessment for dispatch yet. It does not read
 credentials, configure a local host, call inference, measure hardware use or
 establish model quality. AC-09 still requires a documented local host/model,
-representative real outcomes, retained resource evidence and an explicit blocker
-for work beyond the configured capability.
+representative real process traces, retained resource evidence and truthful
+outcomes, including an explicit blocker for work beyond configured capability.
+The model selects candidate subtasks and scoped context; the supervisor validates
+those proposals under the current state and explains each role in its prompt.
+Completion rates belong to separate task-specific evaluation, not the process gate.

@@ -86,12 +86,12 @@ Exercise: (a) a known exact operation executes without a new model call; (b) a s
 
 **Local-only model operation — SC-09.**
 
-On a documented configured local model/host, complete representative supported core tasks with no cloud credentials or silent network inference. Record the resource envelope. For a task beyond configured capabilities, bounded repair/splitting or an explicit blocker replaces invented success. No universal small-model success rate is assumed.
+On a documented configured local model/host, exercise representative supported core tasks with no cloud credentials or silent network inference. Record the resource envelope and the actual process outcome. The model proposes task decomposition and scoped context; the supervisor validates each proposal against the current state, original intent, permissions, dependencies, context budget and evidence before a transition or acceptance. Test valid proposals, malformed or out-of-scope proposals, missing evidence and capability failure. A task beyond configured capabilities ends in bounded repair/splitting or an explicit blocker, never invented success. Neither a universal small-model success rate nor completion of every sampled task is required to prove the process boundary.
 
 With model review enabled, record whether independence is contextual, model-based
 or evidence-based and its limitations. Shared-model agreement cannot certify truth;
 an unavailable reviewer cannot trigger unauthorized cloud inference. Demonstrate
-that ordinary supported tasks remain possible with one configured local model.
+that the documented process can advance ordinary supported tasks with one configured local model when proposals and evidence are valid, and can stop truthfully otherwise.
 
 ## AC-10
 

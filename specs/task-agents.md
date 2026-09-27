@@ -49,6 +49,13 @@ scheduler state. Requests for more context, scope, tools or budget are proposals
 Communication uses scoped artifacts/reports, not unrestricted agent-to-agent
 conversation or inherited full parent history.
 
+The active process state determines the worker's prompt: role, goal, admitted
+context, allowed proposal types, output contract and refusal behavior. A model may
+choose candidate subtasks and relevant sub-context, but the supervisor validates
+those choices and their evidence before changing the task graph, admitting context
+or advancing the finite-state process. Invalid or unsupported proposals produce a
+bounded repair, replan or blocker without claiming successful work.
+
 ## Local model practicality
 
 Use concise, versioned report schemas with clear diagnostics. Permit bounded
