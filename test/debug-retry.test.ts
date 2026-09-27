@@ -212,6 +212,44 @@ test("debug retry rejects a result after externalized split evidence changes", a
   });
 });
 
+test("debug retry triggers projection when the final prompt overflows below the context target", async () => {
+  await withTempDir(async (dir) => {
+    const state = await seedDebuggingTask(dir);
+    state.tasks.find((task) => task.id === "T-RETRY")!.allowedPathPrefixes = [
+      "fixed.txt",
+      `scope/${"a".repeat(1_600)}`,
+    ];
+    await saveState(dir, state);
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-RETRY",
+      tokenBudget: 2_000,
+      items: [{
+        id: "understated-exact", type: "file", reason: "Exact retry evidence.",
+        priority: "required", scope: "full", exactness: "exact", source: "inline",
+        content: `FINAL_OVERFLOW_RETRY_START\n${"x".repeat(5_000)}\nFINAL_OVERFLOW_RETRY_END`,
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.updatedAt,
+    });
+    let dispatchedPrompt = "";
+
+    const result = await runDebugNextApproachRetry(dir, state, {
+      execute: true,
+      tools: ["read"],
+    }, async (request) => {
+      dispatchedPrompt = request.prompt;
+      await writeFile(join(dir, "fixed.txt"), "ok\n", "utf8");
+      return passingRun(request);
+    });
+
+    assert.equal(result.accepted, true, result.message);
+    assert.equal(result.contextSplit?.trigger, "final_prompt_allowance");
+    assert.equal(result.contextSplit?.externalizedMemoryRefs.length, 1);
+    assert.doesNotMatch(dispatchedPrompt, /FINAL_OVERFLOW_RETRY_START|FINAL_OVERFLOW_RETRY_END/);
+  });
+});
+
 test("debug retry refuses unavailable strict child grants before attempt or budget publication", async () => {
   await withTempDir(async (dir) => {
     const state = await seedDebuggingTask(dir);

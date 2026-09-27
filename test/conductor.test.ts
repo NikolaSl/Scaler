@@ -405,27 +405,40 @@ test("runConductorStep freshness-binds an externalized memory source through res
   });
 });
 
-test("runConductorStep measures prompt bytes instead of trusting understated item estimates", async () => {
+test("runConductorStep projects measured large bytes when caller estimates understate final prompt", async () => {
   await withTempDir(async (dir) => {
     const state = stateWithTasks(["ready"]);
     state.stage = "execution";
     let runnerCalls = 0;
+    let dispatchedPrompt = "";
     const result = await runConductorStep(dir, state, {
       execute: true,
-      tokenBudget: 1_000,
+      tokenBudget: 2_000,
       contextItems: [{
         id: "understated", type: "file", reason: "Caller estimate is not dispatch authority.",
-        content: "x".repeat(20_000), priority: "required", scope: "full", exactness: "exact", estimatedTokens: 1,
+        content: `UNDERSTATED_START\n${"x".repeat(5_000)}\nUNDERSTATED_END`,
+        priority: "required", scope: "full", exactness: "exact", estimatedTokens: 1,
       }],
-    }, async () => {
+    }, async (request) => {
       runnerCalls += 1;
-      throw new Error("must not dispatch");
+      dispatchedPrompt = request.prompt;
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [completedTaskReport(request)],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
     });
 
-    assert.equal(result.promptAdmission?.accepted, false);
-    assert.equal(runnerCalls, 0);
-    assert.deepEqual(await loadTaskAttempts(dir), []);
-    assert.equal(result.contextSplit, undefined);
+    assert.equal(result.accepted, true, result.message);
+    assert.equal(runnerCalls, 1);
+    assert.equal(result.contextSplit?.trigger, "final_prompt_allowance");
+    assert.ok(result.contextSplit?.promptOverByTokens && result.contextSplit.promptOverByTokens > 0);
+    assert.equal(result.contextSplit?.externalizedMemoryRefs.length, 1);
+    assert.doesNotMatch(dispatchedPrompt, /UNDERSTATED_START|UNDERSTATED_END/);
+    assert.equal((await loadTaskAttempts(dir))[0]?.status, "completed");
   });
 });
 
