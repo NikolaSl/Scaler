@@ -386,7 +386,7 @@ async function dispatchMemoryRequest(cwd: string, request: MissingContextRequest
 async function dispatchFileRequest(cwd: string, request: MissingContextRequest, options: MissingContextDispatchOptions, now: Date): Promise<MissingContextDispatchResult> {
   const source = request.sourceHint;
   if (!source) return await markMissingContextBlocked(cwd, request, "No file path was supplied or inferred.", now);
-  const parsedSelector = parseRequestedFileSelector(request.query);
+  const parsedSelector = parseRequestedFileSelector(request.query, source);
   if (parsedSelector.requested && !parsedSelector.selector) {
     return await markMissingContextBlocked(cwd, request, "The exact file-section selector is malformed or ambiguous.", now);
   }
@@ -450,13 +450,15 @@ async function dispatchFileRequest(cwd: string, request: MissingContextRequest, 
   }
 }
 
-function parseRequestedFileSelector(query: string): { requested: boolean; selector?: FileContextSelector } {
-  const directives = [...query.matchAll(/`([^`\r\n]*)`/g)]
-    .map((match) => match[1] ?? "")
-    .filter((value) => value.startsWith("heading:") || value.startsWith("function:"));
-  if (directives.length === 0) return { requested: false };
-  if (directives.length !== 1) return { requested: true };
-  const directive = directives[0]!;
+function parseRequestedFileSelector(query: string, source: string): { requested: boolean; selector?: FileContextSelector } {
+  const quoted = [...query.matchAll(/`([^`\r\n]*)`/g)].map((match) => match[1] ?? "");
+  const directiveIndexes = quoted
+    .map((value, index) => value.startsWith("heading:") || value.startsWith("function:") ? index : -1)
+    .filter((index) => index >= 0);
+  if (directiveIndexes.length === 0) return { requested: false };
+  if (directiveIndexes.length !== 1 || directiveIndexes[0] !== 1
+    || !looksLikePath(quoted[0] ?? "") || cleanPath(quoted[0] ?? "") !== source) return { requested: true };
+  const directive = quoted[1]!;
   if (directive.startsWith("heading:")) {
     const heading = trimMarkdownHeadingWhitespace(directive.slice("heading:".length));
     return heading ? { requested: true, selector: { kind: "markdown-heading", heading } } : { requested: true };

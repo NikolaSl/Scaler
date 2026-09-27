@@ -36,10 +36,12 @@ mock integration, conformance/autopilot and diff gates.
 
 ## Explicit limits
 
-This unit does not infer a path or selector, choose among candidates, perform
-semantic search, decompose a task, or claim any model quality or token saving.
-The local model/operator names the source and selector; the supervisor validates
-and freshness-binds the exact bytes. SC-07/AC-07 remains Partial.
+For a selected-section request, this unit does not infer or choose a path or
+selector: the quoted path must precede its quoted directive. Existing full-file
+path-hint inference is unchanged. The unit does not choose among candidates,
+perform semantic search, decompose a task, or claim model quality or token
+saving. The local model/operator names the source and selector; the supervisor
+validates and freshness-binds the exact bytes. SC-07/AC-07 remains Partial.
 
 ## Implementation evidence
 
