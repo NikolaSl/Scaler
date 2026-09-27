@@ -203,7 +203,6 @@ test("runScalerAutomation continues a blocked task through local missing-context
     const result = await runScalerAutomation(dir, state, {
       maxSteps: 12,
       maxStageSteps: 5,
-      researchTools: ["read", "find"],
     }, {
       stage: stageRunner,
       task: async (request) => {
@@ -235,7 +234,9 @@ test("runScalerAutomation continues a blocked task through local missing-context
         researchCalls += 1;
         assert.match(request.taskId, /^research-agent-RESEARCH-MCTX-T-AUTO-/);
         assert.match(request.prompt, /Determine the local canonical widget rule/);
-        assert.deepEqual(request.tools, ["read", "find"]);
+        assert.ok(request.tools?.includes("read"));
+        assert.ok(request.tools?.includes("bash"));
+        assert.ok(request.tools?.includes("scaler_research_report"));
         const requestId = request.taskId.slice("research-agent-".length);
         return {
           taskId: request.taskId,
