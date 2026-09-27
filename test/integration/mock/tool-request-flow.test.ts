@@ -99,6 +99,45 @@ test("mock integration: MCP enumeration records local server declarations", asyn
   });
 });
 
+test("mock integration: exact direct catalog request completes without a model runner", async () => {
+  await withTempRepo(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "scaler_tool_catalog",
+      request: "Return the exact compact catalog entry for read.",
+      directOperation: {
+        adapterId: "builtin:tool-catalog-entry-v1",
+        arguments: { toolName: "read" },
+      },
+    });
+    assert.ok(prepared.record);
+    let runnerCalled = false;
+
+    const completed = await runToolRequestAgentRaw(dir, state, {
+      requestId: prepared.record.id,
+      execute: true,
+    }, async (request) => {
+      runnerCalled = true;
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
+    });
+
+    assert.equal(completed.accepted, true);
+    assert.equal(runnerCalled, false);
+    assert.equal(completed.transaction?.routeAdmission?.route, "direct");
+    assert.equal(completed.resultRecord?.acceptanceStatus, "accepted");
+    assert.equal((await loadToolRequests(dir))[0]?.status, "completed");
+    assert.deepEqual(completed.resultRecord?.outputs, {
+      entry: {
+        name: "read",
+        description: "Read a project file or image from the working tree.",
+        riskLevel: "low",
+        docsAvailable: false,
+        schemaAvailable: true,
+      },
+    });
+  });
+});
+
 test("mock integration: tool schedule executes all guarded requests sequentially", async () => {
   await withTempRepo(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));

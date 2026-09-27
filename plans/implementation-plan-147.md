@@ -67,5 +67,5 @@ operation; SC-08/AC-08 remains Partial.
 - Follow-up regressions cover durable argument drift and oversized result
   refusal; isolated dispatch behavior remains covered by the existing suite.
 - The exact-head candidate passes the TypeScript build, 1,145 unit/component
-  tests, 67 mock integration tests, 7 conformance/autopilot tests, 101 focused
+  tests, 68 mock integration tests, 7 conformance/autopilot tests, 101 focused
   routing/request/tool tests and `git diff --check`.

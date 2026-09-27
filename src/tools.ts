@@ -171,7 +171,7 @@ const SpawnTaskParams = Type.Object({
 
 const ToolRequestParams = Type.Object({
   toolName: Type.String({ description: "Exact tool/MCP name requested." }),
-  request: Type.String({ description: "Concise free-form request for the isolated tool agent." }),
+  request: Type.String({ description: "Concise request for isolated work or the exact built-in direct operation." }),
   taskId: Type.Optional(Type.String()),
   requesterAgentId: Type.Optional(Type.String({ description: "Requester agent id, if different from task id." })),
   contextSummary: Type.Optional(Type.String()),
@@ -549,7 +549,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "scaler_tool_request",
     label: "Scaler Tool Request",
-    description: "Prepare an isolated Tool/MCP agent request with only explicitly requested tools.",
+    description: "Prepare an isolated Tool/MCP request or the exact built-in read-only direct catalog operation.",
     parameters: ToolRequestParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const state = await ensureState(ctx.cwd);
