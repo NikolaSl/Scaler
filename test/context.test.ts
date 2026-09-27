@@ -1468,6 +1468,64 @@ test("re-export caller discovery fails closed on malformed, ambiguous and unsupp
   });
 });
 
+test("re-export caller discovery rejects conflicting exports and symlink-backed hops", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"));
+    await mkdir(join(dir, "real"));
+    await writeFile(join(dir, "src", "target.ts"), "export function target(): number { return 1; }\n", "utf8");
+    await writeFile(join(dir, "real", "target.ts"), "export function target(): number { return 2; }\n", "utf8");
+    await writeFile(join(dir, "real", "barrel.ts"), "export { target as exposed } from './target.ts';\n", "utf8");
+    await symlink(join(dir, "real"), join(dir, "src", "linked"));
+    await symlink(join(dir, "real", "barrel.ts"), join(dir, "src", "linked-barrel.ts"));
+    await writeFile(
+      join(dir, "src", "conflict.ts"),
+      [
+        "export function exposed(): number { return 3; }",
+        "export { target as exposed } from './target.ts';",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      join(dir, "src", "linked-target-barrel.ts"),
+      "export { target as exposed } from './linked/target.ts';\n",
+      "utf8",
+    );
+    await writeFile(
+      join(dir, "src", "entry.ts"),
+      [
+        "import { exposed as conflictValue } from './conflict.ts';",
+        "import { exposed as linkedTarget } from './linked-target-barrel.ts';",
+        "import { exposed as linkedBarrel } from './linked-barrel.ts';",
+        "export function conflictCaller(): number { return conflictValue(); }",
+        "export function linkedTargetCaller(): number { return linkedTarget(); }",
+        "export function linkedBarrelCaller(): number { return linkedBarrel(); }",
+      ].join("\n"),
+      "utf8",
+    );
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-REEXPORT-CALLER-HARDEN", status: "ready", title: "Reject unsafe re-export hops",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    for (const query of [
+      "reexport-caller:./conflict.ts#exposed",
+      "reexport-caller:./linked-target-barrel.ts#exposed",
+      "reexport-caller:./linked-barrel.ts#exposed",
+      "reexport-caller:./linked-target-barrel.ts?raw#exposed",
+      "reexport-caller:../real/barrel.ts#exposed",
+    ]) {
+      assert.deepEqual(
+        await discoverSemanticContextCandidates(
+          dir, state, "T-REEXPORT-CALLER-HARDEN", { query, limit: 10 },
+        ),
+        [],
+        query,
+      );
+    }
+  });
+});
+
 test("unrelated changed files cannot starve bounded re-export caller discovery", async () => {
   await withTempDir(async (dir) => {
     await execFileAsync("git", ["init"], { cwd: dir });
