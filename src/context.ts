@@ -309,6 +309,18 @@ export async function discoverSemanticContextCandidates(
     if (!linkQuery.label) return [];
     return discoverMarkdownLinkCandidates(cwd, task, taskId, linkQuery.label, options.limit ?? 10);
   }
+  const reexportCallerQuery = parseReexportCallerCandidateQuery(options.query);
+  if (reexportCallerQuery.requested) {
+    if (!reexportCallerQuery.specifier || !reexportCallerQuery.name) return [];
+    return discoverReexportCallerCandidates(
+      cwd,
+      task,
+      taskId,
+      reexportCallerQuery.specifier,
+      reexportCallerQuery.name,
+      options.limit ?? 10,
+    );
+  }
   const importedCallerQuery = parseImportedCallerCandidateQuery(options.query);
   if (importedCallerQuery.requested) {
     if (!importedCallerQuery.specifier || !importedCallerQuery.name) return [];
@@ -885,6 +897,22 @@ function parseImportedCallerCandidateQuery(
   return { requested: true, specifier, name };
 }
 
+function parseReexportCallerCandidateQuery(
+  query: string | undefined,
+): { requested: boolean; specifier?: string; name?: string } {
+  const value = query ?? "";
+  const prefix = "reexport-caller:";
+  if (!value.startsWith(prefix)) return { requested: false };
+  const separator = value.indexOf("#", prefix.length);
+  if (separator < 0 || separator !== value.lastIndexOf("#")) return { requested: true };
+  const specifier = value.slice(prefix.length, separator);
+  const name = value.slice(separator + 1);
+  if (!isEligibleLocalSourceModuleSpecifier(specifier)
+    || !isTypeScriptIdentifier(name)
+    || name !== name.trim()) return { requested: true };
+  return { requested: true, specifier, name };
+}
+
 function isEligibleLocalSourceModuleSpecifier(specifier: string): boolean {
   return Boolean(specifier
     && specifier === specifier.trim()
@@ -1196,6 +1224,132 @@ async function discoverImportedCallerCandidates(
   return [...candidates.values()]
     .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
     .slice(0, limit);
+}
+
+async function discoverReexportCallerCandidates(
+  cwd: string,
+  task: ScalerTaskState,
+  taskId: string,
+  barrelSpecifier: string,
+  exportedName: string,
+  limit: number,
+): Promise<ContextCandidate[]> {
+  const changedPaths = await getGitChangedPaths(cwd);
+  const candidates = new Map<string, ContextCandidate>();
+  for (const sourcePath of await discoverAllowedCandidateFilePaths(cwd, task, changedPaths)) {
+    const scriptKind = getTypeScriptScriptKind(sourcePath);
+    if (scriptKind === undefined) continue;
+    let source: string;
+    try {
+      const stable = await readStableContextFile(cwd, sourcePath);
+      if (!stable.outputExemptible) continue;
+      source = stable.bytes.toString("utf8");
+    } catch {
+      continue;
+    }
+    const barrelPath = normalizeLocalModuleImportDestination(cwd, sourcePath, barrelSpecifier);
+    if (!barrelPath
+      || !taskPathMatches(barrelPath, task.allowedPathPrefixes ?? [])
+      || isRuntimePath(barrelPath)
+      || getTypeScriptScriptKind(barrelPath) === undefined) continue;
+    let reexport: DirectNamedReexport | undefined;
+    try {
+      const barrel = await readStableContextFile(cwd, barrelPath);
+      if (!barrel.outputExemptible) continue;
+      reexport = findUniqueDirectNamedReexport(barrel.bytes.toString("utf8"), barrelPath, exportedName);
+    } catch {
+      continue;
+    }
+    if (!reexport) continue;
+    const targetPath = normalizeLocalModuleImportDestination(cwd, barrelPath, reexport.specifier);
+    if (!targetPath
+      || !taskPathMatches(targetPath, task.allowedPathPrefixes ?? [])
+      || isRuntimePath(targetPath)
+      || getTypeScriptScriptKind(targetPath) === undefined) continue;
+    try {
+      const target = await readStableContextFile(cwd, targetPath);
+      if (!target.outputExemptible
+        || !hasUniqueDirectExportedCallable(target.bytes.toString("utf8"), targetPath, reexport.sourceName)) continue;
+    } catch {
+      continue;
+    }
+    const callers = findExactImportedTopLevelCallers(source, sourcePath, scriptKind, barrelSpecifier, exportedName);
+    for (const callerName of callers) {
+      const selector = { kind: "typescript-function", name: callerName } as const;
+      try {
+        renderFileContextContent(source, sourcePath, "section", selector);
+      } catch {
+        continue;
+      }
+      const key = `${sourcePath}\0${callerName}`;
+      if (candidates.has(key)) continue;
+      const candidateSource: ContextCandidateSource = changedPaths.includes(sourcePath) ? "changed_file" : "file";
+      candidates.set(key, {
+        id: buildReexportCallerCandidateId(sourcePath, barrelSpecifier, exportedName, callerName),
+        taskId,
+        source: candidateSource,
+        type: "file",
+        reason: `Exact re-export caller ${callerName} invokes ${exportedName} through local barrel edge ${barrelSpecifier} in ${sourcePath}; approval is required before adding its selector to the manifest.`,
+        score: candidateSource === "changed_file" ? 11 : 10,
+        priority: "useful",
+        scope: "section",
+        exactness: "exact",
+        path: sourcePath,
+        selector,
+      });
+    }
+  }
+  return [...candidates.values()]
+    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+    .slice(0, limit);
+}
+
+interface DirectNamedReexport {
+  specifier: string;
+  sourceName: string;
+}
+
+function findUniqueDirectNamedReexport(
+  content: string,
+  path: string,
+  exportedName: string,
+): DirectNamedReexport | undefined {
+  const scriptKind = getTypeScriptScriptKind(path);
+  if (scriptKind === undefined) return undefined;
+  const source = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, true, scriptKind);
+  const parseDiagnostics = (source as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? [];
+  if (parseDiagnostics.length > 0) return undefined;
+  const matches: DirectNamedReexport[] = [];
+  for (const statement of source.statements) {
+    if (ts.isExportDeclaration(statement)) {
+      if (!statement.exportClause || !ts.isNamedExports(statement.exportClause)) return undefined;
+      for (const element of statement.exportClause.elements) {
+        if (element.name.text !== exportedName) continue;
+        if (statement.isTypeOnly
+          || element.isTypeOnly
+          || !statement.moduleSpecifier
+          || !ts.isStringLiteral(statement.moduleSpecifier)
+          || !isEligibleLocalSourceModuleSpecifier(statement.moduleSpecifier.text)) return undefined;
+        matches.push({
+          specifier: statement.moduleSpecifier.text,
+          sourceName: element.propertyName?.text ?? element.name.text,
+        });
+      }
+      continue;
+    }
+    const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined;
+    if (modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) !== true) continue;
+    if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isInterfaceDeclaration(statement)
+      || ts.isTypeAliasDeclaration(statement) || ts.isEnumDeclaration(statement)) {
+      if (statement.name?.text === exportedName) return undefined;
+      continue;
+    }
+    if (ts.isVariableStatement(statement)
+      && statement.declarationList.declarations.some((declaration) => bindingNameContains(declaration.name, exportedName))) {
+      return undefined;
+    }
+  }
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 function findExactImportedTopLevelCallers(
@@ -1765,6 +1919,13 @@ function buildImportedCallerCandidateId(path: string, specifier: string, importe
     .update(path).update("\0").update(specifier).update("\0").update(importedName).update("\0").update(callerName)
     .digest("hex").slice(0, 12);
   return `candidate-import-caller-${identity}-${slugify(callerName)}-${slugifyPath(path)}`;
+}
+
+function buildReexportCallerCandidateId(path: string, specifier: string, exportedName: string, callerName: string): string {
+  const identity = createHash("sha256")
+    .update(path).update("\0").update(specifier).update("\0").update(exportedName).update("\0").update(callerName)
+    .digest("hex").slice(0, 12);
+  return `candidate-reexport-caller-${identity}-${slugify(callerName)}-${slugifyPath(path)}`;
 }
 
 function unique(values: string[]): string[] {
