@@ -308,6 +308,117 @@ test("discoverSemanticContextCandidates scores memory and allowed file candidate
   });
 });
 
+test("function candidate discovery emits and approves an exact path-bound selector", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"));
+    const selected = "export function targetFunction(input: string): string { return input.trim(); }";
+    await writeFile(join(dir, "src", "feature.ts"), `${selected}\nconst unrelated = true;\n`, "utf8");
+    await writeFile(join(dir, "src", "other.ts"), "export function otherFunction(): void {}\n", "utf8");
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.tasks = [{
+      id: "T-FUNCTION-DISCOVERY", status: "ready", title: "Locate exact callable",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-FUNCTION-DISCOVERY", { query: "function:targetFunction", limit: 10 },
+    );
+
+    assert.equal(candidates.length, 1);
+    const [candidate] = candidates;
+    assert.equal(candidate?.path, "src/feature.ts");
+    assert.equal(candidate?.scope, "section");
+    assert.equal(candidate?.exactness, "exact");
+    assert.deepEqual(candidate?.selector, { kind: "typescript-function", name: "targetFunction" });
+    assert.match(formatContextCandidates(candidates), /selector=typescript-function:targetFunction/);
+
+    const approved = await approveContextCandidate(
+      dir, state, "T-FUNCTION-DISCOVERY", candidate!.id, { query: "function:targetFunction" },
+    );
+    const item = approved.manifest.items.find((entry) => entry.path === "src/feature.ts");
+    assert.equal(approved.added, true);
+    assert.equal(item?.scope, "section");
+    assert.deepEqual(item?.selector, { kind: "typescript-function", name: "targetFunction" });
+
+    const resolved = await resolveTaskContextManifest(dir, state, approved.manifest);
+    const selectedItem = resolved.find((entry) => entry.id === item?.id);
+    assert.equal(selectedItem?.content, selected);
+    assert.doesNotMatch(selectedItem?.content ?? "", /unrelated/);
+  });
+});
+
+test("function candidate discovery keeps same-named symbols in separate files ambiguous", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"));
+    await mkdir(join(dir, "src", "nested"));
+    await writeFile(join(dir, "src", "first.ts"), "export function sharedTarget(): number { return 1; }\n", "utf8");
+    await writeFile(join(dir, "src", "nested", "first.ts"), "export function sharedTarget(): number { return 2; }\n", "utf8");
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-AMBIGUOUS-FUNCTION", status: "ready", title: "Locate shared callable",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-AMBIGUOUS-FUNCTION", { query: "function:sharedTarget", limit: 10 },
+    );
+
+    assert.equal(candidates.length, 2);
+    assert.equal(new Set(candidates.map((candidate) => candidate.id)).size, 2);
+    assert.deepEqual(candidates.map((candidate) => candidate.path).sort(), ["src/first.ts", "src/nested/first.ts"]);
+  });
+});
+
+test("function candidate discovery fails closed on malformed and ineligible selectors", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"));
+    await writeFile(join(dir, "src", "valid.ts"), "export function target(): number { return 1; }\n", "utf8");
+    await writeFile(join(dir, "src", "duplicate.ts"), "function target() {}\nfunction target() {}\n", "utf8");
+    await writeFile(join(dir, "src", "method.ts"), "class Example { target(): void {} }\n", "utf8");
+    await writeFile(join(dir, "src", "malformed.ts"), "function target( {\n", "utf8");
+    await writeFile(join(dir, "src", "oversized.ts"), `function target() { return '${"x".repeat(3_300)}'; }\n`, "utf8");
+    await writeFile(join(dir, "src", "unsupported.py"), "def target():\n    return 1\n", "utf8");
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-REFUSE-FUNCTION", status: "ready", title: "Locate valid callable",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    for (const query of ["function:", "function: target", "function:target.value", "function:return"]) {
+      assert.deepEqual(
+        await discoverSemanticContextCandidates(dir, state, "T-REFUSE-FUNCTION", { query, limit: 10 }),
+        [],
+      );
+    }
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-REFUSE-FUNCTION", { query: "function:target", limit: 10 },
+    );
+    assert.deepEqual(candidates.map((candidate) => candidate.path), ["src/valid.ts"]);
+  });
+});
+
+test("function candidate discovery does not escape task allowed paths through changed files", async () => {
+  await withTempDir(async (dir) => {
+    await execFileAsync("git", ["init"], { cwd: dir });
+    await mkdir(join(dir, "src"));
+    await mkdir(join(dir, "outside"));
+    await writeFile(join(dir, "src", "allowed.ts"), "export function allowedTarget(): void {}\n", "utf8");
+    await writeFile(join(dir, "outside", "leak.ts"), "export function secretTarget(): void {}\n", "utf8");
+    await execFileAsync("git", ["add", "-N", "outside/leak.ts"], { cwd: dir });
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-BOUNDED-FUNCTION", status: "ready", title: "Locate bounded callable",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-BOUNDED-FUNCTION", { query: "function:secretTarget", limit: 10 },
+    );
+
+    assert.deepEqual(candidates, []);
+  });
+});
+
 test("approveContextCandidate persists selected candidates without duplicating manifest entries", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
