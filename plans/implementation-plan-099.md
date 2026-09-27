@@ -319,6 +319,14 @@ resolution and refuses summary-only resolution of exact file requests. Answer
 truth and source discovery are not established; SC-07/AC-07 stays Partial.
 The candidate passes build, 1,159 unit, 68 mock integration, 7 conformance
 and 56 focused tests.
+PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
+independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
+unresolved in-scope findings. The primary exact-head gate passed build,
+1,048 unit, 67 mock integration, 7 conformance and diff check. PLAN-154 then
+closes the older zero-exit terminal failure gap in task conductor/debug retry
+with shared outcome semantics; build, 1,163 unit, 68 mock integration,
+7 conformance and 69 focused tests pass on its candidate tree. This does not
+upgrade any full SC/AC row to Verified.
 
 The earlier exact-head Copilot gate was superseded on 2026-09-27 by Nikola's
 explicit Terra-agent replacement above. Preserve all branch protections and

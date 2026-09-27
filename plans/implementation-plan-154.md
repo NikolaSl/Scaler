@@ -2,7 +2,7 @@
 
 ## Status
 
-Preparation after reviewed PR #24 merged; the exact-head Terra reviewer found
+Implemented after reviewed PR #24 merged; the exact-head Terra reviewer found
 this baseline gap outside PR #24's stage-admission scope.
 
 ## Observed gap
@@ -22,3 +22,14 @@ continuation. A zero-exit terminal failure must fail before report ingestion or
 exact validation while preserving usage accounting and an explicit failed
 handoff. Add test-first conductor/debug-retry regressions for both terminal
 reasons. Keep provider admission and stage artifact quarantine unchanged.
+
+## Evidence and limits
+
+Four test-first regressions failed on the original conductor/debug retry:
+terminal `error` and `aborted` with exit code 0 sent tasks to validation or
+ran exact validation. The shared predicate now controls report ingestion,
+attempt outcome, run status and validation handoff in both paths. The candidate
+passes build, 1,163/1,163 unit/component, 68/68 mock integration, 7/7
+conformance/autopilot and 69/69 focused conductor/debug retry checks plus
+`git diff --check`. Provider-internal retries and arbitrary filesystem effect
+rollback are separate boundaries; no local-model quality claim follows.

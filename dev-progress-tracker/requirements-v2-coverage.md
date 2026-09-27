@@ -30,6 +30,11 @@ PLAN-153 adds bounded operator answers to required next-attempt context and
 refuses manual summary bypass of exact file requests. This does not verify
 answer truth or source discovery; SC-07/AC-07 remains Partial. Candidate
 evidence: build, 1,159 unit, 68 mock integration, 7 conformance, 56 focused.
+PLAN-154 rejects zero-exit terminal `error`/`aborted` child outcomes in task
+conductor and debug retry before report ingestion, validation or successful
+attempt publication. This closes one process gap without verifying all SC-05
+routes; candidate evidence: build, 1,163 unit, 68 mock integration,
+7 conformance, 69 focused tests.
 
 Prior review ran the baseline TypeScript build successfully, 488/488 unit tests
 and 66/67 mock integration tests. The failed retention fixture uses fixed
