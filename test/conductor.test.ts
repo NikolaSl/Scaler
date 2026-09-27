@@ -163,8 +163,8 @@ test("buildTaskAgentPrompt includes task metadata and report instructions", () =
   assert.match(result.prompt, /Execution worker role/);
   assert.match(result.prompt, /propose a narrower context/);
   assert.match(result.prompt, /supervisor validates.*current task contract and state/);
-  assert.match(result.prompt, /needs_data.*missing required context/);
-  assert.match(result.prompt, /needs_replan.*task split/);
+  assert.match(result.prompt, /missing sources \(needs_data\)/);
+  assert.match(result.prompt, /task split \(needs_replan\)/);
   assert.match(result.prompt, /report status alone.*scheduler state/);
   assert.match(result.prompt, /Safety and scope/);
   assert.match(result.prompt, /write\/edit only files under those paths/);
