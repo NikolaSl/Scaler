@@ -109,11 +109,14 @@ conformance/autopilot and 95 focused checks plus `git diff --check`.
 PLAN-143 makes active-context accounting use the greater of a valid supplied
 aggregate and the sum of measured/conservative item sizes. Several understated
 inline items can no longer suppress the context target, durable estimate or
-overage, including in prepare mode. More conservative supplied totals remain
-authoritative, while malformed item estimates do not control arithmetic. Items
-below the configured large-item threshold are not invented as externalization
-candidates. Semantic retrieval, automatic selection, decomposition, model
-quality and savings remain open, so SC-07 stays Partial.
+overage, including in prepare mode. Accepted conductor dispatches use that same
+measured aggregate for active-context budget accounting. More conservative
+supplied totals remain authoritative, while malformed item estimates do not
+control arithmetic. Items below the configured large-item threshold are not
+invented as externalization candidates. The candidate passes build, 1,125
+unit/component, 67 mock integration, 7 conformance/autopilot and 58 focused
+checks plus `git diff --check`. Semantic retrieval, automatic selection,
+decomposition, model quality and savings remain open, so SC-07 stays Partial.
 
 PLAN-137 adds the model-profile eligibility prerequisite deliberately left open
 by PLAN-132. Versioned profiles carry an exact provider identity, locality,

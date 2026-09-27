@@ -229,7 +229,11 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   active-context target, split evidence or overage. It does not invent an
   externalization candidate or add semantic retrieval/decomposition. The
   implementation clamps aggregate arithmetic to a safe integer and preserves a
-  more conservative supplied total; SC-07/AC-07 stays Partial.
+  more conservative supplied total. Conductor execution publishes this same
+  measured aggregate to active-context budget accounting rather than trusting
+  the caller total. The candidate passes build, 1,125 unit/component, 67 mock
+  integration, 7 conformance/autopilot and 58 focused checks plus
+  `git diff --check`; SC-07/AC-07 stays Partial.
 
 ### Renewed continuation policy (2026-09-19)
 

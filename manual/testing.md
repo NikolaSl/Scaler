@@ -510,10 +510,14 @@ test/conductor.test.ts` to verify that several understated inline items are
 summed from measured/conservative item sizes, a larger supplied aggregate stays
 authoritative, malformed item estimates do not control arithmetic, and
 conductor preparation records target-triggered evidence even without an
-execute-only final-prompt trigger. Items below the large-item threshold do not
-become invented externalization candidates. These fixtures do not establish
-semantic retrieval, decomposition, model quality, savings or scale; SC-07
-remains Partial.
+execute-only final-prompt trigger. Accepted conductor execution also records the
+measured aggregate in active-context budget usage instead of the caller's
+understated total. Items below the large-item threshold do not become invented
+externalization candidates. These fixtures do not establish semantic retrieval,
+decomposition, model quality, savings or scale; SC-07 remains Partial. The
+candidate passes the TypeScript build, 1,125 unit/component tests, 67 mock
+integration tests, 7 conformance/autopilot tests, 58 focused checks and
+`git diff --check`.
 
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx
