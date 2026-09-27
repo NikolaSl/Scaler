@@ -487,6 +487,29 @@ test("heading candidate discovery emits and approves an exact path-bound selecto
   });
 });
 
+test("heading candidate discovery preserves Unicode whitespace identity", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "docs"));
+    await writeFile(join(dir, "docs", "unicode.md"), "## Target\u00a0\nexact\n", "utf8");
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-UNICODE-HEADING", status: "ready", title: "Locate exact Unicode heading",
+      allowedPathPrefixes: ["docs"], updatedAt: state.createdAt,
+    }];
+
+    const exact = await discoverSemanticContextCandidates(
+      dir, state, "T-UNICODE-HEADING", { query: "heading:Target\u00a0", limit: 10 },
+    );
+    const normalized = await discoverSemanticContextCandidates(
+      dir, state, "T-UNICODE-HEADING", { query: "heading:Target", limit: 10 },
+    );
+
+    assert.equal(exact.length, 1);
+    assert.deepEqual(exact[0]?.selector, { kind: "markdown-heading", heading: "Target\u00a0" });
+    assert.deepEqual(normalized, []);
+  });
+});
+
 test("heading candidate discovery keeps same-named headings in separate files ambiguous", async () => {
   await withTempDir(async (dir) => {
     await mkdir(join(dir, "docs", "nested"), { recursive: true });
