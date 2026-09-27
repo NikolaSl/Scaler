@@ -96,7 +96,7 @@ import { formatReplanAgentRunList, loadReplanAgentRunRecords, runReplanAgentStep
 import { formatResearchAgentRunList, loadResearchAgentRunRecords, runResearchAgentStep } from "./research-agent.js";
 import { formatResearchSummary, loadResearchReports, loadResearchRequests, recordResearchReport, upsertResearchRequest } from "./research.js";
 import { formatResearchWebRunResult, formatResearchWebTransactions, loadResearchWebTransactions, runResearchWebWorkflow } from "./research-web.js";
-import type { ProviderAdmissionModel } from "./provider-admission.js";
+import { assessProviderRequestAdmission, createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { applySafetyApproval, assessToolCallSafety, createSafetyApproval, formatSafetyApprovals, formatSafetyPolicy, formatSafetyScanRecords, formatSafetyScanResult, loadSafetyApprovals, loadSafetyPolicy, loadSafetyScanRecords, mergeSafetyPolicy, revokeSafetyApproval, runSafetyScans, saveSafetyPolicy } from "./safety.js";
 import { createTask, formatTaskList, retryTask, updateTask } from "./tasks.js";
 import { formatTaskAgentReportList, loadTaskAgentReports } from "./task-reports.js";
@@ -330,19 +330,43 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     return undefined;
   });
 
-  pi.on("before_provider_request", async (_event, ctx) => {
+  pi.on("before_provider_request", async (event, ctx) => {
+    if (isChildAgent) return undefined;
     const reason = blockedParentPromptCompositions.get(ctx.cwd);
-    if (!reason) return undefined;
-    ctx.abort();
+    if (reason) {
+      ctx.abort();
+      try {
+        const state = await ensureState(ctx.cwd);
+        await logStateEvent(ctx.cwd, state, "SCALER parent provider request refused", {
+          taskId: state.currentTaskId,
+          reason,
+          lifecycle: "before_provider_request",
+          precedence: "prompt-composition",
+        });
+      } catch {
+        // The refusal remains latched across continuations even if telemetry fails.
+      }
+      return undefined;
+    }
+
+    const contextWindow = typeof ctx.model?.contextWindow === "number" ? ctx.model.contextWindow : Number.NaN;
+    const decision = assessProviderRequestAdmission({
+      payload: event.payload,
+      model: ctx.model,
+      policy: createStrictProviderAdmissionPolicy(contextWindow),
+    });
+    if (!decision.accepted) ctx.abort();
     try {
       const state = await ensureState(ctx.cwd);
-      await logStateEvent(ctx.cwd, state, "SCALER parent provider request refused", {
+      await logStateEvent(ctx.cwd, state, decision.accepted
+        ? "SCALER parent provider request admitted"
+        : "SCALER parent provider request refused", {
         taskId: state.currentTaskId,
-        reason,
         lifecycle: "before_provider_request",
+        decision,
       });
     } catch {
-      // The refusal remains latched across continuations even if telemetry fails.
+      // Admission and refusal must not depend on audit storage availability.
     }
     return undefined;
   });
