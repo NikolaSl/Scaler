@@ -381,7 +381,7 @@ export async function runConductorStep(
       return { accepted: false, message: error.message, state: nextState, task: runningTask, prompt, contextSplit };
     }
     const budgetUpdates = [
-      { key: "contextTokens" as const, amount: resolvedContext.estimatedTokens, mode: "set" as const },
+      { key: "contextTokens" as const, amount: compressionAssessment.estimatedTokens, mode: "set" as const },
       ...(options.execute ? [{ key: "spawnedAgents" as const, amount: 1, mode: "increment" as const }] : []),
     ];
     const budgetResult = applyBudgetUsageUpdates(nextState, budgetUpdates);
