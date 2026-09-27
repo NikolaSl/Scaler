@@ -647,12 +647,35 @@ test("local link discovery keeps distinct targets and deduplicates repeated refe
   });
 });
 
+test("local link discovery resolves a formatted label and parent path within allowed scope", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "docs", "guides"), { recursive: true });
+    await writeFile(join(dir, "docs", "guides", "index.md"), "[Target *Guide*](../target.md)\n", "utf8");
+    await writeFile(join(dir, "docs", "target.md"), "normalized target\n", "utf8");
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-LINK-PARENT", status: "ready", title: "Resolve bounded parent link",
+      allowedPathPrefixes: ["docs"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-LINK-PARENT", { query: "link:Target Guide", limit: 10 },
+    );
+
+    assert.equal(candidates.length, 1);
+    assert.equal(candidates[0]?.path, "docs/target.md");
+  });
+});
+
 test("local link discovery refuses malformed, external, escaping and indirect destinations", async () => {
   await withTempDir(async (dir) => {
     await mkdir(join(dir, "docs"));
+    await mkdir(join(dir, "real"));
     await writeFile(join(dir, "outside.md"), "outside\n", "utf8");
+    await writeFile(join(dir, "real", "secret.md"), "secret\n", "utf8");
     await writeFile(join(dir, "docs", "target.md"), "target\n", "utf8");
     await symlink(join(dir, "outside.md"), join(dir, "docs", "linked.md"));
+    await symlink(join(dir, "real"), join(dir, "docs", "linked-dir"));
     await writeFile(
       join(dir, "docs", "index.md"),
       [
@@ -662,6 +685,7 @@ test("local link discovery refuses malformed, external, escaping and indirect de
         "[Fragment](target.md#part)",
         "[Query](target.md?raw=1)",
         "[Symlink](linked.md)",
+        "[Symlink Ancestor](linked-dir/secret.md)",
         "```md",
         "[Fenced](target.md)",
         "```",
@@ -674,7 +698,7 @@ test("local link discovery refuses malformed, external, escaping and indirect de
       allowedPathPrefixes: ["docs"], updatedAt: state.createdAt,
     }];
 
-    for (const label of ["", "External", "Absolute", "Escape", "Fragment", "Query", "Symlink", "Fenced"]) {
+    for (const label of ["", "External", "Absolute", "Escape", "Fragment", "Query", "Symlink", "Symlink Ancestor", "Fenced"]) {
       assert.deepEqual(
         await discoverSemanticContextCandidates(dir, state, "T-LINK-REFUSE", { query: `link:${label}`, limit: 10 }),
         [],
