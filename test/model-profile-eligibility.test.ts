@@ -152,6 +152,17 @@ test("profile order does not change normalized assessment", () => {
   );
 });
 
+test("profile ordering uses locale-independent UTF-16 code units", () => {
+  const profiles = [
+    { ...localProfile, profileId: "ä-profile", model: { ...localProfile.model, id: "umlaut" } },
+    { ...localProfile, profileId: "z-profile", model: { ...localProfile.model, id: "ascii" } },
+  ];
+
+  const result = assessModelProfileEligibility(profiles, requirement);
+  assert.deepEqual(result.eligibleProfileIds, ["z-profile", "ä-profile"]);
+  assert.deepEqual(result.profiles.map((profile) => profile.profileId), ["z-profile", "ä-profile"]);
+});
+
 test("duplicate or malformed profiles invalidate the whole configuration", () => {
   const duplicate = assessModelProfileEligibility([localProfile, localProfile], requirement);
   const sparseProfiles = Array<ModelCapabilityProfile>(2);
