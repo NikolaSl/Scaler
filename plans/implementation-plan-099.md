@@ -244,6 +244,13 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   remain open, so SC-07/AC-07 stays Partial. The exact-head candidate passes
   build, 1,129 unit/component, 67 mock integration, 7 conformance/autopilot and
   76 focused context checks plus `git diff --check`.
+  PLAN-145 is the next bounded preparation unit: an explicit
+  `import:<specifier>` query will inspect parser-backed static JavaScript/
+  TypeScript import and re-export declarations, resolve only relative
+  extension-explicit local source targets inside the workspace and task path
+  boundary, and return path-bound candidates for manual approval. Package/
+  alias resolution, dynamic imports, recursive symbol traversal and automatic
+  selection remain outside this unit.
 
 ### Renewed continuation policy (2026-09-19)
 
