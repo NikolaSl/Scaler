@@ -172,6 +172,16 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   then applies request-specific constraints without selecting or falling back to
   a model. No installed dispatch consumes the assessment and no local inference,
   quality or resource evidence exists, so SC-09/AC-09 remains Not assessed.
+  PLAN-138 closes the bounded effective-split gap for normal isolated task-agent
+  execution. When a just-created split externalizes large context, conductor
+  revalidates its task/item identity, memory ledger, immutable bytes and source
+  fingerprints, replaces the oversized bytes with read-only refs, and measures
+  the complete attempt-bearing projected prompt. Dispatch continues only when
+  that prompt both shrinks and fits; the projected input and original plus
+  externalized sources remain freshness-bound through result acceptance. The
+  legacy direct handoff executor stays blocked. Automatic selector discovery,
+  cross-file semantic lookup and task decomposition remain open, so SC-07 and
+  the broader P3 acceptance matrix remain Partial.
 
 ### Renewed continuation policy (2026-09-19)
 

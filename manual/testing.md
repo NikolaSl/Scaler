@@ -440,6 +440,15 @@ ordering. The assessor is non-authorizing and has no selected fallback identity.
 These tests configure or call no model and do not establish local-model quality,
 resource use or AC-09; SC-09 remains Not assessed.
 
+PLAN-138 adds model-free effective-split dispatch coverage. Run
+`node --test --import tsx test/conductor.test.ts test/context-splits.test.ts
+test/context-compaction.test.ts` to cover admitted minimal projection, complete
+final-prompt measurement, missing-read and non-shrinking refusal, malformed or
+tampered externalized evidence, and original/memory freshness through result
+acceptance. The legacy direct handoff executor remains blocked. These tests do
+not establish automatic semantic selection, task decomposition, model quality,
+savings or full SC-07/SC-08 acceptance.
+
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx
 test/stage-artifact-outcome.test.ts test/stage-agents.test.ts

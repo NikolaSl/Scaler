@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned on the P3 preparation branch; implementation and phase review remain
+Implemented on the P3 preparation branch; final phase review and merge remain
 pending.
 
 ## Observed prerequisite gap
@@ -68,3 +68,17 @@ quality or savings, or authorize any route outside the conductor. It does not
 complete SC-07, SC-08 or SC-09. It closes only the bounded gap between an
 already justified oversized-context split and an admitted isolated task-agent
 request.
+
+## Implementation evidence
+
+- Conductor derives the dispatch projection from the just-created split and
+  currently resolved context, preserves every required item, and replaces only
+  verified externalized items with bounded memory id/path/hash references.
+- Externalized memory bytes and any original file source are both attempt-bound
+  and revalidated before dispatch and result acceptance. The referenced memory
+  path is an explicit read-only prompt exception, never a write/edit allowance.
+- Missing `read`, incomplete or duplicate refs, altered memory bytes, foreign
+  item identity, a non-shrinking projection and an over-limit final wrapper all
+  refuse before runner dispatch. The legacy direct handoff executor is unchanged.
+- Focused build and 72 conductor/context split/context compaction checks passed
+  before the final full candidate gate.

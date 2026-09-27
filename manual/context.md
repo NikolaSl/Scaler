@@ -175,6 +175,7 @@ SCALER uses deterministic compression policy helpers for task-agent prompts:
   - `reference-only`: keep ids/paths/refs unless retrieval is explicitly needed.
 - Large exact or summary-ok items are deterministically externalized to `.scaler/memory/` when a context split is recorded, preserving full content with a memory id/path, SHA-256, token estimates, and exactness metadata.
 - If resolved active context exceeds the 75% target, conductor preparation/execution records `.scaler/context/splits.json` artifacts for these oversized contexts with exact refs, summary/reference refs, externalized memory refs, and minimal-context handoff recommendations.
+- During normal conductor execution, a just-created split may replace oversized bytes with compact `.scaler/memory/` references only after task/item identity, memory-ledger metadata and stored bytes are revalidated. The complete attempt-bearing projected prompt must be smaller and within the declared allowance, `read` must be loaded, and the original plus externalized sources remain freshness-bound through result acceptance. These memory paths are explicit read-only context exceptions and never extend write/edit scope.
 - SCALER registers a Pi `session_before_compact` hook that returns a deterministic SCALER-aware compaction result and records `.scaler/context/compactions.json`. Turn-end context usage above the target triggers `ctx.compact()` with SCALER state-preservation instructions.
 - SCALER registers a Pi `context` hook that injects only approved manifest items for the current task when they are compact (`summary`, `snippet`, or `reference-only`) and non-optional. Full and optional items remain pull-based and are not automatically inserted into the parent-session LLM context.
 - Fresh minimal-context continuation handoffs are recorded in `.scaler/context/handoffs.json` with prompt artifacts under `.scaler/context/handoffs/`; execution is blocked unless the generated handoff prompt is below the active-context target and smaller than the split context.
@@ -218,6 +219,7 @@ split record only after revalidating the split, current manifest, every selected
 minimal item, and each externalized source's stored identity and bytes. The
 legacy `execute` argument now fails closed before invoking a runner because this
 route does not yet have conductor-equivalent attempt, provider and result
-admission. Execute prepared work through the normal conductor boundary.
+admission. Normal conductor execution performs its own automatic, admitted
+projection for a valid just-created split; it does not call this legacy runner.
 
 `/scaler-context-handoffs` lists fresh handoff records.
