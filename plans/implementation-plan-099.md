@@ -16,29 +16,11 @@ is a durable continuation record; scheduled execution is recorded separately.
 
 Nikola explicitly authorized autonomous implementation and merging PRs after
 review when there are no valid unresolved findings and applicable tests pass.
-Copilot review remains preferred when it executes, but on 2026-09-17 Nikola
-authorized an independent exact-head fallback after repeated accepted review
-requests produced no pending or completed review. The current scheduled window
-still requires a completed exact-head Copilot review; independent review only
-supplements that gate. Nikola renewed autonomous work again on 2026-09-19 at
-20:52:02Z.
-The current unattended mutation deadline is `2026-09-20T20:52:02Z`
-(23:52:02 Europe/Sofia). This supersedes all earlier cutoffs.
-Stop unattended mutations then and preserve a handoff unless Nikola extends
-or changes the instruction. No paid model spending or deployment is authorized.
-
-Nikola renewed continuation for another 24 hours on 2026-09-26 at
-19:56:50Z. The current unattended mutation deadline is
-`2026-09-27T19:56:50Z` (22:56:50 Europe/Sofia), superseding the September 20
-cutoff. Continue from live Git and review state, report each published commit
-or an hourly no-commit status, and release checked ownership at handoff. The
-  Review, test, expected-head merge, no-spending and no-deployment gates below
-  remain in force, subject to the later explicit reviewer replacement below.
-
-After that handoff, Nikola explicitly requested continuation again. PLAN-106
-records this direct continuation and its bounded scope; the same completed
-The review, test, separate-commit and expected-head merge gates apply, with
-reviewer selection updated by Nikola's later explicit instruction below.
+Nikola renewed unattended work for 24 hours on 2026-09-27 at 20:10:01Z. The
+current mutation deadline is `2026-09-28T20:10:01Z` (23:10:01 Europe/Sofia),
+superseding earlier cutoffs. Check live ownership and time before changes; stop
+mutations, save a durable handoff and release ownership before the deadline.
+No paid model spending or deployment is authorized.
 
 - On 2026-09-27 Nikola replaced Copilot as the mandatory reviewer with an
   independent assistant agent using a lighter model, explicitly suggesting
@@ -48,6 +30,12 @@ reviewer selection updated by Nikola's later explicit instruction below.
   findings and re-review a changed head. A Copilot request or old Copilot
   review is not a merge gate under this newer instruction. No external paid
   model calls are authorized.
+- The PR author assesses every reviewer finding against the requirements and
+  complete context. Fix a valid finding or record a concrete, evidence-backed
+  reason it does not apply. Supply missing context to the reviewer and recheck
+  disputed findings; unresolved material findings block acceptance. Record
+  each disposition with the reviewed commit identity. The same local model may
+  author and review sequentially in separate contexts.
 - Merge only the reviewed, tested head using an expected-head-SHA guard and a
   merge commit to preserve implementation history. Respect branch protection.
 - Keep paid model spending and deployment out of scope. Existing free-provider
@@ -60,13 +48,17 @@ reviewer selection updated by Nikola's later explicit instruction below.
 - Group subsequent work into coherent phase PRs: remaining P2, then P3, etc.
   Keep separate logical commits for planning, reproductions, implementation,
   tests, documentation and review fixes. A new plan does not require a new PR.
+  Choose the smallest implementation that satisfies the explicit acceptance
+  boundary; do not add architecture or tests without a concrete requirement or
+  reproduced risk.
 - Prepare the next dependency-ordered unit while a PR is in review, using a
   separate branch for dependent changes. At most one PR is in review and one
   next unit is in preparation; do not merge before prerequisites are merged.
   Do not spend active work repeatedly sleeping or resending the same review
   request. A successful API response is not a completed review.
-- Every delegated agent must use GPT-6 Astra (`gpt-6-astra`) with reasoning
-  `high` or higher. If unavailable, work locally; do not silently downgrade.
+- The review delegate uses GPT-5.6 Terra/high under Nikola's newer instruction.
+  Other delegated implementation work follows any separately authorized model
+  constraint; do not silently substitute a weaker model.
 - Report meaningful published commits in Bulgarian with commit links, purpose,
   validation and next action. Group related commits when necessary; do not make
   empty reporting commits or repeatedly announce an unchanged pending review.
