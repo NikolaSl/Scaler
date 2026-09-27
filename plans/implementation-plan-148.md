@@ -2,8 +2,8 @@
 
 ## Status
 
-Implemented on the P3 preparation branch; final full-gate evidence, phase review
-and merge remain pending.
+Implemented and validated on the P3 preparation branch; phase review and merge
+remain pending.
 
 ## Observed prerequisite gap
 
@@ -71,5 +71,7 @@ SC-07/AC-07 remains Partial.
   path-and-selector-bound top-level callers containing a direct call.
 - Follow-up regressions reject shadowed bindings, ambiguous selectors, malformed
   source, symlink-backed targets and bounded-search starvation.
-- The TypeScript build and 91/91 focused context checks pass; the final full gate
-  remains to be recorded on the evidence head.
+- The exact implementation-and-documentation candidate passes the TypeScript
+  build, 1,150/1,150 unit/component tests, 68/68 mock-integration tests, 7/7
+  conformance/autopilot tests, 91/91 focused context checks and
+  `git diff --check`.

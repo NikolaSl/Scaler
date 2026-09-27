@@ -568,8 +568,10 @@ edges, non-call/property/new/tagged uses, nested or shadowed calls, ambiguous
 selectors, symlink-backed targets and changed-file starvation. These fixtures
 are syntactic one-hop evidence; they do not implement TypeScript symbol/type
 resolution, recursive call graphs, automatic selection, model quality or
-savings. SC-07 remains Partial. The focused TypeScript build and 91 context
-checks pass; final full-gate counts are recorded in PLAN-148.
+savings. SC-07 remains Partial. The exact implementation-and-documentation
+candidate passes the TypeScript build, 1,150 unit/component tests, 68 mock
+integration tests, 7 conformance/autopilot tests, 91 focused context checks and
+`git diff --check`.
 
 PLAN-147 adds one runtime-owned exact direct operation. Run
 `node --test --import tsx test/tool-routing.test.ts test/tool-requests.test.ts

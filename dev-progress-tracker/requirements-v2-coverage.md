@@ -56,7 +56,10 @@ and direct exported callable, maps a value-level named import to its local alias
 and returns path-and-selector-bound top-level callers containing a direct call.
 Nested, shadowed, property/new/tagged, malformed, ambiguous and symlink-backed
 evidence fails closed. Recursive/semantic call graphs, inferred resolution,
-automatic approval and decomposition remain open, so SC-07 stays Partial.
+automatic approval and decomposition remain open, so SC-07 stays Partial. The
+exact implementation-and-documentation candidate passes the TypeScript build,
+1,150 unit/component tests, 68 mock integration tests, 7
+conformance/autopilot tests, 91 focused context checks and `git diff --check`.
 
 PLAN-138 makes an already justified oversized-context split effective only in
 the normal conductor path. It validates the current task/item set, externalized
