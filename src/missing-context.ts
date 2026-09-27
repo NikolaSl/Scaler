@@ -258,8 +258,30 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
 
   for (const request of requests) {
     if ((request.kind !== "local_research" && request.kind !== "internet_research") || request.status === "resolved" || request.status === "superseded") continue;
-    const matchingReport = reports.find((report) => (report.status === "complete" || report.status === "partial") && (request.evidenceRefs ?? []).includes(report.requestId ?? ""));
+    if (!state.tasks.some((task) => task.id === request.taskId)) continue;
+    const matchingReport = reports.find((report) => report.status === "complete"
+      && report.taskId === request.taskId
+      && report.question === request.query
+      && (request.evidenceRefs ?? []).includes(report.requestId ?? "")
+      && report.conclusions.length > 0
+      && (report.unresolvedUnknowns ?? []).length === 0
+      && !(report.contradictions ?? []).some((contradiction) => contradiction.status === "unresolved"));
     if (!matchingReport) continue;
+    const content = `Research answer (reported claim, not verified source bytes): ${JSON.stringify({
+      reportId: matchingReport.id,
+      sources: matchingReport.sources.map((source) => ({ id: source.id, title: source.title, path: source.path, url: source.url, version: source.version, summary: source.summary })),
+      conclusions: matchingReport.conclusions.map((conclusion) => ({ summary: conclusion.summary, confidence: conclusion.confidence, sourceRefs: conclusion.sourceRefs })),
+    })}`;
+    if (content.length > 16_384) continue;
+    const manifest = await ensureTaskContextManifest(cwd, state, request.taskId);
+    const id = `missing-research-${request.id}`;
+    const existing = manifest.items.find((item) => item.id === id);
+    if (existing && (existing.source !== "inline" || existing.priority !== "required" || existing.content !== content)) continue;
+    if (!existing) await saveTaskContextManifest(cwd, { ...manifest, items: [...manifest.items, {
+      id, type: "knowledge", source: "inline", priority: "required", scope: "full", exactness: "exact",
+      reason: `Attributed research answer for missing-context request ${request.id}; source bytes may still need a separate request.`,
+      content,
+    }] });
     const resolved: MissingContextRequest = {
       ...request,
       status: "resolved",

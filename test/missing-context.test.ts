@@ -8,7 +8,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { loadTaskContextManifest, resolveTaskContextManifest } from "../src/context.js";
+import { ensureTaskContextManifest, loadTaskContextManifest, resolveTaskContextManifest, saveTaskContextManifest } from "../src/context.js";
 import { buildTaskAgentPrompt } from "../src/conductor.js";
 import { writeMemory } from "../src/memory.js";
 import {
@@ -177,6 +177,31 @@ test("research dispatch creates a research request and refresh resolves from rep
     const nextPrompt = buildTaskAgentPrompt({ state: refreshed.state, task: refreshed.state.tasks[0]!, contextItems: context }).prompt;
     assert.match(nextPrompt, /Dependency version is known/);
     assert.match(nextPrompt, /package\.json/);
+    await refreshAndUnblockMissingContext(dir, await loadState(dir));
+    assert.equal((await loadTaskContextManifest(dir, "T-MISS"))?.items.filter((item) => item.id === answer?.id).length, 1);
+  });
+});
+
+test("research refresh does not overwrite an existing required answer identity", async () => {
+  await withTempDir(async (dir) => {
+    const state = createState();
+    await saveState(dir, state);
+    const created = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need local dependency version"]));
+    const dispatched = await dispatchMissingContextRequest(dir, state, created.created[0]?.id, { execute: true });
+    const manifest = await ensureTaskContextManifest(dir, state, "T-MISS");
+    await saveTaskContextManifest(dir, { ...manifest, items: [...manifest.items, {
+      id: `missing-research-${created.created[0]!.id}`, type: "knowledge", source: "inline", priority: "required", scope: "full",
+      reason: "Previous answer", content: "Conflicting earlier answer",
+    }] });
+    await recordResearchReport(dir, {
+      requestId: dispatched.request!.evidenceRefs![0], question: "Need local dependency version", status: "complete", taskId: "T-MISS",
+      sources: [{ id: "package", title: "package.json", quality: "project", path: "package.json" }],
+      conclusions: [{ summary: "Version 1.0", confidence: "high", sourceRefs: ["package"] }],
+    });
+    const refreshed = await refreshAndUnblockMissingContext(dir, await loadState(dir));
+    assert.deepEqual(refreshed.unblockedTaskIds, []);
+    assert.equal((await loadMissingContextRequests(dir))[0]?.status, "in_progress");
+    assert.equal((await loadTaskContextManifest(dir, "T-MISS"))?.items.find((item) => item.id.startsWith("missing-research-"))?.content, "Conflicting earlier answer");
   });
 });
 
