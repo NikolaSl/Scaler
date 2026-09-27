@@ -185,6 +185,8 @@ Task agents must report missing data instead of guessing. When an accepted `scal
 
 Each request records status, kind (`memory`, `file`, `local_research`, `internet_research`, `user`, or `tool`), task/report links, query, source hint, PRD refs, evidence refs, and result summaries. `/scaler-missing-context-run` can resolve file/memory requests, dispatch local/internet research requests, or mark user/tool requests blocked for explicit action. `/scaler-missing-context-resolve` records an operator/user answer. Once all missing-context requests for a blocked task are resolved, SCALER moves the task back to `ready`; `/scaler-step` also refreshes research-backed missing-context resolutions before selecting the next task.
 
+An explicit file request is resolved only after its workspace-relative, task-scoped regular file is added to the task manifest as required exact context. Symlinked ancestors or files, protected paths, missing/non-regular files and files over 1 MiB are refused at this boundary; a larger file needs a narrower exact section in a later request. The next task attempt re-resolves the manifest and applies its normal full-prompt admission and freshness checks. A file changing or disappearing before that attempt cannot be treated as satisfied. A request without a known path uses bounded local research; it is not silently mapped to a guessed file. This flow does not yet infer a precise section, guarantee that the worker chooses the right request, or automatically decompose a task.
+
 ## Compression and exact preservation
 
 SCALER uses deterministic compression policy helpers for task-agent prompts:

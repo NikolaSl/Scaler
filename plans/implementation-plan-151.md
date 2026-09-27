@@ -2,8 +2,8 @@
 
 ## Status
 
-Preparation on `implementation/v2-p3-proportional-routing`; PR #24 remains the
-only PR in review.
+Implemented on `implementation/v2-p3-proportional-routing`; PR #24 remains the
+only PR in review. Validation and publication evidence are recorded below.
 
 ## Observed gap
 
@@ -35,8 +35,28 @@ not check task scope or direct regular-file identity at this boundary.
 - a large requested file does not bypass prompt admission;
 - escape, absolute, protected, symlink ancestor/leaf and non-regular inputs are
   refused without resolution or task unblocking;
-- missing file and no explicit path retain a visible blocker;
+- a missing explicit file retains a visible blocker; a path-unknown request uses
+  the existing bounded local-research path rather than guessing a source;
 - retry is idempotent and does not duplicate the required item.
 
 Run focused missing-context/conductor/context checks after implementation, then
 the TypeScript build and full unit, mock-integration and conformance gate.
+
+## Boundary and evidence
+
+The explicit file request now persists a required exact full-file item before
+resolution. Scope and direct regular-file checks precede the stable manifest
+reader. The next task attempt uses the existing prompt admission, so the
+requested bytes cannot disappear into a length-only summary. The 1 MiB retrieval
+cap prevents this request path from reading arbitrarily large files; narrower
+section selection and unknown-path candidate discovery remain separate work.
+This is process validation, not a claim about any model's ability to identify
+the correct source or solve the task.
+
+Test-first: the prior implementation failed the required prompt and scope
+regressions. The implementation passes the TypeScript build, 149 focused
+missing-context/conductor/context tests, 1,156 unit/component, 68 mock
+integration and 7 conformance/autopilot checks. The mock workflow initially
+failed because its task allowed only `src` while requesting `docs/spec.md`;
+the fixture now explicitly authorizes `docs` and asserts that the retried
+worker prompt contains the requested bytes. `git diff --check` passes.

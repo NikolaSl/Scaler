@@ -302,6 +302,14 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
 
 ### Renewed continuation policy (2026-09-19)
 
+PLAN-151 addresses the explicit missing-file request boundary: a stable,
+regular task-scoped source is required in the context manifest before the
+request resolves, and the retried prompt contains its exact bytes under normal
+admission. Unknown-path discovery, narrower sections for oversized files,
+model choice and decomposition remain open, so SC-07/AC-07 stays Partial.
+The candidate passes build, 1,156 unit/component, 68 mock integration,
+7 conformance/autopilot and 149 focused tests plus `git diff --check`.
+
 The current scheduled instruction requires a completed Copilot review covering
 the exact merge candidate; independent reviews supplement, not replace, that
 gate for this window. Do not treat the historical fallback above as permission

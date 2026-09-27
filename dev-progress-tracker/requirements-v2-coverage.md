@@ -13,6 +13,14 @@ means related implementation exists but full revised behavior is not verified.
 Not assessed means this review did not establish the acceptance result.
 No row is Verified in this requirements revision.
 
+PLAN-151 adds a bounded explicit file-request path: the request is resolved
+only after a stable regular file within task scope is persisted as required
+exact context, and the next worker prompt receives the exact bytes. Missing,
+symlinked, protected, unauthorized, non-regular and oversized sources are
+refused. Unknown-path source discovery and narrower section requests remain
+open; SC-07/AC-07 stays Partial. Candidate evidence: build, 1,156 unit,
+68 mock integration, 7 conformance and 149 focused tests.
+
 Prior review ran the baseline TypeScript build successfully, 488/488 unit tests
 and 66/67 mock integration tests. The failed retention fixture uses fixed
 December 2025 dates with a 200-day threshold and depends on the wall clock.

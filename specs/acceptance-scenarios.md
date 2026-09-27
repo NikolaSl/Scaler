@@ -87,6 +87,11 @@ but cannot silently omit the required constraint. An unavailable or unauthorized
 source yields a truthful blocker. Record both context size and whether the
 worker obtained the information it needed; token savings alone do not pass.
 
+PLAN-151 covers only an explicit, scoped file request: the exact file becomes
+required context before resolution and the next prompt is admitted with it.
+Unknown-path candidate discovery, narrow section selection, and the full
+multi-window scenario remain open; SC-07 is Partial.
+
 ## AC-08
 
 **Three tool routes and MCP size — SC-08.**
