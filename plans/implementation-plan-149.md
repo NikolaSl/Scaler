@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned on the P3 preparation branch; implementation, validation, phase review
+Implemented on the P3 preparation branch; final full-gate evidence, phase review
 and merge remain pending.
 
 ## Observed prerequisite gap
@@ -55,3 +55,16 @@ barrels, TypeScript symbols or types, higher-order aliases, assignments,
 methods, classes, natural-language inference, automatic approval, task
 decomposition, model execution, quality or savings evidence. SC-07/AC-07
 remains Partial.
+
+## Implementation evidence
+
+- `test/context.test.ts` first reproduced exact aliased re-export/import
+  discovery, distinct callers, nested/shadowed exclusion, malformed query
+  fail-closed behavior and bounded-search starvation before implementation.
+- `src/context.ts` validates the explicit query, verifies stable regular caller,
+  barrel and final-target bytes, resolves exactly one value-level named
+  re-export, and emits only exact path-and-selector-bound top-level callers.
+- Follow-up regressions reject conflicting direct exports, ambiguous/type/star
+  edges, escaping paths and symlink-backed barrel or target hops.
+- The TypeScript build and 5/5 focused re-export-caller checks pass; the final
+  full gate remains to be recorded on the evidence head.

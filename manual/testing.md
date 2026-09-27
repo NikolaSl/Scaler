@@ -573,6 +573,19 @@ candidate passes the TypeScript build, 1,150 unit/component tests, 68 mock
 integration tests, 7 conformance/autopilot tests, 91 focused context checks and
 `git diff --check`.
 
+PLAN-149 adds one exact named re-export hop to caller discovery. Run
+`node --test --import tsx test/context.test.ts` to cover explicit
+`reexport-caller:<barrelSpecifier>#<identifier>` parsing, source/public/local
+alias binding, distinct top-level callers, manual approval and exact caller-byte
+resolution. The suite rejects malformed/padded queries and source, ambiguous or
+conflicting direct exports, type-only/export-star edges, nested or shadowed
+calls, escaping paths, symlink-backed barrel/target hops and changed-file
+starvation. These fixtures remain syntactic one-hop re-export evidence; they do
+not implement package aliases, inferred extensions, recursive barrels,
+TypeScript symbol/type resolution, automatic selection, model quality or
+savings. SC-07 remains Partial. The focused TypeScript build and 5
+re-export-caller checks pass; final full-gate counts are recorded in PLAN-149.
+
 PLAN-147 adds one runtime-owned exact direct operation. Run
 `node --test --import tsx test/tool-routing.test.ts test/tool-requests.test.ts
 test/tools.test.ts` to cover structured direct-operation persistence, fresh

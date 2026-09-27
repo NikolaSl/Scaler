@@ -286,6 +286,17 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   Partial. The exact implementation-and-documentation candidate passes the
   TypeScript build, 1,150 unit/component, 68 mock integration, 7
   conformance/autopilot and 91 focused context checks plus `git diff --check`.
+  PLAN-149 extends that reverse lookup through exactly one local named re-export.
+  An explicit `reexport-caller:<barrelSpecifier>#<identifier>` query requires an
+  exact value-level named import, one stable regular barrel with one direct
+  value-level named re-export, and one stable regular final target with one
+  direct exported top-level callable. Only top-level callers containing a direct
+  call through the exact local alias are emitted, and approval remains manual.
+  Conflicting/direct/type/star, malformed, escaping, nested, shadowed and
+  symlink-backed evidence fails closed. Package/alias resolution, inferred
+  extensions, multiple or recursive barrels, semantic/type resolution,
+  automatic approval and decomposition remain open, so SC-07/AC-07 stays
+  Partial. Final candidate evidence is recorded in PLAN-149.
 
 ### Renewed continuation policy (2026-09-19)
 
