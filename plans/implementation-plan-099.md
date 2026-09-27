@@ -211,6 +211,8 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   before attempt admission, spawned-agent accounting or dispatch. Automatic
   retry policy, selector inference, task decomposition, model quality and
   savings remain outside this unit, so SC-07/AC-07 stays Partial.
+  The candidate passes build, 1,120 unit/component, 67 mock integration, 7
+  conformance/autopilot and 44 focused checks plus `git diff --check`.
 
 ### Renewed continuation policy (2026-09-19)
 

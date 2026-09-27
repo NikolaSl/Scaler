@@ -483,7 +483,10 @@ test/context-splits.test.ts test/attempt-execution.test.ts` to cover missing
 `read` refusal, smaller reference-bearing dispatch, preservation of retry
 instructions, complete final-prompt admission and changed externalized-evidence
 rejection. The fixtures use deterministic runners and do not claim automatic
-retry policy, model quality or savings.
+retry policy, model quality or savings. The PLAN-141 candidate passes the
+TypeScript build, 1,120 unit/component tests, 67 mock integration tests, 7
+conformance/autopilot tests, 44 focused debug-retry/context-split/attempt checks
+and `git diff --check`.
 
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx

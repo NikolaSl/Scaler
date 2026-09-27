@@ -2,8 +2,8 @@
 
 ## Status
 
-Implemented on the P3 preparation branch. Focused and full exact-head evidence,
-final phase review and merge remain pending.
+Implemented and validated on the P3 preparation branch. Final phase review and
+merge remain pending.
 
 ## Observed prerequisite gap
 
@@ -44,6 +44,10 @@ prompt builder, attempt admission and task-agent boundary.
 Run focused debug-retry/context-split/attempt checks after each meaningful
 change, then the full build, unit/component, mock-integration,
 conformance/autopilot and diff gate on the candidate.
+
+The candidate passes the TypeScript build, 1,120 unit/component tests, 67 mock
+integration tests, 7 conformance/autopilot tests, 44 focused
+debug-retry/context-split/attempt checks and `git diff --check`.
 
 ## Explicit limits
 

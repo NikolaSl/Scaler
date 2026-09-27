@@ -91,6 +91,8 @@ externalized evidence. Failed, non-shrinking or still-oversized projections
 refuse before attempt admission, spawned-agent accounting or runner dispatch.
 Automatic retry policy, selector inference, task decomposition and model
 quality or savings evidence remain open, so SC-07 stays Partial.
+The candidate passes build, 1,120 unit/component, 67 mock integration, 7
+conformance/autopilot and 44 focused checks plus `git diff --check`.
 
 PLAN-137 adds the model-profile eligibility prerequisite deliberately left open
 by PLAN-132. Versioned profiles carry an exact provider identity, locality,
