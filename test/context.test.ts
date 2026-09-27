@@ -826,6 +826,62 @@ test("local import discovery refuses non-static and unsafe module specifiers", a
   });
 });
 
+test("local import discovery rejects malformed sources and symlinked target ancestors", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"));
+    await mkdir(join(dir, "real"));
+    await writeFile(join(dir, "real", "target.ts"), "export const target = true;\n", "utf8");
+    await symlink(join(dir, "real"), join(dir, "src", "linked-dir"));
+    await writeFile(join(dir, "src", "malformed.ts"), "import { from './target.ts';\n", "utf8");
+    await writeFile(join(dir, "src", "linked-import.ts"), "import './linked-dir/target.ts';\n", "utf8");
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-IMPORT-HARDEN", status: "ready", title: "Refuse unsafe static module edges",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    assert.deepEqual(
+      await discoverSemanticContextCandidates(
+        dir, state, "T-IMPORT-HARDEN", { query: "import:./target.ts", limit: 10 },
+      ),
+      [],
+    );
+    assert.deepEqual(
+      await discoverSemanticContextCandidates(
+        dir, state, "T-IMPORT-HARDEN", { query: "import:./linked-dir/target.ts", limit: 10 },
+      ),
+      [],
+    );
+  });
+});
+
+test("unrelated changed files cannot starve bounded local import discovery", async () => {
+  await withTempDir(async (dir) => {
+    await execFileAsync("git", ["init"], { cwd: dir });
+    await mkdir(join(dir, "noise"));
+    await mkdir(join(dir, "src"));
+    for (let index = 0; index < 30; index++) {
+      const name = `noise-${String(index).padStart(2, "0")}.ts`;
+      await writeFile(join(dir, "noise", name), `export const noise${index} = ${index};\n`, "utf8");
+    }
+    await writeFile(join(dir, "src", "entry.ts"), "import './target.ts';\n", "utf8");
+    await writeFile(join(dir, "src", "target.ts"), "export const target = 'found';\n", "utf8");
+    await execFileAsync("git", ["add", "-N", "noise", "src/entry.ts", "src/target.ts"], { cwd: dir });
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-NOISE-IMPORT", status: "ready", title: "Locate bounded import after unrelated changes",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-NOISE-IMPORT", { query: "import:./target.ts", limit: 10 },
+    );
+
+    assert.equal(candidates.length, 1);
+    assert.equal(candidates[0]?.path, "src/target.ts");
+  });
+});
+
 test("approveContextCandidate persists selected candidates without duplicating manifest entries", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
