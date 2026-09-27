@@ -269,3 +269,70 @@ test("runScalerAutomation continues a blocked task through local missing-context
     assert.equal((await loadState(dir)).tasks.find((task) => task.id === "T-AUTO")?.status, "validated");
   });
 });
+
+test("runScalerAutomation stops after one unresolved missing-context research result", async () => {
+  await withTempDir(async (dir) => {
+    const state = createState("planning");
+    await saveState(dir, state);
+    const question = "Determine the unresolved local widget rule.";
+    let taskCalls = 0;
+    let researchCalls = 0;
+
+    const result = await runScalerAutomation(dir, state, {
+      maxSteps: 12,
+      maxStageSteps: 5,
+      researchTools: ["read"],
+    }, {
+      stage: stageRunner,
+      task: async (request) => {
+        taskCalls += 1;
+        return {
+          taskId: request.taskId,
+          exitCode: 0,
+          stdoutEvents: [{
+            type: "scaler_task_report",
+            taskId: request.taskId,
+            ...request.attempt,
+            status: "needs_data",
+            summary: "Need a focused local fact before continuing.",
+            changedFiles: [],
+            blockers: [],
+            missingData: [question],
+          }],
+          stderr: "",
+          timedOut: false,
+          aborted: false,
+        };
+      },
+      research: async (request) => {
+        researchCalls += 1;
+        const requestId = request.taskId.slice("research-agent-".length);
+        return {
+          taskId: request.taskId,
+          exitCode: 0,
+          stdoutEvents: [{
+            type: "scaler_research_report",
+            id: "R-AUTO-CONTEXT-PARTIAL",
+            requestId,
+            taskId: "T-AUTO",
+            question,
+            status: "partial",
+            sources: [{ id: "local-ledger", title: "Local ledger", quality: "project", path: "docs/local-ledger.md" }],
+            conclusions: [],
+            unresolvedUnknowns: ["The local rule is still unknown."],
+          }],
+          stderr: "",
+          timedOut: false,
+          aborted: false,
+        };
+      },
+    });
+
+    assert.equal(result.completed, false);
+    assert.equal(result.stopReason, "blocked");
+    assert.equal(taskCalls, 1);
+    assert.equal(researchCalls, 1, "automation must not rerun incomplete research within the same call");
+    assert.notEqual((await loadMissingContextRequests(dir))[0]?.status, "resolved");
+    assert.equal((await loadState(dir)).tasks.find((task) => task.id === "T-AUTO")?.status, "blocked");
+  });
+});
