@@ -2,8 +2,8 @@
 
 ## Status
 
-Planned on the P3 preparation branch; implementation, validation, phase review
-and merge remain pending.
+Implemented and validated on the P3 preparation branch; phase review and merge
+remain pending.
 
 ## Observed prerequisite gap
 
@@ -53,3 +53,18 @@ candidate automatically, resolve code imports/call graphs, decompose a task,
 configure a model, or prove quality or savings. It adds one explicit exact
 local-document bridge to the existing bounded/manual pipeline; SC-07/AC-07
 remains Partial.
+
+## Implementation evidence
+
+- `test/context.test.ts` first reproduced three missing behaviors: exact target
+  approval/resolution, repeated-target deduplication and fail-closed handling of
+  external, escaping, fragmented, queried, symlinked and fenced destinations.
+- `src/context.ts` parses only CommonMark link nodes, compares their rendered
+  inline labels exactly, normalizes relative targets against the source document
+  and requires both source and target to be direct stable regular files inside
+  the task's allowed workspace paths.
+- A follow-up test verifies formatted labels and a parent-relative target that
+  stays within scope, plus refusal through a symlinked ancestor directory.
+- The exact-head candidate passes the TypeScript build, 1,129 unit/component
+  tests, 67 mock integration tests, 7 conformance/autopilot tests, 76 focused
+  context tests and `git diff --check`.

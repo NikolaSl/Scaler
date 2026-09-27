@@ -39,6 +39,10 @@ Search returns bounded candidates with relevance reasons. Selection and retrieva
 are separate operations; embeddings are optional.
 A section request MUST retrieve that section, not the first N characters.
 Missing/ambiguous sections, stale versions and truncation MUST be explicit.
+An explicit local-document lookup may follow a parsed Markdown link only after
+the rendered label, relative destination, workspace boundary, task path scope
+and direct regular-file identity are verified. External URLs and links whose
+query/fragment semantics are not implemented remain unavailable.
 
 Preserve exact code, contracts, identifiers and other exact material externally.
 Summaries MUST cite source versions and distinguish observations from inference.

@@ -234,6 +234,16 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   the caller total. The candidate passes build, 1,125 unit/component, 67 mock
   integration, 7 conformance/autopilot and 58 focused checks plus
   `git diff --check`; SC-07/AC-07 stays Partial.
+  PLAN-144 adds one deterministic cross-file document bridge. An explicit
+  `link:<label>` query parses CommonMark link nodes in the bounded allowed
+  Markdown source set, matches rendered labels exactly, resolves only relative
+  local file destinations and returns unique path-bound targets for manual
+  approval. External, absolute, escaping, queried, fragmented, fenced, symlinked
+  or non-regular destinations fail closed. Natural-language inference, recursive
+  crawling, code import/call-graph lookup, automatic approval and decomposition
+  remain open, so SC-07/AC-07 stays Partial. The exact-head candidate passes
+  build, 1,129 unit/component, 67 mock integration, 7 conformance/autopilot and
+  76 focused context checks plus `git diff --check`.
 
 ### Renewed continuation policy (2026-09-19)
 

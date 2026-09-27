@@ -103,6 +103,16 @@ duplicate headings, fenced pseudo-headings, unsupported files and oversized
 sections return no selector candidate. Listing never chooses or approves a
 candidate automatically.
 
+Local Markdown-link discovery is also explicit and read-only. A `link:<label>`
+query searches the bounded allowed Markdown source set, matches the rendered
+CommonMark link label exactly and resolves a relative destination against its
+source document. Both source and target must be direct stable regular files;
+the normalized target must remain inside the workspace and task allowed paths.
+Repeated links to one target deduplicate, while distinct eligible targets stay
+separate choices. External, absolute, escaping, query/fragment, fenced and
+symlink-backed destinations return no candidate. Approval is still manual, and
+link lookup does not recursively crawl documents or infer a label from prose.
+
 ## Final prompt admission
 
 Execution uses the task manifest allowance, an explicit caller allowance, or an
@@ -216,7 +226,7 @@ Default/discovered manifests mark file snippets, task metadata, validation evide
 
 `/scaler-context-status` displays a manifest summary for the specified task, current task, or first task.
 
-`/scaler-context-candidates` lists scored memory/file/PRD/manifest candidates without changing the manifest or active context. An exact `function:<identifier>` query switches to bounded JavaScript/TypeScript selector discovery; `heading:<text>` does the same for exact Markdown ATX headings. Both search only allowed task paths. Malformed queries and ineligible sections/declarations return no selector candidate; same-named matches in different files remain separate choices.
+`/scaler-context-candidates` lists scored memory/file/PRD/manifest candidates without changing the manifest or active context. An exact `function:<identifier>` query switches to bounded JavaScript/TypeScript selector discovery; `heading:<text>` does the same for exact Markdown ATX headings; and `link:<label>` resolves exact local Markdown links to bounded file candidates. All search only allowed task paths. Malformed queries and ineligible sections, declarations or destinations return no candidate; distinct same-named matches remain separate choices.
 
 `/scaler-context-approve` adds the selected candidate to the task manifest unless an equivalent memory/file/content item is already present.
 

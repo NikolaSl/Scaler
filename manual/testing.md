@@ -519,6 +519,19 @@ candidate passes the TypeScript build, 1,125 unit/component tests, 67 mock
 integration tests, 7 conformance/autopilot tests, 58 focused checks and
 `git diff --check`.
 
+PLAN-144 adds exact local Markdown-link candidate discovery. Run
+`node --test --import tsx test/context.test.ts` to cover explicit
+`link:<label>` parsing, exact rendered-label matching, manual approval and
+target resolution, repeated-target deduplication, distinct targets, formatted
+labels and parent-relative normalization within allowed paths. The same suite
+refuses empty labels, external/absolute/escaping/query/fragment destinations,
+fenced pseudo-links, leaf and ancestor symlinks and non-files. These deterministic
+fixtures do not infer labels from prose, recursively crawl documents, resolve
+imports/call graphs, approve candidates automatically or establish model quality
+or savings; SC-07 remains Partial. The exact-head candidate passes the TypeScript
+build, 1,129 unit/component tests, 67 mock integration tests, 7
+conformance/autopilot tests, 76 focused context checks and `git diff --check`.
+
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx
 test/stage-artifact-outcome.test.ts test/stage-agents.test.ts
