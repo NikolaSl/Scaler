@@ -20,6 +20,12 @@ symlinked, protected, unauthorized, non-regular and oversized sources are
 refused. Unknown-path source discovery and narrower section requests remain
 open; SC-07/AC-07 stays Partial. Candidate evidence: build, 1,156 unit,
 68 mock integration, 7 conformance and 149 focused tests.
+PLAN-152 makes a complete, task- and request-matched research report available
+as required attributed context before a missing-data request resolves. Partial,
+foreign, contradictory and unresolved reports remain pending. Report claims do
+not prove exact source bytes, semantic discovery or model quality; SC-07/AC-07
+remains Partial. Candidate evidence: build, 1,158 unit, 68 mock integration,
+7 conformance and 61 focused tests.
 
 Prior review ran the baseline TypeScript build successfully, 488/488 unit tests
 and 66/67 mock integration tests. The failed retention fixture uses fixed

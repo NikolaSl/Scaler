@@ -187,6 +187,8 @@ Each request records status, kind (`memory`, `file`, `local_research`, `internet
 
 An explicit file request is resolved only after its workspace-relative, task-scoped regular file is added to the task manifest as required exact context. Symlinked ancestors or files, protected paths, missing/non-regular files and files over 1 MiB are refused at this boundary; a larger file needs a narrower exact section in a later request. The next task attempt re-resolves the manifest and applies its normal full-prompt admission and freshness checks. A file changing or disappearing before that attempt cannot be treated as satisfied. A request without a known path uses bounded local research; it is not silently mapped to a guessed file. This flow does not yet infer a precise section, guarantee that the worker chooses the right request, or automatically decompose a task.
 
+For a path-unknown research request, only a complete report tied to that exact task, question and research request can resolve the missing-data request. Unresolved unknowns or contradictions keep it pending. Its sourced conclusions and source identifiers are saved as required attributed context before the task resumes, with a 16,384-character bound and normal next-prompt admission. The answer is labeled as a research claim; source metadata does not substitute for exact source bytes. The worker can ask for the precise source in a follow-up request. A partial or conflicting report does not silently unblock the task.
+
 ## Compression and exact preservation
 
 SCALER uses deterministic compression policy helpers for task-agent prompts:

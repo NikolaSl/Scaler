@@ -2,7 +2,7 @@
 
 ## Status
 
-Preparation on `implementation/v2-p3-proportional-routing`; PR #24 is the only
+Implemented on `implementation/v2-p3-proportional-routing`; PR #24 is the only
 PR in review and needs an actual review on its current head.
 
 ## Observed gap
@@ -30,3 +30,19 @@ unknown. This can unblock a worker while starving it of information.
 This does not perform natural-language search, endorse source truth, infer a
 file/section or automatically approve task decomposition. A worker can ask for
 the exact source after receiving the attributed research answer.
+
+## Evidence and limits
+
+The prior implementation failed two new tests: a complete report unblocked the
+task without supplying its conclusion to the next prompt, and a partial or
+foreign report could resolve the request. The implementation requires a matching
+complete report with sourced conclusions and no unresolved unknowns or
+contradictions, persists a bounded attributed answer in the task manifest, and
+then resolves the request. Conflicting existing answer identities stay pending.
+An idempotent retry does not duplicate context. This is a report snapshot, not
+a live fingerprint of the sources it cites, and it cannot prove the report's
+truth or completeness. Manual answers and exact source discovery remain open.
+
+The executable candidate passes the TypeScript build, 1,158/1,158 unit,
+68/68 mock integration, 7/7 conformance/autopilot and 61/61 focused
+missing-context/research/conductor tests plus `git diff --check`.
