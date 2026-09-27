@@ -768,6 +768,19 @@ async function discoverCandidateFilePaths(cwd: string, task: ScalerTaskState, ch
   return unique(paths).filter((path) => isProbablyTextPath(path)).slice(0, 25);
 }
 
+async function discoverAllowedCandidateFilePaths(
+  cwd: string,
+  task: ScalerTaskState,
+  changedPaths: string[],
+): Promise<string[]> {
+  const allowedPrefixes = task.allowedPathPrefixes ?? [];
+  const paths = changedPaths.filter((path) => !isRuntimePath(path) && taskPathMatches(path, allowedPrefixes));
+  for (const prefix of allowedPrefixes) {
+    for (const path of await collectCandidateFiles(cwd, normalizeRelativePath(prefix), 2, 8)) paths.push(path);
+  }
+  return unique(paths).filter((path) => isProbablyTextPath(path)).slice(0, 25);
+}
+
 function parseFunctionSelectorCandidateQuery(query: string | undefined): { requested: boolean; name?: string } {
   const value = query?.trim() ?? "";
   if (!value.startsWith("function:")) return { requested: false };
@@ -787,8 +800,8 @@ async function discoverTypeScriptFunctionCandidates(
   const changedPaths = await getGitChangedPaths(cwd);
   const selector = { kind: "typescript-function", name } as const;
   const candidates: ContextCandidate[] = [];
-  for (const path of await discoverCandidateFilePaths(cwd, task, changedPaths)) {
-    if (!taskPathMatches(path, task.allowedPathPrefixes ?? []) || getTypeScriptScriptKind(path) === undefined) continue;
+  for (const path of await discoverAllowedCandidateFilePaths(cwd, task, changedPaths)) {
+    if (getTypeScriptScriptKind(path) === undefined) continue;
     try {
       await resolveFileContextContent(cwd, path, "section", selector);
     } catch {
