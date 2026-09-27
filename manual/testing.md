@@ -473,7 +473,9 @@ refusal, path-bound candidate identity and unrelated-change starvation. The
 existing CommonMark selector remains the sole eligibility test, and generic and
 function discovery retain their prior behavior. These fixtures do not infer a
 heading from prose, follow document links, choose a candidate, decompose a task
-or establish model quality or savings.
+or establish model quality or savings. The exact-head PLAN-140 candidate passes
+the TypeScript build, 1,117 unit/component tests, 67 mock integration tests, 7
+conformance/autopilot tests, 72 focused context checks and `git diff --check`.
 
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx

@@ -200,7 +200,9 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   sections, unrelated changed paths and premature candidate-limit starvation
   fail closed. Approval remains manual. Natural-language or fuzzy inference,
   document-link lookup, automatic selector choice and task decomposition remain
-  open, so SC-07/AC-07 stays Partial.
+  open, so SC-07/AC-07 stays Partial. The exact-head candidate passes build,
+  1,117 unit/component, 67 mock integration, 7 conformance/autopilot and 72
+  focused context checks plus `git diff --check`.
 
 ### Renewed continuation policy (2026-09-19)
 

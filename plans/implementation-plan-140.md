@@ -64,5 +64,8 @@ SC-07/AC-07 stays Partial.
   CommonMark-backed section resolver.
 - Candidate identity hashes the complete path and raw heading before readable
   suffixes, preserving separate choices through listing and approval.
-- Focused context validation passes 71/71 checks; final aggregate gate evidence
-  is recorded after the exact-head run.
+- An adversarial follow-up locks Unicode NBSP as part of the exact heading
+  identity instead of allowing generic whitespace normalization to retarget it.
+- The exact-head candidate passes the TypeScript build, 1,117 unit/component
+  tests, 67 mock integration tests, 7 conformance/autopilot tests, 72 focused
+  context checks and `git diff --check`.

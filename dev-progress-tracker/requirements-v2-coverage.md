@@ -79,7 +79,9 @@ selector finds one unique, within-limit document heading. Duplicate, fenced,
 unsupported and oversized sections fail closed; same-named headings in separate
 files remain separate choices. Natural-language or fuzzy inference, document
 link traversal, automatic selection and task decomposition remain open, so
-SC-07 stays Partial.
+SC-07 stays Partial. The exact-head candidate passes build, 1,117
+unit/component, 67 mock integration, 7 conformance/autopilot and 72 focused
+context checks plus `git diff --check`.
 
 PLAN-137 adds the model-profile eligibility prerequisite deliberately left open
 by PLAN-132. Versioned profiles carry an exact provider identity, locality,
