@@ -1099,6 +1099,136 @@ test("unrelated changed files cannot starve bounded imported function discovery"
   });
 });
 
+test("imported caller discovery approves and resolves only the exact top-level caller", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"));
+    await writeFile(join(dir, "src", "target.ts"), "export function selected(value: string): string { return value; }\n", "utf8");
+    const caller = [
+      "export function loadSelected(value: string): string {",
+      "  return localSelected(value);",
+      "}",
+    ].join("\n");
+    await writeFile(
+      join(dir, "src", "entry.ts"),
+      [
+        "import { selected as localSelected } from './target.ts';",
+        caller,
+        "export function unrelated(value: string): string { return value; }",
+      ].join("\n"),
+      "utf8",
+    );
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-IMPORTED-CALLER", status: "ready", title: "Locate exact imported caller",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-IMPORTED-CALLER", { query: "import-caller:./target.ts#selected", limit: 10 },
+    );
+
+    assert.equal(candidates.length, 1);
+    const [candidate] = candidates;
+    assert.equal(candidate?.path, "src/entry.ts");
+    assert.deepEqual(candidate?.selector, { kind: "typescript-function", name: "loadSelected" });
+    assert.match(candidate?.reason ?? "", /exact imported caller/i);
+
+    const approved = await approveContextCandidate(
+      dir, state, "T-IMPORTED-CALLER", candidate!.id,
+      { query: "import-caller:./target.ts#selected" },
+    );
+    const item = approved.manifest.items.find((entry) => entry.path === "src/entry.ts");
+    assert.equal(approved.added, true);
+    assert.deepEqual(item?.selector, { kind: "typescript-function", name: "loadSelected" });
+    const resolved = await resolveTaskContextManifest(dir, state, approved.manifest);
+    assert.equal(resolved.find((entry) => entry.id === item?.id)?.content, caller);
+  });
+});
+
+test("imported caller discovery preserves distinct exact callers and ignores nested call evidence", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"));
+    await writeFile(join(dir, "src", "target.ts"), "export const target = (): number => 1;\n", "utf8");
+    await writeFile(
+      join(dir, "src", "entry.ts"),
+      [
+        "import { target as invoke } from './target.ts';",
+        "export const first = (): number => invoke();",
+        "export function second(): number { return invoke(); }",
+        "export function nestedOnly(): () => number { return () => invoke(); }",
+      ].join("\n"),
+      "utf8",
+    );
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-IMPORTED-CALLERS", status: "ready", title: "Locate exact imported callers",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-IMPORTED-CALLERS", { query: "import-caller:./target.ts#target", limit: 10 },
+    );
+
+    assert.deepEqual(
+      candidates.map((candidate) => candidate.selector?.kind === "typescript-function" ? candidate.selector.name : undefined).sort(),
+      ["first", "second"],
+    );
+    assert.equal(new Set(candidates.map((candidate) => candidate.id)).size, 2);
+  });
+});
+
+test("imported caller discovery fails closed on malformed queries and non-call edges", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"));
+    await writeFile(join(dir, "src", "target.ts"), "export function target(): void {}\n", "utf8");
+    await writeFile(
+      join(dir, "src", "edges.ts"),
+      [
+        "import defaultTarget from './target.ts';",
+        "import * as namespaceTarget from './target.ts';",
+        "import type { target as typedTarget } from './target.ts';",
+        "import { target as localTarget } from './target.ts';",
+        "export function propertyOnly(): void { ({ localTarget }).localTarget(); }",
+        "export function constructedOnly(): void { new localTarget(); }",
+        "export function taggedOnly(): void { localTarget``; }",
+        "export function referencedOnly(): unknown { return localTarget; }",
+        "import('./target.ts');",
+        "require('./target.ts');",
+      ].join("\n"),
+      "utf8",
+    );
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-IMPORTED-CALLER-REFUSE", status: "ready", title: "Refuse inexact imported caller evidence",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    for (const query of [
+      "import-caller:",
+      "import-caller: ./target.ts#target",
+      "import-caller:./target.ts #target",
+      "import-caller:./target.ts# target",
+      "import-caller:./target.ts#target ",
+      "import-caller:./target#target",
+      "import-caller:package-name#target",
+      "import-caller:./target.ts#not-valid!",
+      "import-caller:./target.ts#target#extra",
+      "import-caller:./target.ts#defaultTarget",
+      "import-caller:./target.ts#namespaceTarget",
+      "import-caller:./target.ts#typedTarget",
+      "import-caller:./target.ts#target",
+    ]) {
+      assert.deepEqual(
+        await discoverSemanticContextCandidates(
+          dir, state, "T-IMPORTED-CALLER-REFUSE", { query, limit: 10 },
+        ),
+        [],
+        query,
+      );
+    }
+  });
+});
+
 test("approveContextCandidate persists selected candidates without duplicating manifest entries", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
