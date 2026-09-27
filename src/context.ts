@@ -8,6 +8,7 @@ import { constants, type Stats } from "node:fs";
 import { lstat, mkdir, open, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Parser } from "commonmark";
+import ts from "typescript";
 import { getGitChangedPaths } from "./git.js";
 import { loadMemoryIndex, retrieveMemory, type MemoryEntry } from "./memory.js";
 import { loadExecutionPlan, type ExecutionPlanTask } from "./plans.js";
@@ -58,14 +59,24 @@ export type ContextManifestSource = "inline" | "file" | "memory" | "state" | "ta
 export interface MarkdownHeadingSelector {
   kind: "markdown-heading";
   heading: string;
+  name?: never;
   maxChars?: number;
 }
+
+export interface TypeScriptFunctionSelector {
+  kind: "typescript-function";
+  name: string;
+  heading?: never;
+  maxChars?: number;
+}
+
+export type FileContextSelector = MarkdownHeadingSelector | TypeScriptFunctionSelector;
 
 export interface FileContextSourceBinding {
   itemId: string;
   path: string;
   scope: ContextScope;
-  selector?: MarkdownHeadingSelector;
+  selector?: FileContextSelector;
   contentFingerprint: string;
   outputExemptible: boolean;
 }
@@ -82,7 +93,7 @@ export interface TaskContextManifestItem {
   path?: string;
   memoryId?: string;
   taskId?: string;
-  selector?: MarkdownHeadingSelector;
+  selector?: FileContextSelector;
 }
 
 export interface TaskContextManifest {
@@ -109,7 +120,7 @@ export interface ContextCandidate {
   content?: string;
   path?: string;
   memoryId?: string;
-  selector?: MarkdownHeadingSelector;
+  selector?: FileContextSelector;
 }
 
 export interface ContextCandidateSearchOptions {
@@ -239,10 +250,7 @@ export async function saveTaskContextManifest(cwd: string, manifest: TaskContext
       path: item.path?.trim() || undefined,
       memoryId: item.memoryId?.trim() || undefined,
       taskId: item.taskId?.trim() || undefined,
-      selector: item.selector ? {
-        ...item.selector,
-        heading: trimMarkdownHeadingWhitespace(item.selector.heading),
-      } : undefined,
+      selector: item.selector ? normalizeFileContextSelector(item.selector) : undefined,
     })),
   };
   validateTaskContextManifest(normalized);
@@ -272,7 +280,7 @@ export function formatTaskContextManifest(manifest: TaskContextManifest): string
   validateTaskContextManifest(manifest);
   const lines = [`Task context manifest: ${manifest.taskId} items=${manifest.items.length} tokenBudget=${manifest.tokenBudget ?? "default"}`];
   for (const item of manifest.items) {
-    const selector = item.selector ? ` selector=${item.selector.kind}:${item.selector.heading}` : "";
+    const selector = item.selector ? ` selector=${formatFileContextSelector(item.selector)}` : "";
     lines.push(`- ${item.id}: ${item.source}/${item.type} ${item.priority} ${item.scope} exactness=${normalizeExactness(item.exactness, item.scope)}${selector} reason=${item.reason}`);
   }
   return lines.join("\n");
@@ -530,7 +538,7 @@ async function resolveFileContextContent(
   cwd: string,
   path: string,
   scope: ContextScope,
-  selector?: MarkdownHeadingSelector,
+  selector?: FileContextSelector,
 ): Promise<string> {
   const content = (await readStableContextFile(cwd, path)).bytes.toString("utf8");
   return renderFileContextContent(content, path, scope, selector);
@@ -560,13 +568,15 @@ function renderFileContextContent(
   content: string,
   path: string,
   scope: ContextScope,
-  selector?: MarkdownHeadingSelector,
+  selector?: FileContextSelector,
 ): string {
   if (scope === "full") return content;
   if (scope === "reference-only") return `File reference: ${path}`;
   if (scope === "section") {
     if (!selector) throw new Error(`File section selector is required for ${path}.`);
-    return extractMarkdownHeadingSection(content, path, selector);
+    return selector.kind === "markdown-heading"
+      ? extractMarkdownHeadingSection(content, path, selector)
+      : extractTypeScriptFunctionSection(content, path, selector);
   }
   const maxChars = scope === "snippet" ? 2_400 : 3_200;
   if (content.length <= maxChars) return content;
@@ -688,6 +698,60 @@ function extractMarkdownHeadingSection(content: string, path: string, selector: 
     throw new Error(`Markdown section ${selector.heading} in ${path} is oversized: ${section.length}/${maxChars} characters.`);
   }
   return section;
+}
+
+function extractTypeScriptFunctionSection(content: string, path: string, selector: TypeScriptFunctionSelector): string {
+  const scriptKind = getTypeScriptScriptKind(path);
+  if (scriptKind === undefined) {
+    throw new Error(`TypeScript function selector does not support file extension: ${path}`);
+  }
+  const source = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, true, scriptKind);
+  const parseDiagnostics = (source as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? [];
+  if (parseDiagnostics.length > 0) {
+    throw new Error(`Cannot select a function from malformed JavaScript or TypeScript source: ${path}`);
+  }
+
+  const matches: ts.Statement[] = [];
+  for (const statement of source.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name?.text === selector.name) {
+      matches.push(statement);
+      continue;
+    }
+    if (!ts.isVariableStatement(statement) || statement.declarationList.declarations.length !== 1) continue;
+    const declaration = statement.declarationList.declarations[0]!;
+    if (!ts.isIdentifier(declaration.name) || declaration.name.text !== selector.name || !declaration.initializer) continue;
+    if (ts.isArrowFunction(declaration.initializer) || ts.isFunctionExpression(declaration.initializer)) matches.push(statement);
+  }
+
+  if (matches.length === 0) throw new Error(`TypeScript function not found in ${path}: ${selector.name}`);
+  if (matches.length > 1) throw new Error(`TypeScript function is ambiguous in ${path}: ${selector.name}`);
+  const selected = matches[0]!;
+  const section = content.slice(selected.getStart(source), selected.getEnd());
+  const maxChars = selector.maxChars ?? 3_200;
+  if (section.length > maxChars) {
+    throw new Error(`TypeScript function ${selector.name} in ${path} is oversized: ${section.length}/${maxChars} characters.`);
+  }
+  return section;
+}
+
+function getTypeScriptScriptKind(path: string): ts.ScriptKind | undefined {
+  if (/\.tsx$/i.test(path)) return ts.ScriptKind.TSX;
+  if (/\.(?:ts|mts|cts)$/i.test(path)) return ts.ScriptKind.TS;
+  if (/\.jsx$/i.test(path)) return ts.ScriptKind.JSX;
+  if (/\.(?:js|mjs|cjs)$/i.test(path)) return ts.ScriptKind.JS;
+  return undefined;
+}
+
+function normalizeFileContextSelector(selector: FileContextSelector): FileContextSelector {
+  return selector.kind === "markdown-heading"
+    ? { ...selector, heading: trimMarkdownHeadingWhitespace(selector.heading) }
+    : { ...selector, name: selector.name.trim() };
+}
+
+function formatFileContextSelector(selector: FileContextSelector): string {
+  return selector.kind === "markdown-heading"
+    ? `${selector.kind}:${selector.heading}`
+    : `${selector.kind}:${selector.name}`;
 }
 
 async function discoverCandidateFilePaths(cwd: string, task: ScalerTaskState, changedPaths: string[]): Promise<string[]> {
@@ -1027,9 +1091,17 @@ function validateTaskContextManifestItem(item: TaskContextManifestItem, ids: Set
     if (item.source !== "file" || item.scope !== "section") {
       throw new Error(`Task context item ${item.id} selector requires file section scope.`);
     }
-    if (item.selector.kind !== "markdown-heading" || typeof item.selector.heading !== "string"
-        || !trimMarkdownHeadingWhitespace(item.selector.heading)) {
-      throw new Error(`Task context item ${item.id} Markdown heading selector is invalid.`);
+    if (item.selector.kind === "markdown-heading") {
+      if (typeof item.selector.heading !== "string" || !trimMarkdownHeadingWhitespace(item.selector.heading)) {
+        throw new Error(`Task context item ${item.id} Markdown heading selector is invalid.`);
+      }
+    } else if (item.selector.kind === "typescript-function") {
+      if (typeof item.selector.name !== "string" || !item.selector.name.trim()
+          || !isTypeScriptIdentifier(item.selector.name.trim())) {
+        throw new Error(`Task context item ${item.id} TypeScript function selector is invalid.`);
+      }
+    } else {
+      throw new Error(`Task context item ${item.id} selector kind is unsupported.`);
     }
     if (item.selector.maxChars !== undefined
         && (!Number.isSafeInteger(item.selector.maxChars) || item.selector.maxChars <= 0)) {
@@ -1037,6 +1109,22 @@ function validateTaskContextManifestItem(item: TaskContextManifestItem, ids: Set
     }
   }
   if (item.source === "memory" && !item.memoryId?.trim()) throw new Error(`Task context item ${item.id} memoryId is required.`);
+}
+
+function isTypeScriptIdentifier(value: string): boolean {
+  const source = ts.createSourceFile(
+    "selector.ts",
+    `const ${value} = 0;`,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const diagnostics = (source as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? [];
+  if (diagnostics.length > 0 || source.statements.length !== 1) return false;
+  const statement = source.statements[0];
+  if (!statement || !ts.isVariableStatement(statement) || statement.declarationList.declarations.length !== 1) return false;
+  const declaration = statement.declarationList.declarations[0];
+  return Boolean(declaration && ts.isIdentifier(declaration.name) && declaration.name.text === value);
 }
 
 export function getRequiredContextDiagnostics(items: ContextItem[]): string[] {
