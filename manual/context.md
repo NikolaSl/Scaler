@@ -11,8 +11,9 @@ Context items include:
 - `reason`
 - `priority`: `required`, `useful`, or `optional`
 - `scope`: `full`, `section`, `snippet`, `summary`, or `reference-only`
-- `selector`: file-backed `section` items use
-  `{ "kind": "markdown-heading", "heading": "...", "maxChars": N }`;
+- `selector`: file-backed `section` items use either
+  `{ "kind": "markdown-heading", "heading": "...", "maxChars": N }` or
+  `{ "kind": "typescript-function", "name": "...", "maxChars": N }`;
   `maxChars` defaults to 3,200
 - `exactness`: optional `exact`, `summary-ok`, or `reference-only`
 - `content`
@@ -79,6 +80,17 @@ while claiming exactness. Two selectors may reference distinct sections of the
 same file. CRLF, standalone CR and LF line endings are preserved in the returned
 substring. If a heading position cannot be mapped back to the original source,
 the context is unavailable rather than approximately selected.
+
+For JavaScript and TypeScript files, `typescript-function` selects one unique
+named top-level function declaration or a single-declaration top-level variable
+initialized with an arrow/function expression. Selection uses the TypeScript
+parser and returns the declaration's original source substring; it does not
+render or rewrite code. Supported extensions are `.ts`, `.tsx`, `.mts`, `.cts`,
+`.js`, `.jsx`, `.mjs` and `.cjs`. Missing or duplicate names, overload groups,
+malformed source, unsupported extensions, multi-binding declarations and
+oversized results are unavailable. Class methods, object properties, namespace
+members, anonymous defaults, re-exports, cross-file symbols and automatic
+selector discovery are outside this selector's scope.
 
 ## Final prompt admission
 

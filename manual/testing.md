@@ -318,6 +318,17 @@ substrings, including Setext section boundaries. Run
 This is bounded ATX-heading retrieval, not AST/semantic retrieval or automatic
 task splitting.
 
+PLAN-136 adds bounded exact JavaScript/TypeScript function selection with the
+TypeScript parser. Fixtures cover exported/async declarations, callable
+variables, exact source preservation, durable manifest/attempt round trips,
+duplicate and overload ambiguity, nested/class and multi-binding exclusions,
+malformed source, unsupported extensions and maximum size. Conductor fixtures
+prove exact function bytes reach the worker prompt and unavailable required
+function context refuses before dispatch. Run `node --test --import tsx
+test/context.test.ts test/conductor.test.ts test/attempt-execution.test.ts
+test/task-attempts.test.ts`. This is explicit top-level selection, not semantic
+cross-file lookup, automatic selector discovery or automatic effective splitting.
+
 PLAN-122 binds every admitted file-backed context item to the complete source
 bytes used to render it. The durable attempt stores normalized path, scope,
 selector, byte fingerprint and exact-output eligibility. Sources are re-read

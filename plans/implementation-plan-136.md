@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress.
+Implemented on the P3 preparation branch; phase review and merge remain pending.
 
 ## Evidence and problem
 
@@ -49,3 +49,23 @@ This unit does not select class methods, object properties, overload groups,
 anonymous defaults, namespaces, re-exports, semantic symbols across files or
 non-JavaScript languages. It does not implement automatic selector discovery or
 automatic effective splitting, and therefore does not complete SC-07/AC-07.
+
+## Implementation evidence
+
+- `typescript-function` selectors use the TypeScript parser for `.ts`, `.tsx`,
+  `.mts`, `.cts`, `.js`, `.jsx`, `.mjs` and `.cjs` files.
+- A unique named top-level function declaration or single-declaration callable
+  variable statement is returned as its original source substring. TypeScript
+  is now an explicit runtime dependency.
+- Missing, ambiguous, overloaded, nested/class, multi-binding, malformed,
+  unsupported-extension and oversized cases return unavailable context.
+- The selector round-trips through task manifests and durable task-attempt
+  bindings, participates in the existing byte fingerprint, and is revalidated
+  before dispatch and result acceptance.
+- Conductor coverage proves exact prompt delivery and that unavailable required
+  function context refuses before runner invocation, attempt publication or
+  spawned-agent accounting.
+
+The exact code head passed build, 1,082 unit/component tests, 67 mock integration
+tests, 7 conformance/autopilot tests, 134 focused context/conductor/attempt tests
+and `git diff --check`.

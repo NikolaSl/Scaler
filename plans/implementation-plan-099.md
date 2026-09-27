@@ -159,6 +159,13 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   and compact telemetry contains no prompt/tool bytes. Provider-internal retry
   interception, alternate provider payloads and exact tokenization remain open;
   this is not SC-05/AC-05 completion.
+  PLAN-136 adds exact explicit `typescript-function` context selection for one
+  unique named top-level JavaScript/TypeScript function or callable variable.
+  Parser-backed selection preserves original source bytes, round-trips through
+  durable attempt identity and fails closed on ambiguous, malformed,
+  unsupported or oversized input before dispatch. Automatic selector discovery,
+  cross-file semantic lookup and automatic effective splitting remain open, so
+  SC-07/AC-07 stays Partial.
 
 ### Renewed continuation policy (2026-09-19)
 
