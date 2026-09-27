@@ -28,7 +28,7 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-06 | Partial | Validity labels and memory references exist; dependency-based freshness and invalidation unverified. | `src/memory.ts`, `src/context.ts` | [AC-06](../specs/acceptance-scenarios.md#ac-06) |
 | SC-07 | Partial | Exact Markdown-heading and explicit top-level JavaScript/TypeScript function retrieval preserve source bytes and reject missing, ambiguous, malformed, unsupported or oversized required sections. Admitted file context is byte-bound and revalidated before dispatch and result acceptance, including symlink, non-regular-file and exact-output boundaries. Automatic selector discovery, cross-file semantic lookup and automatic effective splitting remain open. | `src/context.ts`, `src/task-attempts.ts`, `src/attempt-execution.ts`, `src/conductor.ts`, `src/debug-retry.ts`, `test/context.test.ts`, `test/attempt-execution.test.ts`, `test/conductor.test.ts`, `manual/context.md` | [AC-07](../specs/acceptance-scenarios.md#ac-07) |
 | SC-08 | Partial | Installed Pi binds the selected tool envelope before its first provider snapshot. Request-specific assessment compares direct/current-agent/isolated evidence; isolated execution now recomputes that assessment at dispatch, binds the exact worker/provider/model and caller-continuation evidence, limits transport/result bytes and accepts one execution-bound proposal only after a successful parent-observed outcome. The installed command blocks without a trustworthy future continuation supplier. Direct/current-agent adapters, a production continuation supplier and the complete three-route scenario remain open. | `src/tool-routing.ts`, `src/tool-requests.ts`, `src/index.ts`, `test/tool-routing.test.ts`, `test/tool-requests.test.ts`, `test/provider-admission-host.test.ts` | [AC-08](../specs/acceptance-scenarios.md#ac-08) |
-| SC-09 | Not assessed | Strict children preserve an exact runtime-owned host selection and reject ambient provider/model drift, but no supported local-only profile, real model run or end-to-end outcome acceptance is demonstrated. | `src/subagents.ts`, `src/provider-admission.ts`, `test/provider-admission-host.test.ts` | [AC-09](../specs/acceptance-scenarios.md#ac-09) |
+| SC-09 | Not assessed | Strict children preserve an exact runtime-owned host selection and reject ambient provider/model drift. A non-authorizing prerequisite now rejects malformed/unknown capability profiles and assesses task, locality, data-location, structured-output, tool and envelope eligibility without fallback. No installed dispatch consumes it, and no supported local-only profile, real model run, resource envelope or end-to-end outcome acceptance is demonstrated. | `src/subagents.ts`, `src/provider-admission.ts`, `src/model-profile-eligibility.ts`, `test/provider-admission-host.test.ts`, `test/model-profile-eligibility.test.ts`, `manual/model-profiles.md` | [AC-09](../specs/acceptance-scenarios.md#ac-09) |
 | SC-10 | Failed | Accepted status can be obtained without validation runs; evidence/version acceptance needs repair. | `src/validation.ts`, `src/tools.ts` | [AC-10](../specs/acceptance-scenarios.md#ac-10) |
 | SC-11 | Partial | Failure/attempt ledgers exist; revised combined retry/effect/validation criteria need verification. | `src/debug.ts`, `src/debug-retry.ts` | [AC-11](../specs/acceptance-scenarios.md#ac-11) |
 | SC-12 | Partial | Plan preservation exists; validity-aware obsolescence/correction needs revised scenarios. | `src/plans.ts`, `src/replan-agent.ts` | [AC-12](../specs/acceptance-scenarios.md#ac-12) |
@@ -49,6 +49,16 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-27 | Partial | Current named command evidence and participant identity gate declared integration criteria; revision-checked user amendments and immutable history prevent model-route criterion changes. Semantic necessity and non-software evidence remain open. | `src/prd.ts`, `src/run-completion.ts`, `test/requirement-integration.test.ts`, `test/prd.test.ts` | [AC-27](../specs/acceptance-scenarios.md#ac-27) |
 
 ## Implementation progress — PLAN-099
+
+PLAN-137 adds the model-profile eligibility prerequisite deliberately left open
+by PLAN-132. Versioned profiles carry an exact provider identity, locality,
+tokenizer/estimator, tool and structured-output support, configured limits,
+possible data locations and observed task-suitability evidence. Request-specific
+assessment fails closed on malformed or unknown evidence, applies capability and
+data constraints before preference, returns all eligible identities in stable
+order and never authorizes execution or invents a cloud/paid fallback. SC-09
+remains Not assessed because the installed host does not consume the assessment
+and no documented local runtime, real outcome or resource evidence exists.
 
 PLAN-135 closes the reproduced ordinary parent-provider envelope bypass. The
 installed extension now assesses the exact final OpenAI Chat Completions payload

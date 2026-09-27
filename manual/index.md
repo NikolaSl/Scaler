@@ -52,6 +52,7 @@ Design requirements live in [`../assignement.md`](../assignement.md) and [`../sp
 - `manual/sequential-execution.md`
 - `manual/commands.md`
 - `manual/context.md`
+- `manual/model-profiles.md`
 - `manual/logging.md`
 - `manual/memory.md`
 - `manual/storage.md`

@@ -166,6 +166,12 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   unsupported or oversized input before dispatch. Automatic selector discovery,
   cross-file semantic lookup and automatic effective splitting remain open, so
   SC-07/AC-07 stays Partial.
+  PLAN-137 adds a deterministic, non-authorizing model-profile eligibility
+  boundary. It validates exact provider identity, locality, tokenizer/estimator,
+  tools, structured output, limits, data locations and observed task suitability,
+  then applies request-specific constraints without selecting or falling back to
+  a model. No installed dispatch consumes the assessment and no local inference,
+  quality or resource evidence exists, so SC-09/AC-09 remains Not assessed.
 
 ### Renewed continuation policy (2026-09-19)
 
