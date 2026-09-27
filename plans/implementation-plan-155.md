@@ -40,3 +40,14 @@ This unit does not infer a path or selector, choose among candidates, perform
 semantic search, decompose a task, or claim any model quality or token saving.
 The local model/operator names the source and selector; the supervisor validates
 and freshness-binds the exact bytes. SC-07/AC-07 remains Partial.
+
+## Implementation evidence
+
+The missing-context dispatcher recognizes exactly one backtick selector
+directive after the existing source path and persists it through the existing
+manifest format. The ordinary resolver remains authoritative for exact bytes,
+ambiguity, supported syntax, section size and full-source freshness. Refusal is
+durable and publishes no requested manifest item. Focused tests cover both
+supported selector kinds and malformed, duplicate, missing and ambiguous input;
+the pre-implementation tests reproduced full-file overdelivery and false
+resolution.
