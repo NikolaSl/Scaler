@@ -2,8 +2,8 @@
 
 ## Status
 
-In progress on the P3 preparation branch; final phase review and merge remain
-pending.
+Implemented on the P3 preparation branch. Focused and full exact-head evidence,
+final phase review and merge remain pending.
 
 ## Observed prerequisite gap
 

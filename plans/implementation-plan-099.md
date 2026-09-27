@@ -203,6 +203,14 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   open, so SC-07/AC-07 stays Partial. The exact-head candidate passes build,
   1,117 unit/component, 67 mock integration, 7 conformance/autopilot and 72
   focused context checks plus `git diff --check`.
+  PLAN-141 extends PLAN-138's effective split execution boundary to debug
+  next-approach retries. The next-approach instruction is part of the split
+  basis; externalized exact context requires `read`; the complete attempt-bound
+  projected prompt must both shrink and fit; and returning results retain
+  freshness bindings to externalized evidence. Projection failure refuses
+  before attempt admission, spawned-agent accounting or dispatch. Automatic
+  retry policy, selector inference, task decomposition, model quality and
+  savings remain outside this unit, so SC-07/AC-07 stays Partial.
 
 ### Renewed continuation policy (2026-09-19)
 

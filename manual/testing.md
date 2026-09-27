@@ -477,6 +477,14 @@ or establish model quality or savings. The exact-head PLAN-140 candidate passes
 the TypeScript build, 1,117 unit/component tests, 67 mock integration tests, 7
 conformance/autopilot tests, 72 focused context checks and `git diff --check`.
 
+PLAN-141 extends the effective context-split execution boundary to debug
+next-approach retries. Run `node --test --import tsx test/debug-retry.test.ts
+test/context-splits.test.ts test/attempt-execution.test.ts` to cover missing
+`read` refusal, smaller reference-bearing dispatch, preservation of retry
+instructions, complete final-prompt admission and changed externalized-evidence
+rejection. The fixtures use deterministic runners and do not claim automatic
+retry policy, model quality or savings.
+
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx
 test/stage-artifact-outcome.test.ts test/stage-agents.test.ts
