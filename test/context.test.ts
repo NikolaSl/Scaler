@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -579,6 +579,108 @@ test("unrelated changed files cannot starve bounded heading discovery in allowed
 
     assert.equal(candidates.length, 1);
     assert.equal(candidates[0]?.path, "docs/target.md");
+  });
+});
+
+test("local link candidate discovery approves and resolves the exact referenced file", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "docs", "nested"), { recursive: true });
+    await writeFile(
+      join(dir, "docs", "index.md"),
+      "# Index\n[Target Guide](nested/target.md)\n[Target Guide](nested/target.md)\n",
+      "utf8",
+    );
+    const target = "# Target\nexact linked context\n";
+    await writeFile(join(dir, "docs", "nested", "target.md"), target, "utf8");
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.tasks = [{
+      id: "T-LINK-DISCOVERY", status: "ready", title: "Locate exact linked document",
+      allowedPathPrefixes: ["docs"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-LINK-DISCOVERY", { query: "link:Target Guide", limit: 10 },
+    );
+
+    assert.equal(candidates.length, 1);
+    const [candidate] = candidates;
+    assert.equal(candidate?.path, "docs/nested/target.md");
+    assert.equal(candidate?.scope, "snippet");
+    assert.equal(candidate?.exactness, "exact");
+    assert.equal(candidate?.selector, undefined);
+    assert.match(candidate?.reason ?? "", /exact local Markdown link/i);
+
+    const approved = await approveContextCandidate(
+      dir, state, "T-LINK-DISCOVERY", candidate!.id, { query: "link:Target Guide" },
+    );
+    const item = approved.manifest.items.find((entry) => entry.path === "docs/nested/target.md");
+    assert.equal(approved.added, true);
+    assert.equal(item?.scope, "snippet");
+    const resolved = await resolveTaskContextManifest(dir, state, approved.manifest);
+    assert.equal(resolved.find((entry) => entry.id === item?.id)?.content, target);
+  });
+});
+
+test("local link discovery keeps distinct targets and deduplicates repeated references", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "docs"));
+    await writeFile(
+      join(dir, "docs", "index.md"),
+      "[Shared](first.md) [Shared](second.md) [Shared](first.md)\n",
+      "utf8",
+    );
+    await writeFile(join(dir, "docs", "first.md"), "first\n", "utf8");
+    await writeFile(join(dir, "docs", "second.md"), "second\n", "utf8");
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-LINK-MULTIPLE", status: "ready", title: "Locate shared local references",
+      allowedPathPrefixes: ["docs"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-LINK-MULTIPLE", { query: "link:Shared", limit: 10 },
+    );
+
+    assert.equal(candidates.length, 2);
+    assert.equal(new Set(candidates.map((candidate) => candidate.id)).size, 2);
+    assert.deepEqual(candidates.map((candidate) => candidate.path).sort(), ["docs/first.md", "docs/second.md"]);
+  });
+});
+
+test("local link discovery refuses malformed, external, escaping and indirect destinations", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "docs"));
+    await writeFile(join(dir, "outside.md"), "outside\n", "utf8");
+    await writeFile(join(dir, "docs", "target.md"), "target\n", "utf8");
+    await symlink(join(dir, "outside.md"), join(dir, "docs", "linked.md"));
+    await writeFile(
+      join(dir, "docs", "index.md"),
+      [
+        "[External](https://example.com/docs)",
+        "[Absolute](/etc/passwd)",
+        "[Escape](../../outside.md)",
+        "[Fragment](target.md#part)",
+        "[Query](target.md?raw=1)",
+        "[Symlink](linked.md)",
+        "```md",
+        "[Fenced](target.md)",
+        "```",
+      ].join("\n"),
+      "utf8",
+    );
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-LINK-REFUSE", status: "ready", title: "Refuse unsafe document links",
+      allowedPathPrefixes: ["docs"], updatedAt: state.createdAt,
+    }];
+
+    for (const label of ["", "External", "Absolute", "Escape", "Fragment", "Query", "Symlink", "Fenced"]) {
+      assert.deepEqual(
+        await discoverSemanticContextCandidates(dir, state, "T-LINK-REFUSE", { query: `link:${label}`, limit: 10 }),
+        [],
+        label || "empty label",
+      );
+    }
   });
 });
 
