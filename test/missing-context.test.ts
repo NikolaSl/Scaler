@@ -242,5 +242,29 @@ test("manual resolution records evidence and can unblock", async () => {
     const unblocked = await unblockTasksWithResolvedMissingContext(dir, await loadState(dir));
     assert.deepEqual(unblocked.unblockedTaskIds, ["T-MISS"]);
     assert.match(await readFile(join(dir, ".scaler", "context", "missing-requests.json"), "utf8"), /Tenant is demo/);
+    const manifest = await loadTaskContextManifest(dir, "T-MISS");
+    assert.ok(manifest);
+    const answer = manifest.items.find((item) => item.id === `missing-manual-${created.created[0]!.id}`);
+    assert.equal(answer?.priority, "required");
+    const context = await resolveTaskContextManifest(dir, unblocked.state, manifest);
+    assert.match(buildTaskAgentPrompt({ state: unblocked.state, task: unblocked.state.tasks[0]!, contextItems: context }).prompt, /Tenant is demo/);
+    await resolveMissingContextRequest(dir, unblocked.state, { requestId: created.created[0]!.id, summary: "Tenant is demo.", evidenceRefs: ["user:answer"] });
+    assert.equal((await loadTaskContextManifest(dir, "T-MISS"))?.items.filter((item) => item.id === answer?.id).length, 1);
+  });
+});
+
+test("manual resolution refuses exact file bypass, blank and oversized answers", async () => {
+  await withTempDir(async (dir) => {
+    const state = createState();
+    await saveState(dir, state);
+    const file = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need `src/app.ts` before editing."]));
+    const denied = await resolveMissingContextRequest(dir, state, { requestId: file.created[0]!.id, summary: "File is fine." });
+    assert.equal(denied.accepted, false);
+    const user = await createMissingContextRequestsFromTaskReport(dir, state, report(["Ask user which tenant"]));
+    for (const summary of ["  ", "x".repeat(16_385)]) {
+      const result = await resolveMissingContextRequest(dir, state, { requestId: user.created[0]!.id, summary });
+      assert.equal(result.accepted, false);
+    }
+    assert.equal((await loadMissingContextRequests(dir)).every((request) => request.status !== "resolved"), true);
   });
 });
