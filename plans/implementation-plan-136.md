@@ -66,6 +66,7 @@ automatic effective splitting, and therefore does not complete SC-07/AC-07.
   function context refuses before runner invocation, attempt publication or
   spawned-agent accounting.
 
-The exact code head passed build, 1,082 unit/component tests, 67 mock integration
-tests, 7 conformance/autopilot tests, 134 focused context/conductor/attempt tests
+The exact reviewed code head passed build, 1,084 unit/component tests, 67 mock
+integration tests, 7 conformance/autopilot tests, 136 focused
+context/conductor/attempt tests
 and `git diff --check`.
