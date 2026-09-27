@@ -223,6 +223,11 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   measured prompt overage; SC-07/AC-07 stays Partial. The candidate passes
   build, 1,122 unit/component, 67 mock integration, 7 conformance/autopilot and
   95 focused checks plus `git diff --check`.
+  PLAN-143 addresses the remaining aggregate accounting gap: compression must
+  use the greater of a valid supplied total and the summed measured/conservative
+  item estimates, so multiple understated inline items cannot suppress the
+  active-context target, split evidence or overage. It does not invent an
+  externalization candidate or add semantic retrieval/decomposition.
 
 ### Renewed continuation policy (2026-09-19)
 
