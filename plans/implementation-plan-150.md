@@ -2,7 +2,8 @@
 
 ## Status
 
-Preparation on `implementation/v2-p3-proportional-routing`; not part of PR #24.
+Implemented on `implementation/v2-p3-proportional-routing`; phase review and
+merge pending. Not part of PR #24.
 
 ## Observed gap
 
@@ -26,13 +27,21 @@ runtime remains authoritative.
    that no report status alone changes accepted scheduler state.
 4. Keep existing prompt admission, report schema, and execution semantics intact.
 
-## Evidence
+## Validation evidence
 
 Test the rendered preview and dispatched prompt for role/allowed-proposal text,
 including missing-data and split guidance. Ensure the actual prompt builder is
 used, not a duplicate fixture. Run focused conductor tests, the TypeScript
 build and `git diff --check`; run the full applicable gate before publishing
 the completed unit or opening a PR.
+
+The test-first assertions failed on the original preview and dispatched prompt.
+The implementation adds only the execution-state role block and compacts existing
+duplicate instructions so a constrained 1,000-token projection remains admitted.
+After preserving explicit no-guessing language, 47/47 focused conductor tests pass.
+The TypeScript build, 1,155/1,155 unit/component tests, 68/68 mock integration
+tests and 7/7 conformance/autopilot tests passed on the preceding implementation
+candidate. Recheck the full gate at the final exact head below.
 
 ## Limits
 

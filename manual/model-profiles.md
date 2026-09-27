@@ -79,3 +79,8 @@ outcomes, including an explicit blocker for work beyond configured capability.
 The model selects candidate subtasks and scoped context; the supervisor validates
 those proposals under the current state and explains each role in its prompt.
 Completion rates belong to separate task-specific evaluation, not the process gate.
+The conductor's execution-state task prompt now names the worker role and tells
+it how to propose narrower context, missing sources (`needs_data`) or a split
+(`needs_replan`). These statuses remain reports for supervisor validation, not
+authority to mutate the task graph, approve context or advance the FSM. Other
+state-specific prompts and automatic selection are separate acceptance work.
