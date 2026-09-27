@@ -51,3 +51,8 @@ durable and publishes no requested manifest item. Focused tests cover both
 supported selector kinds and malformed, duplicate, missing and ambiguous input;
 the pre-implementation tests reproduced full-file overdelivery and false
 resolution.
+
+The exact implementation tree passes the TypeScript build, 1,165/1,165
+unit/component tests, 68/68 mock integration tests, 7/7
+conformance/autopilot tests, 156/156 focused context/missing-context/conductor
+tests and `git diff --check`.
