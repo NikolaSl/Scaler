@@ -309,6 +309,18 @@ export async function discoverSemanticContextCandidates(
     if (!linkQuery.label) return [];
     return discoverMarkdownLinkCandidates(cwd, task, taskId, linkQuery.label, options.limit ?? 10);
   }
+  const importedFunctionQuery = parseImportedFunctionCandidateQuery(options.query);
+  if (importedFunctionQuery.requested) {
+    if (!importedFunctionQuery.specifier || !importedFunctionQuery.name) return [];
+    return discoverImportedFunctionCandidates(
+      cwd,
+      task,
+      taskId,
+      importedFunctionQuery.specifier,
+      importedFunctionQuery.name,
+      options.limit ?? 10,
+    );
+  }
   const importQuery = parseLocalModuleImportCandidateQuery(options.query);
   if (importQuery.requested) {
     if (!importQuery.specifier) return [];
@@ -825,15 +837,35 @@ function parseLocalModuleImportCandidateQuery(query: string | undefined): { requ
   const value = query ?? "";
   if (!value.startsWith("import:")) return { requested: false };
   const specifier = value.slice("import:".length);
-  if (!specifier
-    || specifier !== specifier.trim()
-    || (!specifier.startsWith("./") && !specifier.startsWith("../"))
-    || specifier.includes("\0")
-    || specifier.includes("?")
-    || specifier.includes("#")
-    || specifier.includes("\\")
-    || getTypeScriptScriptKind(specifier) === undefined) return { requested: true };
+  if (!isEligibleLocalSourceModuleSpecifier(specifier)) return { requested: true };
   return { requested: true, specifier };
+}
+
+function parseImportedFunctionCandidateQuery(
+  query: string | undefined,
+): { requested: boolean; specifier?: string; name?: string } {
+  const value = query ?? "";
+  const prefix = "import-function:";
+  if (!value.startsWith(prefix)) return { requested: false };
+  const separator = value.indexOf("#", prefix.length);
+  if (separator < 0 || separator !== value.lastIndexOf("#")) return { requested: true };
+  const specifier = value.slice(prefix.length, separator);
+  const name = value.slice(separator + 1);
+  if (!isEligibleLocalSourceModuleSpecifier(specifier)
+    || !isTypeScriptIdentifier(name)
+    || name !== name.trim()) return { requested: true };
+  return { requested: true, specifier, name };
+}
+
+function isEligibleLocalSourceModuleSpecifier(specifier: string): boolean {
+  return Boolean(specifier
+    && specifier === specifier.trim()
+    && (specifier.startsWith("./") || specifier.startsWith("../"))
+    && !specifier.includes("\0")
+    && !specifier.includes("?")
+    && !specifier.includes("#")
+    && !specifier.includes("\\")
+    && getTypeScriptScriptKind(specifier) !== undefined);
 }
 
 async function discoverTypeScriptFunctionCandidates(
@@ -1014,6 +1046,121 @@ async function discoverLocalModuleImportCandidates(
   return [...candidates.values()]
     .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
     .slice(0, limit);
+}
+
+async function discoverImportedFunctionCandidates(
+  cwd: string,
+  task: ScalerTaskState,
+  taskId: string,
+  specifier: string,
+  name: string,
+  limit: number,
+): Promise<ContextCandidate[]> {
+  const changedPaths = await getGitChangedPaths(cwd);
+  const candidates = new Map<string, ContextCandidate>();
+  const selector = { kind: "typescript-function", name } as const;
+  for (const sourcePath of await discoverAllowedCandidateFilePaths(cwd, task, changedPaths)) {
+    const scriptKind = getTypeScriptScriptKind(sourcePath);
+    if (scriptKind === undefined) continue;
+    let source: string;
+    try {
+      const stable = await readStableContextFile(cwd, sourcePath);
+      if (!stable.outputExemptible) continue;
+      source = stable.bytes.toString("utf8");
+    } catch {
+      continue;
+    }
+    if (!hasExactStaticNamedModuleBinding(source, sourcePath, scriptKind, specifier, name)) continue;
+    const targetPath = normalizeLocalModuleImportDestination(cwd, sourcePath, specifier);
+    if (!targetPath
+      || !taskPathMatches(targetPath, task.allowedPathPrefixes ?? [])
+      || isRuntimePath(targetPath)
+      || getTypeScriptScriptKind(targetPath) === undefined
+      || candidates.has(targetPath)) continue;
+    try {
+      const target = await readStableContextFile(cwd, targetPath);
+      if (!target.outputExemptible) continue;
+      const content = target.bytes.toString("utf8");
+      if (!hasUniqueDirectExportedCallable(content, targetPath, name)) continue;
+      renderFileContextContent(content, targetPath, "section", selector);
+    } catch {
+      continue;
+    }
+    const candidateSource: ContextCandidateSource = changedPaths.includes(targetPath) ? "changed_file" : "file";
+    candidates.set(targetPath, {
+      id: buildImportedFunctionCandidateId(targetPath, specifier, name),
+      taskId,
+      source: candidateSource,
+      type: "file",
+      reason: `Exact imported function ${name} through local module edge ${specifier} in ${sourcePath} resolves to an allowed exported callable; approval is required before adding its selector to the manifest.`,
+      score: candidateSource === "changed_file" ? 11 : 10,
+      priority: "useful",
+      scope: "section",
+      exactness: "exact",
+      path: targetPath,
+      selector,
+    });
+  }
+  return [...candidates.values()]
+    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+    .slice(0, limit);
+}
+
+function hasExactStaticNamedModuleBinding(
+  content: string,
+  path: string,
+  scriptKind: ts.ScriptKind,
+  specifier: string,
+  name: string,
+): boolean {
+  const source = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, true, scriptKind);
+  const parseDiagnostics = (source as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? [];
+  if (parseDiagnostics.length > 0) return false;
+  for (const statement of source.statements) {
+    if (ts.isImportDeclaration(statement)
+      && ts.isStringLiteral(statement.moduleSpecifier)
+      && statement.moduleSpecifier.text === specifier
+      && statement.importClause
+      && !statement.importClause.isTypeOnly
+      && statement.importClause.namedBindings
+      && ts.isNamedImports(statement.importClause.namedBindings)
+      && statement.importClause.namedBindings.elements.some((element) =>
+        !element.isTypeOnly && (element.propertyName?.text ?? element.name.text) === name)) return true;
+    if (ts.isExportDeclaration(statement)
+      && !statement.isTypeOnly
+      && statement.moduleSpecifier
+      && ts.isStringLiteral(statement.moduleSpecifier)
+      && statement.moduleSpecifier.text === specifier
+      && statement.exportClause
+      && ts.isNamedExports(statement.exportClause)
+      && statement.exportClause.elements.some((element) =>
+        !element.isTypeOnly && (element.propertyName?.text ?? element.name.text) === name)) return true;
+  }
+  return false;
+}
+
+function hasUniqueDirectExportedCallable(content: string, path: string, name: string): boolean {
+  const scriptKind = getTypeScriptScriptKind(path);
+  if (scriptKind === undefined) return false;
+  const source = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, true, scriptKind);
+  const parseDiagnostics = (source as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? [];
+  if (parseDiagnostics.length > 0) return false;
+  let matches = 0;
+  for (const statement of source.statements) {
+    const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined;
+    const exported = modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) === true;
+    const defaultExported = modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword) === true;
+    if (!exported || defaultExported) continue;
+    if (ts.isFunctionDeclaration(statement) && statement.name?.text === name) {
+      matches += 1;
+      continue;
+    }
+    if (!ts.isVariableStatement(statement) || statement.declarationList.declarations.length !== 1) continue;
+    const declaration = statement.declarationList.declarations[0]!;
+    if (!ts.isIdentifier(declaration.name) || declaration.name.text !== name || !declaration.initializer) continue;
+    if (ts.isArrowFunction(declaration.initializer) || ts.isFunctionExpression(declaration.initializer)) matches += 1;
+  }
+  return matches === 1;
 }
 
 function findExactStaticModuleSpecifiers(content: string, path: string, scriptKind: ts.ScriptKind): string[] {
@@ -1413,6 +1560,11 @@ function buildMarkdownLinkCandidateId(path: string, label: string): string {
 function buildLocalModuleImportCandidateId(path: string, specifier: string): string {
   const identity = createHash("sha256").update(path).update("\0").update(specifier).digest("hex").slice(0, 12);
   return `candidate-import-${identity}-${slugify(specifier)}-${slugifyPath(path)}`;
+}
+
+function buildImportedFunctionCandidateId(path: string, specifier: string, name: string): string {
+  const identity = createHash("sha256").update(path).update("\0").update(specifier).update("\0").update(name).digest("hex").slice(0, 12);
+  return `candidate-import-function-${identity}-${slugify(name)}-${slugifyPath(path)}`;
 }
 
 function unique(values: string[]): string[] {
