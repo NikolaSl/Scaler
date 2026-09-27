@@ -213,6 +213,12 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   savings remain outside this unit, so SC-07/AC-07 stays Partial.
   The candidate passes build, 1,120 unit/component, 67 mock integration, 7
   conformance/autopilot and 44 focused checks plus `git diff --check`.
+  PLAN-142 closes the next bounded effective-split trigger gap: caller-provided
+  item estimates cannot hide actual large exact/summary-ok bytes, and a complete
+  attempt-bearing prompt that exceeds a valid allowance may trigger the existing
+  projection even when context-only usage stays below its 75% target. Wrapper-only
+  and non-shrinking cases still refuse. This does not add semantic inference,
+  decomposition, a new executor or model-quality/savings evidence.
 
 ### Renewed continuation policy (2026-09-19)
 
