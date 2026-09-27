@@ -4,12 +4,12 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { assessCompression } from "../src/compression.js";
-import { buildContextSplitRecord, formatContextSplitRecords, loadContextSplitRecords, recordContextSplitIfNeeded } from "../src/context-splits.js";
+import { buildContextSplitRecord, formatContextSplitRecords, loadContextSplitRecords, projectContextSplitForDispatch, recordContextSplitIfNeeded } from "../src/context-splits.js";
 import type { ResolvedContext } from "../src/context.js";
 import { createDefaultState } from "../src/state.js";
 
@@ -62,5 +62,46 @@ test("recordContextSplitIfNeeded persists only when split is recommended", async
     const records = await loadContextSplitRecords(dir);
     assert.equal(records[0]?.id, record?.id);
     assert.match(formatContextSplitRecords(records, "T-SPLIT"), /Context split records for T-SPLIT/);
+  });
+});
+
+test("projectContextSplitForDispatch replaces externalized exact bytes with a freshness-bound reference", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    const resolved = oversizedContext();
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: resolved.estimatedTokens, contextWindowTokens: 100, largeItemThresholdTokens: 10 });
+    const split = await recordContextSplitIfNeeded(dir, state, "T-SPLIT", resolved, assessment, new Date("2026-01-01T00:00:02.000Z"));
+
+    const projection = await projectContextSplitForDispatch(dir, "T-SPLIT", resolved, split!);
+
+    assert.equal(projection.accepted, true, projection.diagnostics.join(" "));
+    const projected = projection.contextItems.find((item) => item.id === "exact-large");
+    assert.equal(projected?.exactness, "reference-only");
+    assert.equal(projected?.scope, "reference-only");
+    assert.ok(projected?.content.includes(split!.externalizedMemoryRefs[0]!.memoryId));
+    assert.doesNotMatch(projected?.content ?? "", /^x+$/);
+    assert.match(projected?.fileSource?.contentFingerprint ?? "", /^sha256:[0-9a-f]{64}$/);
+  });
+});
+
+test("projectContextSplitForDispatch rejects tampered and duplicate externalized evidence", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    const resolved = oversizedContext();
+    const assessment = assessCompression({ items: resolved.included, estimatedTokens: resolved.estimatedTokens, contextWindowTokens: 100, largeItemThresholdTokens: 10 });
+    const split = await recordContextSplitIfNeeded(dir, state, "T-SPLIT", resolved, assessment, new Date("2026-01-01T00:00:02.000Z"));
+    const ref = split!.externalizedMemoryRefs[0]!;
+
+    const duplicate = await projectContextSplitForDispatch(dir, "T-SPLIT", resolved, {
+      ...split!,
+      externalizedMemoryRefs: [ref, { ...ref }],
+    });
+    assert.equal(duplicate.accepted, false);
+    assert.match(duplicate.diagnostics.join(" "), /coverage|duplicate/i);
+
+    await writeFile(join(dir, ref.path), "tampered externalized source\n", "utf8");
+    const tampered = await projectContextSplitForDispatch(dir, "T-SPLIT", resolved, split!);
+    assert.equal(tampered.accepted, false);
+    assert.match(tampered.diagnostics.join(" "), /unavailable or changed/i);
   });
 });

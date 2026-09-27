@@ -310,6 +310,98 @@ test("runConductorStep dispatches an admitted minimal projection for oversized r
   });
 });
 
+test("runConductorStep refuses an externalized projection without a read tool", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, {
+      execute: true,
+      tokenBudget: 1_000,
+      tools: ["bash", "scaler_task_report"],
+      contextItems: [{
+        id: "huge-exact", type: "file", reason: "Exact source needs retrieval.",
+        content: "x".repeat(40_000), priority: "required", scope: "full", exactness: "exact",
+      }],
+    }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /requires the read tool/i);
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+    assert.equal(getBudgetState(result.state).usage.spawnedAgents ?? 0, 0);
+  });
+});
+
+test("runConductorStep refuses a split projection that does not shrink the complete prompt", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, {
+      execute: true,
+      tokenBudget: 1_000,
+      contextItems: Array.from({ length: 6 }, (_, index) => ({
+        id: `required-${index}`,
+        type: "decision" as const,
+        reason: "Required small exact item.",
+        content: `${index}:${"x".repeat(2_900)}`,
+        priority: "required" as const,
+        scope: "full" as const,
+        exactness: "exact" as const,
+      })),
+    }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /did not shrink the complete final prompt/i);
+    assert.equal(result.contextSplit?.externalizedMemoryRefs.length, 0);
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+    assert.equal(getBudgetState(result.state).usage.spawnedAgents ?? 0, 0);
+  });
+});
+
+test("runConductorStep freshness-binds an externalized memory source through result acceptance", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    const result = await runConductorStep(dir, state, {
+      execute: true,
+      tokenBudget: 1_000,
+      contextItems: [{
+        id: "huge-inline", type: "decision", reason: "Exact inline contract.",
+        content: "x".repeat(40_000), priority: "required", scope: "full", exactness: "exact",
+      }],
+    }, async (request) => {
+      const [split] = await loadContextSplitRecords(dir);
+      const path = split!.externalizedMemoryRefs[0]!.path;
+      await writeFile(join(dir, path), "tampered after admission\n", "utf8");
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [completedTaskReport(request)],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /context.*(changed|stale).*\.scaler\/memory/i);
+    assert.deepEqual(await loadTaskAgentReports(dir), []);
+    assert.deepEqual(await loadValidationHandoffs(dir), []);
+    const [attempt] = await loadTaskAttempts(dir);
+    assert.equal(attempt?.status, "interrupted");
+    assert.equal(attempt?.outcome, "unknown");
+  });
+});
+
 test("runConductorStep measures prompt bytes instead of trusting understated item estimates", async () => {
   await withTempDir(async (dir) => {
     const state = stateWithTasks(["ready"]);
@@ -597,6 +689,47 @@ test("runConductorStep rejects a result after selected file context becomes ambi
     assert.equal(attempt?.outputFingerprint, undefined);
     assert.equal(attempt?.validationContextFingerprint, undefined);
     assert.notEqual((await loadState(dir)).tasks[0]?.status, "validated");
+  });
+});
+
+test("runConductorStep keeps an externalized original file freshness-bound through result acceptance", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    const source = `EXACT_START\n${"x".repeat(40_000)}\nEXACT_END\n`;
+    await writeFile(join(dir, "large-reference.md"), source, "utf8");
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-001",
+      tokenBudget: 1_500,
+      items: [{
+        id: "large-reference", type: "file", reason: "Exact externalized source", priority: "required",
+        scope: "full", exactness: "exact", source: "file", path: "large-reference.md",
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
+      assert.doesNotMatch(request.prompt, /EXACT_START|EXACT_END/);
+      await writeFile(join(dir, "large-reference.md"), `${source}changed-after-dispatch\n`, "utf8");
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [completedTaskReport(request)],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /context.*(changed|stale).*large-reference\.md/i);
+    assert.deepEqual(await loadTaskAgentReports(dir), []);
+    assert.deepEqual(await loadValidationHandoffs(dir), []);
+    const [attempt] = await loadTaskAttempts(dir);
+    assert.equal(attempt?.status, "interrupted");
+    assert.equal(attempt?.outcome, "unknown");
   });
 });
 
