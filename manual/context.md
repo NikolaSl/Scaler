@@ -251,3 +251,25 @@ admission. Normal conductor execution performs its own automatic, admitted
 projection for a valid just-created split; it does not call this legacy runner.
 
 `/scaler-context-handoffs` lists fresh handoff records.
+
+## Unknown-source questions and subsequent exact retrieval
+
+A task worker can report `needs_data` with a question that names no file. For a
+question classified as `local_research`, missing-context dispatch creates a
+local research request. After the research agent returns a complete matching
+answer, the conductor delivers its sources and conclusions as an attributed
+claim in the next worker prompt. A partial answer with unresolved unknowns
+keeps the task blocked. Research conclusions are not verified source bytes.
+
+The worker can then request a candidate file and explicit selector, for example
+``Need `docs/guide.md` `heading:Retry policy` before proceeding.`` The existing
+file dispatcher validates the task scope and supplies the selected section as
+required context before another worker attempt. A research answer does not
+widen allowed paths. The worker's completed report still advances to validation,
+not task acceptance.
+
+PLAN-156 exercises this composed process with deterministic research/worker
+responses, including incomplete research and an out-of-scope file choice. The
+scenario invokes research and missing-context dispatch explicitly; it does not
+establish autonomous research scheduling, real model discovery, or complete
+SC-07 coverage. It adds no new discovery subsystem.

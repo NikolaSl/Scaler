@@ -866,3 +866,18 @@ cover create/edit verbs, noun-only test/build phrases, response-style `send`,
 release-note nouns and the Bulgarian `платформа`/payment distinction. These are
 bounded deterministic fixtures, not evidence of general multilingual quality or
 automatic isolation/decomposition.
+
+PLAN-156 verifies the existing unknown-source question → local research →
+attributed answer → explicit file/section request → validation handoff:
+
+```bash
+node --test --import tsx test/integration/mock/unknown-source-context-flow.test.ts
+```
+
+Both scenarios exercise persisted requests and actual conductor retry prompts.
+They check that partial research cannot resume a worker, research claims arrive
+without source bytes, only the selected exact section enters the next prompt,
+and a file outside task scope remains blocked. Attempt identities must differ
+across retries. These are process integration checks with deterministic runners;
+they neither call a model nor establish autonomous research scheduling, model
+quality, or savings. A successful final report reaches `validating` only.

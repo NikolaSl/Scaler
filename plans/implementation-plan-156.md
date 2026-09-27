@@ -30,3 +30,11 @@ preserve its reproduction and fix only that gap. If it passes, publish the
 scenario and documented evidence without adding production machinery. Run
 build, unit, mocked integration and conformance gates once on the candidate;
 perform primary review and independent Terra/high review before handoff.
+
+## Outcome
+
+Both bounded scenarios pass against the existing production implementation.
+The additional out-of-scope selection control stays blocked without a manifest
+entry or worker dispatch. No production code change is needed for this composed
+path. Unknown-source research remains an explicitly invoked step, and SC-07
+remains partial.
