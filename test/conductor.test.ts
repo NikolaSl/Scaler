@@ -160,6 +160,12 @@ test("buildTaskAgentPrompt includes task metadata and report instructions", () =
   assert.match(result.prompt, /Current task status: ready/);
   assert.match(result.prompt, /Allowed paths: src, test/);
   assert.match(result.prompt, /Dependencies: T-000/);
+  assert.match(result.prompt, /Execution worker role/);
+  assert.match(result.prompt, /propose a narrower context/);
+  assert.match(result.prompt, /supervisor validates.*current task contract and state/);
+  assert.match(result.prompt, /needs_data.*missing required context/);
+  assert.match(result.prompt, /needs_replan.*task split/);
+  assert.match(result.prompt, /report status alone.*scheduler state/);
   assert.match(result.prompt, /Safety and scope/);
   assert.match(result.prompt, /write\/edit only files under those paths/);
   assert.match(result.prompt, /Read-only context paths: none/);
@@ -320,6 +326,8 @@ test("runConductorStep dispatches an admitted minimal projection for oversized r
     assert.ok(result.contextSplit);
     assert.equal(result.contextSplit.externalizedMemoryRefs.length, 1);
     assert.match(dispatchedPrompt, /SCALER Task Agent Request/);
+    assert.match(dispatchedPrompt, /Execution worker role/);
+    assert.match(dispatchedPrompt, /propose a narrower context/);
     assert.ok(dispatchedPrompt.includes(result.contextSplit.externalizedMemoryRefs[0]!.memoryId));
     assert.match(dispatchedPrompt, /Read-only context paths: \.scaler\/memory\//);
     assert.match(dispatchedPrompt, /Read-only context paths are immutable evidence/);
