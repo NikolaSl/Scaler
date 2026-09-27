@@ -137,7 +137,7 @@ test("file missing-context dispatch delivers exact requested Markdown and functi
 test("file missing-context section requests fail closed on malformed or unavailable selectors", async () => {
   await withTempDir(async (dir) => {
     await mkdir(join(dir, "docs"), { recursive: true });
-    await writeFile(join(dir, "docs", "guide.md"), "# Duplicate\none\n\n# Duplicate\ntwo\n");
+    await writeFile(join(dir, "docs", "guide.md"), "# Target\nunique\n\n# Duplicate\none\n\n# Duplicate\ntwo\n");
     const state = createState();
     state.tasks[0]!.allowedPathPrefixes = ["docs"];
     await saveState(dir, state);
@@ -147,6 +147,7 @@ test("file missing-context section requests fail closed on malformed or unavaila
       "Need `docs/guide.md` `heading:Duplicate` before editing.",
       "Need `docs/guide.md` `heading:Missing` before editing.",
       "Need `docs/guide.md` `heading:Duplicate` `function:other` before editing.",
+      "Need `heading:Target` from docs/guide.md before editing.",
     ]) {
       const created = await createMissingContextRequestsFromTaskReport(dir, state, report([query]));
       const result = await dispatchMissingContextRequest(dir, state, created.created[0]?.id, { execute: true });
