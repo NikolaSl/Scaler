@@ -21,7 +21,7 @@ import {
   type ContextItem,
   type ResolvedContext,
 } from "./context.js";
-import { recordContextSplitIfNeeded, type ContextSplitRecord } from "./context-splits.js";
+import { projectContextSplitForDispatch, recordContextSplitIfNeeded, type ContextSplitRecord } from "./context-splits.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { appendLogEvent, createLogEvent, logAgentPromptAudit } from "./logging.js";
 import { createMissingContextRequestsFromTaskReport, refreshAndUnblockMissingContext } from "./missing-context.js";
@@ -269,6 +269,7 @@ export async function runConductorStep(
       runningTask = nextState.tasks.find((task) => task.id === selection.task!.id)!;
     }
     const promptTokenBudget = resolveTaskPromptTokenBudget(options.tokenBudget, contextManifest?.tokenBudget);
+    let dispatchContextItems = contextItems;
     let { prompt, resolvedContext, compressionAssessment } = buildTaskAgentPrompt({
       state: nextState,
       task: runningTask,
@@ -276,26 +277,69 @@ export async function runConductorStep(
       tokenBudget: promptTokenBudget,
     });
     const contextSplit = await recordContextSplitIfNeeded(cwd, nextState, runningTask.id, resolvedContext, compressionAssessment);
+    const tools = options.tools ?? defaultTaskAgentTools();
+    const originalSizedPrompt = options.execute ? buildTaskAgentPrompt({
+      state: nextState,
+      task: runningTask,
+      contextItems,
+      tokenBudget: promptTokenBudget,
+      attempt: createPromptSizingAttemptBinding(nextState.runId),
+    }).prompt : undefined;
+    if (options.execute && contextSplit) {
+      if (contextSplit.externalizedMemoryRefs.length > 0 && !tools.includes("read")) {
+        const message = `Context split ${contextSplit.id} requires the read tool for externalized context retrieval.`;
+        await appendLogEvent(cwd, createLogEvent(nextState, {
+          eventType: "rejected_transition",
+          summary: message,
+          taskId: runningTask.id,
+          details: { admission: "context_split_projection", diagnostics: [message] },
+        }));
+        return { accepted: false, message, state: nextState, task: runningTask, prompt, contextSplit };
+      }
+      const projection = await projectContextSplitForDispatch(cwd, runningTask.id, resolvedContext, contextSplit);
+      if (!projection.accepted) {
+        const message = projection.diagnostics.join(" ");
+        await appendLogEvent(cwd, createLogEvent(nextState, {
+          eventType: "rejected_transition",
+          summary: message,
+          taskId: runningTask.id,
+          details: { admission: "context_split_projection", diagnostics: projection.diagnostics },
+        }));
+        return { accepted: false, message, state: nextState, task: runningTask, prompt, contextSplit };
+      }
+      dispatchContextItems = projection.contextItems;
+      ({ prompt, resolvedContext, compressionAssessment } = buildTaskAgentPrompt({
+        state: nextState,
+        task: runningTask,
+        contextItems: dispatchContextItems,
+        tokenBudget: promptTokenBudget,
+      }));
+    }
     if (options.execute) {
       const sizedPrompt = buildTaskAgentPrompt({
         state: nextState,
         task: runningTask,
-        contextItems,
+        contextItems: dispatchContextItems,
         tokenBudget: promptTokenBudget,
         attempt: createPromptSizingAttemptBinding(nextState.runId),
       }).prompt;
       const promptAdmission = assessTaskPromptAdmission(sizedPrompt, promptTokenBudget);
-      if (!promptAdmission.accepted) {
+      const originalPromptAdmission = assessTaskPromptAdmission(originalSizedPrompt!, promptTokenBudget);
+      const projectionDidNotShrink = contextSplit
+        && promptAdmission.estimatedTokens >= originalPromptAdmission.estimatedTokens;
+      if (!promptAdmission.accepted || projectionDidNotShrink) {
+        const message = projectionDidNotShrink
+          ? `Context split ${contextSplit.id} did not shrink the complete final prompt below its original ${originalPromptAdmission.estimatedTokens}-token estimate.`
+          : promptAdmission.message;
         await appendLogEvent(cwd, createLogEvent(nextState, {
           eventType: "rejected_transition",
-          summary: promptAdmission.message,
+          summary: message,
           taskId: runningTask.id,
-          details: { admission: "final_prompt", promptAdmission },
+          details: { admission: "final_prompt", promptAdmission, originalPromptAdmission },
         }));
-        return { accepted: false, message: promptAdmission.message, state: nextState, task: runningTask, prompt, contextSplit, promptAdmission };
+        return { accepted: false, message, state: nextState, task: runningTask, prompt, contextSplit, promptAdmission };
       }
     }
-    const tools = options.tools ?? defaultTaskAgentTools();
     try {
       buildTaskAgentInvocation({
         taskId: runningTask.id,
@@ -358,7 +402,7 @@ export async function runConductorStep(
       ({ prompt, resolvedContext, compressionAssessment } = buildTaskAgentPrompt({
         state: nextState,
         task: runningTask,
-        contextItems,
+        contextItems: dispatchContextItems,
         tokenBudget: promptTokenBudget,
         attempt: attemptBinding,
       }));
@@ -368,7 +412,7 @@ export async function runConductorStep(
       agentId: runningTask.id,
       taskId: runningTask.id,
       prompt,
-      inputRefs: contextItems.map((item) => item.id),
+      inputRefs: dispatchContextItems.map((item) => item.id),
       details: { tokenBudget: promptTokenBudget, attempt: attemptBinding },
     });
     const request = {
