@@ -532,6 +532,20 @@ or savings; SC-07 remains Partial. The exact-head candidate passes the TypeScrip
 build, 1,129 unit/component tests, 67 mock integration tests, 7
 conformance/autopilot tests, 76 focused context checks and `git diff --check`.
 
+PLAN-145 adds exact local static-import candidate discovery. Run
+`node --test --import tsx test/context.test.ts` to cover explicit
+`import:<specifier>` parsing, TypeScript-parser-backed import/type-import and
+re-export matching, target approval/resolution, repeated-edge deduplication,
+distinct same-specifier targets and changed-file starvation. The suite rejects
+empty or whitespace-padded queries, package/alias/dynamic/`require`/
+extensionless/query/fragment edges, malformed source, escaping targets, leaf or
+ancestor symlinks and unsupported target types. These deterministic fixtures do
+not implement package resolution, aliases, call graphs, recursive traversal,
+automatic selection, model quality or savings; SC-07 remains Partial. The
+exact-head candidate passes the TypeScript build, 1,134 unit/component tests,
+67 mock integration tests, 7 conformance/autopilot tests, 81 focused context
+checks and `git diff --check`.
+
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx
 test/stage-artifact-outcome.test.ts test/stage-agents.test.ts

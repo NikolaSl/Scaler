@@ -226,7 +226,7 @@ Default/discovered manifests mark file snippets, task metadata, validation evide
 
 `/scaler-context-status` displays a manifest summary for the specified task, current task, or first task.
 
-`/scaler-context-candidates` lists scored memory/file/PRD/manifest candidates without changing the manifest or active context. An exact `function:<identifier>` query switches to bounded JavaScript/TypeScript selector discovery; `heading:<text>` does the same for exact Markdown ATX headings; and `link:<label>` resolves exact local Markdown links to bounded file candidates. All search only allowed task paths. Malformed queries and ineligible sections, declarations or destinations return no candidate; distinct same-named matches remain separate choices.
+`/scaler-context-candidates` lists scored memory/file/PRD/manifest candidates without changing the manifest or active context. An exact `function:<identifier>` query switches to bounded JavaScript/TypeScript selector discovery; `heading:<text>` does the same for exact Markdown ATX headings; `link:<label>` resolves exact local Markdown links; and `import:<specifier>` resolves parser-backed static JavaScript/TypeScript imports or re-exports to extension-explicit local source targets. All search only allowed task paths. Package/alias resolution, dynamic imports and `require` do not confer file authority. Malformed queries and ineligible sections, declarations or destinations return no candidate; distinct same-named matches remain separate choices.
 
 `/scaler-context-approve` adds the selected candidate to the task manifest unless an equivalent memory/file/content item is already present.
 

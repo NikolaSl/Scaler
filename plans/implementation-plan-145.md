@@ -2,8 +2,8 @@
 
 ## Status
 
-Planned on the P3 preparation branch; implementation, validation and phase
-review remain pending.
+Implemented and validated on the P3 preparation branch; phase review and merge
+remain pending.
 
 ## Observed prerequisite gap
 
@@ -55,3 +55,18 @@ recursive crawling, natural-language inference, automatic candidate approval,
 task decomposition, model execution, quality or savings evidence. It adds one
 explicit exact local-code bridge to the bounded/manual pipeline; SC-07/AC-07
 remains Partial.
+
+## Implementation evidence
+
+- `test/context.test.ts` first reproduced three missing boundaries: exact target
+  approval/resolution, repeated-edge deduplication with distinct targets, and
+  refusal of non-static or unsafe specifiers (76 pass / 3 expected fail).
+- `src/context.ts` recognizes only well-formed `import:<specifier>` queries,
+  parses top-level static imports/re-exports with the TypeScript parser, and
+  resolves extension-explicit relative targets through the existing bounded
+  allowed-path and stable regular-file checks.
+- Follow-up tests reject malformed source and symlinked target ancestors and
+  prove unrelated changed files cannot starve allowed-path discovery.
+- The exact-head candidate passes the TypeScript build, 1,134 unit/component
+  tests, 67 mock integration tests, 7 conformance/autopilot tests, 81 focused
+  context tests and `git diff --check`.

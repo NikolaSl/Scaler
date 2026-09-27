@@ -43,6 +43,11 @@ An explicit local-document lookup may follow a parsed Markdown link only after
 the rendered label, relative destination, workspace boundary, task path scope
 and direct regular-file identity are verified. External URLs and links whose
 query/fragment semantics are not implemented remain unavailable.
+An explicit local-code lookup may follow a parsed static import or re-export
+only when the exact relative specifier names a supported source extension and
+both files pass the same workspace, task-path and direct regular-file checks.
+Package/alias resolution and dynamic loading remain unavailable unless a later
+adapter establishes their exact semantics.
 
 Preserve exact code, contracts, identifiers and other exact material externally.
 Summaries MUST cite source versions and distinguish observations from inference.
