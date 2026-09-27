@@ -54,6 +54,7 @@ import {
   saveToolIterationPolicy,
   selectParentRequesterActiveTools,
   shouldApplyParentToolFocus,
+  type ToolDispatchRouteSnapshot,
   type ToolDispatchRouteEvidenceSupplier,
 } from "../src/tool-requests.js";
 import { testProviderAdmissionModel } from "./provider-model-fixture.js";
@@ -85,6 +86,23 @@ const admittedRouteEvidenceSupplier: ToolDispatchRouteEvidenceSupplier = (basis)
     },
   };
 };
+
+const admittedDirectRouteEvidenceSupplier = (basis: Parameters<ToolDispatchRouteEvidenceSupplier>[0]): ToolDispatchRouteSnapshot => ({
+  version: 1,
+  requestId: basis.requestId,
+  executionId: basis.executionId,
+  evidence: {
+    profile: { version: 1, footprint: "selected", toolNames: [...basis.toolNames], byteSize: 64, fingerprint: "d".repeat(64) },
+    authority: "allowed",
+    direct: {
+      exactArgumentsAvailable: true,
+      argumentsValidated: true,
+      adapterId: basis.directOperation?.adapterId,
+    },
+    currentAgent: { available: false, legs: [] },
+    isolated: { available: false, legs: [] },
+  },
+});
 
 const runToolRequestAgent: typeof runToolRequestAgentRaw = (cwd, state, options = {}, runner) => runToolRequestAgentRaw(
   cwd, state, options.execute ? { ...options, routeEvidenceSupplier: options.routeEvidenceSupplier ?? admittedRouteEvidenceSupplier } : options, runner,
@@ -713,6 +731,168 @@ test("runToolRequestAgent rejects incomplete isolated route evidence before clai
     assert.equal(runnerCalled, false);
     assert.match(result.message, /recommended blocked/i);
     assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
+  });
+});
+
+test("runToolRequestAgent executes an exact direct catalog lookup without a model call", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "scaler_tool_catalog",
+      request: "Return the exact compact catalog entry for read.",
+      directOperation: {
+        adapterId: "builtin:tool-catalog-entry-v1",
+        arguments: { toolName: "read" },
+      },
+    });
+    assert.ok(prepared.record);
+    let runnerCalled = false;
+
+    const result = await runToolRequestAgentRaw(dir, state, {
+      requestId: prepared.record.id,
+      execute: true,
+    }, async (request) => {
+      runnerCalled = true;
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
+    });
+
+    assert.equal(result.accepted, true);
+    assert.equal(runnerCalled, false);
+    assert.equal(result.transaction?.routeAdmission?.route, "direct");
+    assert.equal(result.transaction?.routeAdmission?.directAdapterId, "builtin:tool-catalog-entry-v1");
+    assert.equal(result.transaction?.usage, undefined);
+    assert.equal(result.resultRecord?.acceptanceStatus, "accepted");
+    assert.deepEqual(result.resultRecord?.outputs, {
+      entry: {
+        name: "read",
+        description: "Read a project file or image from the working tree.",
+        riskLevel: "low",
+        docsAvailable: false,
+        schemaAvailable: true,
+      },
+    });
+    assert.equal((await loadToolRequests(dir))[0]?.status, "completed");
+  });
+});
+
+test("direct catalog execution fails closed on adapter drift before ownership claim", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "scaler_tool_catalog",
+      request: "Return the exact compact catalog entry for read.",
+      directOperation: {
+        adapterId: "builtin:tool-catalog-entry-v1",
+        arguments: { toolName: "read" },
+      },
+    });
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgentRaw(dir, state, {
+      requestId: prepared.record.id,
+      execute: true,
+      routeEvidenceSupplier: (basis) => {
+        const snapshot = admittedDirectRouteEvidenceSupplier(basis);
+        snapshot.evidence.direct = {
+          exactArgumentsAvailable: true,
+          argumentsValidated: true,
+          adapterId: "builtin:other-v1",
+        };
+        return snapshot;
+      },
+    });
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /direct adapter.*does not match/i);
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
+  });
+});
+
+test("direct catalog execution rejects durable argument drift before ownership claim", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "scaler_tool_catalog",
+      request: "Return the exact compact catalog entry for read.",
+      directOperation: {
+        adapterId: "builtin:tool-catalog-entry-v1",
+        arguments: { toolName: "read" },
+      },
+    });
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgentRaw(dir, state, {
+      requestId: prepared.record.id,
+      execute: true,
+      routeEvidenceSupplier: async (basis) => {
+        const requests = await loadToolRequests(dir);
+        await writeFile(getToolRequestsIndexPath(dir), `${JSON.stringify({
+          version: 1,
+          requests: requests.map((request) => request.id === prepared.record!.id
+            ? { ...request, directOperation: { ...request.directOperation!, arguments: { toolName: "bash" } } }
+            : request),
+        }, null, 2)}\n`, "utf8");
+        return admittedDirectRouteEvidenceSupplier(basis);
+      },
+    });
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /changed while live route admission/i);
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
+    assert.deepEqual(await loadToolResults(dir), []);
+  });
+});
+
+test("direct catalog execution blocks an oversized runtime-owned result", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await recordToolSchema(dir, state, {
+      toolName: "oversized_catalog_tool",
+      source: "local-test",
+      description: "x".repeat(DEFAULT_TOOL_EXECUTION_LIMITS.resultBytes),
+      riskLevel: "low",
+    });
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "scaler_tool_catalog",
+      request: "Return the exact compact catalog entry for oversized_catalog_tool.",
+      directOperation: {
+        adapterId: "builtin:tool-catalog-entry-v1",
+        arguments: { toolName: "oversized_catalog_tool" },
+      },
+    });
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgentRaw(dir, state, {
+      requestId: prepared.record.id,
+      execute: true,
+      routeEvidenceSupplier: admittedDirectRouteEvidenceSupplier,
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.transaction?.status, "blocked");
+    assert.match(result.message, /process outcome exit=1/i);
+    assert.deepEqual(await loadToolResults(dir), []);
+    assert.equal((await loadToolRequests(dir))[0]?.status, "blocked");
+  });
+});
+
+test("prepareToolRequest rejects malformed direct catalog arguments without persistence", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    for (const directOperation of [
+      { adapterId: "builtin:tool-catalog-entry-v1", arguments: { toolName: " read" } },
+      { adapterId: "builtin:unknown-v1", arguments: { toolName: "read" } },
+      { adapterId: "builtin:tool-catalog-entry-v1", arguments: { toolName: "" } },
+    ]) {
+      const result = await prepareToolRequest(dir, state, {
+        toolName: "scaler_tool_catalog",
+        request: "Return an exact compact catalog entry.",
+        directOperation,
+      });
+      assert.equal(result.accepted, false);
+      assert.match(result.message, /direct operation/i);
+    }
+    assert.deepEqual(await loadToolRequests(dir), []);
   });
 });
 

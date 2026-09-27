@@ -16,39 +16,26 @@ is a durable continuation record; scheduled execution is recorded separately.
 
 Nikola explicitly authorized autonomous implementation and merging PRs after
 review when there are no valid unresolved findings and applicable tests pass.
-Copilot review remains preferred when it executes, but on 2026-09-17 Nikola
-authorized an independent exact-head fallback after repeated accepted review
-requests produced no pending or completed review. The current scheduled window
-still requires a completed exact-head Copilot review; independent review only
-supplements that gate. Nikola renewed autonomous work again on 2026-09-19 at
-20:52:02Z.
-The current unattended mutation deadline is `2026-09-20T20:52:02Z`
-(23:52:02 Europe/Sofia). This supersedes all earlier cutoffs.
-Stop unattended mutations then and preserve a handoff unless Nikola extends
-or changes the instruction. No paid model spending or deployment is authorized.
+Nikola renewed unattended work for 24 hours on 2026-09-27 at 20:10:01Z. The
+current mutation deadline is `2026-09-28T20:10:01Z` (23:10:01 Europe/Sofia),
+superseding earlier cutoffs. Check live ownership and time before changes; stop
+mutations, save a durable handoff and release ownership before the deadline.
+No paid model spending or deployment is authorized.
 
-Nikola renewed continuation for another 24 hours on 2026-09-26 at
-19:56:50Z. The current unattended mutation deadline is
-`2026-09-27T19:56:50Z` (22:56:50 Europe/Sofia), superseding the September 20
-cutoff. Continue from live Git and review state, report each published commit
-or an hourly no-commit status, and release checked ownership at handoff. The
-Copilot, test, expected-head merge, no-spending and no-deployment gates below
-remain in force.
-
-After that handoff, Nikola explicitly requested continuation again. PLAN-106
-records this direct continuation and its bounded scope; the same completed
-Copilot review, test, separate-commit and expected-head merge gates apply.
-
-- Request `copilot-pull-request-reviewer[bot]` through the GitHub review-request
-  API; the login without `[bot]` is not the supported reviewer identity. An API
-  success without a submitted review is not approval and must not stall useful
-  implementation indefinitely.
-- A completed Copilot review covering the exact candidate head is mandatory in
-  the current work window. Independent GPT-6 Astra reviews at `high` or higher
-  supplement it but do not replace it. Fix every valid finding, rerun applicable
-  checks, and re-review the changed head. Silence or an accepted API request is
-  not approval. A stuck request may be removed and re-added once as a bounded
-  recovery; verify the actual submitted review afterward.
+- On 2026-09-27 Nikola replaced Copilot as the mandatory reviewer with an
+  independent assistant agent using a lighter model, explicitly suggesting
+  GPT-5.6 Terra. Review the exact candidate head with Terra/high, preserve
+  concrete findings and reasoning in the PR/handoff, and have the primary
+  agent independently review and run the applicable exact-head gate. Fix valid
+  findings and re-review a changed head. A Copilot request or old Copilot
+  review is not a merge gate under this newer instruction. No external paid
+  model calls are authorized.
+- The PR author assesses every reviewer finding against the requirements and
+  complete context. Fix a valid finding or record a concrete, evidence-backed
+  reason it does not apply. Supply missing context to the reviewer and recheck
+  disputed findings; unresolved material findings block acceptance. Record
+  each disposition with the reviewed commit identity. The same local model may
+  author and review sequentially in separate contexts.
 - Merge only the reviewed, tested head using an expected-head-SHA guard and a
   merge commit to preserve implementation history. Respect branch protection.
 - Keep paid model spending and deployment out of scope. Existing free-provider
@@ -61,13 +48,17 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
 - Group subsequent work into coherent phase PRs: remaining P2, then P3, etc.
   Keep separate logical commits for planning, reproductions, implementation,
   tests, documentation and review fixes. A new plan does not require a new PR.
+  Choose the smallest implementation that satisfies the explicit acceptance
+  boundary; do not add architecture or tests without a concrete requirement or
+  reproduced risk.
 - Prepare the next dependency-ordered unit while a PR is in review, using a
   separate branch for dependent changes. At most one PR is in review and one
   next unit is in preparation; do not merge before prerequisites are merged.
   Do not spend active work repeatedly sleeping or resending the same review
   request. A successful API response is not a completed review.
-- Every delegated agent must use GPT-6 Astra (`gpt-6-astra`) with reasoning
-  `high` or higher. If unavailable, work locally; do not silently downgrade.
+- The review delegate uses GPT-5.6 Terra/high under Nikola's newer instruction.
+  Other delegated implementation work follows any separately authorized model
+  constraint; do not silently substitute a weaker model.
 - Report meaningful published commits in Bulgarian with commit links, purpose,
   validation and next action. Group related commits when necessary; do not make
   empty reporting commits or repeatedly announce an unchanged pending review.
@@ -143,28 +134,221 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   conductor/workflow resume refuses the blocked artifact until explicit
   replacement. This is a parent-observed process boundary, not authentication
   of arbitrary filesystem writers or a crash-atomic multi-ledger transaction.
-  Parent interactive calls, provider-internal retries and alternate provider
-  payloads remain open; this is not SC-05/AC-05 completion.
+  PLAN-134 replaces the initial English domain-keyword and raw-length
+  escalation with bounded request-effect evidence. Equivalent English and
+  Bulgarian lookups, workspace changes and multi-workstream changes now select
+  equivalent routes; domain or complex-work nouns and advisory action mentions
+  remain lightweight. Imperatives, polite modals and explicit follow-on changes
+  preserve their requested workspace, planning or external-effect route. This
+  includes request-position checks for ambiguous action nouns/response phrases
+  and common create/edit forms. It does not establish general multilingual
+  semantics, justified isolated execution or risk-triggered direction checks.
+  PLAN-135 then closes the reproduced ordinary parent-provider bypass: the
+  installed extension evaluates the exact final payload with the live model
+  context window, explicit output reserve and safety margin before transport.
+  Prompt-composition refusal keeps precedence, child policy remains separate,
+  and compact telemetry contains no prompt/tool bytes. Provider-internal retry
+  interception, alternate provider payloads and exact tokenization remain open;
+  this is not SC-05/AC-05 completion.
+  PLAN-136 adds exact explicit `typescript-function` context selection for one
+  unique named top-level JavaScript/TypeScript function or callable variable.
+  Parser-backed selection preserves original source bytes, round-trips through
+  durable attempt identity and fails closed on ambiguous, malformed,
+  unsupported or oversized input before dispatch. Automatic selector discovery,
+  cross-file semantic lookup and automatic effective splitting remain open, so
+  SC-07/AC-07 stays Partial.
+  PLAN-137 adds a deterministic, non-authorizing model-profile eligibility
+  boundary. It validates exact provider identity, locality, tokenizer/estimator,
+  tools, structured output, limits, data locations and observed task suitability,
+  then applies request-specific constraints without selecting or falling back to
+  a model. No installed dispatch consumes the assessment and no local inference,
+  quality or resource evidence exists, so SC-09/AC-09 remains Not assessed.
+  PLAN-138 closes the bounded effective-split gap for normal isolated task-agent
+  execution. When a just-created split externalizes large context, conductor
+  revalidates its task/item identity, memory ledger, immutable bytes and source
+  fingerprints, replaces the oversized bytes with read-only refs, and measures
+  the complete attempt-bearing projected prompt. Dispatch continues only when
+  that prompt both shrinks and fits; the projected input and original plus
+  externalized sources remain freshness-bound through result acceptance. The
+  legacy direct handoff executor stays blocked. Automatic selector discovery,
+  cross-file semantic lookup and task decomposition remain open, so SC-07 and
+  the broader P3 acceptance matrix remain Partial.
+  PLAN-139 adds an exact-name discovery bridge for the existing function
+  selector. An explicit `function:<identifier>` candidate query searches the
+  bounded allowed-path file set, verifies each declaration through the same
+  parser-backed exact selector, and returns separate path-bound candidates that
+  still require manual approval. Malformed declarations, unsupported files,
+  unrelated changed paths and premature candidate-limit starvation fail closed.
+  Natural-language inference, import/call-graph lookup, automatic selector
+  choice and task decomposition remain open, so SC-07/AC-07 stays Partial. The
+  candidate passes build, 1,112 unit/component, 67 mock integration, 7
+  conformance/autopilot and 67 focused context checks plus `git diff --check`.
+  PLAN-140 applies that bounded discovery bridge to the existing Markdown
+  selector. An explicit `heading:<text>` candidate query searches only allowed
+  Markdown paths and returns a path-bound candidate only when the same
+  CommonMark-backed exact selector finds one unique, within-limit heading.
+  Empty queries, duplicate or fenced headings, unsupported files, oversized
+  sections, unrelated changed paths and premature candidate-limit starvation
+  fail closed. Approval remains manual. Natural-language or fuzzy inference,
+  document-link lookup, automatic selector choice and task decomposition remain
+  open, so SC-07/AC-07 stays Partial. The exact-head candidate passes build,
+  1,117 unit/component, 67 mock integration, 7 conformance/autopilot and 72
+  focused context checks plus `git diff --check`.
+  PLAN-141 extends PLAN-138's effective split execution boundary to debug
+  next-approach retries. The next-approach instruction is part of the split
+  basis; externalized exact context requires `read`; the complete attempt-bound
+  projected prompt must both shrink and fit; and returning results retain
+  freshness bindings to externalized evidence. Projection failure refuses
+  before attempt admission, spawned-agent accounting or dispatch. Automatic
+  retry policy, selector inference, task decomposition, model quality and
+  savings remain outside this unit, so SC-07/AC-07 stays Partial.
+  The candidate passes build, 1,120 unit/component, 67 mock integration, 7
+  conformance/autopilot and 44 focused checks plus `git diff --check`.
+  PLAN-142 closes the next bounded effective-split trigger gap: caller-provided
+  item estimates cannot hide actual large exact/summary-ok bytes, and a complete
+  attempt-bearing prompt that exceeds a valid allowance may trigger the existing
+  projection even when context-only usage stays below its 75% target. Wrapper-only
+  and non-shrinking cases still refuse. This does not add semantic inference,
+  decomposition, a new executor or model-quality/savings evidence. Split
+  records distinguish active-context and final-prompt triggers and retain the
+  measured prompt overage; SC-07/AC-07 stays Partial. The candidate passes
+  build, 1,122 unit/component, 67 mock integration, 7 conformance/autopilot and
+  95 focused checks plus `git diff --check`.
+  PLAN-143 addresses the remaining aggregate accounting gap: compression must
+  use the greater of a valid supplied total and the summed measured/conservative
+  item estimates, so multiple understated inline items cannot suppress the
+  active-context target, split evidence or overage. It does not invent an
+  externalization candidate or add semantic retrieval/decomposition. The
+  implementation clamps aggregate arithmetic to a safe integer and preserves a
+  more conservative supplied total. Conductor execution publishes this same
+  measured aggregate to active-context budget accounting rather than trusting
+  the caller total. The candidate passes build, 1,125 unit/component, 67 mock
+  integration, 7 conformance/autopilot and 58 focused checks plus
+  `git diff --check`; SC-07/AC-07 stays Partial.
+  PLAN-144 adds one deterministic cross-file document bridge. An explicit
+  `link:<label>` query parses CommonMark link nodes in the bounded allowed
+  Markdown source set, matches rendered labels exactly, resolves only relative
+  local file destinations and returns unique path-bound targets for manual
+  approval. External, absolute, escaping, queried, fragmented, fenced, symlinked
+  or non-regular destinations fail closed. Natural-language inference, recursive
+  crawling, code import/call-graph lookup, automatic approval and decomposition
+  remain open, so SC-07/AC-07 stays Partial. The exact-head candidate passes
+  build, 1,129 unit/component, 67 mock integration, 7 conformance/autopilot and
+  76 focused context checks plus `git diff --check`.
+  PLAN-145 adds the corresponding deterministic local-code bridge. An explicit
+  `import:<specifier>` query inspects parser-backed static JavaScript/TypeScript
+  import and re-export declarations, resolves only relative extension-explicit
+  source targets inside the workspace and task path boundary, and returns unique
+  path-bound candidates for manual approval. Package/alias resolution, dynamic
+  imports, recursive symbol traversal and automatic selection remain outside
+  this unit. The exact-head candidate passes build, 1,134 unit/component, 67
+  mock integration, 7 conformance/autopilot and 81 focused context checks plus
+  `git diff --check`; SC-07/AC-07 stays Partial.
+  PLAN-146 composes that local-code bridge with the existing exact function
+  selector. An explicit `import-function:<specifier>#<identifier>` query
+  requires a parser-backed static named import or re-export, an
+  extension-explicit relative target inside workspace/task scope, and one
+  direct exported top-level function or callable variable with the exact source
+  name. The path-and-selector-bound section candidate still requires manual
+  approval. Default/namespace/type-only bindings, indirect exports, package or
+  alias resolution, dynamic loading, recursive traversal and automatic choice
+  remain unavailable. The exact-head candidate passes build, 1,139
+  unit/component, 67 mock integration, 7 conformance/autopilot and 86 focused
+  context checks plus `git diff --check`; SC-07/AC-07 stays Partial.
+  PLAN-147 closes AC-08 scenario (a) for one exact read-only operation. A
+  structured tool request may persist only the built-in compact catalog-entry
+  adapter and one exact tool name. Dispatch creates a fresh runtime-owned direct
+  route snapshot, binds request, adapter arguments and a synthetic invocation to
+  the execution claim, runs without Pi/model/MCP/shell, and retains the existing
+  ownership and serialized-result acceptance limits. Argument or adapter drift,
+  malformed operations and oversized results fail closed. Current-agent
+  execution, production isolated continuation wiring, generic direct adapters
+  and the complete three-route scenario remain open, so SC-08/AC-08 stays
+  Partial and no quality or savings claim is made.
+  PLAN-148 adds one bounded syntactic call-graph step without claiming semantic
+  resolution. An explicit `import-caller:<specifier>#<identifier>` query
+  requires a stable extension-explicit local target with one direct exported
+  callable, maps an exact value-level named import to its local alias, and emits
+  only top-level function/callable-variable selectors containing a direct call
+  through that binding. Nested, shadowed, property, optional, constructed,
+  tagged, malformed, ambiguous and symlink-backed evidence fails closed.
+  Recursive graph traversal, symbol/type resolution, natural-language inference,
+  automatic approval and decomposition remain open, so SC-07/AC-07 stays
+  Partial. The exact implementation-and-documentation candidate passes the
+  TypeScript build, 1,150 unit/component, 68 mock integration, 7
+  conformance/autopilot and 91 focused context checks plus `git diff --check`.
+  PLAN-149 extends that reverse lookup through exactly one local named re-export.
+  An explicit `reexport-caller:<barrelSpecifier>#<identifier>` query requires an
+  exact value-level named import, one stable regular barrel with one direct
+  value-level named re-export, and one stable regular final target with one
+  direct exported top-level callable. Only top-level callers containing a direct
+  call through the exact local alias are emitted, and approval remains manual.
+  Conflicting/direct/type/star, malformed, escaping, nested, shadowed and
+  symlink-backed evidence fails closed. Package/alias resolution, inferred
+  extensions, multiple or recursive barrels, semantic/type resolution,
+  automatic approval and decomposition remain open, so SC-07/AC-07 stays
+  Partial. The exact implementation-and-documentation candidate passes the
+  TypeScript build, 1,155 unit/component, 68 mock integration, 7
+  conformance/autopilot and 96 focused context checks plus `git diff --check`.
 
 ### Renewed continuation policy (2026-09-19)
 
-The current scheduled instruction requires a completed Copilot review covering
-the exact merge candidate; independent reviews supplement, not replace, that
-gate for this window. Do not treat the historical fallback above as permission
-to skip the current gate. Verify the raw review `commit_id`, not only the
-normalized review summary. If a request is stuck, one bounded remove/re-add of
-`copilot-pull-request-reviewer[bot]` is permitted; API success is not evidence of
-execution. Preserve all branch protections and use expected-head merge commits.
+PLAN-151 addresses the explicit missing-file request boundary: a stable,
+regular task-scoped source is required in the context manifest before the
+request resolves, and the retried prompt contains its exact bytes under normal
+admission. Unknown-path discovery, narrower sections for oversized files,
+model choice and decomposition remain open, so SC-07/AC-07 stays Partial.
+The candidate passes build, 1,156 unit/component, 68 mock integration,
+7 conformance/autopilot and 149 focused tests plus `git diff --check`.
+PLAN-152 binds a complete, task- and request-matched research report to a
+required attributed answer in the next task manifest before resolution. Partial,
+foreign, contradictory and unresolved reports cannot unblock the task. The
+report is a claim, not exact source bytes; automatic source discovery and
+decomposition remain open, so SC-07/AC-07 stays Partial. The candidate passes
+build, 1,158 unit, 68 mock integration, 7 conformance and 61 focused tests.
+PLAN-153 delivers a bounded manual answer as required task context before
+resolution and refuses summary-only resolution of exact file requests. Answer
+truth and source discovery are not established; SC-07/AC-07 stays Partial.
+The candidate passes build, 1,159 unit, 68 mock integration, 7 conformance
+and 56 focused tests.
+PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
+independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
+unresolved in-scope findings. The primary exact-head gate passed build,
+1,048 unit, 67 mock integration, 7 conformance and diff check. PLAN-154 then
+closes the older zero-exit terminal failure gap in task conductor/debug retry
+with shared outcome semantics; build, 1,163 unit, 68 mock integration,
+7 conformance and 69 focused tests pass on its candidate tree. This does not
+upgrade any full SC/AC row to Verified.
+
+The earlier exact-head Copilot gate was superseded on 2026-09-27 by Nikola's
+explicit Terra-agent replacement above. Preserve all branch protections and
+use expected-head merge commits after a completed independent exact-head
+review, primary review and the full applicable gate.
 
 Continue coherent phase branches with separate logical commits, at most one PR
 in review and one next unit in preparation. Claim a bounded continuation marker
 after checking live agents, processes, worktrees and Git state; release it at
 handoff. Report published commit links, actual checks, blockers and next steps
 in Bulgarian on each scheduled run. Never imply continuous execution between
-runs or manufacture commits for reports. All delegated reviews remain GPT-6
-Astra/high or higher. Paid model calls and deployments remain out of scope.
+runs or manufacture commits for reports. The current review delegate is
+GPT-5.6 Terra/high by Nikola's explicit replacement. Paid external model calls
+and deployments remain out of scope.
 
 ## Architecture direction
+
+The product objective is a durable, maintainable software project across later
+initiatives, features, fixes and refactoring. Focused context, small steps,
+state-specific prompts and the requirement/decision/evidence ledger make a
+configured local model useful without relying on frontier-model behavior.
+Small starting contexts must preserve on-demand access to all task-authorized
+required information. Focus reduces distraction and fits the configured usable
+window, including hardware-limited local profiles; it is not a reason to hide
+necessary facts. Admission checks every added source and subsequent model call.
+Confidentiality, data ownership, effect control and predictable operation can
+exclude cloud inference entirely. Budget limits primarily prevent unauthorized
+paid use or a stalled local run; they never justify skipping required context,
+validation or history. Keep process correctness and model-specific task quality
+as separate observations in P3 through P7.
 
 Keep Pi as the first adapter and keep the sequential workspace policy. Evolve
 existing modules instead of introducing a service cluster, event bus, agent
@@ -185,11 +369,11 @@ Compatibility adapters must not preserve a bypass simply to keep a test green.
 |---|---|---|---|
 | P1 | Repair state read/write behavior, preparation/worker handoff, process termination and actual Pi tool API ownership. SC-13/15/22/25 foundations. | Baseline + this plan | Regression fixtures for each reproduced defect; build and impacted integration checks. Does not certify full SC requirements. |
 | P2 | Shared admission/acceptance for every report/command/hook; task and attempt IDs; input/output/validation-policy fingerprints; reject stale/empty evidence, protect criteria, check integration and current requirements. Add revision-checked state writes and explicit interrupted-attempt recovery. SC-01/02/10/13/26. | P1 | AC-01/02/10/13/26 across public routes, including false-success and stale-writer failure injection. Legacy accepted labels never migrate as fresh evidence. |
-| P3 | Enforce full model-request admission including actual host/tool content and output reserve; exact section retrieval; effective shrink/split; three per-request routes and eligible local profiles. SC-04/05/07/08/09/25. | P2 contracts | AC-04/05/07/08/09/25; no oversized request dispatched, no silent cloud fallback, real installed host API checks. |
+| P3 | Enforce full model-request admission including actual host/tool content and output reserve; exact section retrieval and on-demand required-information access; effective shrink/split; three per-request routes and eligible local profiles. Admit model-proposed scoped context and route under the current state contract; P4 owns full plan necessity and decomposition checks. SC-04/05/07/08/09/25. | P2 contracts | AC-04/05/07/08/09/25; no oversized request dispatched, no necessary facts silently withheld, no silent cloud fallback, real installed host API checks; valid proposals advance and invalid proposals fail closed regardless of model quality. |
 | P4 | Minimal and progressive planning; versioned original user intent, assumptions and constraints; two-way coverage/necessity; valid dependency frontier; affected-only replanning and provenance invalidation. SC-02/03/06/12/27. | P2 contracts, P3 context | AC-02/03/06/12/27 including CSV scope-creep, necessary-prerequisite and correct-minimal-plan controls. |
 | P5 | Evidence-led diagnostic attempts, aggregate retry/tactic/review limits, genuine progress detection and risk-triggered independent assessment. Version-aware bounded research. SC-04/06/10/11/15/21. | P3/P4 | AC-04/06/10/11/15/21 with reworded repeats, agent replacement, reviewer-created requirements and evidence-resolved disagreement. |
 | P6 | Scoped authority through all routes; uncertain effect reconciliation; compact Git/evidence history; reference-aware retention; optional environment capability/lifecycle. SC-14/16/17/18/19/20/22. | P2 authority, P3 adapters | AC-14/16/17/18/19/20/22 with interruption, denied actions, secret redaction, unrelated changes and unavailable providers. |
-| P7 | Supported local-only end-to-end profile; bounded large-run fixtures; honest quality/cost/autonomy evaluation; current SC conformance gate and usable documentation. SC-09/23/24/26 and all integration criteria. | P2–P6 | All applicable AC scenarios with named implementation, host/model, fixtures, resource limits and retained evidence. Unavailable profiles remain blocked/Not assessed. |
+| P7 | Supported local-only end-to-end process profile; bounded large-run fixtures; separate task-specific model-quality/cost observations from process correctness; current SC conformance gate and usable documentation. SC-09/23/24/26 and all integration criteria. | P2–P6 | All applicable process AC scenarios with named implementation, host/model, fixtures, resource limits, state transitions and retained evidence. Unavailable profiles remain blocked/Not assessed; a model's completion rate is not a process acceptance gate. |
 
 Before starting each phase, refine only its next executable units and record
 concrete fixture inputs, limits, expected observations and validation commands.

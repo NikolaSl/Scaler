@@ -8,7 +8,7 @@ import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { loadExecutionLock } from "./locks.js";
 import { getTaskAttemptsPath } from "./paths.js";
-import { trimMarkdownHeadingWhitespace, type ContextScope, type FileContextSourceBinding } from "./context.js";
+import { isValidFileContextSelector, type ContextScope, type FileContextSourceBinding } from "./context.js";
 
 export type TaskAttemptStatus = "admitted" | "dispatching" | "completed" | "failed" | "interrupted";
 export type TaskAttemptOutcome = "not_started" | "succeeded" | "failed" | "unknown";
@@ -238,11 +238,7 @@ function validateContextSources(sources: FileContextSourceBinding[]): void {
     }
     if (source.selector !== undefined) {
       const selector = source.selector;
-      if (typeof selector !== "object" || selector === null || Array.isArray(selector)
-        || source.scope !== "section" || selector.kind !== "markdown-heading"
-        || typeof selector.heading !== "string" || !trimMarkdownHeadingWhitespace(selector.heading)
-        || (selector.maxChars !== undefined
-          && (!Number.isSafeInteger(selector.maxChars) || selector.maxChars <= 0))) {
+      if (source.scope !== "section" || !isValidFileContextSelector(selector)) {
         throw new Error(`Task attempt context source ${source.itemId} has invalid selector.`);
       }
     }

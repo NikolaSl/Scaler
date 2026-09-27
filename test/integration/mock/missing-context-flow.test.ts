@@ -31,7 +31,7 @@ function createState(): ScalerState {
     id: "T-MISS-FLOW",
     title: "Implement with missing file context",
     status: "ready",
-    allowedPathPrefixes: ["src"],
+    allowedPathPrefixes: ["src", "docs"],
     definitionOfDone: ["The result is produced after required context is retrieved."],
     updatedAt: state.createdAt,
   }];
@@ -65,6 +65,7 @@ async function needsDataRunner(request: TaskAgentRequest): Promise<TaskAgentRunR
 }
 
 async function completionRunner(request: TaskAgentRequest): Promise<TaskAgentRunResult> {
+  assert.match(request.prompt, /Needed details\./);
   return {
     taskId: request.taskId,
     exitCode: 0,

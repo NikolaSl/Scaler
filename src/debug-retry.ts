@@ -17,6 +17,7 @@ import {
   summarizeTaskAgentReportIngestion,
   type TaskAgentRunner,
 } from "./conductor.js";
+import { projectContextSplitForDispatch, recordContextSplitIfNeeded, type ContextSplitRecord } from "./context-splits.js";
 import { ensureTaskContextManifest, getRequiredContextDiagnostics, resolveTaskContextManifest, type ContextItem } from "./context.js";
 import {
   loadDebugReports,
@@ -33,7 +34,7 @@ import { recordProviderUsageBudget } from "./provider-usage.js";
 import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { assessTaskPromptAdmission, createPromptSizingAttemptBinding, resolveTaskPromptTokenBudget, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
 import { loadState } from "./state.js";
-import { buildTaskAgentInvocation, runTaskAgent, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import { ingestTaskAgentReportFromRun } from "./task-reports.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
 import {
@@ -108,6 +109,7 @@ export interface DebugNextApproachRetryResult {
   runResult?: TaskAgentRunResult;
   exactValidationRun?: ValidationRunRecord;
   promptAdmission?: TaskPromptAdmissionDecision;
+  contextSplit?: ContextSplitRecord;
 }
 
 export interface DebugRetryPolicyWorkflowResult extends DebugNextApproachRetryResult {
@@ -302,36 +304,105 @@ export async function runDebugNextApproachRetry(
       return { accepted: false, message, status: "rejected", state: workingState, task: runningTask, retry };
     }
     const retryContext = buildNextApproachContextItem(selection);
+    const originalContextItems = [...baseContext, retryContext];
     const promptTokenBudget = resolveTaskPromptTokenBudget(options.tokenBudget, manifest.tokenBudget);
-    let { prompt, resolvedContext } = buildTaskAgentPrompt({
+    let dispatchContextItems = originalContextItems;
+    let { prompt, resolvedContext, compressionAssessment } = buildTaskAgentPrompt({
       state: workingState,
       task: runningTask,
-      contextItems: [...baseContext, retryContext],
+      contextItems: originalContextItems,
       tokenBudget: promptTokenBudget,
     });
+    const tools = options.tools ?? [];
+    const originalSizedPrompt = options.execute ? buildTaskAgentPrompt({
+      state: workingState,
+      task: runningTask,
+      contextItems: originalContextItems,
+      tokenBudget: promptTokenBudget,
+      attempt: createPromptSizingAttemptBinding(workingState.runId),
+    }).prompt : undefined;
+    const originalPromptAdmission = originalSizedPrompt === undefined
+      ? undefined
+      : assessTaskPromptAdmission(originalSizedPrompt, promptTokenBudget);
+    const promptOverflowCanTriggerSplit = options.execute === true
+      && Number.isSafeInteger(promptTokenBudget)
+      && promptTokenBudget > 0
+      && originalPromptAdmission?.accepted === false;
+    const contextSplit = await recordContextSplitIfNeeded(
+      cwd,
+      workingState,
+      runningTask.id,
+      resolvedContext,
+      compressionAssessment,
+      new Date(),
+      {
+        force: promptOverflowCanTriggerSplit,
+        trigger: "final_prompt_allowance",
+        promptOverByTokens: promptOverflowCanTriggerSplit
+          ? Math.max(0, originalPromptAdmission.estimatedTokens - promptTokenBudget)
+          : undefined,
+      },
+    );
+
+    if (options.execute && contextSplit) {
+      if (contextSplit.externalizedMemoryRefs.length > 0 && !tools.includes("read")) {
+        const message = `Context split ${contextSplit.id} requires the read tool for externalized context retrieval.`;
+        const retry = await upsertRetryRecord(cwd, buildRetryRecord(selection, "rejected", false, message));
+        await appendLogEvent(cwd, createLogEvent(workingState, {
+          eventType: "rejected_transition",
+          summary: message,
+          taskId: runningTask.id,
+          details: { admission: "context_split_projection", diagnostics: [message] },
+        }));
+        return { accepted: false, message, status: "rejected", state: workingState, task: runningTask, retry, prompt, contextSplit };
+      }
+      const projection = await projectContextSplitForDispatch(cwd, runningTask.id, resolvedContext, contextSplit);
+      if (!projection.accepted) {
+        const message = projection.diagnostics.join(" ");
+        const retry = await upsertRetryRecord(cwd, buildRetryRecord(selection, "rejected", false, message));
+        await appendLogEvent(cwd, createLogEvent(workingState, {
+          eventType: "rejected_transition",
+          summary: message,
+          taskId: runningTask.id,
+          details: { admission: "context_split_projection", diagnostics: projection.diagnostics },
+        }));
+        return { accepted: false, message, status: "rejected", state: workingState, task: runningTask, retry, prompt, contextSplit };
+      }
+      dispatchContextItems = projection.contextItems;
+      ({ prompt, resolvedContext, compressionAssessment } = buildTaskAgentPrompt({
+        state: workingState,
+        task: runningTask,
+        contextItems: dispatchContextItems,
+        tokenBudget: promptTokenBudget,
+      }));
+    }
 
     if (options.execute) {
       const sizedPrompt = buildTaskAgentPrompt({
         state: workingState,
         task: runningTask,
-        contextItems: [...baseContext, retryContext],
+        contextItems: dispatchContextItems,
         tokenBudget: promptTokenBudget,
         attempt: createPromptSizingAttemptBinding(workingState.runId),
       }).prompt;
       const promptAdmission = assessTaskPromptAdmission(sizedPrompt, promptTokenBudget);
-      if (!promptAdmission.accepted) {
-        const retry = await upsertRetryRecord(cwd, buildRetryRecord(selection, "rejected", false, promptAdmission.message));
+      const projectionDidNotShrink = contextSplit
+        && promptAdmission.estimatedTokens >= originalPromptAdmission!.estimatedTokens;
+      if (!promptAdmission.accepted || projectionDidNotShrink) {
+        const message = projectionDidNotShrink
+          ? `Context split ${contextSplit.id} did not shrink the complete final prompt below its original ${originalPromptAdmission!.estimatedTokens}-token estimate.`
+          : promptAdmission.message;
+        const retry = await upsertRetryRecord(cwd, buildRetryRecord(selection, "rejected", false, message));
         await appendLogEvent(cwd, createLogEvent(workingState, {
           eventType: "rejected_transition",
-          summary: promptAdmission.message,
+          summary: message,
           taskId: runningTask.id,
-          details: { admission: "final_prompt", promptAdmission },
+          details: { admission: "final_prompt", promptAdmission, originalPromptAdmission },
         }));
-        return { accepted: false, message: promptAdmission.message, status: "rejected", state: workingState, task: runningTask, retry, prompt, promptAdmission };
+        return { accepted: false, message, status: "rejected", state: workingState, task: runningTask, retry, prompt, promptAdmission, contextSplit };
       }
     }
 
-    const tools = options.tools ?? [];
     try {
       buildTaskAgentInvocation({
         taskId: runningTask.id,
@@ -351,7 +422,7 @@ export async function runDebugNextApproachRetry(
         taskId: runningTask.id,
         details: { admission: "child_invocation" },
       }));
-      return { accepted: false, message: error.message, status: "rejected", state: workingState, task: runningTask, retry, prompt };
+      return { accepted: false, message: error.message, status: "rejected", state: workingState, task: runningTask, retry, prompt, contextSplit };
     }
 
     const budgetUpdates = [
@@ -371,6 +442,7 @@ export async function runDebugNextApproachRetry(
         task: runningTask,
         retry,
         prompt,
+        contextSplit,
       };
     }
 
@@ -385,14 +457,14 @@ export async function runDebugNextApproachRetry(
           eventType: "rejected_transition", summary: message, taskId: runningTask.id,
           details: { diagnostics: error.diagnostics, admission: error instanceof TaskContractAdmissionError ? "task_contract" : error instanceof TaskContextAdmissionError ? "context_freshness" : "dependency_evidence" },
         }));
-        return { accepted: false, message, status: "rejected", state: workingState, task: runningTask, retry, prompt };
+        return { accepted: false, message, status: "rejected", state: workingState, task: runningTask, retry, prompt, contextSplit };
       }
     }
     workingState = await persistBudgetDecision(cwd, budgetResult.state, budgetResult.decision);
     if (activeAttempt) {
       ({ prompt, resolvedContext } = buildTaskAgentPrompt({
         state: workingState, task: runningTask,
-        contextItems: [...baseContext, retryContext],
+        contextItems: dispatchContextItems,
         tokenBudget: promptTokenBudget,
         attempt: taskAttemptBinding(activeAttempt),
       }));
@@ -403,8 +475,8 @@ export async function runDebugNextApproachRetry(
       agentId: runningTask.id,
       taskId: runningTask.id,
       prompt,
-      inputRefs: [...baseContext.map((item) => item.id), retryContext.id],
-      details: { debugReportId: selection.report.id, exactCommandIds: selection.exactCommands.map((command) => command.id) },
+      inputRefs: dispatchContextItems.map((item) => item.id),
+      details: { debugReportId: selection.report.id, exactCommandIds: selection.exactCommands.map((command) => command.id), contextSplitId: contextSplit?.id },
     });
 
     const request = {
@@ -427,7 +499,7 @@ export async function runDebugNextApproachRetry(
         taskId: runningTask.id,
         details: { retry, invocation },
       }));
-      return { accepted: true, message: retry.message, status: "prepared", state: workingState, task: runningTask, retry, prompt, invocation };
+      return { accepted: true, message: retry.message, status: "prepared", state: workingState, task: runningTask, retry, prompt, invocation, contextSplit };
     }
 
     const started = await startTaskExecution(cwd, lock.lock.id, workingState, activeAttempt!);
@@ -441,7 +513,7 @@ export async function runDebugNextApproachRetry(
       attemptTerminal = true;
       await recordTaskAgentRun(cwd, runResult, new Date(), { reportStatus: "invalid", reportDiagnostics: checked.diagnostics }, { attempt: binding });
       await appendLogEvent(cwd, createLogEvent(workingState, { eventType: "rejected_transition", taskId: runningTask.id, summary: message }));
-      return { accepted: false, message, status: "rejected", state: workingState, task: checked.task, prompt, invocation, runResult };
+      return { accepted: false, message, status: "rejected", state: workingState, task: checked.task, prompt, invocation, runResult, contextSplit };
     }
     workingState = checked.state;
     if (runResult.usage) {
@@ -452,14 +524,14 @@ export async function runDebugNextApproachRetry(
         agentType: "debug-retry-task",
       })).state;
     }
-    const reportIngestion = runResult.exitCode === 0
+    const reportIngestion = taskAgentRunSucceeded(runResult)
       ? await ingestTaskAgentReportFromRun(cwd, workingState, runningTask.id, runResult, binding!)
       : undefined;
     const identity = { attempt: binding, outputFingerprint: reportIngestion?.report?.outputFingerprint };
     const validationContextFingerprint = await captureValidationContext(cwd, workingState, runningTask.id);
     const runRecord = await recordTaskAgentRun(cwd, runResult, new Date(), summarizeTaskAgentReportIngestion(reportIngestion, runResult), identity);
     const handoff = await applyTaskRunHandoff(cwd, workingState, runningTask.id, runResult, reportIngestion, new Date(), identity);
-    const succeeded = runResult.exitCode === 0 && reportIngestion?.report?.status === "completed";
+    const succeeded = taskAgentRunSucceeded(runResult) && reportIngestion?.report?.status === "completed";
     await completeTaskAttempt(cwd, lock.lock.id, activeAttempt.id, {
       status: succeeded ? "completed" : "failed", outcome: succeeded ? "succeeded" : "failed",
       outputFingerprint: identity.outputFingerprint, reportId: reportIngestion?.report?.id,
@@ -467,7 +539,7 @@ export async function runDebugNextApproachRetry(
       diagnostics: reportIngestion?.diagnostics,
     });
     attemptTerminal = true;
-    if (runResult.exitCode !== 0) {
+    if (!taskAgentRunSucceeded(runResult)) {
       const attempt = await recordDebugAttempt(cwd, handoff.state, {
         taskId: runningTask.id,
         failureId: selection.report.failureId ?? selection.failedValidationRun.id,
@@ -486,7 +558,7 @@ export async function runDebugNextApproachRetry(
         taskAgentRunId: runRecord.id,
         debugAttemptId: attempt.attempt?.id,
       }));
-      return { accepted: false, message: retry.message, status: "task_agent_failed", state: handoff.state, task: runningTask, retry, prompt, invocation, runResult };
+      return { accepted: false, message: retry.message, status: "task_agent_failed", state: handoff.state, task: runningTask, retry, prompt, invocation, runResult, contextSplit };
     }
 
     if (handoff.record.status !== "validation_required") {
@@ -508,17 +580,17 @@ export async function runDebugNextApproachRetry(
         taskAgentRunId: runRecord.id,
         debugAttemptId: attempt.attempt?.id,
       }));
-      return { accepted: false, message: retry.message, status: "task_agent_failed", state: handoff.state, task: runningTask, retry, prompt, invocation, runResult };
+      return { accepted: false, message: retry.message, status: "task_agent_failed", state: handoff.state, task: runningTask, retry, prompt, invocation, runResult, contextSplit };
     }
 
     const freshness = await checkAttemptEvidence(cwd, handoff.state, runningTask.id);
     if (freshness.length > 0) {
-      return { accepted: false, message: freshness.join(" "), status: "rejected", state: handoff.state, task: runningTask, prompt, invocation, runResult };
+      return { accepted: false, message: freshness.join(" "), status: "rejected", state: handoff.state, task: runningTask, prompt, invocation, runResult, contextSplit };
     }
     const exactValidationRun = await runValidationCommandSet(cwd, runningTask.id, selection.exactCommands, "debug-retry-exact");
     const finalFreshness = await checkAttemptEvidence(cwd, handoff.state, runningTask.id);
     if (finalFreshness.length > 0) {
-      return { accepted: false, message: finalFreshness.join(" "), status: "rejected", state: handoff.state, task: runningTask, prompt, invocation, runResult, exactValidationRun };
+      return { accepted: false, message: finalFreshness.join(" "), status: "rejected", state: handoff.state, task: runningTask, prompt, invocation, runResult, exactValidationRun, contextSplit };
     }
     await logValidationSummaryAudit(cwd, handoff.state, {
       taskId: runningTask.id,
@@ -552,7 +624,7 @@ export async function runDebugNextApproachRetry(
         debugAttemptId: attempt.attempt?.id,
       }));
       await appendLogEvent(cwd, createLogEvent(handoff.state, { eventType: "debug", summary: retry.message, taskId: runningTask.id, details: { retry } }));
-      return { accepted: true, message: retry.message, status: "exact_validation_passed", state: handoff.state, task: runningTask, retry, prompt, invocation, runResult, exactValidationRun };
+      return { accepted: true, message: retry.message, status: "exact_validation_passed", state: handoff.state, task: runningTask, retry, prompt, invocation, runResult, exactValidationRun, contextSplit };
     }
 
     const failedState = (await applyValidationReport(cwd, handoff.state, {
@@ -583,7 +655,7 @@ export async function runDebugNextApproachRetry(
       debugAttemptId: attempt.attempt?.id,
     }));
     await appendLogEvent(cwd, createLogEvent(failedState, { eventType: "debug", summary: retry.message, taskId: runningTask.id, details: { retry } }));
-    return { accepted: false, message: retry.message, status: "exact_validation_failed", state: failedState, task: runningTask, retry, prompt, invocation, runResult, exactValidationRun };
+    return { accepted: false, message: retry.message, status: "exact_validation_failed", state: failedState, task: runningTask, retry, prompt, invocation, runResult, exactValidationRun, contextSplit };
   } catch (error) {
     if (activeAttempt && !attemptTerminal) {
       await interruptTaskExecution(cwd, lock.lock.id, activeAttempt.id, [

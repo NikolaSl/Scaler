@@ -341,7 +341,7 @@ Lists structured missing-context requests from `.scaler/context/missing-requests
 
 ## `/scaler-missing-context-run [requestId] [execute] [internet]`
 
-Plans or executes retrieval/investigation for the selected open missing-context request. Supported deterministic actions include memory search, file retrieval evidence, local/internet research-request creation, and blocked user/tool clarification records. Internet investigation requires the explicit `internet` flag. Executed file/memory retrievals mark requests resolved; research dispatch records a linked research request and later research reports can resolve the missing-context request.
+Plans or executes retrieval/investigation for the selected open missing-context request. Supported deterministic actions include memory search, file retrieval evidence, local/internet research-request creation, and blocked user/tool clarification records. Internet investigation requires the explicit `internet` flag. A file request may name one exact existing section with a second backtick directive after its path: `heading:<exact text>` or `function:<exactIdentifier>`. The supervisor validates and persists only the selected source bytes; malformed or unavailable selectors stay blocked. Executed file/memory retrievals mark requests resolved; research dispatch records a linked research request and later research reports can resolve the missing-context request.
 
 ## `/scaler-missing-context-resolve <requestId> | <summary> | <evidence refs>`
 

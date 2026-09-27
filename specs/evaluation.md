@@ -23,6 +23,13 @@ Report separately:
 
 Total resources per accepted deliverable matter more than per-call savings.
 A single successful example cannot establish broad reliability or economy.
+Evaluate the programmatic process separately from a configured model's ability
+to solve a particular task. Record whether scoped proposals, state transitions,
+authority, validation, history and truthful blockers behave correctly, then
+report model-specific task outcomes with their named model and envelope. A
+model's failure on a task is not process failure when the supervisor detects and
+records it without false acceptance. Do not trade away maintainability or
+required evidence to improve token or cost totals.
 
 ## Test layers
 

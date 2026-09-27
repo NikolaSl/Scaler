@@ -21,7 +21,7 @@ import {
   type ContextItem,
   type ResolvedContext,
 } from "./context.js";
-import { recordContextSplitIfNeeded, type ContextSplitRecord } from "./context-splits.js";
+import { projectContextSplitForDispatch, recordContextSplitIfNeeded, type ContextSplitRecord } from "./context-splits.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { appendLogEvent, createLogEvent, logAgentPromptAudit } from "./logging.js";
 import { createMissingContextRequestsFromTaskReport, refreshAndUnblockMissingContext } from "./missing-context.js";
@@ -30,7 +30,7 @@ import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.
 import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { assessTaskPromptAdmission, createPromptSizingAttemptBinding, resolveTaskPromptTokenBudget, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
 import { saveState } from "./state.js";
-import { buildTaskAgentInvocation, runTaskAgent, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import {
   completeTaskAttempt,
   taskAttemptBinding,
@@ -269,33 +269,97 @@ export async function runConductorStep(
       runningTask = nextState.tasks.find((task) => task.id === selection.task!.id)!;
     }
     const promptTokenBudget = resolveTaskPromptTokenBudget(options.tokenBudget, contextManifest?.tokenBudget);
+    let dispatchContextItems = contextItems;
     let { prompt, resolvedContext, compressionAssessment } = buildTaskAgentPrompt({
       state: nextState,
       task: runningTask,
       contextItems,
       tokenBudget: promptTokenBudget,
     });
-    const contextSplit = await recordContextSplitIfNeeded(cwd, nextState, runningTask.id, resolvedContext, compressionAssessment);
+    const tools = options.tools ?? defaultTaskAgentTools();
+    const originalSizedPrompt = options.execute ? buildTaskAgentPrompt({
+      state: nextState,
+      task: runningTask,
+      contextItems,
+      tokenBudget: promptTokenBudget,
+      attempt: createPromptSizingAttemptBinding(nextState.runId),
+    }).prompt : undefined;
+    const originalPromptAdmission = originalSizedPrompt === undefined
+      ? undefined
+      : assessTaskPromptAdmission(originalSizedPrompt, promptTokenBudget);
+    const promptOverflowCanTriggerSplit = options.execute === true
+      && Number.isSafeInteger(promptTokenBudget)
+      && promptTokenBudget > 0
+      && originalPromptAdmission?.accepted === false;
+    const contextSplit = await recordContextSplitIfNeeded(
+      cwd,
+      nextState,
+      runningTask.id,
+      resolvedContext,
+      compressionAssessment,
+      new Date(),
+      {
+        force: promptOverflowCanTriggerSplit,
+        trigger: "final_prompt_allowance",
+        promptOverByTokens: promptOverflowCanTriggerSplit
+          ? Math.max(0, originalPromptAdmission.estimatedTokens - promptTokenBudget)
+          : undefined,
+      },
+    );
+    if (options.execute && contextSplit) {
+      if (contextSplit.externalizedMemoryRefs.length > 0 && !tools.includes("read")) {
+        const message = `Context split ${contextSplit.id} requires the read tool for externalized context retrieval.`;
+        await appendLogEvent(cwd, createLogEvent(nextState, {
+          eventType: "rejected_transition",
+          summary: message,
+          taskId: runningTask.id,
+          details: { admission: "context_split_projection", diagnostics: [message] },
+        }));
+        return { accepted: false, message, state: nextState, task: runningTask, prompt, contextSplit };
+      }
+      const projection = await projectContextSplitForDispatch(cwd, runningTask.id, resolvedContext, contextSplit);
+      if (!projection.accepted) {
+        const message = projection.diagnostics.join(" ");
+        await appendLogEvent(cwd, createLogEvent(nextState, {
+          eventType: "rejected_transition",
+          summary: message,
+          taskId: runningTask.id,
+          details: { admission: "context_split_projection", diagnostics: projection.diagnostics },
+        }));
+        return { accepted: false, message, state: nextState, task: runningTask, prompt, contextSplit };
+      }
+      dispatchContextItems = projection.contextItems;
+      ({ prompt, resolvedContext, compressionAssessment } = buildTaskAgentPrompt({
+        state: nextState,
+        task: runningTask,
+        contextItems: dispatchContextItems,
+        tokenBudget: promptTokenBudget,
+      }));
+    }
     if (options.execute) {
       const sizedPrompt = buildTaskAgentPrompt({
         state: nextState,
         task: runningTask,
-        contextItems,
+        contextItems: dispatchContextItems,
         tokenBudget: promptTokenBudget,
         attempt: createPromptSizingAttemptBinding(nextState.runId),
       }).prompt;
       const promptAdmission = assessTaskPromptAdmission(sizedPrompt, promptTokenBudget);
-      if (!promptAdmission.accepted) {
+      const projectionDidNotShrink = contextSplit
+        && promptAdmission.estimatedTokens >= originalPromptAdmission!.estimatedTokens;
+      if (!promptAdmission.accepted || projectionDidNotShrink) {
+        const message = projectionDidNotShrink
+          ? `Context split ${contextSplit.id} did not shrink the complete final prompt below its original ${originalPromptAdmission!.estimatedTokens}-token estimate.`
+          : promptAdmission.message;
         await appendLogEvent(cwd, createLogEvent(nextState, {
           eventType: "rejected_transition",
-          summary: promptAdmission.message,
+          summary: message,
           taskId: runningTask.id,
-          details: { admission: "final_prompt", promptAdmission },
+          details: { admission: "final_prompt", promptAdmission, originalPromptAdmission },
         }));
-        return { accepted: false, message: promptAdmission.message, state: nextState, task: runningTask, prompt, contextSplit, promptAdmission };
+        return { accepted: false, message, state: nextState, task: runningTask, prompt, contextSplit, promptAdmission };
       }
     }
-    const tools = options.tools ?? defaultTaskAgentTools();
     try {
       buildTaskAgentInvocation({
         taskId: runningTask.id,
@@ -317,7 +381,7 @@ export async function runConductorStep(
       return { accepted: false, message: error.message, state: nextState, task: runningTask, prompt, contextSplit };
     }
     const budgetUpdates = [
-      { key: "contextTokens" as const, amount: resolvedContext.estimatedTokens, mode: "set" as const },
+      { key: "contextTokens" as const, amount: compressionAssessment.estimatedTokens, mode: "set" as const },
       ...(options.execute ? [{ key: "spawnedAgents" as const, amount: 1, mode: "increment" as const }] : []),
     ];
     const budgetResult = applyBudgetUsageUpdates(nextState, budgetUpdates);
@@ -358,7 +422,7 @@ export async function runConductorStep(
       ({ prompt, resolvedContext, compressionAssessment } = buildTaskAgentPrompt({
         state: nextState,
         task: runningTask,
-        contextItems,
+        contextItems: dispatchContextItems,
         tokenBudget: promptTokenBudget,
         attempt: attemptBinding,
       }));
@@ -368,7 +432,7 @@ export async function runConductorStep(
       agentId: runningTask.id,
       taskId: runningTask.id,
       prompt,
-      inputRefs: contextItems.map((item) => item.id),
+      inputRefs: dispatchContextItems.map((item) => item.id),
       details: { tokenBudget: promptTokenBudget, attempt: attemptBinding },
     });
     const request = {
@@ -410,7 +474,7 @@ export async function runConductorStep(
         agentType: "task",
       })).state;
     }
-    const reportIngestion = runResult?.exitCode === 0
+    const reportIngestion = runResult && taskAgentRunSucceeded(runResult)
       ? await ingestTaskAgentReportFromRun(cwd, nextState, runningTask.id, runResult, attemptBinding!)
       : undefined;
     const outputFingerprint = reportIngestion?.report?.outputFingerprint;
@@ -419,7 +483,7 @@ export async function runConductorStep(
     const handoff = runResult ? await applyTaskRunHandoff(cwd, nextState, runningTask.id, runResult, reportIngestion, new Date(), { attempt: attemptBinding, outputFingerprint }) : undefined;
     if (runResult && activeAttempt) {
       const acceptedReport = reportIngestion?.report;
-      const succeeded = runResult.exitCode === 0 && acceptedReport?.status === "completed";
+      const succeeded = taskAgentRunSucceeded(runResult) && acceptedReport?.status === "completed";
       await completeTaskAttempt(cwd, lock.lock.id, activeAttempt.id, {
         status: succeeded ? "completed" : "failed",
         outcome: succeeded ? "succeeded" : "failed",
@@ -504,7 +568,7 @@ export async function recordTaskAgentRun(
   const record: TaskAgentRunRecord = {
     id: `${runResult.taskId}-${now.getTime()}`,
     taskId: runResult.taskId,
-    status: runResult.exitCode === 0 ? "passed" : "failed",
+    status: taskAgentRunSucceeded(runResult) ? "passed" : "failed",
     exitCode: runResult.exitCode,
     stdoutEventCount: runResult.stdoutEvents.length,
     stderrSummary: summarizeOutput(runResult.stderr),
@@ -586,7 +650,7 @@ function selectTaskRunHandoff(
   reason: string;
   summary: (taskId: string) => string;
 } {
-  if (runResult.exitCode !== 0) {
+  if (!taskAgentRunSucceeded(runResult)) {
     return {
       targetTaskStatus: "failed",
       status: "task_agent_failed",
@@ -646,7 +710,7 @@ export function summarizeTaskAgentReportIngestion(
   reportIngestion: TaskAgentReportIngestionResult | undefined,
   runResult: TaskAgentRunResult,
 ): Pick<TaskAgentRunRecord, "reportStatus" | "reportId" | "reportDiagnostics"> {
-  if (runResult.exitCode !== 0) return { reportStatus: "not_required" };
+  if (!taskAgentRunSucceeded(runResult)) return { reportStatus: "not_required" };
   if (!reportIngestion) return { reportStatus: "missing", reportDiagnostics: ["Report ingestion did not run."] };
   return {
     reportStatus: reportIngestion.status,
@@ -663,6 +727,10 @@ export function buildTaskAgentPrompt(input: TaskPromptInput): TaskPromptResult {
     items: input.contextItems ?? [],
     tokenBudget: input.tokenBudget,
   });
+  const readOnlyContextPaths = [...new Set(resolvedContext.included.flatMap((item) => {
+    const path = item.fileSource?.path.replace(/\\/g, "/").replace(/^\.\//, "");
+    return path?.startsWith(".scaler/memory/") ? [path] : [];
+  }))].sort();
 
   const compressionAssessment = assessCompression({
     items: resolvedContext.included,
@@ -686,6 +754,7 @@ export function buildTaskAgentPrompt(input: TaskPromptInput): TaskPromptResult {
     `Current task status: ${input.task.status}`,
     `Supervisor stage: ${input.state.stage}`,
     `Allowed paths: ${input.task.allowedPathPrefixes?.join(", ") || "not specified"}`,
+    `Read-only context paths: ${readOnlyContextPaths.join(", ") || "none"}`,
     `Dependencies: ${input.task.dependsOn?.join(", ") || "none"}`,
     ...(input.attempt ? [
       `Run ID: ${input.attempt.runId}`,
@@ -696,21 +765,23 @@ export function buildTaskAgentPrompt(input: TaskPromptInput): TaskPromptResult {
       `Validation-policy fingerprint: ${input.attempt.validationPolicyFingerprint}`,
     ] : ["Attempt identity: preview only; no execution attempt admitted."]),
     "",
+    ...(input.state.stage === "execution" ? [
+      "## Execution worker role",
+      "- Implement the admitted task; propose a narrower context, missing sources (needs_data; never guess), or a task split (needs_replan). The supervisor validates proposals against the current task contract and state. No report status alone changes scheduler state.",
+      "",
+    ] : []),
     "## Operating rules",
-    "- Work only on this task's scope.",
-    "- Do not guess if required context is missing; report missing context instead.",
     "- Keep changes minimal and focused.",
     "- Run the strongest practical validation for this task.",
-    "- Finish by submitting structured Scaler reports/tools where available.",
     "",
     "## Safety and scope",
-    "- If allowed paths are specified, read/write/edit only files under those paths unless explicitly told otherwise by the supervisor.",
+    "- If allowed paths are specified, write/edit only files under those paths; read other paths only when listed above as read-only context.",
+    "- Read-only context paths are immutable evidence: never write, edit, rename, replace, or delete them.",
     "- Do not read or modify protected paths such as .env, .git/, .ssh/, .aws/, *.pem, *.key, or *.p12.",
     "- Do not run destructive commands such as rm -rf, git reset --hard, git clean -f, sudo, docker system prune, or kubectl delete.",
     "",
     "## Required final report",
-    "Finish with exactly one structured task-agent report. A successful subprocess run is not eligible for validation until SCALER ingests this report.",
-    "Emit either a direct JSON event or an exact assistant JSON object with this shape:",
+    "Emit exactly one structured report (direct JSON event or assistant JSON object); validation requires ingestion:",
     JSON.stringify({
       type: "scaler_task_report",
       taskId: input.task.id,

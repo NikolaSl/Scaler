@@ -56,3 +56,50 @@ test("formatCompressionGuidance renders deterministic policy text", () => {
   assert.match(guidance, /Active context target: <= 1500 tokens/);
   assert.match(guidance, /Exact refs: REQ-001/);
 });
+
+test("compression measurement does not let a caller estimate hide large exact bytes", () => {
+  const assessment = assessCompression({
+    estimatedTokens: 25,
+    contextWindowTokens: 2_000,
+    items: [{
+      id: "understated-exact",
+      exactness: "exact",
+      estimatedTokens: 1,
+      content: "x".repeat(5_000),
+    }],
+  });
+
+  assert.deepEqual(assessment.externalizeRefs, ["understated-exact"]);
+  assert.equal(assessment.splitRecommended, false);
+});
+
+test("compression measurement sums understated inline items for the active target", () => {
+  const assessment = assessCompression({
+    estimatedTokens: 2,
+    contextWindowTokens: 2_000,
+    items: [
+      { id: "first", exactness: "exact", estimatedTokens: 1, content: "x".repeat(3_200) },
+      { id: "second", exactness: "summary-ok", estimatedTokens: Number.NaN, content: "y".repeat(3_200) },
+    ],
+  });
+
+  assert.equal(assessment.estimatedTokens, 1_600);
+  assert.equal(assessment.overByTokens, 100);
+  assert.equal(assessment.splitRecommended, true);
+  assert.deepEqual(assessment.externalizeRefs, []);
+});
+
+test("compression measurement preserves a more conservative aggregate estimate", () => {
+  const assessment = assessCompression({
+    estimatedTokens: 1_900,
+    contextWindowTokens: 2_000,
+    items: [
+      { id: "first", exactness: "exact", estimatedTokens: -1, content: "x".repeat(400) },
+      { id: "second", exactness: "summary-ok", estimatedTokens: 1, content: "y".repeat(400) },
+    ],
+  });
+
+  assert.equal(assessment.estimatedTokens, 1_900);
+  assert.equal(assessment.overByTokens, 400);
+  assert.equal(assessment.splitRecommended, true);
+});

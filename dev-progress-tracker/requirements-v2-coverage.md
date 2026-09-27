@@ -13,6 +13,29 @@ means related implementation exists but full revised behavior is not verified.
 Not assessed means this review did not establish the acceptance result.
 No row is Verified in this requirements revision.
 
+PLAN-151 adds a bounded explicit file-request path: the request is resolved
+only after a stable regular file within task scope is persisted as required
+exact context, and the next worker prompt receives the exact bytes. Missing,
+symlinked, protected, unauthorized, non-regular and oversized sources are
+refused. Unknown-path source discovery and narrower section requests remain
+open; SC-07/AC-07 stays Partial. Candidate evidence: build, 1,156 unit,
+68 mock integration, 7 conformance and 149 focused tests.
+PLAN-152 makes a complete, task- and request-matched research report available
+as required attributed context before a missing-data request resolves. Partial,
+foreign, contradictory and unresolved reports remain pending. Report claims do
+not prove exact source bytes, semantic discovery or model quality; SC-07/AC-07
+remains Partial. Candidate evidence: build, 1,158 unit, 68 mock integration,
+7 conformance and 61 focused tests.
+PLAN-153 adds bounded operator answers to required next-attempt context and
+refuses manual summary bypass of exact file requests. This does not verify
+answer truth or source discovery; SC-07/AC-07 remains Partial. Candidate
+evidence: build, 1,159 unit, 68 mock integration, 7 conformance, 56 focused.
+PLAN-154 rejects zero-exit terminal `error`/`aborted` child outcomes in task
+conductor and debug retry before report ingestion, validation or successful
+attempt publication. This closes one process gap without verifying all SC-05
+routes; candidate evidence: build, 1,163 unit, 68 mock integration,
+7 conformance, 69 focused tests.
+
 Prior review ran the baseline TypeScript build successfully, 488/488 unit tests
 and 66/67 mock integration tests. The failed retention fixture uses fixed
 December 2025 dates with a 200-day threshold and depends on the wall clock.
@@ -23,12 +46,12 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-01 | Failed | QA/report bypass reproduced in reviewed baseline; shared acceptance guards not established. | `src/validation.ts`, `src/reports.ts` | [AC-01](../specs/acceptance-scenarios.md#ac-01) |
 | SC-02 | Partial | Task fields/report contracts exist; complete versioned attempt/executor contract not established. | `src/types.ts`, `src/tasks.ts`, `src/task-reports.ts` | [AC-02](../specs/acceptance-scenarios.md#ac-02) |
 | SC-03 | Partial | Dependencies and plans exist; minimal/incremental planning and all admission guards need scenario coverage. | `src/plans.ts`, `src/conductor.ts` | [AC-03](../specs/acceptance-scenarios.md#ac-03) |
-| SC-04 | Failed | English keyword classifier routes 'What is Docker?' to level 4 and a complex Bulgarian request to level 1. | `src/adaptive.ts` | [AC-04](../specs/acceptance-scenarios.md#ac-04) |
-| SC-05 | Partial | Conductor, debug retry, stage, research, diagnostic debug, replanning, schema-discovery and explicit-spawn children now fail closed at both the rendered SCALER prompt and final OpenAI Chat Completions payload boundaries, including system/tool/history, output reserve, model window and compaction-route isolation. Every strict child binds one runtime-owned API/provider/model/context-window identity to explicit selectors, the final provider hook and task-attempt route identity; missing, malformed or conflicting identity and unavailable/malformed tool grants refuse before execution-side publication. Isolated-tool execution/replay retains its fresher dispatch-owned binding. Exact tokenization, alternate providers, parent calls, internal retries, eligibility policy and observed-usage reconciliation remain open. | `src/prompt-admission.ts`, `src/provider-admission.ts`, `src/provider-admission-extension.ts`, `src/subagents.ts`, `src/conductor.ts`, `src/debug-retry.ts`, `src/stage-agents.ts`, `src/debug-agent.ts`, `src/replan-agent.ts`, `src/research-agent.ts`, `src/tool-requests.ts`, `src/tools.ts`, `test/provider-admission.test.ts`, `test/provider-admission-host.test.ts`, `test/prompt-admission.test.ts`, `test/subagents.test.ts` | [AC-05](../specs/acceptance-scenarios.md#ac-05) |
+| SC-04 | Partial | Initial routing now distinguishes bounded information, workspace-change, multi-workstream and requested-external-effect evidence across paired English/Bulgarian cases. Domain/action nouns, response phrases, quoted/advisory verbs, verbosity and length alone do not escalate; direct, polite-modal and explicit follow-on actions retain their route. General multilingual semantics, justified isolated execution and risk-triggered direction checks remain open. | `src/adaptive.ts`, `test/adaptive-routing.test.ts` | [AC-04](../specs/acceptance-scenarios.md#ac-04) |
+| SC-05 | Partial | Ordinary parent requests and conductor, debug retry, stage, research, diagnostic debug, replanning, schema-discovery and explicit-spawn children now fail closed on the final OpenAI Chat Completions payload, including system/tool/history, output reserve, model window and compaction-route isolation. Parent admission measures the exact host payload against the live context window; every strict child separately binds one runtime-owned API/provider/model/context-window identity to explicit selectors, the final provider hook and task-attempt route identity. Missing, malformed or conflicting identity and unavailable/malformed tool grants refuse before execution-side publication. Isolated-tool execution/replay retains its fresher dispatch-owned binding. Exact tokenization, alternate providers, provider-internal retry interception, eligibility policy and observed-usage reconciliation remain open. | `src/index.ts`, `src/prompt-admission.ts`, `src/provider-admission.ts`, `src/provider-admission-extension.ts`, `src/subagents.ts`, `src/conductor.ts`, `src/debug-retry.ts`, `src/stage-agents.ts`, `src/debug-agent.ts`, `src/replan-agent.ts`, `src/research-agent.ts`, `src/tool-requests.ts`, `src/tools.ts`, `test/provider-admission.test.ts`, `test/provider-admission-host.test.ts`, `test/prompt-admission.test.ts`, `test/subagents.test.ts` | [AC-05](../specs/acceptance-scenarios.md#ac-05) |
 | SC-06 | Partial | Validity labels and memory references exist; dependency-based freshness and invalidation unverified. | `src/memory.ts`, `src/context.ts` | [AC-06](../specs/acceptance-scenarios.md#ac-06) |
-| SC-07 | Partial | Exact Markdown-heading retrieval preserves source bytes and rejects missing, ambiguous or oversized required sections. Admitted file context is now byte-bound and revalidated before dispatch and result acceptance, including symlink, non-regular-file and exact-output boundaries. AST/function selectors and automatic effective splitting remain open. | `src/context.ts`, `src/attempt-execution.ts`, `src/conductor.ts`, `src/debug-retry.ts`, `test/context.test.ts`, `test/attempt-execution.test.ts`, `test/conductor.test.ts` | [AC-07](../specs/acceptance-scenarios.md#ac-07) |
+| SC-07 | Partial | Exact Markdown-heading and top-level JavaScript/TypeScript function retrieval preserve source bytes and reject missing, ambiguous, malformed, unsupported or oversized required sections. Explicit `heading:<text>` and `function:<identifier>` queries discover separate exact selector candidates across bounded allowed task paths. Explicit `link:<label>` queries resolve exact CommonMark labels to relative local regular-file targets, while `import:<specifier>` queries resolve parser-backed static imports/re-exports to extension-explicit local source targets. `import-function:<specifier>#<identifier>` composes one exact static named edge with one direct exported top-level callable. `import-caller:<specifier>#<identifier>` adds one parser-backed reverse step from that verified export through an exact value-level named import to top-level direct callers; `reexport-caller:<barrelSpecifier>#<identifier>` permits exactly one additional verified local named re-export hop. These modes reject escaping, indirect, type-only, export-star, conflicting, shadowed, nested and symlink-backed evidence and keep approval manual. Admitted file context is byte-bound and revalidated before dispatch and result acceptance. A just-created split can drive normal conductor and debug next-approach retry execution through a smaller attempt-bearing projection whose original and externalized sources remain freshness-bound; large-item and aggregate active-context accounting measure actual inline bytes, and complete final-prompt overflow can trigger that projection below the context-only target. Natural-language selector inference, recursive/semantic graph traversal, package/alias resolution, automatic selector choice and task decomposition remain open. A worker-requested missing-data/source path that validates scope, retrieves the needed information and re-admits a follow-up turn under varied local windows is not yet demonstrated; small-context availability is not verified. | `src/context.ts`, `src/context-splits.ts`, `src/task-attempts.ts`, `src/attempt-execution.ts`, `src/conductor.ts`, `src/debug-retry.ts`, `test/context.test.ts`, `test/context-splits.test.ts`, `test/attempt-execution.test.ts`, `test/conductor.test.ts`, `test/debug-retry.test.ts`, `manual/context.md` | [AC-07](../specs/acceptance-scenarios.md#ac-07) |
 | SC-08 | Partial | Installed Pi binds the selected tool envelope before its first provider snapshot. Request-specific assessment compares direct/current-agent/isolated evidence; isolated execution now recomputes that assessment at dispatch, binds the exact worker/provider/model and caller-continuation evidence, limits transport/result bytes and accepts one execution-bound proposal only after a successful parent-observed outcome. The installed command blocks without a trustworthy future continuation supplier. Direct/current-agent adapters, a production continuation supplier and the complete three-route scenario remain open. | `src/tool-routing.ts`, `src/tool-requests.ts`, `src/index.ts`, `test/tool-routing.test.ts`, `test/tool-requests.test.ts`, `test/provider-admission-host.test.ts` | [AC-08](../specs/acceptance-scenarios.md#ac-08) |
-| SC-09 | Not assessed | Strict children preserve an exact runtime-owned host selection and reject ambient provider/model drift, but no supported local-only profile, real model run or end-to-end outcome acceptance is demonstrated. | `src/subagents.ts`, `src/provider-admission.ts`, `test/provider-admission-host.test.ts` | [AC-09](../specs/acceptance-scenarios.md#ac-09) |
+| SC-09 | Not assessed | Strict children preserve an exact runtime-owned host selection and reject ambient provider/model drift. A non-authorizing prerequisite now rejects malformed/unknown capability profiles and assesses task, locality, data-location, structured-output, tool and envelope eligibility without fallback. No installed dispatch consumes it, and no supported local-only profile, real process run, resource envelope or state-transition/outcome evidence is demonstrated. Acceptance concerns the model-independent FSM and validated model proposals, including truthful refusal, not a particular model's task-completion rate. | `src/subagents.ts`, `src/provider-admission.ts`, `src/model-profile-eligibility.ts`, `test/provider-admission-host.test.ts`, `test/model-profile-eligibility.test.ts`, `manual/model-profiles.md` | [AC-09](../specs/acceptance-scenarios.md#ac-09) |
 | SC-10 | Failed | Accepted status can be obtained without validation runs; evidence/version acceptance needs repair. | `src/validation.ts`, `src/tools.ts` | [AC-10](../specs/acceptance-scenarios.md#ac-10) |
 | SC-11 | Partial | Failure/attempt ledgers exist; revised combined retry/effect/validation criteria need verification. | `src/debug.ts`, `src/debug-retry.ts` | [AC-11](../specs/acceptance-scenarios.md#ac-11) |
 | SC-12 | Partial | Plan preservation exists; validity-aware obsolescence/correction needs revised scenarios. | `src/plans.ts`, `src/replan-agent.ts` | [AC-12](../specs/acceptance-scenarios.md#ac-12) |
@@ -49,6 +72,143 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-27 | Partial | Current named command evidence and participant identity gate declared integration criteria; revision-checked user amendments and immutable history prevent model-route criterion changes. Semantic necessity and non-software evidence remain open. | `src/prd.ts`, `src/run-completion.ts`, `test/requirement-integration.test.ts`, `test/prd.test.ts` | [AC-27](../specs/acceptance-scenarios.md#ac-27) |
 
 ## Implementation progress — PLAN-099
+
+PLAN-148 adds one exact syntactic imported-caller lookup. An explicit
+`import-caller:<specifier>#<identifier>` query verifies the stable local target
+and direct exported callable, maps a value-level named import to its local alias,
+and returns path-and-selector-bound top-level callers containing a direct call.
+Nested, shadowed, property/new/tagged, malformed, ambiguous and symlink-backed
+evidence fails closed. Recursive/semantic call graphs, inferred resolution,
+automatic approval and decomposition remain open, so SC-07 stays Partial. The
+exact implementation-and-documentation candidate passes the TypeScript build,
+1,150 unit/component tests, 68 mock integration tests, 7
+conformance/autopilot tests, 91 focused context checks and `git diff --check`.
+
+PLAN-149 extends explicit caller discovery through exactly one local named
+re-export. The caller import, stable barrel export and stable final direct
+callable must all match the explicit public identifier and their source/local
+aliases before a path-and-selector-bound top-level caller is returned. Conflicting
+direct exports, ambiguous/type/star edges, malformed or escaping paths, nested
+or shadowed calls and symlink-backed hops fail closed. Recursive/semantic graphs,
+package/alias resolution, automatic approval and decomposition remain open, so
+SC-07 stays Partial. The exact implementation-and-documentation candidate passes
+the TypeScript build, 1,155 unit/component tests, 68 mock integration tests, 7
+conformance/autopilot tests, 96 focused context checks and `git diff --check`.
+
+PLAN-138 makes an already justified oversized-context split effective only in
+the normal conductor path. It validates the current task/item set, externalized
+memory identity and bytes, projects required context plus compact immutable
+refs, measures the complete attempt-bearing prompt, and refuses missing-read,
+non-shrinking or over-limit requests before dispatch. Attempt admission binds
+the projected request while freshness checks retain both original file and
+externalized memory sources through result acceptance. The legacy handoff
+executor remains blocked; automatic selector discovery, cross-file semantic
+lookup and task decomposition remain open, so SC-07 stays Partial. The candidate
+passes build, 1,107 unit/component, 67 mock integration, 7
+conformance/autopilot and 72 focused checks plus `git diff --check`.
+
+PLAN-139 adds bounded exact-name selector discovery for the explicit
+`function:<identifier>` candidate query. It searches only the task's allowed
+candidate paths, verifies each match with the existing parser-backed selector,
+and returns separate read-only candidates that still require manual approval.
+Malformed or ineligible declarations and unrelated changed paths produce no
+selector candidate. Natural-language inference, import/call-graph semantics,
+automatic selection and task decomposition remain open, so SC-07 stays Partial.
+The candidate passes build, 1,112 unit/component, 67 mock integration, 7
+conformance/autopilot and 67 focused context checks plus `git diff --check`.
+
+PLAN-140 applies the same bounded, manually approved discovery boundary to the
+existing exact Markdown selector. An explicit `heading:<text>` query searches
+only allowed Markdown paths and emits a candidate only when the CommonMark-backed
+selector finds one unique, within-limit document heading. Duplicate, fenced,
+unsupported and oversized sections fail closed; same-named headings in separate
+files remain separate choices. Natural-language or fuzzy inference, document
+link traversal, automatic selection and task decomposition remain open, so
+SC-07 stays Partial. The exact-head candidate passes build, 1,117
+unit/component, 67 mock integration, 7 conformance/autopilot and 72 focused
+context checks plus `git diff --check`.
+
+PLAN-141 applies PLAN-138's effective split boundary to executed debug
+next-approach retries. The retry instruction participates in the split basis;
+externalized exact bytes require a loaded `read` tool; projection is remeasured
+with the attempt binding; and attempt/result freshness covers the projected
+externalized evidence. Failed, non-shrinking or still-oversized projections
+refuse before attempt admission, spawned-agent accounting or runner dispatch.
+Automatic retry policy, selector inference, task decomposition and model
+quality or savings evidence remain open, so SC-07 stays Partial.
+The candidate passes build, 1,120 unit/component, 67 mock integration, 7
+conformance/autopilot and 44 focused checks plus `git diff --check`.
+
+PLAN-142 closes the measured split-trigger gap. Large exact/summary-ok items use
+the greater of a valid caller estimate and measured content bytes, and executed
+conductor/debug-retry paths may record the existing safe projection when the
+complete attempt-bearing prompt exceeds a valid allowance below the
+context-only target. Records distinguish active-context and final-prompt
+triggers with prompt overage. Missing `read`, wrapper-only overflow,
+non-shrinking projection, malformed allowance and stale evidence still refuse
+before dispatch. Semantic inference, automatic selection, decomposition, model
+quality and savings remain open, so SC-07 stays Partial.
+The candidate passes build, 1,122 unit/component, 67 mock integration, 7
+conformance/autopilot and 95 focused checks plus `git diff --check`.
+
+PLAN-143 makes active-context accounting use the greater of a valid supplied
+aggregate and the sum of measured/conservative item sizes. Several understated
+inline items can no longer suppress the context target, durable estimate or
+overage, including in prepare mode. Accepted conductor dispatches use that same
+measured aggregate for active-context budget accounting. More conservative
+supplied totals remain authoritative, while malformed item estimates do not
+control arithmetic. Items below the configured large-item threshold are not
+invented as externalization candidates. The candidate passes build, 1,125
+unit/component, 67 mock integration, 7 conformance/autopilot and 58 focused
+checks plus `git diff --check`. Semantic retrieval, automatic selection,
+decomposition, model quality and savings remain open, so SC-07 stays Partial.
+
+PLAN-144 adds bounded exact local-document link discovery. An explicit
+`link:<label>` query parses only CommonMark link nodes in allowed Markdown
+sources, matches the rendered label exactly and normalizes relative targets
+against the source document. Source and target must be direct stable regular
+files, and the target must remain inside the workspace and task path boundary.
+Repeated references deduplicate; distinct targets remain manual choices.
+External, absolute, escaping, queried, fragmented, fenced and symlink-backed
+destinations fail closed. The candidate passes build, 1,129 unit/component, 67
+mock integration, 7 conformance/autopilot and 76 focused context checks plus
+`git diff --check`. Natural-language inference, recursive crawling,
+import/call-graph lookup, automatic approval and decomposition remain open, so
+SC-07 stays Partial.
+
+PLAN-137 adds the model-profile eligibility prerequisite deliberately left open
+by PLAN-132. Versioned profiles carry an exact provider identity, locality,
+tokenizer/estimator, tool and structured-output support, configured limits,
+possible data locations and observed task-suitability evidence. Request-specific
+assessment fails closed on malformed or unknown evidence, applies capability and
+data constraints before preference, returns all eligible identities in stable
+order and never authorizes execution or invents a cloud/paid fallback. SC-09
+remains Not assessed because the installed host does not consume the assessment
+and no documented local runtime, real outcome or resource evidence exists. The
+candidate gate passes build, 1,101 unit/component, 67 mock integration, 7
+conformance/autopilot and 17 focused checks plus `git diff --check`.
+
+PLAN-135 closes the reproduced ordinary parent-provider envelope bypass. The
+installed extension now assesses the exact final OpenAI Chat Completions payload
+against the live model context window, explicit output reserve and safety margin
+before transport. Unsupported or oversized envelopes abort before fallible
+audit persistence; accepted/refused events retain compact measurements without
+prompt or tool bytes. Strict child policy remains separately bound and prompt-
+composition refusal retains precedence. SC-05 remains Partial because exact
+tokenization, alternate providers, provider-internal retries, eligibility policy
+and observed-usage reconciliation remain open.
+
+PLAN-134 closes the reproduced initial-routing false positives and bilingual
+false negative. `What is Docker?`, its Bulgarian equivalent, domain-heavy
+lookups and long repetitive lookups remain lightweight. Paired English and
+Bulgarian workspace/multi-workstream changes select the same planning route.
+External actions require request evidence: advice or documentation that merely
+mentions `deploy` does not authorize a full workflow, while an imperative or
+explicit follow-on deployment does. Complex-work nouns do not escalate without
+a requested planning/investigation action; polite modals and explicit follow-on
+workspace/planning actions retain their requested route. This bounded
+deterministic vocabulary does not prove general multilingual understanding,
+isolation choice or later direction-check policy, so SC-04 remains Partial.
 
 PLAN-133 durably rejects stage artifacts written by failed children. The parent
 snapshots the persisted artifact index before dispatch, quarantines only exact

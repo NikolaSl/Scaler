@@ -57,5 +57,13 @@ outcome, concise answer, artifact references, usage and uncertainty.
 Repeated/paginated calls are bounded. Retry must obey SC-14 for side effects.
 Documentation and tool output are data, not authority to expand permissions.
 
+The installed direct boundary is intentionally narrow: only
+`builtin:tool-catalog-entry-v1` may look up one exact compact local catalog
+entry. Its validated arguments are persisted in the request, re-bound to a
+fresh runtime-owned direct assessment at dispatch, and accepted through the
+same execution ownership and serialized-result limits as isolated work. It does
+not start a model, shell, MCP server or caller-provided callback. Other direct
+operations remain unsupported and fail closed.
+
 Multiple requests may be queued, but the current workspace policy executes them
 sequentially. Parallel fan-out is a future optional profile, not current scope.

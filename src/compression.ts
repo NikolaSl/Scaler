@@ -70,22 +70,28 @@ export function assessCompression(input: CompressionAssessmentInput): Compressio
   const summaryOkRefs: string[] = [];
   const referenceOnlyRefs: string[] = [];
   const externalizeRefs: string[] = [];
+  let measuredItemTokens = 0;
 
   for (const item of input.items) {
     const exactness = normalizeExactness(item.exactness, item.scope);
+    measuredItemTokens = Math.min(Number.MAX_SAFE_INTEGER, measuredItemTokens + estimateItemTokens(item));
     if (exactness === "exact") exactRefs.push(item.id);
     if (exactness === "summary-ok") summaryOkRefs.push(item.id);
     if (exactness === "reference-only") referenceOnlyRefs.push(item.id);
     if ((exactness === "exact" || exactness === "summary-ok") && estimateItemTokens(item) > policy.largeItemThresholdTokens) externalizeRefs.push(item.id);
   }
 
-  const overByTokens = Math.max(0, input.estimatedTokens - policy.activeContextLimitTokens);
+  const suppliedTokens = Number.isSafeInteger(input.estimatedTokens) && input.estimatedTokens >= 0
+    ? input.estimatedTokens
+    : 0;
+  const estimatedTokens = Math.max(suppliedTokens, measuredItemTokens);
+  const overByTokens = Math.max(0, estimatedTokens - policy.activeContextLimitTokens);
   const overTarget = overByTokens > 0;
   const recommendations = buildRecommendations({ overTarget, overByTokens, exactRefs, summaryOkRefs, referenceOnlyRefs, externalizeRefs });
 
   return {
     policy,
-    estimatedTokens: input.estimatedTokens,
+    estimatedTokens,
     overTarget,
     overByTokens,
     exactRefs,
@@ -153,6 +159,9 @@ function buildRecommendations(input: {
 }
 
 function estimateItemTokens(item: CompressibleContextItem): number {
-  if (item.estimatedTokens !== undefined) return item.estimatedTokens;
-  return Math.ceil((item.content ?? "").length / 4);
+  const measuredTokens = Math.ceil((item.content ?? "").length / 4);
+  const declaredTokens = Number.isSafeInteger(item.estimatedTokens) && item.estimatedTokens! >= 0
+    ? item.estimatedTokens!
+    : 0;
+  return Math.max(declaredTokens, measuredTokens);
 }

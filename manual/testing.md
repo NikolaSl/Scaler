@@ -75,7 +75,7 @@ Default integration tests use deterministic mock child-agent runners. They do no
 
 The current mocked integration harness covers:
 
-- conductor task execution into structured task-agent report ingestion before validation handoff, including missing/invalid report blocking and structured missing-context request creation/resolution/retry;
+- conductor task execution into structured task-agent report ingestion before validation handoff, including missing/invalid report blocking and structured missing-context request creation/resolution/retry with exact file, Markdown-heading and top-level function delivery;
 - task-definition quality reviews and enforced user-facing/planner task creation for missing Definition of Done, validation refs/commands, allowed path scope, atomicity rationale, test-first coverage, and explicit waiver records;
 - failing validation into debugging;
 - debug attempt cycle detection and retry-gate refusal;
@@ -294,6 +294,15 @@ Pi's compaction route bypasses the provider-request hook. Run
 This is not tokenizer-accurate evidence and does not validate alternate provider
 APIs, real model quality, token savings or scale.
 
+PLAN-135 extends the same final-envelope check to ordinary parent requests in
+the installed Scaler extension. The host test proves that a small user request
+cannot carry an oversized assembled system/tool/history payload to transport,
+that a fitting request preserves the explicit output reserve, and that refusal
+precedes a failing audit write. Admission events contain the compact decision
+and measurements without prompt or tool bytes. Run `node --test --import tsx
+test/provider-admission-host.test.ts`; strict child binding and compaction tests
+remain in the same file but use their separate environment-owned policy.
+
 PLAN-121 replaces file `scope: "section"` prefix truncation with explicit,
 exact Markdown-heading selection. The conductor fixture puts the required
 section after a 72k-character unrelated prefix and proves that the actual worker
@@ -308,6 +317,17 @@ substrings, including Setext section boundaries. Run
 `node --test --import tsx test/context.test.ts test/conductor.test.ts test/debug-retry.test.ts`.
 This is bounded ATX-heading retrieval, not AST/semantic retrieval or automatic
 task splitting.
+
+PLAN-136 adds bounded exact JavaScript/TypeScript function selection with the
+TypeScript parser. Fixtures cover exported/async declarations, callable
+variables, exact source preservation, durable manifest/attempt round trips,
+duplicate and overload ambiguity, nested/class and multi-binding exclusions,
+malformed source, unsupported extensions and maximum size. Conductor fixtures
+prove exact function bytes reach the worker prompt and unavailable required
+function context refuses before dispatch. Run `node --test --import tsx
+test/context.test.ts test/conductor.test.ts test/attempt-execution.test.ts
+test/task-attempts.test.ts`. This is explicit top-level selection, not semantic
+cross-file lookup, automatic selector discovery or automatic effective splitting.
 
 PLAN-122 binds every admitted file-backed context item to the complete source
 bytes used to render it. The durable attempt stores normalized path, scope,
@@ -406,9 +426,177 @@ it.
 
 These checks execute no paid model and establish selection integrity only. They
 do not configure a local profile, prove model eligibility or quality, admit
-parent interactive calls, cover provider-internal retries, complete the three
-tool routes, or demonstrate savings and scale. SC-05/25 remain Partial and
-SC-09 remains Not assessed.
+alternate provider payloads, cover provider-internal retries, complete the three
+tool routes, or demonstrate savings and scale. Ordinary parent envelope
+admission is covered separately by PLAN-135; SC-05/25 remain Partial and SC-09
+remains Not assessed.
+
+PLAN-137 adds model-free coverage for configured model-profile eligibility. Run
+`node --test --import tsx test/model-profile-eligibility.test.ts` to exercise
+local-only filtering, task suitability, tool/structured-output support, data
+locations, configured and context-window limits, malformed/sparse/duplicate
+profiles, unsafe integers, immutable identity snapshots and locale-independent
+ordering. The assessor is non-authorizing and has no selected fallback identity.
+These tests configure or call no model and do not establish local-model quality,
+resource use or AC-09; SC-09 remains Not assessed.
+
+PLAN-138 adds model-free effective-split dispatch coverage. Run
+`node --test --import tsx test/conductor.test.ts test/context-splits.test.ts
+test/context-compaction.test.ts` to cover admitted minimal projection, complete
+final-prompt measurement, missing-read and non-shrinking refusal, malformed or
+tampered externalized evidence, and original/memory freshness through result
+acceptance. The legacy direct handoff executor remains blocked. These tests do
+not establish automatic semantic selection, task decomposition, model quality,
+savings or full SC-07/SC-08 acceptance.
+
+The PLAN-138 candidate passes the TypeScript build, 1,107 unit/component tests,
+67 mock integration tests, 7 conformance/autopilot tests, 72 focused context
+checks and `git diff --check`. No paid or deployed model execution is claimed.
+
+PLAN-139 adds exact-name function selector candidate discovery. Run
+`node --test --import tsx test/context.test.ts` to cover read-only
+`function:<identifier>` lookup, explicit approval, exact source resolution,
+same-name cross-file choices, malformed/duplicate/overload/class/oversized
+refusal, path-bound candidate identity, changed-file scope isolation and
+unrelated-change starvation. Generic semantic discovery remains unchanged.
+These fixtures do not infer a symbol from prose, follow imports/call graphs,
+choose a candidate, decompose a task or establish model quality or savings.
+The PLAN-139 candidate passes the TypeScript build, 1,112 unit/component tests,
+67 mock integration tests, 7 conformance/autopilot tests, 67 focused context
+checks and `git diff --check`.
+
+PLAN-140 adds exact-name Markdown heading selector candidate discovery. Run
+`node --test --import tsx test/context.test.ts` to cover read-only
+`heading:<text>` lookup, explicit approval, exact CRLF source resolution,
+same-name cross-file choices, empty/duplicate/fenced/unsupported/oversized
+refusal, path-bound candidate identity and unrelated-change starvation. The
+existing CommonMark selector remains the sole eligibility test, and generic and
+function discovery retain their prior behavior. These fixtures do not infer a
+heading from prose, follow document links, choose a candidate, decompose a task
+or establish model quality or savings. The exact-head PLAN-140 candidate passes
+the TypeScript build, 1,117 unit/component tests, 67 mock integration tests, 7
+conformance/autopilot tests, 72 focused context checks and `git diff --check`.
+
+PLAN-141 extends the effective context-split execution boundary to debug
+next-approach retries. Run `node --test --import tsx test/debug-retry.test.ts
+test/context-splits.test.ts test/attempt-execution.test.ts` to cover missing
+`read` refusal, smaller reference-bearing dispatch, preservation of retry
+instructions, complete final-prompt admission and changed externalized-evidence
+rejection. The fixtures use deterministic runners and do not claim automatic
+retry policy, model quality or savings. The PLAN-141 candidate passes the
+TypeScript build, 1,120 unit/component tests, 67 mock integration tests, 7
+conformance/autopilot tests, 44 focused debug-retry/context-split/attempt checks
+and `git diff --check`.
+
+PLAN-142 makes the effective split trigger use measured inline bytes rather than
+trusting an understated caller token estimate. Executed conductor and debug
+retry paths may also project an eligible item when the complete attempt-bearing
+prompt exceeds a valid allowance even though context-only usage remains below
+the 75% target. Run `node --test --import tsx test/compression.test.ts
+test/context-splits.test.ts test/conductor.test.ts test/debug-retry.test.ts
+test/attempt-execution.test.ts` to cover measured candidate selection, both
+execution paths, ordinary target-triggered behavior, wrapper-only refusal,
+malformed allowances, missing `read`, non-shrinking projection and freshness
+checks. These deterministic fixtures do not establish semantic selector
+inference, task decomposition, automatic retry policy, model quality, savings
+or scale; SC-07 remains Partial. The PLAN-142 candidate passes the TypeScript
+build, 1,122 unit/component tests, 67 mock integration tests, 7
+conformance/autopilot tests, 95 focused compression/context-split/conductor/
+debug-retry/attempt checks and `git diff --check`.
+
+PLAN-143 corrects aggregate active-context accounting. Run `node --test
+--import tsx test/compression.test.ts test/context-splits.test.ts
+test/conductor.test.ts` to verify that several understated inline items are
+summed from measured/conservative item sizes, a larger supplied aggregate stays
+authoritative, malformed item estimates do not control arithmetic, and
+conductor preparation records target-triggered evidence even without an
+execute-only final-prompt trigger. Accepted conductor execution also records the
+measured aggregate in active-context budget usage instead of the caller's
+understated total. Items below the large-item threshold do not become invented
+externalization candidates. These fixtures do not establish semantic retrieval,
+decomposition, model quality, savings or scale; SC-07 remains Partial. The
+candidate passes the TypeScript build, 1,125 unit/component tests, 67 mock
+integration tests, 7 conformance/autopilot tests, 58 focused checks and
+`git diff --check`.
+
+PLAN-144 adds exact local Markdown-link candidate discovery. Run
+`node --test --import tsx test/context.test.ts` to cover explicit
+`link:<label>` parsing, exact rendered-label matching, manual approval and
+target resolution, repeated-target deduplication, distinct targets, formatted
+labels and parent-relative normalization within allowed paths. The same suite
+refuses empty labels, external/absolute/escaping/query/fragment destinations,
+fenced pseudo-links, leaf and ancestor symlinks and non-files. These deterministic
+fixtures do not infer labels from prose, recursively crawl documents, resolve
+imports/call graphs, approve candidates automatically or establish model quality
+or savings; SC-07 remains Partial. The exact-head candidate passes the TypeScript
+build, 1,129 unit/component tests, 67 mock integration tests, 7
+conformance/autopilot tests, 76 focused context checks and `git diff --check`.
+
+PLAN-145 adds exact local static-import candidate discovery. Run
+`node --test --import tsx test/context.test.ts` to cover explicit
+`import:<specifier>` parsing, TypeScript-parser-backed import/type-import and
+re-export matching, target approval/resolution, repeated-edge deduplication,
+distinct same-specifier targets and changed-file starvation. The suite rejects
+empty or whitespace-padded queries, package/alias/dynamic/`require`/
+extensionless/query/fragment edges, malformed source, escaping targets, leaf or
+ancestor symlinks and unsupported target types. These deterministic fixtures do
+not implement package resolution, aliases, call graphs, recursive traversal,
+automatic selection, model quality or savings; SC-07 remains Partial. The
+exact-head candidate passes the TypeScript build, 1,134 unit/component tests,
+67 mock integration tests, 7 conformance/autopilot tests, 81 focused context
+checks and `git diff --check`.
+
+PLAN-146 composes one exact static local edge with the existing function
+selector. Run `node --test --import tsx test/context.test.ts` to cover explicit
+`import-function:<specifier>#<identifier>` parsing, named import aliases, named
+re-exports, target deduplication, distinct targets, manual approval and exact
+callable-byte resolution. The suite rejects empty/padded/malformed queries,
+default/namespace/type-only/dynamic edges, package/alias/extensionless targets,
+missing/non-exported/non-callable/ambiguous or indirect declarations, symlinked
+ancestors and changed-file starvation. These fixtures do not implement package
+resolution, recursive export/call graphs, automatic selection, model quality or
+savings; SC-07 remains Partial. The exact-head candidate passes the TypeScript
+build, 1,139 unit/component tests, 67 mock integration tests, 7
+conformance/autopilot tests, 86 focused context checks and `git diff --check`.
+
+PLAN-148 adds one exact imported-caller step. Run
+`node --test --import tsx test/context.test.ts` to cover explicit
+`import-caller:<specifier>#<identifier>` parsing, alias-to-local-call binding,
+multiple top-level callers, manual approval and exact caller-byte resolution.
+The suite rejects malformed/padded queries and source, default/namespace/type
+edges, non-call/property/new/tagged uses, nested or shadowed calls, ambiguous
+selectors, symlink-backed targets and changed-file starvation. These fixtures
+are syntactic one-hop evidence; they do not implement TypeScript symbol/type
+resolution, recursive call graphs, automatic selection, model quality or
+savings. SC-07 remains Partial. The exact implementation-and-documentation
+candidate passes the TypeScript build, 1,150 unit/component tests, 68 mock
+integration tests, 7 conformance/autopilot tests, 91 focused context checks and
+`git diff --check`.
+
+PLAN-149 adds one exact named re-export hop to caller discovery. Run
+`node --test --import tsx test/context.test.ts` to cover explicit
+`reexport-caller:<barrelSpecifier>#<identifier>` parsing, source/public/local
+alias binding, distinct top-level callers, manual approval and exact caller-byte
+resolution. The suite rejects malformed/padded queries and source, ambiguous or
+conflicting direct exports, type-only/export-star edges, nested or shadowed
+calls, escaping paths, symlink-backed barrel/target hops and changed-file
+starvation. These fixtures remain syntactic one-hop re-export evidence; they do
+not implement package aliases, inferred extensions, recursive barrels,
+TypeScript symbol/type resolution, automatic selection, model quality or
+savings. SC-07 remains Partial. The focused TypeScript build and 5
+re-export-caller checks pass. The exact implementation-and-documentation
+candidate passes the TypeScript build, 1,155 unit/component tests, 68 mock
+integration tests, 7 conformance/autopilot tests, 96 focused context checks and
+`git diff --check`.
+
+PLAN-147 adds one runtime-owned exact direct operation. Run
+`node --test --import tsx test/tool-routing.test.ts test/tool-requests.test.ts
+test/tools.test.ts` to cover structured direct-operation persistence, fresh
+runtime route admission, zero-runner catalog lookup, execution/result identity,
+adapter and durable-argument drift, malformed operations and oversized result
+refusal. This does not execute arbitrary tools or MCP calls, wire current-agent
+or production isolated continuations, prove model quality, or establish savings;
+SC-08/AC-08 remains Partial.
 
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx
@@ -590,6 +778,7 @@ PLAN-118 unit D closes reproduced Git and policy-authority routes. The Git
 regressions refuse clean/runtime-only commit skips without declared outputs,
 reject pre/post-commit hook changes before publishing accepted evidence, and
 preserve the resulting Git commit for diagnosis instead of resetting it.
+
 Dependency admission runs before validation commands and budget consumption.
 
 `test/acceptance-policy-authority.test.ts` covers exercised command/DoD/link
@@ -659,3 +848,36 @@ the focused regression. The reconciled exact candidate passes the TypeScript
 build, 799 unit tests, 67 mock integration tests and 7 conformance/autopilot
 checks. These tests do not make arbitrary hooks transactional or authorize an
 automatic reset/replay.
+
+PLAN-134 covers proportional initial routing with:
+
+```bash
+node --test --import tsx test/adaptive-routing.test.ts test/adaptive.test.ts
+```
+
+The paired English/Bulgarian cases distinguish information requests, workspace
+changes, multi-workstream changes and actual external effects. Additional
+controls ensure that domain words and raw length do not escalate, advice or
+documentation mentioning deployment does not grant effect authority, and an
+explicit follow-on workspace, planning or deployment step cannot hide behind
+informational framing. Complex-work nouns do not escalate without an action;
+polite English/Bulgarian modal requests retain their effects. Review cases also
+cover create/edit verbs, noun-only test/build phrases, response-style `send`,
+release-note nouns and the Bulgarian `платформа`/payment distinction. These are
+bounded deterministic fixtures, not evidence of general multilingual quality or
+automatic isolation/decomposition.
+
+PLAN-156 verifies the existing unknown-source question → local research →
+attributed answer → explicit file/section request → validation handoff:
+
+```bash
+node --test --import tsx test/integration/mock/unknown-source-context-flow.test.ts
+```
+
+Both scenarios exercise persisted requests and actual conductor retry prompts.
+They check that partial research cannot resume a worker, research claims arrive
+without source bytes, only the selected exact section enters the next prompt,
+and a file outside task scope remains blocked. Attempt identities must differ
+across retries. These are process integration checks with deterministic runners;
+they neither call a model nor establish autonomous research scheduling, model
+quality, or savings. A successful final report reaches `validating` only.

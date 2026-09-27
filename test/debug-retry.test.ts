@@ -20,6 +20,7 @@ import { loadTaskAttempts } from "../src/task-attempts.js";
 import { loadTaskAgentReports } from "../src/task-reports.js";
 import { loadExecutionLock } from "../src/locks.js";
 import { saveTaskContextManifest } from "../src/context.js";
+import { loadContextSplitRecords } from "../src/context-splits.js";
 import { withTestProviderAdmissionModel } from "./provider-model-fixture.js";
 
 const runDebugNextApproachRetry: typeof runDebugNextApproachRetryImpl = (cwd, state, options = {}, runner) =>
@@ -108,7 +109,7 @@ test("debug retry refuses hard budget before running state or attempt admission"
   });
 });
 
-test("debug retry refuses an oversized final prompt before attempt and runner", async () => {
+test("debug retry refuses an externalized projection without a read tool", async () => {
   await withTempDir(async (dir) => {
     const state = await seedDebuggingTask(dir);
     await saveTaskContextManifest(dir, {
@@ -130,11 +131,122 @@ test("debug retry refuses an oversized final prompt before attempt and runner", 
     });
 
     assert.equal(result.status, "rejected");
-    assert.equal(result.promptAdmission?.accepted, false);
+    assert.match(result.message, /requires the read tool/i);
+    assert.ok(result.contextSplit);
     assert.equal(runnerCalls, 0);
     assert.deepEqual(await loadTaskAttempts(dir), []);
     assert.equal((await loadState(dir)).tasks.find((task) => task.id === "T-RETRY")?.status, "debugging");
     assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents ?? 0, 0);
+  });
+});
+
+test("debug retry dispatches an admitted minimal projection for oversized exact context", async () => {
+  await withTempDir(async (dir) => {
+    const state = await seedDebuggingTask(dir);
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-RETRY",
+      tokenBudget: 1_600,
+      items: [{
+        id: "huge-exact", type: "file", reason: "The retry requires exact source.",
+        priority: "required", scope: "full", exactness: "exact", source: "inline",
+        content: `EXACT_START\n${"x".repeat(40_000)}\nEXACT_END`,
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.updatedAt,
+    });
+    let dispatchedPrompt = "";
+
+    const result = await runDebugNextApproachRetry(dir, state, {
+      execute: true,
+      tools: ["read"],
+    }, async (request) => {
+      dispatchedPrompt = request.prompt;
+      await writeFile(join(dir, "fixed.txt"), "ok\n", "utf8");
+      return passingRun(request);
+    });
+
+    assert.equal(result.accepted, true, result.message);
+    assert.equal(result.status, "exact_validation_passed");
+    assert.ok(result.contextSplit);
+    assert.equal(result.contextSplit.externalizedMemoryRefs.length, 1);
+    assert.ok(dispatchedPrompt.includes(result.contextSplit.externalizedMemoryRefs[0]!.memoryId));
+    assert.match(dispatchedPrompt, /Create the missing marker file/);
+    assert.doesNotMatch(dispatchedPrompt, /EXACT_START|EXACT_END/);
+    assert.ok(Buffer.byteLength(dispatchedPrompt, "utf8") < Buffer.byteLength("x".repeat(40_000), "utf8"));
+  });
+});
+
+test("debug retry rejects a result after externalized split evidence changes", async () => {
+  await withTempDir(async (dir) => {
+    const state = await seedDebuggingTask(dir);
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-RETRY",
+      tokenBudget: 1_600,
+      items: [{
+        id: "huge-exact", type: "file", reason: "The retry requires exact source.",
+        priority: "required", scope: "full", exactness: "exact", source: "inline",
+        content: "x".repeat(40_000),
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.updatedAt,
+    });
+
+    const result = await runDebugNextApproachRetry(dir, state, {
+      execute: true,
+      tools: ["read"],
+    }, async (request) => {
+      const [split] = await loadContextSplitRecords(dir);
+      await writeFile(join(dir, split!.externalizedMemoryRefs[0]!.path), "tampered\n", "utf8");
+      await writeFile(join(dir, "fixed.txt"), "ok\n", "utf8");
+      return passingRun(request);
+    });
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /context.*(changed|stale).*\.scaler\/memory/i);
+    assert.deepEqual(await loadTaskAgentReports(dir), []);
+    const [attempt] = await loadTaskAttempts(dir);
+    assert.equal(attempt?.status, "interrupted");
+    assert.equal(attempt?.outcome, "unknown");
+  });
+});
+
+test("debug retry triggers projection when the final prompt overflows below the context target", async () => {
+  await withTempDir(async (dir) => {
+    const state = await seedDebuggingTask(dir);
+    state.tasks.find((task) => task.id === "T-RETRY")!.allowedPathPrefixes = [
+      "fixed.txt",
+      `scope/${"a".repeat(1_600)}`,
+    ];
+    await saveState(dir, state);
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-RETRY",
+      tokenBudget: 2_000,
+      items: [{
+        id: "understated-exact", type: "file", reason: "Exact retry evidence.",
+        priority: "required", scope: "full", exactness: "exact", source: "inline",
+        content: `FINAL_OVERFLOW_RETRY_START\n${"x".repeat(4_200)}\nFINAL_OVERFLOW_RETRY_END`,
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.updatedAt,
+    });
+    let dispatchedPrompt = "";
+
+    const result = await runDebugNextApproachRetry(dir, state, {
+      execute: true,
+      tools: ["read"],
+    }, async (request) => {
+      dispatchedPrompt = request.prompt;
+      await writeFile(join(dir, "fixed.txt"), "ok\n", "utf8");
+      return passingRun(request);
+    });
+
+    assert.equal(result.accepted, true, result.message);
+    assert.equal(result.contextSplit?.trigger, "final_prompt_allowance");
+    assert.equal(result.contextSplit?.externalizedMemoryRefs.length, 1);
+    assert.doesNotMatch(dispatchedPrompt, /FINAL_OVERFLOW_RETRY_START|FINAL_OVERFLOW_RETRY_END/);
   });
 });
 
@@ -272,6 +384,24 @@ test("debug retry preserves child state and records unknown outcome after runner
     assert.equal(await loadExecutionLock(dir), undefined);
   });
 });
+
+for (const stopReason of ["error", "aborted"] as const) {
+  test(`debug retry refuses zero-exit terminal ${stopReason} before exact validation`, async () => {
+    await withTempDir(async (dir) => {
+      const state = await seedDebuggingTask(dir);
+      const validationRunsBefore = await loadValidationRuns(dir);
+      const result = await runDebugNextApproachRetry(dir, state, { execute: true }, async (request) => ({
+        ...passingRun(request),
+        stdoutEvents: [...passingRun(request).stdoutEvents, { type: "message_end", message: { role: "assistant", stopReason } }],
+      }));
+      assert.equal(result.status, "task_agent_failed");
+      assert.equal(result.exactValidationRun, undefined);
+      assert.equal((await loadValidationRuns(dir)).length, validationRunsBefore.length);
+      assert.deepEqual(await loadTaskAgentReports(dir), []);
+      assert.equal((await loadTaskAttempts(dir))[0]?.outcome, "failed");
+    });
+  });
+}
 
 test("selectDebugRetryWork finds latest next approach and failed exact validation command", async () => {
   await withTempDir(async (dir) => {

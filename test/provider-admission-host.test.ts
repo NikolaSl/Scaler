@@ -14,6 +14,7 @@ import {
   SessionManager, SettingsManager, type AgentSession, type ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
 import scalerExtension from "../src/index.js";
+import { readLogEvents } from "../src/logging.js";
 import { assessTaskPromptAdmission } from "../src/prompt-admission.js";
 import { assessProviderRequestAdmission, createStrictProviderAdmissionPolicy } from "../src/provider-admission.js";
 import { createDefaultState, saveState } from "../src/state.js";
@@ -31,7 +32,7 @@ const policyEnv = {
 
 // All provider traffic is replaced before creating the SDK session. No live
 // credentials, endpoints, command providers or global resource discovery are used.
-async function runInstalledHost(systemCharacters: number, extensions: ExtensionFactory[] = [], options: { autoCompaction?: boolean; activeTask?: boolean; largeUnselectedTool?: boolean; reemitBeforeStartPrompt?: boolean; rewriteBeforeScaler?: boolean; defaultSystemPrompt?: boolean; failScalerAuditBeforeStart?: boolean; failScalerAuditBeforeProvider?: boolean; queueFollowUpAfterAbort?: boolean; wrongExpectedModel?: boolean } = {}) {
+async function runInstalledHost(systemCharacters: number, extensions: ExtensionFactory[] = [], options: { autoCompaction?: boolean; activeTask?: boolean; largeUnselectedTool?: boolean; reemitBeforeStartPrompt?: boolean; rewriteBeforeScaler?: boolean; defaultSystemPrompt?: boolean; failScalerAuditBeforeStart?: boolean; failScalerAuditBeforeProvider?: boolean; queueFollowUpAfterAbort?: boolean; wrongExpectedModel?: boolean; modelContextWindow?: number; modelMaxTokens?: number } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "scaler-provider-host-test-"));
   const savedFetch = globalThis.fetch;
   const savedEnv = Object.fromEntries(Object.keys(policyEnv).map((key) => [key, process.env[key]]));
@@ -42,6 +43,7 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
   let compactionCancelled = false;
   try {
     Object.assign(process.env, policyEnv);
+    if (options.modelContextWindow) process.env.SCALER_EXPECTED_CONTEXT_WINDOW = String(options.modelContextWindow);
     if (options.wrongExpectedModel) process.env.SCALER_EXPECTED_MODEL_ID = "different-model";
     if (options.autoCompaction) process.env.SCALER_OUTPUT_RESERVE_TOKENS = "1024";
     if (options.activeTask) {
@@ -83,7 +85,7 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
       id: "synthetic-window", name: "Synthetic window", api: "openai-completions" as const,
       provider: "openai", baseUrl: "https://example.invalid/v1", reasoning: false,
       input: ["text" as const], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 8000, maxTokens: options.autoCompaction ? 2000 : 1000,
+      contextWindow: options.modelContextWindow ?? 8000, maxTokens: options.modelMaxTokens ?? 2000,
     };
     const loader = new DefaultResourceLoader({
       cwd: dir, agentDir: join(dir, "agent"), settingsManager,
@@ -151,8 +153,9 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
     });
     await session.prompt(options.autoCompaction ? `Inspect. ${"x".repeat(4000)}` : "Inspect the exact source.");
     const lastMessage = session.messages.at(-1);
+    const events = await readLogEvents(dir).catch(() => []);
     return {
-      fetchCalls, payload, payloads, model, compactionCancelled,
+      fetchCalls, payload, payloads, model, compactionCancelled, events,
       activeToolNames: session.getActiveToolNames(),
       stopReason: lastMessage?.role === "assistant" ? lastMessage.stopReason : undefined,
     };
@@ -171,13 +174,35 @@ async function admissionExtension(): Promise<ExtensionFactory> {
   return (await import("../src/provider-admission-extension.js")).default;
 }
 
-test("installed Pi baseline sends an oversized host envelope despite a small admitted SCALER prompt", async () => {
+test("installed Scaler parent admission aborts an oversized final host envelope", async () => {
   assert.equal(assessTaskPromptAdmission("Inspect the exact source.", 8000).accepted, true);
   const result = await runInstalledHost(40_000);
+  assert.equal(result.fetchCalls, 0, "the complete parent envelope must be refused before transport");
+  assert.equal(result.stopReason, "aborted");
+});
+
+test("installed Scaler parent admission preserves its output reserve", async () => {
+  const result = await runInstalledHost(40, [], { modelContextWindow: 128_000, modelMaxTokens: 512 });
+  assert.equal(result.fetchCalls, 0, "a fitting input must not consume the required output reserve");
+  assert.equal(result.stopReason, "aborted");
+});
+
+test("installed Scaler parent envelope refusal survives audit failure", async () => {
+  const result = await runInstalledHost(40_000, [], { failScalerAuditBeforeProvider: true });
+  assert.equal(result.fetchCalls, 0, "fallible telemetry must not bypass the provider refusal");
+  assert.equal(result.stopReason, "aborted");
+});
+
+test("installed Scaler parent admission audit stores measurements without prompt bytes", async () => {
+  const result = await runInstalledHost(40, [], { modelContextWindow: 128_000 });
   assert.equal(result.fetchCalls, 1);
-  assert.ok(Buffer.byteLength(JSON.stringify(result.payload), "utf8") > 8000);
-  assert.equal(result.payload?.max_completion_tokens, 1, "host floors output at one instead of refusing oversized input");
-  assert.equal((result.payload?.tools as unknown[])?.length, 1);
+  const event = result.events.find((candidate) => candidate.summary === "SCALER parent provider request admitted");
+  assert.ok(event);
+  const details = JSON.stringify(event.details);
+  assert.match(details, /\"code\":\"accepted\"/);
+  assert.match(details, /\"payloadBytes\":\d+/);
+  assert.doesNotMatch(details, /Inspect the exact source/);
+  assert.doesNotMatch(details, /HOST_SYSTEM_START/);
 });
 
 test("provider admission aborts oversized installed Pi requests before transport", async () => {
@@ -199,7 +224,7 @@ test("provider admission aborts when the live model differs from the parent bind
 });
 
 test("installed Pi first provider request uses SCALER parent tool focus", async () => {
-  const result = await runInstalledHost(40, [], { activeTask: true, largeUnselectedTool: true, reemitBeforeStartPrompt: true, defaultSystemPrompt: true });
+  const result = await runInstalledHost(40, [], { activeTask: true, largeUnselectedTool: true, reemitBeforeStartPrompt: true, defaultSystemPrompt: true, modelContextWindow: 128_000 });
   assert.equal(result.fetchCalls, 1);
   const toolNames = ((result.payload?.tools ?? []) as Array<{ function?: { name?: string } }>)
     .map((tool) => tool.function?.name)
@@ -279,14 +304,14 @@ test("strict provider admission cancels automatic compaction before unguarded tr
 
 test("installed Pi swallows throwing provider hooks but ctx.abort prevents transport", async () => {
   let throwCalls = 0;
-  const throwing = await runInstalledHost(40_000, [(pi) => {
+  const throwing = await runInstalledHost(40, [(pi) => {
     pi.on("before_provider_request", () => { throwCalls += 1; throw new Error("Synthetic envelope refusal"); });
   }]);
   assert.equal(throwCalls, 1);
   assert.equal(throwing.fetchCalls, 1);
   let abortCalls = 0;
   let signalAborted = false;
-  const aborted = await runInstalledHost(40_000, [(pi) => {
+  const aborted = await runInstalledHost(40, [(pi) => {
     pi.on("before_provider_request", (_event, ctx) => {
       abortCalls += 1;
       ctx.abort();

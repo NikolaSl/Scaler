@@ -353,6 +353,33 @@ test("scaler_tool_request persists structured metadata", async () => {
   });
 });
 
+test("scaler_tool_request persists the bounded built-in direct operation", async () => {
+  await withTempDir(async (dir) => {
+    const registered = new Map<string, { execute: (...args: any[]) => Promise<unknown> }>();
+    registerScalerTools({ registerTool(definition: { name: string; execute: (...args: any[]) => Promise<unknown> }) { registered.set(definition.name, definition); } } as never);
+
+    await registered.get("scaler_tool_request")?.execute(
+      "tool-call",
+      {
+        toolName: "scaler_tool_catalog",
+        request: "Return the exact compact catalog entry for read.",
+        directOperation: {
+          adapterId: "builtin:tool-catalog-entry-v1",
+          arguments: { toolName: "read" },
+        },
+      },
+      undefined,
+      undefined,
+      { cwd: dir },
+    );
+
+    assert.deepEqual((await loadToolRequests(dir))[0]?.directOperation, {
+      adapterId: "builtin:tool-catalog-entry-v1",
+      arguments: { toolName: "read" },
+    });
+  });
+});
+
 test("scaler_tool_schema records discovered tool metadata", async () => {
   await withTempDir(async (dir) => {
     const registered = new Map<string, { execute: (...args: any[]) => Promise<unknown> }>();

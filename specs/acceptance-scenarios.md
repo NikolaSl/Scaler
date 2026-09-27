@@ -76,6 +76,22 @@ reported unavailable rather than reconstructed as a fact.
 
 Place a requested function/section near the end of a large file. Retrieve that section within a bounded response, not the file prefix. Ambiguous/missing sections and truncated output are explicit. Unavailable required data causes bounded retrieval/investigation or a blocker, never invented content.
 
+Start a small task with only a focused context slice, then reveal a required
+constraint or exact source section omitted from that slice. The worker requests
+it (or asks a missing-data question without knowing its path); the supervisor
+checks scope and source version, provides only relevant exact bytes or a bounded
+candidate/summary, rechecks the full next-call envelope and resumes the same
+task. Repeat under declared smaller and larger usable model windows (for example
+32K and 128K). The smaller window may require a narrower section or a split,
+but cannot silently omit the required constraint. An unavailable or unauthorized
+source yields a truthful blocker. Record both context size and whether the
+worker obtained the information it needed; token savings alone do not pass.
+
+PLAN-151 covers only an explicit, scoped file request: the exact file becomes
+required context before resolution and the next prompt is admitted with it.
+Unknown-path candidate discovery, narrow section selection, and the full
+multi-window scenario remain open; SC-07 is Partial.
+
 ## AC-08
 
 **Three tool routes and MCP size — SC-08.**
@@ -86,12 +102,12 @@ Exercise: (a) a known exact operation executes without a new model call; (b) a s
 
 **Local-only model operation — SC-09.**
 
-On a documented configured local model/host, complete representative supported core tasks with no cloud credentials or silent network inference. Record the resource envelope. For a task beyond configured capabilities, bounded repair/splitting or an explicit blocker replaces invented success. No universal small-model success rate is assumed.
+On a documented configured local model/host, exercise representative supported core tasks with no cloud credentials or silent network inference. Record the resource envelope and the actual process outcome. The model proposes task decomposition and scoped context; the supervisor validates each proposal against the current state, original intent, permissions, dependencies, context budget and evidence before a transition or acceptance. Test valid proposals, malformed or out-of-scope proposals, missing evidence and capability failure. A task beyond configured capabilities ends in bounded repair/splitting or an explicit blocker, never invented success. Neither a universal small-model success rate nor completion of every sampled task is required to prove the process boundary.
 
 With model review enabled, record whether independence is contextual, model-based
 or evidence-based and its limitations. Shared-model agreement cannot certify truth;
 an unavailable reviewer cannot trigger unauthorized cloud inference. Demonstrate
-that ordinary supported tasks remain possible with one configured local model.
+that the documented process can advance ordinary supported tasks with one configured local model when proposals and evidence are valid, and can stop truthfully otherwise.
 
 ## AC-10
 
@@ -182,6 +198,12 @@ From retained events and referenced artifacts, reconstruct a task's inputs, rout
 
 Start with unrelated staged/user changes. Commit only the validated owned snapshot and its compact traceability record. Reject or revalidate a changed post-validation output. Interrupt after commit but before local acknowledgement; resume identifies that commit without duplicating the task. A clone states which external evidence must also be restored. Non-Git/no-change cases have explicit outcomes.
 
+After an accepted initial feature, submit a related bug fix and then a refactor.
+Recover the relevant original intent, changed requirements, rationale, prior failed
+approaches and validation evidence from durable history. Preserve unrelated user
+changes, retain exact prior versions and validate the affected integrated output;
+do not start each iteration as an unrelated generated project.
+
 ## AC-19
 
 **Storage and reference retention — SC-19.**
@@ -222,6 +244,11 @@ Before the scale test, declare hardware/model, history/task fixture sizes, fixed
 
 Produce an evaluation record with task/configuration/model versions, cache conditions, repeat count, acceptance results, total usage, time and interventions. Run invariant scenarios plus real host/local-model tasks. A missing competitor baseline MUST NOT block evaluation. An unexecuted scenario is Not assessed, not Verified; unsupported savings claims fail review.
 
+Report process invariants and false acceptance separately from model-specific
+task success. A small local model that proposes an invalid step and receives a
+truthful bounded blocker demonstrates a working guard, not a completed task.
+Resource totals cannot compensate for missing maintainable outputs or evidence.
+
 Include planted intent/scope errors, assumption promotion, weakened checks and
 reviewer-created requirements alongside correct minimal solutions and necessary
 prerequisites. For an enabled reviewer, report caught/missed errors, false alarms,
@@ -245,6 +272,11 @@ Complete an authorized multi-task fixture through retrieval, repair and validati
 **Requirement coverage — SC-27.**
 
 Link two tasks to a requirement with an additional end-to-end acceptance criterion. Passing both tasks alone does not validate the requirement. Change the requirement statement: preserve old evidence, reassess affected coverage and expose only the relevant version/slice to the next agent.
+
+On a later feature request, bug fix or refactor, identify which earlier decisions,
+dependencies, constraints and acceptance evidence remain valid. Replan and
+revalidate affected slices while keeping accepted unaffected work and the original
+request history retrievable.
 
 Keep original wording, authorized amendments, normalized interpretation and
 assumptions distinguishable. Give a task a thematic requirement link without a

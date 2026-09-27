@@ -32,7 +32,7 @@ Current behavior:
 - `scaler_research_report` records structured research findings with source quality, confidence, contradictions, and optional raw evidence stored in memory
 - `scaler_task_report` records the required structured completion report for task-agent runs under `.scaler/reports/task-agent-reports.json`
 - `scaler_spawn_task` prepares a Pi subprocess invocation, or executes it when `execute: true`; executed spawns are refused while the repo-wide execution lock is held
-- `scaler_tool_request` persists isolated tool-agent requests under `.scaler/tool-requests/requests.json` and prepares invocations with only explicitly allowed tools, compact selected-tool catalog entries, requester id, expected output, required format, risk level, permission requirement, and safety notes
+- `scaler_tool_request` persists tool requests under `.scaler/tool-requests/requests.json` and prepares isolated invocations with only explicitly allowed tools, compact selected-tool catalog entries, requester id, expected output, required format, risk level, permission requirement, and safety notes; it can also persist the exact read-only `builtin:tool-catalog-entry-v1` operation for one catalog name
 - `scaler_tool_result` records structured proposals under `.scaler/tool-requests/results.json` and stores outputs, evidence refs, validation performed, errors, and recommendations; an isolated child must use the runtime-owned active execution id, and recording the proposal does not close the request
 - `scaler_tool_schema` records discovered Tool/MCP docs/schema metadata under `.scaler/tool-requests/catalog.json`; later tool-request prompts merge the latest discovered metadata for explicitly allowed tools
 - `/scaler-mcp-enumerate` scans project-local MCP config files and records concise server declarations under `.scaler/tool-requests/mcp-servers.json` without executing servers or storing env secret values
@@ -86,15 +86,16 @@ own provider-envelope limit before aggregate overhead is compared. Unknown
 bounds and malformed evidence fail closed.
 
 Persisted route advice remains deliberately non-authorizing
-(`executionAuthorized: false`). Isolated execution instead requires a fresh,
-host-owned route-evidence supplier at every dispatch. The executor recomputes the
-route, binds the current request, selected-tool profile, invocation, worker
-provider/model identity and caller continuation to one execution, and refuses
-anything other than an isolated result. The caller-continuation envelope must
-include the runtime-owned serialized-result reserve. A direct recommendation
-still requires authority, validated exact arguments and a named deterministic
-adapter; the installed host does not provide a generic adapter. Audit records
-contain hashes, reason codes and measurements without raw provider history or
-request arguments.
+(`executionAuthorized: false`). Execution recomputes the route immediately
+before its ownership claim. Isolated execution requires a fresh, host-owned
+route-evidence supplier and binds the current request, selected-tool profile,
+invocation, worker provider/model identity and caller continuation to one
+execution. The caller-continuation envelope must include the runtime-owned
+serialized-result reserve. The single installed direct adapter accepts only a
+durable exact catalog name, builds its fresh route snapshot inside the runtime,
+binds the arguments and synthetic invocation to the execution, and returns a
+bounded catalog record without starting Pi or another model. There is no generic
+direct callback. Audit records contain hashes, reason codes and measurements
+without raw provider history or request arguments.
 
-The current tool/MCP implementation covers catalog isolation, pre-snapshot parent active-tool focus, prompt-chain-safe selected instruction composition for the verified Pi host, selected-definition envelope identity, non-authorizing request-specific route assessment, schema discovery, local MCP enumeration, fresh dispatch-time isolated-route admission, exact worker provider/model binding, bounded child transport and serialized results, execution-bound result acceptance, atomically reserved closed replay approvals, bounded correction loops, and sequential schedule execution. The installed commands intentionally refuse execution because no production continuation-envelope supplier is wired yet. Direct/current-agent adapters and a complete production three-route execution scenario also remain open. Execution-ledger indexes are individually atomic but not one multi-file transaction; request closure is published last, so an interrupted publication retains active ownership for explicit reconciliation instead of advertising request completion or inviting automatic replay.
+The current tool/MCP implementation covers catalog isolation, pre-snapshot parent active-tool focus, prompt-chain-safe selected instruction composition for the verified Pi host, selected-definition envelope identity, non-authorizing request-specific route assessment, one exact runtime-owned direct catalog adapter, schema discovery, local MCP enumeration, fresh dispatch-time isolated-route admission, exact worker provider/model binding, bounded child transport and serialized results, execution-bound result acceptance, atomically reserved closed replay approvals, bounded correction loops, and sequential schedule execution. Installed isolated execution still refuses because no production continuation-envelope supplier is wired yet. Current-agent execution, generic direct/MCP adapters and a complete production three-route scenario remain open. Execution-ledger indexes are individually atomic but not one multi-file transaction; request closure is published last, so an interrupted publication retains active ownership for explicit reconciliation instead of advertising request completion or inviting automatic replay.

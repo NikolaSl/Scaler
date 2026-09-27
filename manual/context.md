@@ -11,8 +11,9 @@ Context items include:
 - `reason`
 - `priority`: `required`, `useful`, or `optional`
 - `scope`: `full`, `section`, `snippet`, `summary`, or `reference-only`
-- `selector`: file-backed `section` items use
-  `{ "kind": "markdown-heading", "heading": "...", "maxChars": N }`;
+- `selector`: file-backed `section` items use either
+  `{ "kind": "markdown-heading", "heading": "...", "maxChars": N }` or
+  `{ "kind": "typescript-function", "name": "...", "maxChars": N }`;
   `maxChars` defaults to 3,200
 - `exactness`: optional `exact`, `summary-ok`, or `reference-only`
 - `content`
@@ -80,6 +81,38 @@ same file. CRLF, standalone CR and LF line endings are preserved in the returned
 substring. If a heading position cannot be mapped back to the original source,
 the context is unavailable rather than approximately selected.
 
+For JavaScript and TypeScript files, `typescript-function` selects one unique
+named top-level function declaration or a single-declaration top-level variable
+initialized with an arrow/function expression. Selection uses the TypeScript
+parser and returns the declaration's original source substring; it does not
+render or rewrite code. Supported extensions are `.ts`, `.tsx`, `.mts`, `.cts`,
+`.js`, `.jsx`, `.mjs` and `.cjs`. Missing or duplicate names, overload groups,
+malformed source, unsupported extensions, multi-binding declarations and
+oversized results are unavailable. Class methods, object properties, namespace
+members, anonymous defaults, re-exports, cross-file symbols and automatic
+selector choice are outside this selector's scope. Candidate discovery can find
+this exact selector across the task's bounded allowed paths only when the user
+supplies `function:<identifier>` explicitly. It emits one path-bound candidate
+per exact match and never selects or approves one automatically.
+
+Markdown heading candidate discovery follows the same read-only boundary. An
+explicit `heading:<text>` query searches only bounded allowed `.md` and
+`.markdown` paths, verifies each match with the existing CommonMark-backed exact
+selector, and emits one path-bound candidate per eligible file. Empty queries,
+duplicate headings, fenced pseudo-headings, unsupported files and oversized
+sections return no selector candidate. Listing never chooses or approves a
+candidate automatically.
+
+Local Markdown-link discovery is also explicit and read-only. A `link:<label>`
+query searches the bounded allowed Markdown source set, matches the rendered
+CommonMark link label exactly and resolves a relative destination against its
+source document. Both source and target must be direct stable regular files;
+the normalized target must remain inside the workspace and task allowed paths.
+Repeated links to one target deduplicate, while distinct eligible targets stay
+separate choices. External, absolute, escaping, query/fragment, fenced and
+symlink-backed destinations return no candidate. Approval is still manual, and
+link lookup does not recursively crawl documents or infer a label from prose.
+
 ## Final prompt admission
 
 Execution uses the task manifest allowance, an explicit caller allowance, or an
@@ -124,9 +157,12 @@ Completions text/tool shape. Alternate APIs, image/audio and multiple-completion
 payloads fail closed. The byte bound can conservatively reject a request that an
 exact tokenizer would admit. Conductor, debug retry, stage agents, research,
 diagnostic debug, replanning, tool-schema discovery and explicit task spawns now
-attach this strict policy after early final-prompt admission. Parent interactive
-calls, provider-internal retries, model eligibility policy and reconciliation
-against observed usage remain later P3 work.
+attach this strict policy after early final-prompt admission. The installed
+parent extension separately assesses every ordinary final provider payload
+against the live model context window, output reserve and safety margin; it
+aborts before transport and records only compact measurements. Provider-internal
+retries, model eligibility policy and reconciliation against observed usage
+remain later P3 work.
 
 Strict child launches can currently activate only Pi built-in tools and SCALER
 tools loaded by the isolated child profile. The shared strict invocation
@@ -149,6 +185,12 @@ Task agents must report missing data instead of guessing. When an accepted `scal
 
 Each request records status, kind (`memory`, `file`, `local_research`, `internet_research`, `user`, or `tool`), task/report links, query, source hint, PRD refs, evidence refs, and result summaries. `/scaler-missing-context-run` can resolve file/memory requests, dispatch local/internet research requests, or mark user/tool requests blocked for explicit action. `/scaler-missing-context-resolve` records an operator/user answer. Once all missing-context requests for a blocked task are resolved, SCALER moves the task back to `ready`; `/scaler-step` also refreshes research-backed missing-context resolutions before selecting the next task.
 
+An explicit file request is resolved only after its workspace-relative, task-scoped regular file is added to the task manifest as required exact context. A worker can request a bounded existing selector by naming the path first and one separate backtick directive, for example `` `docs/guide.md` `heading:API Contract` `` or `` `src/client.ts` `function:createClient` ``. SCALER persists the path plus selector as required section context and delegates exact extraction, uniqueness, parser, size and freshness checks to the normal context resolver. Malformed, duplicate, missing, ambiguous or oversized selectors remain blocked without publishing the requested item. Without a directive the full-file behavior is unchanged. Symlinked ancestors or files, protected paths, missing/non-regular files and source files over 1 MiB are refused at this boundary. The next task attempt re-resolves the manifest and applies its normal full-prompt admission and freshness checks. A file changing or disappearing before that attempt cannot be treated as satisfied. A request without a known path uses bounded local research; it is not silently mapped to a guessed file. This flow does not infer a path or selector, guarantee that the worker chooses the right request, or automatically decompose a task.
+
+For a path-unknown research request, only a complete report tied to that exact task, question and research request can resolve the missing-data request. Unresolved unknowns or contradictions keep it pending. Its sourced conclusions and source identifiers are saved as required attributed context before the task resumes, with a 16,384-character bound and normal next-prompt admission. The answer is labeled as a research claim; source metadata does not substitute for exact source bytes. The worker can ask for the precise source in a follow-up request. A partial or conflicting report does not silently unblock the task.
+
+Manual answers follow the same delivery rule: a non-file request is resolved only after a bounded, attributed operator answer is saved as required task context. A blank, oversized or conflicting answer cannot unblock it. An explicit file request must use scoped file dispatch; an operator summary cannot stand in for its exact bytes. Neither route proves an answer true. The next attempt still uses normal prompt admission.
+
 ## Compression and exact preservation
 
 SCALER uses deterministic compression policy helpers for task-agent prompts:
@@ -158,8 +200,10 @@ SCALER uses deterministic compression policy helpers for task-agent prompts:
   - `exact`: preserve unchanged; do not paraphrase code, commands, identifiers, API signatures, contracts, requirements, or validation evidence.
   - `summary-ok`: may be compressed into task-relevant conclusions with evidence refs.
   - `reference-only`: keep ids/paths/refs unless retrieval is explicitly needed.
-- Large exact or summary-ok items are deterministically externalized to `.scaler/memory/` when a context split is recorded, preserving full content with a memory id/path, SHA-256, token estimates, and exactness metadata.
-- If resolved active context exceeds the 75% target, conductor preparation/execution records `.scaler/context/splits.json` artifacts for these oversized contexts with exact refs, summary/reference refs, externalized memory refs, and minimal-context handoff recommendations.
+- Large exact or summary-ok items are deterministically externalized to `.scaler/memory/` when a context split is recorded, preserving full content with a memory id/path, SHA-256, token estimates, and exactness metadata. Eligibility uses the larger of a valid caller estimate and the measured content-byte estimate, so an understated estimate cannot hide large inline content.
+- Aggregate active-context usage is the greater of a valid supplied total and the sum of measured/conservative per-item estimates. Multiple understated inline items therefore cannot suppress the 75% target, durable split estimate, overage or conductor budget accounting. A more conservative supplied aggregate remains authoritative.
+- If resolved active context exceeds the 75% target, conductor preparation/execution records `.scaler/context/splits.json` artifacts for these oversized contexts with exact refs, summary/reference refs, externalized memory refs, and minimal-context handoff recommendations. Executed conductor and debug-retry paths may also record a split when the complete attempt-bearing prompt exceeds a valid allowance while context-only usage remains below target, but only when measured content provides an eligible externalization candidate. Split records identify the active-context or final-prompt trigger and retain the measured prompt overage.
+- During normal conductor or debug next-approach retry execution, a just-created split may replace oversized bytes with compact `.scaler/memory/` references only after task/item identity, memory-ledger metadata and stored bytes are revalidated. Debug retries include their required next-approach item in the split basis. The complete attempt-bearing projected prompt must be smaller and within the declared allowance, `read` must be loaded, and the original plus externalized sources remain freshness-bound through result acceptance. Wrapper-only overflow and projections that do not shrink still refuse before dispatch. These memory paths are explicit read-only context exceptions and never extend write/edit scope.
 - SCALER registers a Pi `session_before_compact` hook that returns a deterministic SCALER-aware compaction result and records `.scaler/context/compactions.json`. Turn-end context usage above the target triggers `ctx.compact()` with SCALER state-preservation instructions.
 - SCALER registers a Pi `context` hook that injects only approved manifest items for the current task when they are compact (`summary`, `snippet`, or `reference-only`) and non-optional. Full and optional items remain pull-based and are not automatically inserted into the parent-session LLM context.
 - Fresh minimal-context continuation handoffs are recorded in `.scaler/context/handoffs.json` with prompt artifacts under `.scaler/context/handoffs/`; execution is blocked unless the generated handoff prompt is below the active-context target and smaller than the split context.
@@ -188,7 +232,7 @@ Default/discovered manifests mark file snippets, task metadata, validation evide
 
 `/scaler-context-status` displays a manifest summary for the specified task, current task, or first task.
 
-`/scaler-context-candidates` lists scored memory/file/PRD/manifest candidates without changing the manifest or active context.
+`/scaler-context-candidates` lists scored memory/file/PRD/manifest candidates without changing the manifest or active context. An exact `function:<identifier>` query switches to bounded JavaScript/TypeScript selector discovery; `heading:<text>` does the same for exact Markdown ATX headings; `link:<label>` resolves exact local Markdown links; and `import:<specifier>` resolves parser-backed static JavaScript/TypeScript imports or re-exports to extension-explicit local source targets. `import-function:<specifier>#<identifier>` further requires an exact static named binding and one direct exported top-level callable in that target, then returns a path-and-selector-bound section candidate. `import-caller:<specifier>#<identifier>` follows the same verified target edge back to value-level named imports and returns only top-level function/callable-variable selectors containing a direct call through the exact local binding. `reexport-caller:<barrelSpecifier>#<identifier>` permits exactly one additional local named re-export hop: the caller import, stable barrel export and stable final direct callable must all match exactly before the same caller selector is offered. Nested or shadowed calls and property, optional, constructed or tagged uses do not establish an edge. All search only allowed task paths. Package/alias resolution, inferred extensions, dynamic imports, `require`, default/namespace bindings, export-star or recursive barrels and semantic call graphs do not confer file authority. Malformed queries and ineligible sections, declarations or destinations return no candidate; distinct same-named matches remain separate choices.
 
 `/scaler-context-approve` adds the selected candidate to the task manifest unless an equivalent memory/file/content item is already present.
 
@@ -203,6 +247,29 @@ split record only after revalidating the split, current manifest, every selected
 minimal item, and each externalized source's stored identity and bytes. The
 legacy `execute` argument now fails closed before invoking a runner because this
 route does not yet have conductor-equivalent attempt, provider and result
-admission. Execute prepared work through the normal conductor boundary.
+admission. Normal conductor execution performs its own automatic, admitted
+projection for a valid just-created split; it does not call this legacy runner.
 
 `/scaler-context-handoffs` lists fresh handoff records.
+
+## Unknown-source questions and subsequent exact retrieval
+
+A task worker can report `needs_data` with a question that names no file. For a
+question classified as `local_research`, missing-context dispatch creates a
+local research request. After the research agent returns a complete matching
+answer, the conductor delivers its sources and conclusions as an attributed
+claim in the next worker prompt. A partial answer with unresolved unknowns
+keeps the task blocked. Research conclusions are not verified source bytes.
+
+The worker can then request a candidate file and explicit selector, for example
+``Need `docs/guide.md` `heading:Retry policy` before proceeding.`` The existing
+file dispatcher validates the task scope and supplies the selected section as
+required context before another worker attempt. A research answer does not
+widen allowed paths. The worker's completed report still advances to validation,
+not task acceptance.
+
+PLAN-156 exercises this composed process with deterministic research/worker
+responses, including incomplete research and an out-of-scope file choice. The
+scenario invokes research and missing-context dispatch explicitly; it does not
+establish autonomous research scheduling, real model discovery, or complete
+SC-07 coverage. It adds no new discovery subsystem.

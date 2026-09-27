@@ -3,13 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join } from "node:path";
+import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { ensureTaskContextManifest, resolveTaskContextManifest, saveTaskContextManifest, trimMarkdownHeadingWhitespace, type FileContextSelector, type TaskContextManifestItem } from "./context.js";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { searchMemory } from "./memory.js";
 import { getMissingContextRequestsPath } from "./paths.js";
 import { loadResearchReports, upsertResearchRequest } from "./research.js";
-import { saveState } from "./state.js";
+import { loadState, saveState } from "./state.js";
 import { transitionTask } from "./supervisor.js";
 import type { TaskAgentReportRecord } from "./task-reports.js";
 import type { ScalerState } from "./types.js";
@@ -234,11 +235,30 @@ export async function resolveMissingContextRequest(
   const requests = await loadMissingContextRequests(cwd);
   const request = requests.find((candidate) => candidate.id === input.requestId);
   if (!request) return { accepted: false, action: "not_found", message: `No missing-context request found for ${input.requestId}.` };
+  if (request.kind === "file") return { accepted: false, action: "blocked", request, message: `Exact file context requires scoped file dispatch: ${request.id}` };
+  const summary = typeof input.summary === "string" ? input.summary.trim() : "";
+  if (!summary || summary.length > 16_384) return { accepted: false, action: "blocked", request, message: `Manual answer is empty or exceeds the bounded context: ${request.id}` };
+  const liveState = await loadState(cwd);
+  if (!liveState.tasks.some((task) => task.id === request.taskId)) return { accepted: false, action: "blocked", request, message: `Missing-context task is unavailable: ${request.taskId}` };
+  const evidenceRefs = normalizeList([...(request.evidenceRefs ?? []), ...(input.evidenceRefs ?? [])]);
+  const content = `Manual answer (operator-provided claim): ${JSON.stringify({ requestId: request.id, summary, evidenceRefs })}`;
+  if (content.length > 16_384) return { accepted: false, action: "blocked", request, message: `Manual answer exceeds the bounded context: ${request.id}` };
+  const manifest = await ensureTaskContextManifest(cwd, liveState, request.taskId);
+  const id = `missing-manual-${request.id}`;
+  const existing = manifest.items.find((item) => item.id === id);
+  if (existing && (existing.source !== "inline" || existing.priority !== "required" || existing.content !== content)) {
+    return { accepted: false, action: "blocked", request, message: `Manual answer conflicts with required context: ${request.id}` };
+  }
+  if (!existing) await saveTaskContextManifest(cwd, { ...manifest, items: [...manifest.items, {
+    id, type: "knowledge", source: "inline", priority: "required", scope: "full", exactness: "exact",
+    reason: `Attributed manual answer for missing-context request ${request.id}; claims may require source verification.`,
+    content,
+  }] });
   const resolved = await upsertMissingContextRequest(cwd, {
     ...request,
     status: "resolved",
-    resultSummary: input.summary,
-    evidenceRefs: normalizeList([...(request.evidenceRefs ?? []), ...(input.evidenceRefs ?? [])]),
+    resultSummary: summary,
+    evidenceRefs,
   }, now);
   await appendLogEvent(cwd, createLogEvent(state, {
     eventType: "system",
@@ -257,8 +277,30 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
 
   for (const request of requests) {
     if ((request.kind !== "local_research" && request.kind !== "internet_research") || request.status === "resolved" || request.status === "superseded") continue;
-    const matchingReport = reports.find((report) => (report.status === "complete" || report.status === "partial") && (request.evidenceRefs ?? []).includes(report.requestId ?? ""));
+    if (!state.tasks.some((task) => task.id === request.taskId)) continue;
+    const matchingReport = reports.find((report) => report.status === "complete"
+      && report.taskId === request.taskId
+      && report.question === request.query
+      && (request.evidenceRefs ?? []).includes(report.requestId ?? "")
+      && report.conclusions.length > 0
+      && (report.unresolvedUnknowns ?? []).length === 0
+      && !(report.contradictions ?? []).some((contradiction) => contradiction.status === "unresolved"));
     if (!matchingReport) continue;
+    const content = `Research answer (reported claim, not verified source bytes): ${JSON.stringify({
+      reportId: matchingReport.id,
+      sources: matchingReport.sources.map((source) => ({ id: source.id, title: source.title, path: source.path, url: source.url, version: source.version, summary: source.summary })),
+      conclusions: matchingReport.conclusions.map((conclusion) => ({ summary: conclusion.summary, confidence: conclusion.confidence, sourceRefs: conclusion.sourceRefs })),
+    })}`;
+    if (content.length > 16_384) continue;
+    const manifest = await ensureTaskContextManifest(cwd, state, request.taskId);
+    const id = `missing-research-${request.id}`;
+    const existing = manifest.items.find((item) => item.id === id);
+    if (existing && (existing.source !== "inline" || existing.priority !== "required" || existing.content !== content)) continue;
+    if (!existing) await saveTaskContextManifest(cwd, { ...manifest, items: [...manifest.items, {
+      id, type: "knowledge", source: "inline", priority: "required", scope: "full", exactness: "exact",
+      reason: `Attributed research answer for missing-context request ${request.id}; source bytes may still need a separate request.`,
+      content,
+    }] });
     const resolved: MissingContextRequest = {
       ...request,
       status: "resolved",
@@ -344,23 +386,99 @@ async function dispatchMemoryRequest(cwd: string, request: MissingContextRequest
 async function dispatchFileRequest(cwd: string, request: MissingContextRequest, options: MissingContextDispatchOptions, now: Date): Promise<MissingContextDispatchResult> {
   const source = request.sourceHint;
   if (!source) return await markMissingContextBlocked(cwd, request, "No file path was supplied or inferred.", now);
+  const parsedSelector = parseRequestedFileSelector(request.query, source);
+  if (parsedSelector.requested && !parsedSelector.selector) {
+    return await markMissingContextBlocked(cwd, request, "The exact file-section selector is malformed or ambiguous.", now);
+  }
   if (!options.execute) return { accepted: true, action: "planned", request, message: `Missing-context file retrieval planned: ${request.id} source=${source}` };
-  const path = isAbsolute(source) ? source : join(cwd, source);
+  const state = await loadState(cwd);
+  const currentTask = state.tasks.find((candidate) => candidate.id === request.taskId);
+  const path = relative(resolve(cwd), resolve(cwd, source)).split(sep).join("/");
+  const parts = path.split("/");
+  if (!currentTask || isAbsolute(source) || source.includes("\\") || source.includes("\0")
+    || path === "." || parts.some((part) => !part || part === ".." || part === "."
+      || [".git", ".scaler", ".ssh", ".aws", ".env"].includes(part)
+      || /\.(?:pem|key|p12)$/i.test(part))
+    || (currentTask.allowedPathPrefixes?.length && !currentTask.allowedPathPrefixes.some((prefix) => {
+      const normalized = prefix.replace(/^\.\//, "").replace(/\/$/, "");
+      return path === normalized || path.startsWith(`${normalized}/`);
+    }))) return await markMissingContextBlocked(cwd, request, "File source is outside the task's direct workspace scope.", now);
   try {
-    const fileStat = await stat(path);
-    if (!fileStat.isFile()) return await markMissingContextBlocked(cwd, request, `Source is not a file: ${source}`, now);
-    const content = await readFile(path, "utf8");
+    for (let depth = 1; depth <= parts.length; depth++) {
+      const observed = await lstat(join(cwd, ...parts.slice(0, depth)));
+      if (observed.isSymbolicLink() || (depth < parts.length ? !observed.isDirectory() : !observed.isFile())) {
+        return await markMissingContextBlocked(cwd, request, `Source is not a direct regular file: ${source}`, now);
+      }
+      if (depth === parts.length && observed.size > 1024 * 1024) {
+        return await markMissingContextBlocked(cwd, request, `Source exceeds the bounded file request; ask for an exact section: ${source}`, now);
+      }
+    }
+    const manifest = await ensureTaskContextManifest(cwd, state, request.taskId);
+    const id = `missing-context-${request.id}`;
+    const existing = manifest.items.find((item) => item.id === id);
+    const scope = parsedSelector.selector ? "section" : "full";
+    if (existing && (existing.source !== "file" || existing.path !== path || existing.priority !== "required"
+      || existing.scope !== scope || !sameFileSelector(existing.selector, parsedSelector.selector))) {
+      return await markMissingContextBlocked(cwd, request, `Requested context item conflicts with the existing manifest: ${id}`, now);
+    }
+    const item: TaskContextManifestItem = existing ?? {
+      id, type: "file", source: "file", path, scope, exactness: "exact", priority: "required",
+      ...(parsedSelector.selector ? { selector: parsedSelector.selector } : {}),
+      reason: `Missing-context request ${request.id} requires this exact source before retry.`,
+    };
+    const candidate = { ...manifest, items: existing ? manifest.items : [...manifest.items, item] };
+    const resolvedItems = await resolveTaskContextManifest(cwd, state, candidate);
+    const resolvedItem = resolvedItems.find((entry) => entry.id === id);
+    if (!resolvedItem?.available || !resolvedItem.fileSource?.outputExemptible) {
+      return await markMissingContextBlocked(cwd, request, `Requested source is unavailable as a stable direct file: ${source}`, now);
+    }
+    if (!existing) await saveTaskContextManifest(cwd, candidate);
     const resolved = await upsertMissingContextRequest(cwd, {
       ...request,
       status: "resolved",
-      evidenceRefs: unique([...(request.evidenceRefs ?? []), source]),
-      resultSummary: `Resolved from file ${source} (${content.length} chars).`,
+      evidenceRefs: unique([...(request.evidenceRefs ?? []), path]),
+      resultSummary: `Required exact file ${scope === "section" ? "section" : "context"} ${path} (${resolvedItem.content.length} chars) is available in the task manifest.`,
     }, now);
     return { accepted: true, action: "resolved", request: resolved, message: `Missing-context file request resolved: ${request.id}` };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return await markMissingContextBlocked(cwd, request, `File not found: ${source}`, now);
+    if (parsedSelector.requested) {
+      const message = error instanceof Error ? error.message : String(error);
+      return await markMissingContextBlocked(cwd, request, `Exact file section is unavailable: ${message}`, now);
+    }
     throw error;
   }
+}
+
+function parseRequestedFileSelector(query: string, source: string): { requested: boolean; selector?: FileContextSelector } {
+  const quoted = [...query.matchAll(/`([^`\r\n]*)`/g)].map((match) => match[1] ?? "");
+  const quotedSourceMatches = looksLikePath(quoted[0] ?? "") && cleanPath(quoted[0] ?? "") === source;
+  const directiveIndexes = quoted
+    .map((value, index) => index > 0 && (value.startsWith("heading:") || value.startsWith("function:")) ? index : -1)
+    .filter((index) => index >= 0);
+  if (directiveIndexes.length === 0) {
+    const detachedFirstDirective = !quotedSourceMatches
+      && (quoted[0]?.startsWith("heading:") || quoted[0]?.startsWith("function:"));
+    return { requested: Boolean(detachedFirstDirective) };
+  }
+  if (directiveIndexes.length !== 1 || directiveIndexes[0] !== 1
+    || !quotedSourceMatches) return { requested: true };
+  const directive = quoted[1]!;
+  if (directive.startsWith("heading:")) {
+    const heading = trimMarkdownHeadingWhitespace(directive.slice("heading:".length));
+    return heading ? { requested: true, selector: { kind: "markdown-heading", heading } } : { requested: true };
+  }
+  const name = directive.slice("function:".length);
+  return name && name === name.trim() && !/\s/.test(name)
+    ? { requested: true, selector: { kind: "typescript-function", name } }
+    : { requested: true };
+}
+
+function sameFileSelector(first: FileContextSelector | undefined, second: FileContextSelector | undefined): boolean {
+  if (!first || !second) return first === second;
+  return first.kind === second.kind && (first.kind === "markdown-heading"
+    ? first.heading === (second as typeof first).heading
+    : first.name === (second as typeof first).name);
 }
 
 async function dispatchResearchRequest(cwd: string, request: MissingContextRequest, options: MissingContextDispatchOptions, now: Date): Promise<MissingContextDispatchResult> {

@@ -8,6 +8,7 @@ import { constants, type Stats } from "node:fs";
 import { lstat, mkdir, open, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Parser } from "commonmark";
+import ts from "typescript";
 import { getGitChangedPaths } from "./git.js";
 import { loadMemoryIndex, retrieveMemory, type MemoryEntry } from "./memory.js";
 import { loadExecutionPlan, type ExecutionPlanTask } from "./plans.js";
@@ -58,14 +59,24 @@ export type ContextManifestSource = "inline" | "file" | "memory" | "state" | "ta
 export interface MarkdownHeadingSelector {
   kind: "markdown-heading";
   heading: string;
+  name?: never;
   maxChars?: number;
 }
+
+export interface TypeScriptFunctionSelector {
+  kind: "typescript-function";
+  name: string;
+  heading?: never;
+  maxChars?: number;
+}
+
+export type FileContextSelector = MarkdownHeadingSelector | TypeScriptFunctionSelector;
 
 export interface FileContextSourceBinding {
   itemId: string;
   path: string;
   scope: ContextScope;
-  selector?: MarkdownHeadingSelector;
+  selector?: FileContextSelector;
   contentFingerprint: string;
   outputExemptible: boolean;
 }
@@ -82,7 +93,7 @@ export interface TaskContextManifestItem {
   path?: string;
   memoryId?: string;
   taskId?: string;
-  selector?: MarkdownHeadingSelector;
+  selector?: FileContextSelector;
 }
 
 export interface TaskContextManifest {
@@ -109,7 +120,7 @@ export interface ContextCandidate {
   content?: string;
   path?: string;
   memoryId?: string;
-  selector?: MarkdownHeadingSelector;
+  selector?: FileContextSelector;
 }
 
 export interface ContextCandidateSearchOptions {
@@ -239,10 +250,7 @@ export async function saveTaskContextManifest(cwd: string, manifest: TaskContext
       path: item.path?.trim() || undefined,
       memoryId: item.memoryId?.trim() || undefined,
       taskId: item.taskId?.trim() || undefined,
-      selector: item.selector ? {
-        ...item.selector,
-        heading: trimMarkdownHeadingWhitespace(item.selector.heading),
-      } : undefined,
+      selector: item.selector ? normalizeFileContextSelector(item.selector) : undefined,
     })),
   };
   validateTaskContextManifest(normalized);
@@ -272,7 +280,7 @@ export function formatTaskContextManifest(manifest: TaskContextManifest): string
   validateTaskContextManifest(manifest);
   const lines = [`Task context manifest: ${manifest.taskId} items=${manifest.items.length} tokenBudget=${manifest.tokenBudget ?? "default"}`];
   for (const item of manifest.items) {
-    const selector = item.selector ? ` selector=${item.selector.kind}:${item.selector.heading}` : "";
+    const selector = item.selector ? ` selector=${formatFileContextSelector(item.selector)}` : "";
     lines.push(`- ${item.id}: ${item.source}/${item.type} ${item.priority} ${item.scope} exactness=${normalizeExactness(item.exactness, item.scope)}${selector} reason=${item.reason}`);
   }
   return lines.join("\n");
@@ -286,6 +294,62 @@ export async function discoverSemanticContextCandidates(
 ): Promise<ContextCandidate[]> {
   const task = state.tasks.find((candidate) => candidate.id === taskId);
   if (!task) return [];
+  const functionSelectorQuery = parseFunctionSelectorCandidateQuery(options.query);
+  if (functionSelectorQuery.requested) {
+    if (!functionSelectorQuery.name) return [];
+    return discoverTypeScriptFunctionCandidates(cwd, task, taskId, functionSelectorQuery.name, options.limit ?? 10);
+  }
+  const headingSelectorQuery = parseMarkdownHeadingCandidateQuery(options.query);
+  if (headingSelectorQuery.requested) {
+    if (!headingSelectorQuery.heading) return [];
+    return discoverMarkdownHeadingCandidates(cwd, task, taskId, headingSelectorQuery.heading, options.limit ?? 10);
+  }
+  const linkQuery = parseMarkdownLinkCandidateQuery(options.query);
+  if (linkQuery.requested) {
+    if (!linkQuery.label) return [];
+    return discoverMarkdownLinkCandidates(cwd, task, taskId, linkQuery.label, options.limit ?? 10);
+  }
+  const reexportCallerQuery = parseReexportCallerCandidateQuery(options.query);
+  if (reexportCallerQuery.requested) {
+    if (!reexportCallerQuery.specifier || !reexportCallerQuery.name) return [];
+    return discoverReexportCallerCandidates(
+      cwd,
+      task,
+      taskId,
+      reexportCallerQuery.specifier,
+      reexportCallerQuery.name,
+      options.limit ?? 10,
+    );
+  }
+  const importedCallerQuery = parseImportedCallerCandidateQuery(options.query);
+  if (importedCallerQuery.requested) {
+    if (!importedCallerQuery.specifier || !importedCallerQuery.name) return [];
+    return discoverImportedCallerCandidates(
+      cwd,
+      task,
+      taskId,
+      importedCallerQuery.specifier,
+      importedCallerQuery.name,
+      options.limit ?? 10,
+    );
+  }
+  const importedFunctionQuery = parseImportedFunctionCandidateQuery(options.query);
+  if (importedFunctionQuery.requested) {
+    if (!importedFunctionQuery.specifier || !importedFunctionQuery.name) return [];
+    return discoverImportedFunctionCandidates(
+      cwd,
+      task,
+      taskId,
+      importedFunctionQuery.specifier,
+      importedFunctionQuery.name,
+      options.limit ?? 10,
+    );
+  }
+  const importQuery = parseLocalModuleImportCandidateQuery(options.query);
+  if (importQuery.requested) {
+    if (!importQuery.specifier) return [];
+    return discoverLocalModuleImportCandidates(cwd, task, taskId, importQuery.specifier, options.limit ?? 10);
+  }
   const queryTerms = options.query?.toLowerCase().split(/\W+/).filter((term) => term.length >= 3) ?? [];
   const terms = unique([...buildTaskSearchTerms(task), ...queryTerms]);
   const candidates: ContextCandidate[] = [];
@@ -378,7 +442,8 @@ export function formatContextCandidates(candidates: ContextCandidate[]): string 
     `Context candidates: ${candidates.length}`,
     ...candidates.map((candidate) => {
       const location = candidate.memoryId ? ` memory=${candidate.memoryId}` : candidate.path ? ` path=${candidate.path}` : "";
-      return `- ${candidate.id}: score=${candidate.score} ${candidate.source}/${candidate.type} ${candidate.priority} ${candidate.scope} exactness=${candidate.exactness}${location}\n  reason=${candidate.reason}`;
+      const selector = candidate.selector ? ` selector=${formatFileContextSelector(candidate.selector)}` : "";
+      return `- ${candidate.id}: score=${candidate.score} ${candidate.source}/${candidate.type} ${candidate.priority} ${candidate.scope} exactness=${candidate.exactness}${location}${selector}\n  reason=${candidate.reason}`;
     }),
   ].join("\n");
 }
@@ -530,7 +595,7 @@ async function resolveFileContextContent(
   cwd: string,
   path: string,
   scope: ContextScope,
-  selector?: MarkdownHeadingSelector,
+  selector?: FileContextSelector,
 ): Promise<string> {
   const content = (await readStableContextFile(cwd, path)).bytes.toString("utf8");
   return renderFileContextContent(content, path, scope, selector);
@@ -560,13 +625,15 @@ function renderFileContextContent(
   content: string,
   path: string,
   scope: ContextScope,
-  selector?: MarkdownHeadingSelector,
+  selector?: FileContextSelector,
 ): string {
   if (scope === "full") return content;
   if (scope === "reference-only") return `File reference: ${path}`;
   if (scope === "section") {
     if (!selector) throw new Error(`File section selector is required for ${path}.`);
-    return extractMarkdownHeadingSection(content, path, selector);
+    return selector.kind === "markdown-heading"
+      ? extractMarkdownHeadingSection(content, path, selector)
+      : extractTypeScriptFunctionSection(content, path, selector);
   }
   const maxChars = scope === "snippet" ? 2_400 : 3_200;
   if (content.length <= maxChars) return content;
@@ -690,12 +757,819 @@ function extractMarkdownHeadingSection(content: string, path: string, selector: 
   return section;
 }
 
+function extractTypeScriptFunctionSection(content: string, path: string, selector: TypeScriptFunctionSelector): string {
+  const scriptKind = getTypeScriptScriptKind(path);
+  if (scriptKind === undefined) {
+    throw new Error(`TypeScript function selector does not support file extension: ${path}`);
+  }
+  const source = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, true, scriptKind);
+  const parseDiagnostics = (source as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? [];
+  if (parseDiagnostics.length > 0) {
+    throw new Error(`Cannot select a function from malformed JavaScript or TypeScript source: ${path}`);
+  }
+
+  const matches: ts.Statement[] = [];
+  for (const statement of source.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name?.text === selector.name) {
+      matches.push(statement);
+      continue;
+    }
+    if (!ts.isVariableStatement(statement) || statement.declarationList.declarations.length !== 1) continue;
+    const declaration = statement.declarationList.declarations[0]!;
+    if (!ts.isIdentifier(declaration.name) || declaration.name.text !== selector.name || !declaration.initializer) continue;
+    if (ts.isArrowFunction(declaration.initializer) || ts.isFunctionExpression(declaration.initializer)) matches.push(statement);
+  }
+
+  if (matches.length === 0) throw new Error(`TypeScript function not found in ${path}: ${selector.name}`);
+  if (matches.length > 1) throw new Error(`TypeScript function is ambiguous in ${path}: ${selector.name}`);
+  const selected = matches[0]!;
+  const section = content.slice(selected.getStart(source), selected.getEnd());
+  const maxChars = selector.maxChars ?? 3_200;
+  if (section.length > maxChars) {
+    throw new Error(`TypeScript function ${selector.name} in ${path} is oversized: ${section.length}/${maxChars} characters.`);
+  }
+  return section;
+}
+
+function getTypeScriptScriptKind(path: string): ts.ScriptKind | undefined {
+  if (/\.tsx$/i.test(path)) return ts.ScriptKind.TSX;
+  if (/\.(?:ts|mts|cts)$/i.test(path)) return ts.ScriptKind.TS;
+  if (/\.jsx$/i.test(path)) return ts.ScriptKind.JSX;
+  if (/\.(?:js|mjs|cjs)$/i.test(path)) return ts.ScriptKind.JS;
+  return undefined;
+}
+
+function normalizeFileContextSelector(selector: FileContextSelector): FileContextSelector {
+  return selector.kind === "markdown-heading"
+    ? { ...selector, heading: trimMarkdownHeadingWhitespace(selector.heading) }
+    : { ...selector, name: selector.name.trim() };
+}
+
+function formatFileContextSelector(selector: FileContextSelector): string {
+  return selector.kind === "markdown-heading"
+    ? `${selector.kind}:${selector.heading}`
+    : `${selector.kind}:${selector.name}`;
+}
+
 async function discoverCandidateFilePaths(cwd: string, task: ScalerTaskState, changedPaths: string[]): Promise<string[]> {
   const paths: string[] = changedPaths.filter((path) => !isRuntimePath(path));
   for (const prefix of task.allowedPathPrefixes ?? []) {
     for (const path of await collectCandidateFiles(cwd, normalizeRelativePath(prefix), 2, 8)) paths.push(path);
   }
   return unique(paths).filter((path) => isProbablyTextPath(path)).slice(0, 25);
+}
+
+async function discoverAllowedCandidateFilePaths(
+  cwd: string,
+  task: ScalerTaskState,
+  changedPaths: string[],
+): Promise<string[]> {
+  const allowedPrefixes = task.allowedPathPrefixes ?? [];
+  const paths = changedPaths.filter((path) => !isRuntimePath(path) && taskPathMatches(path, allowedPrefixes));
+  for (const prefix of allowedPrefixes) {
+    for (const path of await collectCandidateFiles(cwd, normalizeRelativePath(prefix), 2, 8)) paths.push(path);
+  }
+  return unique(paths).filter((path) => isProbablyTextPath(path)).slice(0, 25);
+}
+
+function parseFunctionSelectorCandidateQuery(query: string | undefined): { requested: boolean; name?: string } {
+  const value = query?.trim() ?? "";
+  if (!value.startsWith("function:")) return { requested: false };
+  const name = value.slice("function:".length);
+  return isTypeScriptIdentifier(name) && name === name.trim()
+    ? { requested: true, name }
+    : { requested: true };
+}
+
+function parseMarkdownHeadingCandidateQuery(query: string | undefined): { requested: boolean; heading?: string } {
+  const value = query ?? "";
+  if (!value.startsWith("heading:")) return { requested: false };
+  const heading = trimMarkdownHeadingWhitespace(value.slice("heading:".length));
+  return heading
+    ? { requested: true, heading }
+    : { requested: true };
+}
+
+function parseMarkdownLinkCandidateQuery(query: string | undefined): { requested: boolean; label?: string } {
+  const value = query ?? "";
+  if (!value.startsWith("link:")) return { requested: false };
+  const label = trimMarkdownHeadingWhitespace(value.slice("link:".length));
+  return label ? { requested: true, label } : { requested: true };
+}
+
+function parseLocalModuleImportCandidateQuery(query: string | undefined): { requested: boolean; specifier?: string } {
+  const value = query ?? "";
+  if (!value.startsWith("import:")) return { requested: false };
+  const specifier = value.slice("import:".length);
+  if (!isEligibleLocalSourceModuleSpecifier(specifier)) return { requested: true };
+  return { requested: true, specifier };
+}
+
+function parseImportedFunctionCandidateQuery(
+  query: string | undefined,
+): { requested: boolean; specifier?: string; name?: string } {
+  const value = query ?? "";
+  const prefix = "import-function:";
+  if (!value.startsWith(prefix)) return { requested: false };
+  const separator = value.indexOf("#", prefix.length);
+  if (separator < 0 || separator !== value.lastIndexOf("#")) return { requested: true };
+  const specifier = value.slice(prefix.length, separator);
+  const name = value.slice(separator + 1);
+  if (!isEligibleLocalSourceModuleSpecifier(specifier)
+    || !isTypeScriptIdentifier(name)
+    || name !== name.trim()) return { requested: true };
+  return { requested: true, specifier, name };
+}
+
+function parseImportedCallerCandidateQuery(
+  query: string | undefined,
+): { requested: boolean; specifier?: string; name?: string } {
+  const value = query ?? "";
+  const prefix = "import-caller:";
+  if (!value.startsWith(prefix)) return { requested: false };
+  const separator = value.indexOf("#", prefix.length);
+  if (separator < 0 || separator !== value.lastIndexOf("#")) return { requested: true };
+  const specifier = value.slice(prefix.length, separator);
+  const name = value.slice(separator + 1);
+  if (!isEligibleLocalSourceModuleSpecifier(specifier)
+    || !isTypeScriptIdentifier(name)
+    || name !== name.trim()) return { requested: true };
+  return { requested: true, specifier, name };
+}
+
+function parseReexportCallerCandidateQuery(
+  query: string | undefined,
+): { requested: boolean; specifier?: string; name?: string } {
+  const value = query ?? "";
+  const prefix = "reexport-caller:";
+  if (!value.startsWith(prefix)) return { requested: false };
+  const separator = value.indexOf("#", prefix.length);
+  if (separator < 0 || separator !== value.lastIndexOf("#")) return { requested: true };
+  const specifier = value.slice(prefix.length, separator);
+  const name = value.slice(separator + 1);
+  if (!isEligibleLocalSourceModuleSpecifier(specifier)
+    || !isTypeScriptIdentifier(name)
+    || name !== name.trim()) return { requested: true };
+  return { requested: true, specifier, name };
+}
+
+function isEligibleLocalSourceModuleSpecifier(specifier: string): boolean {
+  return Boolean(specifier
+    && specifier === specifier.trim()
+    && (specifier.startsWith("./") || specifier.startsWith("../"))
+    && !specifier.includes("\0")
+    && !specifier.includes("?")
+    && !specifier.includes("#")
+    && !specifier.includes("\\")
+    && getTypeScriptScriptKind(specifier) !== undefined);
+}
+
+async function discoverTypeScriptFunctionCandidates(
+  cwd: string,
+  task: ScalerTaskState,
+  taskId: string,
+  name: string,
+  limit: number,
+): Promise<ContextCandidate[]> {
+  const changedPaths = await getGitChangedPaths(cwd);
+  const selector = { kind: "typescript-function", name } as const;
+  const candidates: ContextCandidate[] = [];
+  for (const path of await discoverAllowedCandidateFilePaths(cwd, task, changedPaths)) {
+    if (getTypeScriptScriptKind(path) === undefined) continue;
+    try {
+      await resolveFileContextContent(cwd, path, "section", selector);
+    } catch {
+      continue;
+    }
+    const source: ContextCandidateSource = changedPaths.includes(path) ? "changed_file" : "file";
+    candidates.push({
+      id: buildFunctionCandidateId(path, name),
+      taskId,
+      source,
+      type: "file",
+      reason: `Exact top-level function ${name} was found in an allowed task path; approval is required before adding its selector to the manifest.`,
+      score: source === "changed_file" ? 11 : 10,
+      priority: "useful",
+      scope: "section",
+      exactness: "exact",
+      path,
+      selector,
+    });
+  }
+  return candidates
+    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+    .slice(0, limit);
+}
+
+async function discoverMarkdownHeadingCandidates(
+  cwd: string,
+  task: ScalerTaskState,
+  taskId: string,
+  heading: string,
+  limit: number,
+): Promise<ContextCandidate[]> {
+  const changedPaths = await getGitChangedPaths(cwd);
+  const selector = { kind: "markdown-heading", heading } as const;
+  const candidates: ContextCandidate[] = [];
+  for (const path of await discoverAllowedCandidateFilePaths(cwd, task, changedPaths)) {
+    if (!/\.(?:md|markdown)$/i.test(path)) continue;
+    try {
+      await resolveFileContextContent(cwd, path, "section", selector);
+    } catch {
+      continue;
+    }
+    const source: ContextCandidateSource = changedPaths.includes(path) ? "changed_file" : "file";
+    candidates.push({
+      id: buildMarkdownHeadingCandidateId(path, heading),
+      taskId,
+      source,
+      type: "file",
+      reason: `Exact Markdown heading ${heading} was found in an allowed task path; approval is required before adding its selector to the manifest.`,
+      score: source === "changed_file" ? 11 : 10,
+      priority: "useful",
+      scope: "section",
+      exactness: "exact",
+      path,
+      selector,
+    });
+  }
+  return candidates
+    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+    .slice(0, limit);
+}
+
+async function discoverMarkdownLinkCandidates(
+  cwd: string,
+  task: ScalerTaskState,
+  taskId: string,
+  label: string,
+  limit: number,
+): Promise<ContextCandidate[]> {
+  const changedPaths = await getGitChangedPaths(cwd);
+  const candidates = new Map<string, ContextCandidate>();
+  for (const sourcePath of await discoverAllowedCandidateFilePaths(cwd, task, changedPaths)) {
+    if (!/\.(?:md|markdown)$/i.test(sourcePath)) continue;
+    let source: string;
+    try {
+      const stable = await readStableContextFile(cwd, sourcePath);
+      if (!stable.outputExemptible) continue;
+      source = stable.bytes.toString("utf8");
+    } catch {
+      continue;
+    }
+    for (const destination of findExactMarkdownLinkDestinations(source, label)) {
+      const targetPath = normalizeLocalMarkdownLinkDestination(cwd, sourcePath, destination);
+      if (!targetPath
+        || !taskPathMatches(targetPath, task.allowedPathPrefixes ?? [])
+        || isRuntimePath(targetPath)
+        || !isProbablyTextPath(targetPath)
+        || candidates.has(targetPath)) continue;
+      try {
+        const target = await readStableContextFile(cwd, targetPath);
+        if (!target.outputExemptible) continue;
+        renderFileContextContent(target.bytes.toString("utf8"), targetPath, "snippet");
+      } catch {
+        continue;
+      }
+      const candidateSource: ContextCandidateSource = changedPaths.includes(targetPath) ? "changed_file" : "file";
+      candidates.set(targetPath, {
+        id: buildMarkdownLinkCandidateId(targetPath, label),
+        taskId,
+        source: candidateSource,
+        type: "file",
+        reason: `Exact local Markdown link ${label} in ${sourcePath} resolves to an allowed regular file; approval is required before adding the target to the manifest.`,
+        score: candidateSource === "changed_file" ? 11 : 10,
+        priority: "useful",
+        scope: "snippet",
+        exactness: "exact",
+        path: targetPath,
+      });
+    }
+  }
+  return [...candidates.values()]
+    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+    .slice(0, limit);
+}
+
+async function discoverLocalModuleImportCandidates(
+  cwd: string,
+  task: ScalerTaskState,
+  taskId: string,
+  specifier: string,
+  limit: number,
+): Promise<ContextCandidate[]> {
+  const changedPaths = await getGitChangedPaths(cwd);
+  const candidates = new Map<string, ContextCandidate>();
+  for (const sourcePath of await discoverAllowedCandidateFilePaths(cwd, task, changedPaths)) {
+    const scriptKind = getTypeScriptScriptKind(sourcePath);
+    if (scriptKind === undefined) continue;
+    let source: string;
+    try {
+      const stable = await readStableContextFile(cwd, sourcePath);
+      if (!stable.outputExemptible) continue;
+      source = stable.bytes.toString("utf8");
+    } catch {
+      continue;
+    }
+    if (!findExactStaticModuleSpecifiers(source, sourcePath, scriptKind).includes(specifier)) continue;
+    const targetPath = normalizeLocalModuleImportDestination(cwd, sourcePath, specifier);
+    if (!targetPath
+      || !taskPathMatches(targetPath, task.allowedPathPrefixes ?? [])
+      || isRuntimePath(targetPath)
+      || getTypeScriptScriptKind(targetPath) === undefined
+      || candidates.has(targetPath)) continue;
+    try {
+      const target = await readStableContextFile(cwd, targetPath);
+      if (!target.outputExemptible) continue;
+      renderFileContextContent(target.bytes.toString("utf8"), targetPath, "snippet");
+    } catch {
+      continue;
+    }
+    const candidateSource: ContextCandidateSource = changedPaths.includes(targetPath) ? "changed_file" : "file";
+    candidates.set(targetPath, {
+      id: buildLocalModuleImportCandidateId(targetPath, specifier),
+      taskId,
+      source: candidateSource,
+      type: "file",
+      reason: `Exact local module import ${specifier} in ${sourcePath} resolves to an allowed regular source file; approval is required before adding the target to the manifest.`,
+      score: candidateSource === "changed_file" ? 11 : 10,
+      priority: "useful",
+      scope: "snippet",
+      exactness: "exact",
+      path: targetPath,
+    });
+  }
+  return [...candidates.values()]
+    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+    .slice(0, limit);
+}
+
+async function discoverImportedFunctionCandidates(
+  cwd: string,
+  task: ScalerTaskState,
+  taskId: string,
+  specifier: string,
+  name: string,
+  limit: number,
+): Promise<ContextCandidate[]> {
+  const changedPaths = await getGitChangedPaths(cwd);
+  const candidates = new Map<string, ContextCandidate>();
+  const selector = { kind: "typescript-function", name } as const;
+  for (const sourcePath of await discoverAllowedCandidateFilePaths(cwd, task, changedPaths)) {
+    const scriptKind = getTypeScriptScriptKind(sourcePath);
+    if (scriptKind === undefined) continue;
+    let source: string;
+    try {
+      const stable = await readStableContextFile(cwd, sourcePath);
+      if (!stable.outputExemptible) continue;
+      source = stable.bytes.toString("utf8");
+    } catch {
+      continue;
+    }
+    if (!hasExactStaticNamedModuleBinding(source, sourcePath, scriptKind, specifier, name)) continue;
+    const targetPath = normalizeLocalModuleImportDestination(cwd, sourcePath, specifier);
+    if (!targetPath
+      || !taskPathMatches(targetPath, task.allowedPathPrefixes ?? [])
+      || isRuntimePath(targetPath)
+      || getTypeScriptScriptKind(targetPath) === undefined
+      || candidates.has(targetPath)) continue;
+    try {
+      const target = await readStableContextFile(cwd, targetPath);
+      if (!target.outputExemptible) continue;
+      const content = target.bytes.toString("utf8");
+      if (!hasUniqueDirectExportedCallable(content, targetPath, name)) continue;
+      renderFileContextContent(content, targetPath, "section", selector);
+    } catch {
+      continue;
+    }
+    const candidateSource: ContextCandidateSource = changedPaths.includes(targetPath) ? "changed_file" : "file";
+    candidates.set(targetPath, {
+      id: buildImportedFunctionCandidateId(targetPath, specifier, name),
+      taskId,
+      source: candidateSource,
+      type: "file",
+      reason: `Exact imported function ${name} through local module edge ${specifier} in ${sourcePath} resolves to an allowed exported callable; approval is required before adding its selector to the manifest.`,
+      score: candidateSource === "changed_file" ? 11 : 10,
+      priority: "useful",
+      scope: "section",
+      exactness: "exact",
+      path: targetPath,
+      selector,
+    });
+  }
+  return [...candidates.values()]
+    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+    .slice(0, limit);
+}
+
+async function discoverImportedCallerCandidates(
+  cwd: string,
+  task: ScalerTaskState,
+  taskId: string,
+  specifier: string,
+  importedName: string,
+  limit: number,
+): Promise<ContextCandidate[]> {
+  const changedPaths = await getGitChangedPaths(cwd);
+  const candidates = new Map<string, ContextCandidate>();
+  for (const sourcePath of await discoverAllowedCandidateFilePaths(cwd, task, changedPaths)) {
+    const scriptKind = getTypeScriptScriptKind(sourcePath);
+    if (scriptKind === undefined) continue;
+    let source: string;
+    try {
+      const stable = await readStableContextFile(cwd, sourcePath);
+      if (!stable.outputExemptible) continue;
+      source = stable.bytes.toString("utf8");
+    } catch {
+      continue;
+    }
+    const targetPath = normalizeLocalModuleImportDestination(cwd, sourcePath, specifier);
+    if (!targetPath
+      || !taskPathMatches(targetPath, task.allowedPathPrefixes ?? [])
+      || isRuntimePath(targetPath)
+      || getTypeScriptScriptKind(targetPath) === undefined) continue;
+    try {
+      const target = await readStableContextFile(cwd, targetPath);
+      if (!target.outputExemptible
+        || !hasUniqueDirectExportedCallable(target.bytes.toString("utf8"), targetPath, importedName)) continue;
+    } catch {
+      continue;
+    }
+    const callers = findExactImportedTopLevelCallers(source, sourcePath, scriptKind, specifier, importedName);
+    for (const callerName of callers) {
+      const selector = { kind: "typescript-function", name: callerName } as const;
+      try {
+        renderFileContextContent(source, sourcePath, "section", selector);
+      } catch {
+        continue;
+      }
+      const key = `${sourcePath}\0${callerName}`;
+      if (candidates.has(key)) continue;
+      const candidateSource: ContextCandidateSource = changedPaths.includes(sourcePath) ? "changed_file" : "file";
+      candidates.set(key, {
+        id: buildImportedCallerCandidateId(sourcePath, specifier, importedName, callerName),
+        taskId,
+        source: candidateSource,
+        type: "file",
+        reason: `Exact imported caller ${callerName} invokes ${importedName} through local module edge ${specifier} in ${sourcePath}; approval is required before adding its selector to the manifest.`,
+        score: candidateSource === "changed_file" ? 11 : 10,
+        priority: "useful",
+        scope: "section",
+        exactness: "exact",
+        path: sourcePath,
+        selector,
+      });
+    }
+  }
+  return [...candidates.values()]
+    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+    .slice(0, limit);
+}
+
+async function discoverReexportCallerCandidates(
+  cwd: string,
+  task: ScalerTaskState,
+  taskId: string,
+  barrelSpecifier: string,
+  exportedName: string,
+  limit: number,
+): Promise<ContextCandidate[]> {
+  const changedPaths = await getGitChangedPaths(cwd);
+  const candidates = new Map<string, ContextCandidate>();
+  for (const sourcePath of await discoverAllowedCandidateFilePaths(cwd, task, changedPaths)) {
+    const scriptKind = getTypeScriptScriptKind(sourcePath);
+    if (scriptKind === undefined) continue;
+    let source: string;
+    try {
+      const stable = await readStableContextFile(cwd, sourcePath);
+      if (!stable.outputExemptible) continue;
+      source = stable.bytes.toString("utf8");
+    } catch {
+      continue;
+    }
+    const barrelPath = normalizeLocalModuleImportDestination(cwd, sourcePath, barrelSpecifier);
+    if (!barrelPath
+      || !taskPathMatches(barrelPath, task.allowedPathPrefixes ?? [])
+      || isRuntimePath(barrelPath)
+      || getTypeScriptScriptKind(barrelPath) === undefined) continue;
+    let reexport: DirectNamedReexport | undefined;
+    try {
+      const barrel = await readStableContextFile(cwd, barrelPath);
+      if (!barrel.outputExemptible) continue;
+      reexport = findUniqueDirectNamedReexport(barrel.bytes.toString("utf8"), barrelPath, exportedName);
+    } catch {
+      continue;
+    }
+    if (!reexport) continue;
+    const targetPath = normalizeLocalModuleImportDestination(cwd, barrelPath, reexport.specifier);
+    if (!targetPath
+      || !taskPathMatches(targetPath, task.allowedPathPrefixes ?? [])
+      || isRuntimePath(targetPath)
+      || getTypeScriptScriptKind(targetPath) === undefined) continue;
+    try {
+      const target = await readStableContextFile(cwd, targetPath);
+      if (!target.outputExemptible
+        || !hasUniqueDirectExportedCallable(target.bytes.toString("utf8"), targetPath, reexport.sourceName)) continue;
+    } catch {
+      continue;
+    }
+    const callers = findExactImportedTopLevelCallers(source, sourcePath, scriptKind, barrelSpecifier, exportedName);
+    for (const callerName of callers) {
+      const selector = { kind: "typescript-function", name: callerName } as const;
+      try {
+        renderFileContextContent(source, sourcePath, "section", selector);
+      } catch {
+        continue;
+      }
+      const key = `${sourcePath}\0${callerName}`;
+      if (candidates.has(key)) continue;
+      const candidateSource: ContextCandidateSource = changedPaths.includes(sourcePath) ? "changed_file" : "file";
+      candidates.set(key, {
+        id: buildReexportCallerCandidateId(sourcePath, barrelSpecifier, exportedName, callerName),
+        taskId,
+        source: candidateSource,
+        type: "file",
+        reason: `Exact re-export caller ${callerName} invokes ${exportedName} through local barrel edge ${barrelSpecifier} in ${sourcePath}; approval is required before adding its selector to the manifest.`,
+        score: candidateSource === "changed_file" ? 11 : 10,
+        priority: "useful",
+        scope: "section",
+        exactness: "exact",
+        path: sourcePath,
+        selector,
+      });
+    }
+  }
+  return [...candidates.values()]
+    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+    .slice(0, limit);
+}
+
+interface DirectNamedReexport {
+  specifier: string;
+  sourceName: string;
+}
+
+function findUniqueDirectNamedReexport(
+  content: string,
+  path: string,
+  exportedName: string,
+): DirectNamedReexport | undefined {
+  const scriptKind = getTypeScriptScriptKind(path);
+  if (scriptKind === undefined) return undefined;
+  const source = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, true, scriptKind);
+  const parseDiagnostics = (source as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? [];
+  if (parseDiagnostics.length > 0) return undefined;
+  const matches: DirectNamedReexport[] = [];
+  for (const statement of source.statements) {
+    if (ts.isExportDeclaration(statement)) {
+      if (!statement.exportClause || !ts.isNamedExports(statement.exportClause)) return undefined;
+      for (const element of statement.exportClause.elements) {
+        if (element.name.text !== exportedName) continue;
+        if (statement.isTypeOnly
+          || element.isTypeOnly
+          || !statement.moduleSpecifier
+          || !ts.isStringLiteral(statement.moduleSpecifier)
+          || !isEligibleLocalSourceModuleSpecifier(statement.moduleSpecifier.text)) return undefined;
+        matches.push({
+          specifier: statement.moduleSpecifier.text,
+          sourceName: element.propertyName?.text ?? element.name.text,
+        });
+      }
+      continue;
+    }
+    const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined;
+    if (modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) !== true) continue;
+    if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isInterfaceDeclaration(statement)
+      || ts.isTypeAliasDeclaration(statement) || ts.isEnumDeclaration(statement)) {
+      if (statement.name?.text === exportedName) return undefined;
+      continue;
+    }
+    if (ts.isVariableStatement(statement)
+      && statement.declarationList.declarations.some((declaration) => bindingNameContains(declaration.name, exportedName))) {
+      return undefined;
+    }
+  }
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function findExactImportedTopLevelCallers(
+  content: string,
+  path: string,
+  scriptKind: ts.ScriptKind,
+  specifier: string,
+  importedName: string,
+): string[] {
+  const source = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, true, scriptKind);
+  const parseDiagnostics = (source as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? [];
+  if (parseDiagnostics.length > 0) return [];
+  const localNames = new Set<string>();
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement)
+      || !ts.isStringLiteral(statement.moduleSpecifier)
+      || statement.moduleSpecifier.text !== specifier
+      || !statement.importClause
+      || statement.importClause.isTypeOnly
+      || !statement.importClause.namedBindings
+      || !ts.isNamedImports(statement.importClause.namedBindings)) continue;
+    for (const element of statement.importClause.namedBindings.elements) {
+      if (!element.isTypeOnly && (element.propertyName?.text ?? element.name.text) === importedName) {
+        localNames.add(element.name.text);
+      }
+    }
+  }
+  if (localNames.size === 0) return [];
+
+  const callers = new Set<string>();
+  for (const statement of source.statements) {
+    let callerName: string | undefined;
+    let callable: ts.FunctionLikeDeclaration | undefined;
+    if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) {
+      callerName = statement.name.text;
+      callable = statement;
+    } else if (ts.isVariableStatement(statement) && statement.declarationList.declarations.length === 1) {
+      const declaration = statement.declarationList.declarations[0]!;
+      if (ts.isIdentifier(declaration.name)
+        && declaration.initializer
+        && (ts.isArrowFunction(declaration.initializer) || ts.isFunctionExpression(declaration.initializer))) {
+        callerName = declaration.name.text;
+        callable = declaration.initializer;
+      }
+    }
+    if (!callerName || !callable) continue;
+    for (const localName of localNames) {
+      if (callerName === localName || callableShadowsName(callable, localName)) continue;
+      if (callableContainsDirectCall(callable, localName)) callers.add(callerName);
+    }
+  }
+  return [...callers];
+}
+
+function callableContainsDirectCall(callable: ts.FunctionLikeDeclaration, localName: string): boolean {
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (found) return;
+    if (node !== callable && (ts.isFunctionLike(node) || ts.isClassLike(node))) return;
+    if (ts.isCallExpression(node)
+      && node.questionDotToken === undefined
+      && ts.isIdentifier(node.expression)
+      && node.expression.text === localName) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  if (callable.body) visit(callable.body);
+  return found;
+}
+
+function callableShadowsName(callable: ts.FunctionLikeDeclaration, localName: string): boolean {
+  if (callable.parameters.some((parameter) => bindingNameContains(parameter.name, localName))) return true;
+  let shadowed = false;
+  const visit = (node: ts.Node): void => {
+    if (shadowed) return;
+    if (node !== callable && (ts.isFunctionLike(node) || ts.isClassLike(node))) return;
+    if ((ts.isVariableDeclaration(node) || ts.isParameter(node) || ts.isBindingElement(node))
+      && bindingNameContains(node.name, localName)) {
+      shadowed = true;
+      return;
+    }
+    if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) && node.name?.text === localName) {
+      shadowed = true;
+      return;
+    }
+    if (ts.isCatchClause(node) && node.variableDeclaration
+      && bindingNameContains(node.variableDeclaration.name, localName)) {
+      shadowed = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  if (callable.body) visit(callable.body);
+  return shadowed;
+}
+
+function bindingNameContains(name: ts.BindingName, expected: string): boolean {
+  if (ts.isIdentifier(name)) return name.text === expected;
+  return name.elements.some((element) => !ts.isOmittedExpression(element) && bindingNameContains(element.name, expected));
+}
+
+function hasExactStaticNamedModuleBinding(
+  content: string,
+  path: string,
+  scriptKind: ts.ScriptKind,
+  specifier: string,
+  name: string,
+): boolean {
+  const source = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, true, scriptKind);
+  const parseDiagnostics = (source as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? [];
+  if (parseDiagnostics.length > 0) return false;
+  for (const statement of source.statements) {
+    if (ts.isImportDeclaration(statement)
+      && ts.isStringLiteral(statement.moduleSpecifier)
+      && statement.moduleSpecifier.text === specifier
+      && statement.importClause
+      && !statement.importClause.isTypeOnly
+      && statement.importClause.namedBindings
+      && ts.isNamedImports(statement.importClause.namedBindings)
+      && statement.importClause.namedBindings.elements.some((element) =>
+        !element.isTypeOnly && (element.propertyName?.text ?? element.name.text) === name)) return true;
+    if (ts.isExportDeclaration(statement)
+      && !statement.isTypeOnly
+      && statement.moduleSpecifier
+      && ts.isStringLiteral(statement.moduleSpecifier)
+      && statement.moduleSpecifier.text === specifier
+      && statement.exportClause
+      && ts.isNamedExports(statement.exportClause)
+      && statement.exportClause.elements.some((element) =>
+        !element.isTypeOnly && (element.propertyName?.text ?? element.name.text) === name)) return true;
+  }
+  return false;
+}
+
+function hasUniqueDirectExportedCallable(content: string, path: string, name: string): boolean {
+  const scriptKind = getTypeScriptScriptKind(path);
+  if (scriptKind === undefined) return false;
+  const source = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, true, scriptKind);
+  const parseDiagnostics = (source as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? [];
+  if (parseDiagnostics.length > 0) return false;
+  let matches = 0;
+  for (const statement of source.statements) {
+    const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined;
+    const exported = modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) === true;
+    const defaultExported = modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword) === true;
+    if (!exported || defaultExported) continue;
+    if (ts.isFunctionDeclaration(statement) && statement.name?.text === name) {
+      matches += 1;
+      continue;
+    }
+    if (!ts.isVariableStatement(statement) || statement.declarationList.declarations.length !== 1) continue;
+    const declaration = statement.declarationList.declarations[0]!;
+    if (!ts.isIdentifier(declaration.name) || declaration.name.text !== name || !declaration.initializer) continue;
+    if (ts.isArrowFunction(declaration.initializer) || ts.isFunctionExpression(declaration.initializer)) matches += 1;
+  }
+  return matches === 1;
+}
+
+function findExactStaticModuleSpecifiers(content: string, path: string, scriptKind: ts.ScriptKind): string[] {
+  const source = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, true, scriptKind);
+  const parseDiagnostics = (source as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? [];
+  if (parseDiagnostics.length > 0) return [];
+  const specifiers: string[] = [];
+  for (const statement of source.statements) {
+    const moduleSpecifier = ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement)
+      ? statement.moduleSpecifier
+      : undefined;
+    if (moduleSpecifier && ts.isStringLiteral(moduleSpecifier)) specifiers.push(moduleSpecifier.text);
+  }
+  return specifiers;
+}
+
+function normalizeLocalModuleImportDestination(cwd: string, sourcePath: string, specifier: string): string | undefined {
+  const root = resolve(cwd);
+  const target = resolve(root, dirname(sourcePath), specifier);
+  const normalized = relative(root, target).split(sep).join("/");
+  if (!normalized || normalized === ".." || normalized.startsWith("../") || isAbsolute(normalized)) return undefined;
+  return normalized;
+}
+
+function findExactMarkdownLinkDestinations(content: string, label: string): string[] {
+  const destinations: string[] = [];
+  const walker = new Parser().parse(content).walker();
+  for (let step = walker.next(); step; step = walker.next()) {
+    if (!step.entering || step.node.type !== "link" || typeof step.node.destination !== "string") continue;
+    if (collectMarkdownInlineText(step.node) === label) destinations.push(step.node.destination);
+  }
+  return destinations;
+}
+
+function collectMarkdownInlineText(root: import("commonmark").Node): string {
+  const text: string[] = [];
+  const walker = root.walker();
+  for (let step = walker.next(); step; step = walker.next()) {
+    if (!step.entering) continue;
+    if ((step.node.type === "text" || step.node.type === "code") && step.node.literal !== null) {
+      text.push(step.node.literal);
+    } else if (step.node.type === "softbreak" || step.node.type === "linebreak") {
+      text.push("\n");
+    }
+  }
+  return text.join("");
+}
+
+function normalizeLocalMarkdownLinkDestination(cwd: string, sourcePath: string, destination: string): string | undefined {
+  if (!destination
+    || destination.includes("\0")
+    || destination.includes("?")
+    || destination.includes("#")
+    || destination.includes("\\")
+    || destination.startsWith("/")
+    || destination.startsWith("//")
+    || /^[a-z][a-z0-9+.-]*:/i.test(destination)) return undefined;
+  const root = resolve(cwd);
+  const target = resolve(root, dirname(sourcePath), destination);
+  const normalized = relative(root, target).split(sep).join("/");
+  if (!normalized || normalized === ".." || normalized.startsWith("../") || isAbsolute(normalized)) return undefined;
+  return normalized;
 }
 
 async function collectCandidateFiles(cwd: string, path: string, depth: number, limit: number): Promise<string[]> {
@@ -1007,6 +1881,53 @@ function slugify(value: string): string {
     .slice(0, 48) || "item";
 }
 
+function slugifyPath(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64) || "file";
+}
+
+function buildFunctionCandidateId(path: string, name: string): string {
+  const identity = createHash("sha256").update(path).update("\0").update(name).digest("hex").slice(0, 12);
+  return `candidate-function-${identity}-${slugify(name)}-${slugifyPath(path)}`;
+}
+
+function buildMarkdownHeadingCandidateId(path: string, heading: string): string {
+  const identity = createHash("sha256").update(path).update("\0").update(heading).digest("hex").slice(0, 12);
+  return `candidate-heading-${identity}-${slugify(heading)}-${slugifyPath(path)}`;
+}
+
+function buildMarkdownLinkCandidateId(path: string, label: string): string {
+  const identity = createHash("sha256").update(path).update("\0").update(label).digest("hex").slice(0, 12);
+  return `candidate-link-${identity}-${slugify(label)}-${slugifyPath(path)}`;
+}
+
+function buildLocalModuleImportCandidateId(path: string, specifier: string): string {
+  const identity = createHash("sha256").update(path).update("\0").update(specifier).digest("hex").slice(0, 12);
+  return `candidate-import-${identity}-${slugify(specifier)}-${slugifyPath(path)}`;
+}
+
+function buildImportedFunctionCandidateId(path: string, specifier: string, name: string): string {
+  const identity = createHash("sha256").update(path).update("\0").update(specifier).update("\0").update(name).digest("hex").slice(0, 12);
+  return `candidate-import-function-${identity}-${slugify(name)}-${slugifyPath(path)}`;
+}
+
+function buildImportedCallerCandidateId(path: string, specifier: string, importedName: string, callerName: string): string {
+  const identity = createHash("sha256")
+    .update(path).update("\0").update(specifier).update("\0").update(importedName).update("\0").update(callerName)
+    .digest("hex").slice(0, 12);
+  return `candidate-import-caller-${identity}-${slugify(callerName)}-${slugifyPath(path)}`;
+}
+
+function buildReexportCallerCandidateId(path: string, specifier: string, exportedName: string, callerName: string): string {
+  const identity = createHash("sha256")
+    .update(path).update("\0").update(specifier).update("\0").update(exportedName).update("\0").update(callerName)
+    .digest("hex").slice(0, 12);
+  return `candidate-reexport-caller-${identity}-${slugify(callerName)}-${slugifyPath(path)}`;
+}
+
 function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
@@ -1027,9 +1948,18 @@ function validateTaskContextManifestItem(item: TaskContextManifestItem, ids: Set
     if (item.source !== "file" || item.scope !== "section") {
       throw new Error(`Task context item ${item.id} selector requires file section scope.`);
     }
-    if (item.selector.kind !== "markdown-heading" || typeof item.selector.heading !== "string"
-        || !trimMarkdownHeadingWhitespace(item.selector.heading)) {
-      throw new Error(`Task context item ${item.id} Markdown heading selector is invalid.`);
+    if (item.selector.kind === "markdown-heading") {
+      if (typeof item.selector.heading !== "string" || !trimMarkdownHeadingWhitespace(item.selector.heading)) {
+        throw new Error(`Task context item ${item.id} Markdown heading selector is invalid.`);
+      }
+    } else if (item.selector.kind === "typescript-function") {
+      if (typeof item.selector.name !== "string" || !item.selector.name
+          || item.selector.name !== item.selector.name.trim()
+          || !isTypeScriptIdentifier(item.selector.name)) {
+        throw new Error(`Task context item ${item.id} TypeScript function selector is invalid.`);
+      }
+    } else {
+      throw new Error(`Task context item ${item.id} selector kind is unsupported.`);
     }
     if (item.selector.maxChars !== undefined
         && (!Number.isSafeInteger(item.selector.maxChars) || item.selector.maxChars <= 0)) {
@@ -1037,6 +1967,38 @@ function validateTaskContextManifestItem(item: TaskContextManifestItem, ids: Set
     }
   }
   if (item.source === "memory" && !item.memoryId?.trim()) throw new Error(`Task context item ${item.id} memoryId is required.`);
+}
+
+function isTypeScriptIdentifier(value: string): boolean {
+  const source = ts.createSourceFile(
+    "selector.ts",
+    `const ${value} = 0;`,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const diagnostics = (source as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? [];
+  if (diagnostics.length > 0 || source.statements.length !== 1) return false;
+  const statement = source.statements[0];
+  if (!statement || !ts.isVariableStatement(statement) || statement.declarationList.declarations.length !== 1) return false;
+  const declaration = statement.declarationList.declarations[0];
+  return Boolean(declaration && ts.isIdentifier(declaration.name) && declaration.name.text === value);
+}
+
+export function isValidFileContextSelector(selector: unknown): selector is FileContextSelector {
+  if (typeof selector !== "object" || selector === null || Array.isArray(selector)) return false;
+  const value = selector as Record<string, unknown>;
+  if (value.maxChars !== undefined && (!Number.isSafeInteger(value.maxChars) || (value.maxChars as number) <= 0)) {
+    return false;
+  }
+  if (value.kind === "markdown-heading") {
+    return typeof value.heading === "string" && Boolean(trimMarkdownHeadingWhitespace(value.heading));
+  }
+  if (value.kind === "typescript-function") {
+    return typeof value.name === "string" && Boolean(value.name)
+      && value.name === value.name.trim() && isTypeScriptIdentifier(value.name);
+  }
+  return false;
 }
 
 export function getRequiredContextDiagnostics(items: ContextItem[]): string[] {
