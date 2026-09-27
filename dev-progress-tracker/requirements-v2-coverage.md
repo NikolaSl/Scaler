@@ -69,6 +69,8 @@ and returns separate read-only candidates that still require manual approval.
 Malformed or ineligible declarations and unrelated changed paths produce no
 selector candidate. Natural-language inference, import/call-graph semantics,
 automatic selection and task decomposition remain open, so SC-07 stays Partial.
+The candidate passes build, 1,112 unit/component, 67 mock integration, 7
+conformance/autopilot and 67 focused context checks plus `git diff --check`.
 
 PLAN-137 adds the model-profile eligibility prerequisite deliberately left open
 by PLAN-132. Versioned profiles carry an exact provider identity, locality,

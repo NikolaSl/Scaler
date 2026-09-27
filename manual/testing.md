@@ -461,6 +461,9 @@ refusal, path-bound candidate identity, changed-file scope isolation and
 unrelated-change starvation. Generic semantic discovery remains unchanged.
 These fixtures do not infer a symbol from prose, follow imports/call graphs,
 choose a candidate, decompose a task or establish model quality or savings.
+The PLAN-139 candidate passes the TypeScript build, 1,112 unit/component tests,
+67 mock integration tests, 7 conformance/autopilot tests, 67 focused context
+checks and `git diff --check`.
 
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx

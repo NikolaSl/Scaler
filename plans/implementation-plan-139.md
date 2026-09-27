@@ -69,3 +69,6 @@ lookup and automatic selector choice remain open, so SC-07/AC-07 stays Partial.
 - Malformed query syntax, source errors, duplicate/overload declarations,
   class methods, unsupported extensions and oversized sections yield no
   approvable candidate. Same-named matches in separate files remain separate.
+- The candidate passed the TypeScript build, 1,112 unit/component tests, 67
+  mock integration tests, 7 conformance/autopilot tests, 67 focused context
+  checks and `git diff --check`.
