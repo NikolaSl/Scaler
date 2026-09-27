@@ -299,6 +299,11 @@ export async function discoverSemanticContextCandidates(
     if (!functionSelectorQuery.name) return [];
     return discoverTypeScriptFunctionCandidates(cwd, task, taskId, functionSelectorQuery.name, options.limit ?? 10);
   }
+  const headingSelectorQuery = parseMarkdownHeadingCandidateQuery(options.query);
+  if (headingSelectorQuery.requested) {
+    if (!headingSelectorQuery.heading) return [];
+    return discoverMarkdownHeadingCandidates(cwd, task, taskId, headingSelectorQuery.heading, options.limit ?? 10);
+  }
   const queryTerms = options.query?.toLowerCase().split(/\W+/).filter((term) => term.length >= 3) ?? [];
   const terms = unique([...buildTaskSearchTerms(task), ...queryTerms]);
   const candidates: ContextCandidate[] = [];
@@ -790,6 +795,15 @@ function parseFunctionSelectorCandidateQuery(query: string | undefined): { reque
     : { requested: true };
 }
 
+function parseMarkdownHeadingCandidateQuery(query: string | undefined): { requested: boolean; heading?: string } {
+  const value = query ?? "";
+  if (!value.startsWith("heading:")) return { requested: false };
+  const heading = trimMarkdownHeadingWhitespace(value.slice("heading:".length));
+  return heading
+    ? { requested: true, heading }
+    : { requested: true };
+}
+
 async function discoverTypeScriptFunctionCandidates(
   cwd: string,
   task: ScalerTaskState,
@@ -814,6 +828,43 @@ async function discoverTypeScriptFunctionCandidates(
       source,
       type: "file",
       reason: `Exact top-level function ${name} was found in an allowed task path; approval is required before adding its selector to the manifest.`,
+      score: source === "changed_file" ? 11 : 10,
+      priority: "useful",
+      scope: "section",
+      exactness: "exact",
+      path,
+      selector,
+    });
+  }
+  return candidates
+    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+    .slice(0, limit);
+}
+
+async function discoverMarkdownHeadingCandidates(
+  cwd: string,
+  task: ScalerTaskState,
+  taskId: string,
+  heading: string,
+  limit: number,
+): Promise<ContextCandidate[]> {
+  const changedPaths = await getGitChangedPaths(cwd);
+  const selector = { kind: "markdown-heading", heading } as const;
+  const candidates: ContextCandidate[] = [];
+  for (const path of await discoverAllowedCandidateFilePaths(cwd, task, changedPaths)) {
+    if (!/\.(?:md|markdown)$/i.test(path)) continue;
+    try {
+      await resolveFileContextContent(cwd, path, "section", selector);
+    } catch {
+      continue;
+    }
+    const source: ContextCandidateSource = changedPaths.includes(path) ? "changed_file" : "file";
+    candidates.push({
+      id: buildMarkdownHeadingCandidateId(path, heading),
+      taskId,
+      source,
+      type: "file",
+      reason: `Exact Markdown heading ${heading} was found in an allowed task path; approval is required before adding its selector to the manifest.`,
       score: source === "changed_file" ? 11 : 10,
       priority: "useful",
       scope: "section",
@@ -1147,6 +1198,11 @@ function slugifyPath(value: string): string {
 function buildFunctionCandidateId(path: string, name: string): string {
   const identity = createHash("sha256").update(path).update("\0").update(name).digest("hex").slice(0, 12);
   return `candidate-function-${identity}-${slugify(name)}-${slugifyPath(path)}`;
+}
+
+function buildMarkdownHeadingCandidateId(path: string, heading: string): string {
+  const identity = createHash("sha256").update(path).update("\0").update(heading).digest("hex").slice(0, 12);
+  return `candidate-heading-${identity}-${slugify(heading)}-${slugifyPath(path)}`;
 }
 
 function unique(values: string[]): string[] {
