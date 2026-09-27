@@ -631,6 +631,94 @@ test("file section scope resolves the selected exact TypeScript function", async
   });
 });
 
+test("TypeScript function selector resolves a top-level callable variable statement", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    const selected = "export const selectedFunction = (input: string): string => input.trim();";
+    await writeFile(join(dir, "example.ts"), `${selected}\nconst after = 1;\n`, "utf8");
+    const [item] = await resolveTaskContextManifest(dir, state, {
+      version: 1, taskId: "T-FUNCTION", createdAt: state.createdAt, updatedAt: state.createdAt,
+      items: [{ id: "selected", type: "file", reason: "Exact callable", priority: "required",
+        scope: "section", source: "file", path: "example.ts",
+        selector: { kind: "typescript-function", name: "selectedFunction" } }],
+    });
+
+    assert.equal(item?.available, true);
+    assert.equal(item?.content, selected);
+    assert.doesNotMatch(item?.content ?? "", /const after/);
+  });
+});
+
+for (const [name, path, source, diagnostic] of [
+  ["duplicate declarations", "example.ts", "function target() {}\nfunction target() {}\n", /ambiguous/i],
+  ["overload groups", "example.ts", "function target(value: string): string;\nfunction target(value: string) { return value; }\n", /ambiguous/i],
+  ["class methods", "example.ts", "class Example { target(): void {} }\n", /not found/i],
+  ["multi-binding variable statements", "example.ts", "const target = () => 1, sibling = 2;\n", /not found/i],
+  ["malformed source", "example.ts", "function target( {\n", /malformed/i],
+  ["unsupported extensions", "example.py", "def target():\n    pass\n", /does not support file extension/i],
+] as const) {
+  test(`TypeScript function selector fails closed for ${name}`, async () => {
+    await withTempDir(async (dir) => {
+      const state = createDefaultState();
+      await writeFile(join(dir, path), source, "utf8");
+      const [item] = await resolveTaskContextManifest(dir, state, {
+        version: 1, taskId: "T-FUNCTION", createdAt: state.createdAt, updatedAt: state.createdAt,
+        items: [{ id: "selected", type: "file", reason: "Exact callable", priority: "required",
+          scope: "section", source: "file", path,
+          selector: { kind: "typescript-function", name: "target" } }],
+      });
+
+      assert.equal(item?.available, false);
+      assert.match(item?.diagnostic ?? "", diagnostic);
+    });
+  });
+}
+
+test("TypeScript function selector enforces exact section size", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await writeFile(join(dir, "example.js"), "export function target() { return 'oversized'; }\n", "utf8");
+    const [item] = await resolveTaskContextManifest(dir, state, {
+      version: 1, taskId: "T-FUNCTION", createdAt: state.createdAt, updatedAt: state.createdAt,
+      items: [{ id: "selected", type: "file", reason: "Exact callable", priority: "required",
+        scope: "section", source: "file", path: "example.js",
+        selector: { kind: "typescript-function", name: "target", maxChars: 20 } }],
+    });
+
+    assert.equal(item?.available, false);
+    assert.match(item?.diagnostic ?? "", /oversized/i);
+  });
+});
+
+test("TypeScript function selector round-trips through the durable manifest", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    const saved = await saveTaskContextManifest(dir, {
+      version: 1, taskId: "T-FUNCTION", createdAt: state.createdAt, updatedAt: state.createdAt,
+      items: [{ id: "selected", type: "file", reason: "Exact callable", priority: "required",
+        scope: "section", source: "file", path: "example.ts",
+        selector: { kind: "typescript-function", name: " target ", maxChars: 512 } }],
+    });
+    const loaded = await loadTaskContextManifest(dir, "T-FUNCTION");
+
+    assert.deepEqual(saved.items[0]?.selector, { kind: "typescript-function", name: "target", maxChars: 512 });
+    assert.deepEqual(loaded?.items[0]?.selector, saved.items[0]?.selector);
+    assert.match(formatTaskContextManifest(saved), /selector=typescript-function:target/);
+  });
+});
+
+test("TypeScript function selector rejects malformed selector names", () => {
+  const state = createDefaultState();
+  for (const name of ["", "target.value", "two words", "return", "{ target }"]) {
+    assert.throws(() => validateTaskContextManifest({
+      version: 1, taskId: "T-FUNCTION", createdAt: state.createdAt, updatedAt: state.createdAt,
+      items: [{ id: `selected-${name}`, type: "file", reason: "Exact callable", priority: "required",
+        scope: "section", source: "file", path: "example.ts",
+        selector: { kind: "typescript-function", name } }],
+    }), /TypeScript function selector is invalid/);
+  }
+});
+
 test("inline backtick text does not hide the next Markdown heading", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState();

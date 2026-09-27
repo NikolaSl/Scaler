@@ -434,6 +434,79 @@ test("runConductorStep dispatches the selected exact Markdown section", async ()
   });
 });
 
+test("runConductorStep dispatches the selected exact TypeScript function", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    await writeFile(
+      join(dir, "reference.ts"),
+      "const unrelated = 'do not include';\nexport function target(input: string): string {\n  return input.trim();\n}\nconst after = 1;\n",
+      "utf8",
+    );
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-001",
+      tokenBudget: 8_000,
+      items: [{
+        id: "target", type: "file", reason: "Exact function contract", priority: "required",
+        scope: "section", source: "file", path: "reference.ts",
+        selector: { kind: "typescript-function", name: "target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+    let dispatchedPrompt = "";
+
+    const result = await runConductorStep(dir, state, { execute: true, tools: ["read"] }, async (request) => {
+      dispatchedPrompt = request.prompt;
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [completedTaskReport(request)],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
+
+    assert.equal(result.accepted, true, result.message);
+    assert.match(dispatchedPrompt, /export function target/);
+    assert.match(dispatchedPrompt, /return input\.trim/);
+    assert.doesNotMatch(dispatchedPrompt, /do not include|const after/);
+  });
+});
+
+test("runConductorStep blocks an unavailable required TypeScript function before dispatch", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    await writeFile(join(dir, "reference.ts"), "class Example { target(): void {} }\n", "utf8");
+    await saveTaskContextManifest(dir, {
+      version: 1,
+      taskId: "T-001",
+      items: [{
+        id: "target", type: "file", reason: "Exact function contract", priority: "required",
+        scope: "section", source: "file", path: "reference.ts",
+        selector: { kind: "typescript-function", name: "target" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    });
+    let runnerCalls = 0;
+
+    const result = await runConductorStep(dir, state, { execute: true }, async () => {
+      runnerCalls += 1;
+      throw new Error("must not dispatch");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /required context.*TypeScript function not found/i);
+    assert.equal(runnerCalls, 0);
+    assert.deepEqual(await loadTaskAttempts(dir), []);
+    assert.equal(getBudgetState(result.state).usage.spawnedAgents ?? 0, 0);
+  });
+});
+
 test("runConductorStep refuses unavailable strict child grants before attempt or budget publication", async () => {
   await withTempDir(async (dir) => {
     const state = stateWithTasks(["ready"]);
