@@ -419,6 +419,32 @@ test("function candidate discovery does not escape task allowed paths through ch
   });
 });
 
+test("unrelated changed files cannot starve bounded function discovery in allowed paths", async () => {
+  await withTempDir(async (dir) => {
+    await execFileAsync("git", ["init"], { cwd: dir });
+    await mkdir(join(dir, "noise"));
+    await mkdir(join(dir, "src"));
+    for (let index = 0; index < 30; index++) {
+      const name = `noise-${String(index).padStart(2, "0")}.ts`;
+      await writeFile(join(dir, "noise", name), `export const noise${index} = ${index};\n`, "utf8");
+    }
+    await writeFile(join(dir, "src", "target.ts"), "export function targetAfterNoise(): string { return 'found'; }\n", "utf8");
+    await execFileAsync("git", ["add", "-N", "noise", "src/target.ts"], { cwd: dir });
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-NOISE-FUNCTION", status: "ready", title: "Locate bounded callable after unrelated changes",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-NOISE-FUNCTION", { query: "function:targetAfterNoise", limit: 10 },
+    );
+
+    assert.equal(candidates.length, 1);
+    assert.equal(candidates[0]?.path, "src/target.ts");
+  });
+});
+
 test("approveContextCandidate persists selected candidates without duplicating manifest entries", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
