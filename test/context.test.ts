@@ -882,6 +882,152 @@ test("unrelated changed files cannot starve bounded local import discovery", asy
   });
 });
 
+test("imported function discovery approves and resolves only the exact exported callable", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"));
+    await writeFile(
+      join(dir, "src", "entry.ts"),
+      "import { selected as localSelected } from './target.ts';\n",
+      "utf8",
+    );
+    const selected = "export function selected(input: string): string { return input.trim(); }";
+    await writeFile(
+      join(dir, "src", "target.ts"),
+      `${selected}\nexport function unrelated(): void {}\n`,
+      "utf8",
+    );
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-IMPORTED-FUNCTION", status: "ready", title: "Locate imported callable",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-IMPORTED-FUNCTION", { query: "import-function:./target.ts#selected", limit: 10 },
+    );
+
+    assert.equal(candidates.length, 1);
+    const [candidate] = candidates;
+    assert.equal(candidate?.path, "src/target.ts");
+    assert.equal(candidate?.scope, "section");
+    assert.equal(candidate?.exactness, "exact");
+    assert.deepEqual(candidate?.selector, { kind: "typescript-function", name: "selected" });
+    assert.match(candidate?.reason ?? "", /exact imported function/i);
+
+    const approved = await approveContextCandidate(
+      dir, state, "T-IMPORTED-FUNCTION", candidate!.id,
+      { query: "import-function:./target.ts#selected" },
+    );
+    const item = approved.manifest.items.find((entry) => entry.path === "src/target.ts");
+    assert.equal(approved.added, true);
+    assert.deepEqual(item?.selector, { kind: "typescript-function", name: "selected" });
+    const resolved = await resolveTaskContextManifest(dir, state, approved.manifest);
+    assert.equal(resolved.find((entry) => entry.id === item?.id)?.content, selected);
+  });
+});
+
+test("imported function discovery deduplicates named imports and re-exports but preserves distinct targets", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src", "first"), { recursive: true });
+    await mkdir(join(dir, "src", "second"), { recursive: true });
+    await writeFile(
+      join(dir, "src", "first", "entry.ts"),
+      [
+        "import { target as localTarget } from './target.ts';",
+        "export { target as forwardedTarget } from './target.ts';",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      join(dir, "src", "second", "entry.ts"),
+      "export { target } from './target.ts';\n",
+      "utf8",
+    );
+    await writeFile(join(dir, "src", "first", "target.ts"), "export const target = (): number => 1;\n", "utf8");
+    await writeFile(join(dir, "src", "second", "target.ts"), "export function target(): number { return 2; }\n", "utf8");
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-IMPORTED-FUNCTION-MULTIPLE", status: "ready", title: "Locate exact imported functions",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-IMPORTED-FUNCTION-MULTIPLE",
+      { query: "import-function:./target.ts#target", limit: 10 },
+    );
+
+    assert.equal(candidates.length, 2);
+    assert.equal(new Set(candidates.map((candidate) => candidate.id)).size, 2);
+    assert.deepEqual(candidates.map((candidate) => candidate.path).sort(), [
+      "src/first/target.ts",
+      "src/second/target.ts",
+    ]);
+    assert.ok(candidates.every((candidate) => candidate.selector?.kind === "typescript-function"));
+  });
+});
+
+test("imported function discovery fails closed on malformed edges and ineligible target declarations", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"));
+    await writeFile(join(dir, "src", "callable.ts"), "export function target(): void {}\n", "utf8");
+    await writeFile(join(dir, "src", "hidden.ts"), "function hidden(): void {}\n", "utf8");
+    await writeFile(join(dir, "src", "value.ts"), "export const value = 1;\n", "utf8");
+    await writeFile(
+      join(dir, "src", "ambiguous.ts"),
+      "export function repeated(): void {}\nexport const repeated = (): void => {};\n",
+      "utf8",
+    );
+    await writeFile(
+      join(dir, "src", "edges.ts"),
+      [
+        "import defaultTarget from './callable.ts';",
+        "import * as namespaceTarget from './callable.ts';",
+        "import type { target as TypeTarget } from './callable.ts';",
+        "import { hidden } from './hidden.ts';",
+        "import { value } from './value.ts';",
+        "import { repeated } from './ambiguous.ts';",
+        "import { target } from 'package-name';",
+        "import { target as aliasTarget } from '@/callable.ts';",
+        "import('./callable.ts');",
+        "require('./callable.ts');",
+      ].join("\n"),
+      "utf8",
+    );
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-IMPORTED-FUNCTION-REFUSE", status: "ready", title: "Refuse unsafe imported functions",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    for (const query of [
+      "import-function:",
+      "import-function: ./callable.ts#target",
+      "import-function:./callable.ts #target",
+      "import-function:./callable.ts# target",
+      "import-function:./callable.ts#target ",
+      "import-function:./callable.ts#not-valid!",
+      "import-function:./callable#target",
+      "import-function:./callable.ts?raw#target",
+      "import-function:package-name#target",
+      "import-function:@/callable.ts#target",
+      "import-function:./callable.ts#default",
+      "import-function:./callable.ts#namespaceTarget",
+      "import-function:./callable.ts#TypeTarget",
+      "import-function:./hidden.ts#hidden",
+      "import-function:./value.ts#value",
+      "import-function:./ambiguous.ts#repeated",
+    ]) {
+      assert.deepEqual(
+        await discoverSemanticContextCandidates(
+          dir, state, "T-IMPORTED-FUNCTION-REFUSE", { query, limit: 10 },
+        ),
+        [],
+        query,
+      );
+    }
+  });
+});
+
 test("approveContextCandidate persists selected candidates without duplicating manifest entries", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
