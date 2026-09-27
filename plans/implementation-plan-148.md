@@ -2,7 +2,8 @@
 
 ## Status
 
-Planned on the P3 preparation branch; implementation and validation pending.
+Implemented on the P3 preparation branch; final full-gate evidence, phase review
+and merge remain pending.
 
 ## Observed prerequisite gap
 
@@ -59,3 +60,16 @@ default/namespace imports, higher-order aliases, assignments, methods, class
 members, recursion across files, natural-language inference, automatic
 approval, task decomposition, model execution, quality or savings evidence.
 SC-07/AC-07 remains Partial.
+
+## Implementation evidence
+
+- `test/context.test.ts` first reproduced exact aliased-call approval, multiple
+  callers, nested-call exclusion and malformed-query fail-closed behavior before
+  implementation.
+- `src/context.ts` validates the explicit query, verifies a stable direct target
+  export, maps the exact named import to its local binding and emits only
+  path-and-selector-bound top-level callers containing a direct call.
+- Follow-up regressions reject shadowed bindings, ambiguous selectors, malformed
+  source, symlink-backed targets and bounded-search starvation.
+- The TypeScript build and 91/91 focused context checks pass; the final full gate
+  remains to be recorded on the evidence head.

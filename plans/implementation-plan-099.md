@@ -274,6 +274,17 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   execution, production isolated continuation wiring, generic direct adapters
   and the complete three-route scenario remain open, so SC-08/AC-08 stays
   Partial and no quality or savings claim is made.
+  PLAN-148 adds one bounded syntactic call-graph step without claiming semantic
+  resolution. An explicit `import-caller:<specifier>#<identifier>` query
+  requires a stable extension-explicit local target with one direct exported
+  callable, maps an exact value-level named import to its local alias, and emits
+  only top-level function/callable-variable selectors containing a direct call
+  through that binding. Nested, shadowed, property, optional, constructed,
+  tagged, malformed, ambiguous and symlink-backed evidence fails closed.
+  Recursive graph traversal, symbol/type resolution, natural-language inference,
+  automatic approval and decomposition remain open, so SC-07/AC-07 stays
+  Partial. The focused TypeScript build and 91 context checks pass; final full
+  candidate evidence is recorded in PLAN-148.
 
 ### Renewed continuation policy (2026-09-19)
 

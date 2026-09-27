@@ -559,6 +559,18 @@ savings; SC-07 remains Partial. The exact-head candidate passes the TypeScript
 build, 1,139 unit/component tests, 67 mock integration tests, 7
 conformance/autopilot tests, 86 focused context checks and `git diff --check`.
 
+PLAN-148 adds one exact imported-caller step. Run
+`node --test --import tsx test/context.test.ts` to cover explicit
+`import-caller:<specifier>#<identifier>` parsing, alias-to-local-call binding,
+multiple top-level callers, manual approval and exact caller-byte resolution.
+The suite rejects malformed/padded queries and source, default/namespace/type
+edges, non-call/property/new/tagged uses, nested or shadowed calls, ambiguous
+selectors, symlink-backed targets and changed-file starvation. These fixtures
+are syntactic one-hop evidence; they do not implement TypeScript symbol/type
+resolution, recursive call graphs, automatic selection, model quality or
+savings. SC-07 remains Partial. The focused TypeScript build and 91 context
+checks pass; final full-gate counts are recorded in PLAN-148.
+
 PLAN-147 adds one runtime-owned exact direct operation. Run
 `node --test --import tsx test/tool-routing.test.ts test/tool-requests.test.ts
 test/tools.test.ts` to cover structured direct-operation persistence, fresh
