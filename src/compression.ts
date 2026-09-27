@@ -153,6 +153,9 @@ function buildRecommendations(input: {
 }
 
 function estimateItemTokens(item: CompressibleContextItem): number {
-  if (item.estimatedTokens !== undefined) return item.estimatedTokens;
-  return Math.ceil((item.content ?? "").length / 4);
+  const measuredTokens = Math.ceil((item.content ?? "").length / 4);
+  const declaredTokens = Number.isSafeInteger(item.estimatedTokens) && item.estimatedTokens! >= 0
+    ? item.estimatedTokens!
+    : 0;
+  return Math.max(declaredTokens, measuredTokens);
 }

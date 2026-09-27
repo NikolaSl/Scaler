@@ -39,6 +39,14 @@ export interface ContextSplitRecord {
   minimalContextItemIds: string[];
   recommendations: string[];
   createdAt: string;
+  trigger?: "active_context_target" | "final_prompt_allowance";
+  promptOverByTokens?: number;
+}
+
+export interface ContextSplitRecordOptions {
+  force?: boolean;
+  trigger?: "active_context_target" | "final_prompt_allowance";
+  promptOverByTokens?: number;
 }
 
 interface ContextSplitIndex {
@@ -77,9 +85,11 @@ export async function recordContextSplitIfNeeded(
   resolvedContext: ResolvedContext,
   assessment: CompressionAssessment,
   now = new Date(),
+  options: ContextSplitRecordOptions = {},
 ): Promise<ContextSplitRecord | undefined> {
-  if (!assessment.splitRecommended) return undefined;
-  const baseRecord = buildContextSplitRecord(state, taskId, resolvedContext, assessment, now);
+  const forced = options.force === true && assessment.externalizeRefs.length > 0;
+  if (!assessment.splitRecommended && !forced) return undefined;
+  const baseRecord = buildContextSplitRecord(state, taskId, resolvedContext, assessment, now, options);
   const externalizedMemoryRefs = await externalizeContextSplitItems(cwd, baseRecord, resolvedContext, now);
   const record: ContextSplitRecord = { ...baseRecord, externalizedMemoryRefs };
   await writeContextSplitRecords(cwd, [record, ...(await loadContextSplitRecords(cwd))]);
@@ -92,6 +102,7 @@ export function buildContextSplitRecord(
   resolvedContext: ResolvedContext,
   assessment: CompressionAssessment,
   now = new Date(),
+  options: ContextSplitRecordOptions = {},
 ): ContextSplitRecord {
   const requiredIds = resolvedContext.included.filter((item) => item.priority === "required").map((item) => item.id);
   const exactRequiredIds = assessment.exactRefs.filter((id) => requiredIds.includes(id));
@@ -111,10 +122,15 @@ export function buildContextSplitRecord(
     minimalContextItemIds: [...new Set([...exactRequiredIds, ...referenceIds, ...assessment.externalizeRefs])],
     recommendations: [
       ...assessment.recommendations,
+      ...(options.trigger === "final_prompt_allowance"
+        ? [`Complete attempt-bearing prompt exceeded its allowance by ${options.promptOverByTokens ?? 0} tokens; project eligible measured items before dispatch.`]
+        : []),
       `Prepare a fresh minimal-context task-agent handoff for ${taskId} with exact required refs plus references to externalized large items.`,
       `Supervisor stage at split: ${state.stage}.`,
     ],
     createdAt: now.toISOString(),
+    trigger: assessment.splitRecommended ? "active_context_target" : options.trigger ?? "active_context_target",
+    ...(options.promptOverByTokens !== undefined ? { promptOverByTokens: options.promptOverByTokens } : {}),
   };
 }
 
@@ -229,7 +245,7 @@ export function formatContextSplitRecords(records: ContextSplitRecord[], taskId?
   if (filtered.length === 0) return taskId ? `No context split records for ${taskId}.` : "No context split records.";
   const lines = [taskId ? `Context split records for ${taskId}:` : "Context split records:"];
   for (const record of filtered.slice(0, limit)) {
-    lines.push(`- ${record.id}: task=${record.taskId} estimated=${record.estimatedTokens} target=${record.activeContextLimitTokens} over=${record.overByTokens}`);
+    lines.push(`- ${record.id}: task=${record.taskId} trigger=${record.trigger ?? "active_context_target"} estimated=${record.estimatedTokens} target=${record.activeContextLimitTokens} over=${record.overByTokens}${record.promptOverByTokens !== undefined ? ` promptOver=${record.promptOverByTokens}` : ""}`);
     if (record.externalizeRefs.length > 0) lines.push(`  externalize=${record.externalizeRefs.join(",")}`);
     if ((record.externalizedMemoryRefs ?? []).length > 0) lines.push(`  memory=${record.externalizedMemoryRefs.map((ref) => `${ref.itemId}->${ref.memoryId}`).join(",")}`);
     if (record.minimalContextItemIds.length > 0) lines.push(`  minimal=${record.minimalContextItemIds.join(",")}`);
@@ -261,7 +277,11 @@ function formatExternalizedContextMemory(record: ContextSplitRecord, item: Conte
 }
 
 function estimateContextItemTokens(item: ContextItem): number {
-  return item.estimatedTokens ?? Math.ceil((item.content ?? "").length / 4);
+  const measuredTokens = Math.ceil((item.content ?? "").length / 4);
+  const declaredTokens = Number.isSafeInteger(item.estimatedTokens) && item.estimatedTokens! >= 0
+    ? item.estimatedTokens!
+    : 0;
+  return Math.max(declaredTokens, measuredTokens);
 }
 
 function estimateReplacementTokens(memoryId: string, path: string): number {

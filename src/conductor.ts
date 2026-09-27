@@ -276,7 +276,6 @@ export async function runConductorStep(
       contextItems,
       tokenBudget: promptTokenBudget,
     });
-    const contextSplit = await recordContextSplitIfNeeded(cwd, nextState, runningTask.id, resolvedContext, compressionAssessment);
     const tools = options.tools ?? defaultTaskAgentTools();
     const originalSizedPrompt = options.execute ? buildTaskAgentPrompt({
       state: nextState,
@@ -285,6 +284,28 @@ export async function runConductorStep(
       tokenBudget: promptTokenBudget,
       attempt: createPromptSizingAttemptBinding(nextState.runId),
     }).prompt : undefined;
+    const originalPromptAdmission = originalSizedPrompt === undefined
+      ? undefined
+      : assessTaskPromptAdmission(originalSizedPrompt, promptTokenBudget);
+    const promptOverflowCanTriggerSplit = options.execute === true
+      && Number.isSafeInteger(promptTokenBudget)
+      && promptTokenBudget > 0
+      && originalPromptAdmission?.accepted === false;
+    const contextSplit = await recordContextSplitIfNeeded(
+      cwd,
+      nextState,
+      runningTask.id,
+      resolvedContext,
+      compressionAssessment,
+      new Date(),
+      {
+        force: promptOverflowCanTriggerSplit,
+        trigger: "final_prompt_allowance",
+        promptOverByTokens: promptOverflowCanTriggerSplit
+          ? Math.max(0, originalPromptAdmission.estimatedTokens - promptTokenBudget)
+          : undefined,
+      },
+    );
     if (options.execute && contextSplit) {
       if (contextSplit.externalizedMemoryRefs.length > 0 && !tools.includes("read")) {
         const message = `Context split ${contextSplit.id} requires the read tool for externalized context retrieval.`;
@@ -324,12 +345,11 @@ export async function runConductorStep(
         attempt: createPromptSizingAttemptBinding(nextState.runId),
       }).prompt;
       const promptAdmission = assessTaskPromptAdmission(sizedPrompt, promptTokenBudget);
-      const originalPromptAdmission = assessTaskPromptAdmission(originalSizedPrompt!, promptTokenBudget);
       const projectionDidNotShrink = contextSplit
-        && promptAdmission.estimatedTokens >= originalPromptAdmission.estimatedTokens;
+        && promptAdmission.estimatedTokens >= originalPromptAdmission!.estimatedTokens;
       if (!promptAdmission.accepted || projectionDidNotShrink) {
         const message = projectionDidNotShrink
-          ? `Context split ${contextSplit.id} did not shrink the complete final prompt below its original ${originalPromptAdmission.estimatedTokens}-token estimate.`
+          ? `Context split ${contextSplit.id} did not shrink the complete final prompt below its original ${originalPromptAdmission!.estimatedTokens}-token estimate.`
           : promptAdmission.message;
         await appendLogEvent(cwd, createLogEvent(nextState, {
           eventType: "rejected_transition",
