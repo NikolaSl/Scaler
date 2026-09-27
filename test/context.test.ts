@@ -445,6 +445,120 @@ test("unrelated changed files cannot starve bounded function discovery in allowe
   });
 });
 
+test("heading candidate discovery emits and approves an exact path-bound selector", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "docs"));
+    const selected = "## Target Section\r\nexact body\r\n### Nested\r\nnested body\r\n";
+    await writeFile(
+      join(dir, "docs", "guide.md"),
+      `# Guide\r\nintro\r\n${selected}## Following\r\nDO_NOT_INCLUDE\r\n`,
+      "utf8",
+    );
+    await writeFile(join(dir, "docs", "other.md"), "## Other Section\nother\n", "utf8");
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.tasks = [{
+      id: "T-HEADING-DISCOVERY", status: "ready", title: "Locate exact documentation section",
+      allowedPathPrefixes: ["docs"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-HEADING-DISCOVERY", { query: "heading:Target Section", limit: 10 },
+    );
+
+    assert.equal(candidates.length, 1);
+    const [candidate] = candidates;
+    assert.equal(candidate?.path, "docs/guide.md");
+    assert.equal(candidate?.scope, "section");
+    assert.deepEqual(candidate?.selector, { kind: "markdown-heading", heading: "Target Section" });
+    assert.match(formatContextCandidates(candidates), /selector=markdown-heading:Target Section/);
+
+    const approved = await approveContextCandidate(
+      dir, state, "T-HEADING-DISCOVERY", candidate!.id, { query: "heading:Target Section" },
+    );
+    const item = approved.manifest.items.find((entry) => entry.path === "docs/guide.md");
+    assert.equal(approved.added, true);
+    assert.equal(item?.scope, "section");
+    assert.deepEqual(item?.selector, { kind: "markdown-heading", heading: "Target Section" });
+
+    const resolved = await resolveTaskContextManifest(dir, state, approved.manifest);
+    const selectedItem = resolved.find((entry) => entry.id === item?.id);
+    assert.equal(selectedItem?.content, selected);
+    assert.doesNotMatch(selectedItem?.content ?? "", /DO_NOT_INCLUDE/);
+  });
+});
+
+test("heading candidate discovery keeps same-named headings in separate files ambiguous", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "docs", "nested"), { recursive: true });
+    await writeFile(join(dir, "docs", "first.md"), "## Shared Heading\nfirst\n", "utf8");
+    await writeFile(join(dir, "docs", "nested", "first.md"), "## Shared Heading\nsecond\n", "utf8");
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-AMBIGUOUS-HEADING", status: "ready", title: "Locate shared heading",
+      allowedPathPrefixes: ["docs"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-AMBIGUOUS-HEADING", { query: "heading:Shared Heading", limit: 10 },
+    );
+
+    assert.equal(candidates.length, 2);
+    assert.equal(new Set(candidates.map((candidate) => candidate.id)).size, 2);
+    assert.deepEqual(candidates.map((candidate) => candidate.path).sort(), ["docs/first.md", "docs/nested/first.md"]);
+  });
+});
+
+test("heading candidate discovery fails closed on malformed and ineligible sections", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "docs"));
+    await writeFile(join(dir, "docs", "valid.md"), "## Target\nvalid\n", "utf8");
+    await writeFile(join(dir, "docs", "duplicate.md"), "## Target\none\n## Target\ntwo\n", "utf8");
+    await writeFile(join(dir, "docs", "fenced.md"), "```md\n## Target\n```\n", "utf8");
+    await writeFile(join(dir, "docs", "oversized.md"), `## Target\n${"x".repeat(3_300)}\n`, "utf8");
+    await writeFile(join(dir, "docs", "unsupported.txt"), "## Target\ntext\n", "utf8");
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-REFUSE-HEADING", status: "ready", title: "Locate valid heading",
+      allowedPathPrefixes: ["docs"], updatedAt: state.createdAt,
+    }];
+
+    assert.deepEqual(
+      await discoverSemanticContextCandidates(dir, state, "T-REFUSE-HEADING", { query: "heading:", limit: 10 }),
+      [],
+    );
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-REFUSE-HEADING", { query: "heading:Target", limit: 10 },
+    );
+    assert.deepEqual(candidates.map((candidate) => candidate.path), ["docs/valid.md"]);
+  });
+});
+
+test("unrelated changed files cannot starve bounded heading discovery in allowed paths", async () => {
+  await withTempDir(async (dir) => {
+    await execFileAsync("git", ["init"], { cwd: dir });
+    await mkdir(join(dir, "noise"));
+    await mkdir(join(dir, "docs"));
+    for (let index = 0; index < 30; index++) {
+      const name = `noise-${String(index).padStart(2, "0")}.md`;
+      await writeFile(join(dir, "noise", name), `# Noise ${index}\n`, "utf8");
+    }
+    await writeFile(join(dir, "docs", "target.md"), "## Target After Noise\nfound\n", "utf8");
+    await execFileAsync("git", ["add", "-N", "noise", "docs/target.md"], { cwd: dir });
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-NOISE-HEADING", status: "ready", title: "Locate bounded heading after unrelated changes",
+      allowedPathPrefixes: ["docs"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-NOISE-HEADING", { query: "heading:Target After Noise", limit: 10 },
+    );
+
+    assert.equal(candidates.length, 1);
+    assert.equal(candidates[0]?.path, "docs/target.md");
+  });
+});
+
 test("approveContextCandidate persists selected candidates without duplicating manifest entries", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
