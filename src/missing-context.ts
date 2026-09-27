@@ -452,12 +452,17 @@ async function dispatchFileRequest(cwd: string, request: MissingContextRequest, 
 
 function parseRequestedFileSelector(query: string, source: string): { requested: boolean; selector?: FileContextSelector } {
   const quoted = [...query.matchAll(/`([^`\r\n]*)`/g)].map((match) => match[1] ?? "");
+  const quotedSourceMatches = looksLikePath(quoted[0] ?? "") && cleanPath(quoted[0] ?? "") === source;
   const directiveIndexes = quoted
-    .map((value, index) => value.startsWith("heading:") || value.startsWith("function:") ? index : -1)
+    .map((value, index) => index > 0 && (value.startsWith("heading:") || value.startsWith("function:")) ? index : -1)
     .filter((index) => index >= 0);
-  if (directiveIndexes.length === 0) return { requested: false };
+  if (directiveIndexes.length === 0) {
+    const detachedFirstDirective = !quotedSourceMatches
+      && (quoted[0]?.startsWith("heading:") || quoted[0]?.startsWith("function:"));
+    return { requested: Boolean(detachedFirstDirective) };
+  }
   if (directiveIndexes.length !== 1 || directiveIndexes[0] !== 1
-    || !looksLikePath(quoted[0] ?? "") || cleanPath(quoted[0] ?? "") !== source) return { requested: true };
+    || !quotedSourceMatches) return { requested: true };
   const directive = quoted[1]!;
   if (directive.startsWith("heading:")) {
     const heading = trimMarkdownHeadingWhitespace(directive.slice("heading:".length));
