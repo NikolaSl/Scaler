@@ -311,6 +311,12 @@ resolution and refuses summary-only resolution of exact file requests. Answer
 truth and source discovery are not established; SC-07/AC-07 stays Partial.
 The candidate passes build, 1,159 unit, 68 mock integration, 7 conformance
 and 56 focused tests.
+PLAN-157 reuses the PLAN-156 unknown-source FSM under declared synthetic
+32,768- and 131,072-token provider windows. A source larger than the smaller
+allowance is narrowed to its required exact heading, while both windows exclude
+the unrelated source bytes and admit the final worker prompt. This validates
+the model-independent process boundary, not a real local-model run, source
+truth, model quality or savings; SC-07/AC-07 stays Partial.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
 unresolved in-scope findings. The primary exact-head gate passed build,

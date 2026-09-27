@@ -273,3 +273,12 @@ responses, including incomplete research and an out-of-scope file choice. The
 scenario invokes research and missing-context dispatch explicitly; it does not
 establish autonomous research scheduling, real model discovery, or complete
 SC-07 coverage. It adds no new discovery subsystem.
+
+PLAN-157 repeats the successful process with exact synthetic provider bindings
+and task allowances of 32,768 and 131,072 tokens. The authorized source is
+larger than the smaller allowance, but only its requested heading reaches the
+final worker; the larger window does not cause unrelated bytes to be injected.
+Both final prompts pass the normal task-prompt and strict child provider-binding
+admission and advance only to validation. These deterministic runners establish
+the supervisor/FSM boundary, not real local-model execution, source truth,
+model quality or savings. SC-07 remains Partial.

@@ -881,3 +881,19 @@ and a file outside task scope remains blocked. Attempt identities must differ
 across retries. These are process integration checks with deterministic runners;
 they neither call a model nor establish autonomous research scheduling, model
 quality, or savings. A successful final report reaches `validating` only.
+
+PLAN-157 runs that successful FSM under declared 32,768- and 131,072-token
+synthetic provider windows:
+
+```bash
+node --test --import tsx test/integration/mock/varied-window-context-flow.test.ts
+```
+
+The source fixture is larger than the smaller window under the conservative
+byte upper bound. Both cases must deliver the exact required heading, omit its
+large unrelated prefix/suffix, preserve distinct attempt identities and reach
+only `validating`. The runner also checks each dispatched task/research prompt
+against its declared allowance and exact provider binding. This is process
+evidence with deterministic runners, not a real local-model or quality result.
+Candidate results: build, 1,165/1,165 unit/component, 72/72 mock integration,
+7/7 conformance/autopilot and 2/2 focused varied-window scenarios.

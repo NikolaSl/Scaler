@@ -35,3 +35,18 @@ local model, measure model quality, prove source truth or claim token savings.
 If the current implementation passes, add only the integration evidence and
 documentation. Run the focused scenario first, then the applicable build,
 unit/mock-integration and conformance gate once on the candidate tree.
+
+## Outcome
+
+Both declared windows pass without production changes. In each fixture the
+whole source is larger than the 32,768-token allowance under the conservative
+byte upper bound, while the exact selected section is admitted and reaches the
+final worker. The 131,072-token fixture retains the same focused delivery. The
+research claim contains no source bytes, unrelated prefix/suffix bytes remain
+absent, retry attempt identities are distinct and the final report advances
+only to validation. This is synthetic process evidence; a real configured local
+model/host and resource envelope remain unverified.
+
+Candidate gate: TypeScript build, 1,165/1,165 unit/component,
+72/72 mock integration, 7/7 conformance/autopilot, 2/2 focused varied-window
+scenarios and `git diff --check` pass.
