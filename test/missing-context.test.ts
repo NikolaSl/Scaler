@@ -168,6 +168,41 @@ test("research dispatch creates a research request and refresh resolves from rep
     const refreshed = await refreshAndUnblockMissingContext(dir, await loadState(dir));
     assert.deepEqual(refreshed.unblockedTaskIds, ["T-MISS"]);
     assert.equal((await loadMissingContextRequests(dir))[0]?.status, "resolved");
+    const manifest = await loadTaskContextManifest(dir, "T-MISS");
+    assert.ok(manifest);
+    const answer = manifest.items.find((item) => item.id === `missing-research-${created.created[0]?.id}`);
+    assert.equal(answer?.priority, "required");
+    assert.equal(answer?.source, "inline");
+    const context = await resolveTaskContextManifest(dir, refreshed.state, manifest);
+    const nextPrompt = buildTaskAgentPrompt({ state: refreshed.state, task: refreshed.state.tasks[0]!, contextItems: context }).prompt;
+    assert.match(nextPrompt, /Dependency version is known/);
+    assert.match(nextPrompt, /package\.json/);
+  });
+});
+
+test("research refresh retains blockers for partial, foreign or unresolved answers", async () => {
+  await withTempDir(async (dir) => {
+    const state = createState();
+    await saveState(dir, state);
+    const created = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need local dependency version"]));
+    const dispatched = await dispatchMissingContextRequest(dir, state, created.created[0]?.id, { execute: true });
+    const researchId = dispatched.request?.evidenceRefs?.[0];
+    assert.ok(researchId);
+    for (const [id, status, taskId, unknowns] of [
+      ["RPT-PARTIAL", "partial", "T-MISS", []],
+      ["RPT-FOREIGN", "complete", "T-OTHER", []],
+      ["RPT-UNKNOWN", "complete", "T-MISS", ["Which exact version?"]],
+    ] as const) {
+      await recordResearchReport(dir, {
+        id, requestId: researchId, question: "Need local dependency version", status, taskId,
+        sources: [{ id: "package", title: "package.json", quality: "project", path: "package.json" }],
+        conclusions: [{ summary: "The version might be 1.0.", confidence: "high", sourceRefs: ["package"] }],
+        unresolvedUnknowns: [...unknowns],
+      });
+    }
+    const refreshed = await refreshAndUnblockMissingContext(dir, await loadState(dir));
+    assert.deepEqual(refreshed.unblockedTaskIds, []);
+    assert.equal((await loadMissingContextRequests(dir))[0]?.status, "in_progress");
   });
 });
 
