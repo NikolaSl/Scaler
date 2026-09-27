@@ -4,10 +4,11 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { loadTaskContextManifest, resolveTaskContextManifest } from "../src/context.js";
 import { writeMemory } from "../src/memory.js";
 import {
   createMissingContextRequestsFromTaskReport,
@@ -72,6 +73,7 @@ test("missing-context requests are created from task reports and file dispatch r
     await mkdir(join(dir, "src"), { recursive: true });
     await writeFile(join(dir, "src", "app.ts"), "export const value = 1;\n");
     const state = createState();
+    state.tasks[0]!.allowedPathPrefixes = ["src"];
     await saveState(dir, state);
 
     const created = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need `src/app.ts` before editing."]));
@@ -82,6 +84,37 @@ test("missing-context requests are created from task reports and file dispatch r
     assert.equal(result.accepted, true, result.message);
     assert.equal(result.request?.status, "resolved");
     assert.match(result.request?.resultSummary ?? "", /src\/app\.ts/);
+    const manifest = await loadTaskContextManifest(dir, "T-MISS");
+    const requested = manifest?.items.find((item) => item.id === `missing-context-${created.created[0]?.id}`);
+    assert.equal(requested?.source, "file");
+    assert.equal(requested?.path, "src/app.ts");
+    assert.equal(requested?.priority, "required");
+    assert.equal(requested?.scope, "full");
+    assert.ok(manifest);
+    const resolved = await resolveTaskContextManifest(dir, state, manifest!);
+    assert.equal(resolved.find((item) => item.id === requested?.id)?.content, "export const value = 1;\n");
+    const again = await dispatchMissingContextRequest(dir, state, created.created[0]?.id, { execute: true });
+    assert.equal(again.request?.status, "resolved");
+    assert.equal((await loadTaskContextManifest(dir, "T-MISS"))?.items.filter((item) => item.id === requested?.id).length, 1);
+  });
+});
+
+test("file missing-context resolution refuses paths outside scope and symlinked sources", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"), { recursive: true });
+    await mkdir(join(dir, "other"), { recursive: true });
+    await writeFile(join(dir, "other", "secret.ts"), "secret\n");
+    await symlink(join(dir, "other", "secret.ts"), join(dir, "src", "linked.ts"));
+    await symlink(join(dir, "other"), join(dir, "src", "linked-dir"));
+    const state = createState();
+    state.tasks[0]!.allowedPathPrefixes = ["src"];
+    await saveState(dir, state);
+    for (const source of ["other/secret.ts", "../outside.ts", ".scaler/state.json", "src/linked.ts", "src/linked-dir/secret.ts"]) {
+      const created = await createMissingContextRequestsFromTaskReport(dir, state, report([`Need \`${source}\` before editing.`]));
+      const result = await dispatchMissingContextRequest(dir, state, created.created[0]?.id, { execute: true });
+      assert.equal(result.request?.status, "blocked", source);
+    }
+    assert.equal((await loadTaskContextManifest(dir, "T-MISS"))?.items.some((item) => item.id.startsWith("missing-context-")), false);
   });
 });
 
