@@ -227,7 +227,7 @@ test("debug retry triggers projection when the final prompt overflows below the 
       items: [{
         id: "understated-exact", type: "file", reason: "Exact retry evidence.",
         priority: "required", scope: "full", exactness: "exact", source: "inline",
-        content: `FINAL_OVERFLOW_RETRY_START\n${"x".repeat(5_000)}\nFINAL_OVERFLOW_RETRY_END`,
+        content: `FINAL_OVERFLOW_RETRY_START\n${"x".repeat(4_200)}\nFINAL_OVERFLOW_RETRY_END`,
       }],
       createdAt: state.createdAt,
       updatedAt: state.updatedAt,
