@@ -431,6 +431,15 @@ tool routes, or demonstrate savings and scale. Ordinary parent envelope
 admission is covered separately by PLAN-135; SC-05/25 remain Partial and SC-09
 remains Not assessed.
 
+PLAN-137 adds model-free coverage for configured model-profile eligibility. Run
+`node --test --import tsx test/model-profile-eligibility.test.ts` to exercise
+local-only filtering, task suitability, tool/structured-output support, data
+locations, configured and context-window limits, malformed/sparse/duplicate
+profiles, unsafe integers, immutable identity snapshots and locale-independent
+ordering. The assessor is non-authorizing and has no selected fallback identity.
+These tests configure or call no model and do not establish local-model quality,
+resource use or AC-09; SC-09 remains Not assessed.
+
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx
 test/stage-artifact-outcome.test.ts test/stage-agents.test.ts

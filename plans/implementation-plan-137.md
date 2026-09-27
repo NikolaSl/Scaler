@@ -1,5 +1,9 @@
 # PLAN-137 — P3 fail-closed model-profile eligibility
 
+## Status
+
+Implemented on the P3 preparation branch; phase review and merge remain pending.
+
 ## Observed prerequisite gap
 
 PLAN-132 binds every strict child to the exact model selected by the installed
@@ -59,3 +63,18 @@ authorize execution, change the host-selected model, implement automatic
 multi-model routing or silently fall back to cloud/paid inference. It does not
 complete SC-09/AC-09; real documented local-host execution and retained resource
 and outcome evidence remain P7 acceptance work.
+
+## Implementation evidence
+
+- Version 1 profiles bind exact provider identity, locality, tokenizer/estimator,
+  tool and structured-output support, configured limits, every possible data
+  location and evidence-referenced task suitability.
+- Request-specific assessment checks locality, allowed data locations, task
+  capability and complete input/output bounds before preference. It returns all
+  eligible identities with `executionAuthorized: false` and no fallback identity.
+- Malformed, sparse, duplicate, unknown and contradictory configuration evidence
+  invalidates the entire configured set. Normalized profile and task-class order
+  uses locale-independent UTF-16 code-unit comparison.
+- The exact reviewed code head passed build, 1,101 unit/component tests, 67 mock
+  integration tests, 7 conformance/autopilot tests, 17 focused tests and
+  `git diff --check`.

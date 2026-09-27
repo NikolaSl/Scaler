@@ -58,7 +58,9 @@ assessment fails closed on malformed or unknown evidence, applies capability and
 data constraints before preference, returns all eligible identities in stable
 order and never authorizes execution or invents a cloud/paid fallback. SC-09
 remains Not assessed because the installed host does not consume the assessment
-and no documented local runtime, real outcome or resource evidence exists.
+and no documented local runtime, real outcome or resource evidence exists. The
+candidate gate passes build, 1,101 unit/component, 67 mock integration, 7
+conformance/autopilot and 17 focused checks plus `git diff --check`.
 
 PLAN-135 closes the reproduced ordinary parent-provider envelope bypass. The
 installed extension now assesses the exact final OpenAI Chat Completions payload
