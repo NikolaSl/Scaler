@@ -39,9 +39,10 @@ The test-first assertions failed on the original preview and dispatched prompt.
 The implementation adds only the execution-state role block and compacts existing
 duplicate instructions so a constrained 1,000-token projection remains admitted.
 After preserving explicit no-guessing language, 47/47 focused conductor tests pass.
-The TypeScript build, 1,155/1,155 unit/component tests, 68/68 mock integration
-tests and 7/7 conformance/autopilot tests passed on the preceding implementation
-candidate. Recheck the full gate at the final exact head below.
+The final implementation-and-documentation tree passes the TypeScript build,
+1,155/1,155 unit/component tests, 68/68 mock integration tests,
+7/7 conformance/autopilot tests and `git diff --check`. The final evidence-only
+commit changes this plan, so the executable tree is identical to that gate.
 
 ## Limits
 
