@@ -32,23 +32,22 @@ Nikola renewed continuation for another 24 hours on 2026-09-26 at
 `2026-09-27T19:56:50Z` (22:56:50 Europe/Sofia), superseding the September 20
 cutoff. Continue from live Git and review state, report each published commit
 or an hourly no-commit status, and release checked ownership at handoff. The
-Copilot, test, expected-head merge, no-spending and no-deployment gates below
-remain in force.
+  Review, test, expected-head merge, no-spending and no-deployment gates below
+  remain in force, subject to the later explicit reviewer replacement below.
 
 After that handoff, Nikola explicitly requested continuation again. PLAN-106
 records this direct continuation and its bounded scope; the same completed
-Copilot review, test, separate-commit and expected-head merge gates apply.
+The review, test, separate-commit and expected-head merge gates apply, with
+reviewer selection updated by Nikola's later explicit instruction below.
 
-- Request `copilot-pull-request-reviewer[bot]` through the GitHub review-request
-  API; the login without `[bot]` is not the supported reviewer identity. An API
-  success without a submitted review is not approval and must not stall useful
-  implementation indefinitely.
-- A completed Copilot review covering the exact candidate head is mandatory in
-  the current work window. Independent GPT-6 Astra reviews at `high` or higher
-  supplement it but do not replace it. Fix every valid finding, rerun applicable
-  checks, and re-review the changed head. Silence or an accepted API request is
-  not approval. A stuck request may be removed and re-added once as a bounded
-  recovery; verify the actual submitted review afterward.
+- On 2026-09-27 Nikola replaced Copilot as the mandatory reviewer with an
+  independent assistant agent using a lighter model, explicitly suggesting
+  GPT-5.6 Terra. Review the exact candidate head with Terra/high, preserve
+  concrete findings and reasoning in the PR/handoff, and have the primary
+  agent independently review and run the applicable exact-head gate. Fix valid
+  findings and re-review a changed head. A Copilot request or old Copilot
+  review is not a merge gate under this newer instruction. No external paid
+  model calls are authorized.
 - Merge only the reviewed, tested head using an expected-head-SHA guard and a
   merge commit to preserve implementation history. Respect branch protection.
 - Keep paid model spending and deployment out of scope. Existing free-provider
@@ -321,21 +320,19 @@ truth and source discovery are not established; SC-07/AC-07 stays Partial.
 The candidate passes build, 1,159 unit, 68 mock integration, 7 conformance
 and 56 focused tests.
 
-The current scheduled instruction requires a completed Copilot review covering
-the exact merge candidate; independent reviews supplement, not replace, that
-gate for this window. Do not treat the historical fallback above as permission
-to skip the current gate. Verify the raw review `commit_id`, not only the
-normalized review summary. If a request is stuck, one bounded remove/re-add of
-`copilot-pull-request-reviewer[bot]` is permitted; API success is not evidence of
-execution. Preserve all branch protections and use expected-head merge commits.
+The earlier exact-head Copilot gate was superseded on 2026-09-27 by Nikola's
+explicit Terra-agent replacement above. Preserve all branch protections and
+use expected-head merge commits after a completed independent exact-head
+review, primary review and the full applicable gate.
 
 Continue coherent phase branches with separate logical commits, at most one PR
 in review and one next unit in preparation. Claim a bounded continuation marker
 after checking live agents, processes, worktrees and Git state; release it at
 handoff. Report published commit links, actual checks, blockers and next steps
 in Bulgarian on each scheduled run. Never imply continuous execution between
-runs or manufacture commits for reports. All delegated reviews remain GPT-6
-Astra/high or higher. Paid model calls and deployments remain out of scope.
+runs or manufacture commits for reports. The current review delegate is
+GPT-5.6 Terra/high by Nikola's explicit replacement. Paid external model calls
+and deployments remain out of scope.
 
 ## Architecture direction
 
