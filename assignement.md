@@ -36,6 +36,9 @@ arbitrary model or bypass a task's required capabilities.
 ## 2. Problems addressed
 
 - Irrelevant and growing context increases distraction and repeated input cost.
+- Small local models may be distracted by large prompts or have usable windows
+  constrained by hardware. Small initial contexts must not deprive a worker of
+  required information that it can request within its authority.
 - Repeated summaries can lose exact constraints and change facts.
 - Tool schemas, documentation and outputs can crowd out task context.
 - Unbounded retries, fragmented tasks and duplicated research waste resources.

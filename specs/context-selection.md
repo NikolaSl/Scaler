@@ -26,6 +26,16 @@ The manifest MUST identify source/version, scope/selector, exactness, priority,
 estimated size and validity. Large distant plans and full audit history are not
 default model inputs.
 
+A small initial context is a focus decision, not an information embargo. The
+worker MUST have a scoped way to request additional required inputs by source,
+selector or missing-data question. The supervisor resolves and validates that
+request against task scope, source version, authority and relevance, then admits
+the resulting exact material or bounded summary through the complete envelope
+check before the next model call. It may externalize exact bytes and allow later
+retrieval; a bare reference is useful only when the worker can actually resolve
+it. Do not require the model to know an unavailable file path in advance: a
+bounded candidate search or explicit missing-data question must be possible.
+
 Required material MUST NOT bypass admission limits. If it does not fit:
 retrieve a smaller sufficient exact scope, externalize with resolvable references,
 summarize summary-permitted content, split the task, or use an authorized larger
@@ -64,3 +74,9 @@ Do not repeatedly summarize summaries when the source is available.
 On missing input, retrieve/investigate within scope or block/replan. Do not fill
 gaps with invented facts. Tool outputs and new retrievals pass the same envelope
 check before they enter the next call.
+The worker's `needs_data` or narrower-context proposal does not authorize a new
+path or bypass the model window. Record the requested source/question, validated
+scope, exactness and version, what was actually supplied, and a distinct
+unavailable reason when retrieval cannot satisfy the requirement. An oversized
+required input must trigger exact scoping, externalization, a justified split,
+an eligible larger configured window or a truthful blocker, never silent removal.

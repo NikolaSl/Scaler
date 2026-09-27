@@ -76,6 +76,17 @@ reported unavailable rather than reconstructed as a fact.
 
 Place a requested function/section near the end of a large file. Retrieve that section within a bounded response, not the file prefix. Ambiguous/missing sections and truncated output are explicit. Unavailable required data causes bounded retrieval/investigation or a blocker, never invented content.
 
+Start a small task with only a focused context slice, then reveal a required
+constraint or exact source section omitted from that slice. The worker requests
+it (or asks a missing-data question without knowing its path); the supervisor
+checks scope and source version, provides only relevant exact bytes or a bounded
+candidate/summary, rechecks the full next-call envelope and resumes the same
+task. Repeat under declared smaller and larger usable model windows (for example
+32K and 128K). The smaller window may require a narrower section or a split,
+but cannot silently omit the required constraint. An unavailable or unauthorized
+source yields a truthful blocker. Record both context size and whether the
+worker obtained the information it needed; token savings alone do not pass.
+
 ## AC-08
 
 **Three tool routes and MCP size — SC-08.**
