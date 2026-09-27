@@ -1357,12 +1357,14 @@ export async function runToolRequestAgent(
   }
 
   const limits = copyToolExecutionLimits(DEFAULT_TOOL_EXECUTION_LIMITS);
+  const routeEvidenceSupplier = options.routeEvidenceSupplier
+    ?? (request.directOperation ? createBuiltinDirectRouteSnapshot : undefined);
   const admission = await prepareToolDispatchAdmission(
     request,
     agentRequest,
     invocation,
     limits,
-    options.routeEvidenceSupplier,
+    routeEvidenceSupplier,
     options.command ?? "pi",
   );
   if (!admission.accepted) {
@@ -2353,6 +2355,37 @@ function fingerprintInvocation(invocation: TaskAgentInvocation): string {
 
 function fingerprintDirectOperation(operation: ToolDirectOperation): string {
   return createHash("sha256").update(JSON.stringify(operation), "utf8").digest("hex");
+}
+
+function createBuiltinDirectRouteSnapshot(basis: Readonly<ToolDispatchRouteBasis>): ToolDispatchRouteSnapshot {
+  const operation = basis.directOperation;
+  const profileBasis = JSON.stringify({
+    adapterId: operation?.adapterId,
+    arguments: operation?.arguments,
+    toolNames: basis.toolNames,
+  });
+  return {
+    version: 1,
+    requestId: basis.requestId,
+    executionId: basis.executionId,
+    evidence: {
+      profile: {
+        version: 1,
+        footprint: "selected",
+        toolNames: [...basis.toolNames],
+        byteSize: Buffer.byteLength(profileBasis, "utf8"),
+        fingerprint: createHash("sha256").update(profileBasis, "utf8").digest("hex"),
+      },
+      authority: operation ? "allowed" : "unknown",
+      direct: {
+        exactArgumentsAvailable: Boolean(operation),
+        argumentsValidated: Boolean(operation),
+        adapterId: operation?.adapterId,
+      },
+      currentAgent: { available: false, legs: [] },
+      isolated: { available: false, legs: [] },
+    },
+  };
 }
 
 async function beginToolExecution(

@@ -181,6 +181,12 @@ const ToolRequestParams = Type.Object({
   permissionRequirement: Type.Optional(Type.String({ description: "Approval or policy requirement known to the requester." })),
   safetyNotes: Type.Optional(Type.String({ description: "Safety constraints for the isolated tool agent." })),
   allowedTools: Type.Optional(Type.Array(Type.String(), { description: "Additional tools explicitly allowed for the isolated tool agent." })),
+  directOperation: Type.Optional(Type.Object({
+    adapterId: Type.Literal("builtin:tool-catalog-entry-v1"),
+    arguments: Type.Object({
+      toolName: Type.String({ description: "Exact catalog tool name to look up." }),
+    }),
+  }, { description: "Exact runtime-owned read-only operation that can execute without a model call." })),
 });
 
 const ToolSchemaParams = Type.Object({
@@ -559,6 +565,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         permissionRequirement: params.permissionRequirement,
         safetyNotes: params.safetyNotes,
         allowedTools: params.allowedTools,
+        directOperation: params.directOperation,
       });
       await recordBudgetUsage(ctx.cwd, "toolCalls");
       return textResult(result.message, {

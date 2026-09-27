@@ -751,7 +751,6 @@ test("runToolRequestAgent executes an exact direct catalog lookup without a mode
     const result = await runToolRequestAgentRaw(dir, state, {
       requestId: prepared.record.id,
       execute: true,
-      routeEvidenceSupplier: admittedDirectRouteEvidenceSupplier,
     }, async (request) => {
       runnerCalled = true;
       return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
