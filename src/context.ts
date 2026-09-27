@@ -304,6 +304,11 @@ export async function discoverSemanticContextCandidates(
     if (!headingSelectorQuery.heading) return [];
     return discoverMarkdownHeadingCandidates(cwd, task, taskId, headingSelectorQuery.heading, options.limit ?? 10);
   }
+  const linkQuery = parseMarkdownLinkCandidateQuery(options.query);
+  if (linkQuery.requested) {
+    if (!linkQuery.label) return [];
+    return discoverMarkdownLinkCandidates(cwd, task, taskId, linkQuery.label, options.limit ?? 10);
+  }
   const queryTerms = options.query?.toLowerCase().split(/\W+/).filter((term) => term.length >= 3) ?? [];
   const terms = unique([...buildTaskSearchTerms(task), ...queryTerms]);
   const candidates: ContextCandidate[] = [];
@@ -804,6 +809,13 @@ function parseMarkdownHeadingCandidateQuery(query: string | undefined): { reques
     : { requested: true };
 }
 
+function parseMarkdownLinkCandidateQuery(query: string | undefined): { requested: boolean; label?: string } {
+  const value = query ?? "";
+  if (!value.startsWith("link:")) return { requested: false };
+  const label = trimMarkdownHeadingWhitespace(value.slice("link:".length));
+  return label ? { requested: true, label } : { requested: true };
+}
+
 async function discoverTypeScriptFunctionCandidates(
   cwd: string,
   task: ScalerTaskState,
@@ -876,6 +888,99 @@ async function discoverMarkdownHeadingCandidates(
   return candidates
     .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
     .slice(0, limit);
+}
+
+async function discoverMarkdownLinkCandidates(
+  cwd: string,
+  task: ScalerTaskState,
+  taskId: string,
+  label: string,
+  limit: number,
+): Promise<ContextCandidate[]> {
+  const changedPaths = await getGitChangedPaths(cwd);
+  const candidates = new Map<string, ContextCandidate>();
+  for (const sourcePath of await discoverAllowedCandidateFilePaths(cwd, task, changedPaths)) {
+    if (!/\.(?:md|markdown)$/i.test(sourcePath)) continue;
+    let source: string;
+    try {
+      const stable = await readStableContextFile(cwd, sourcePath);
+      if (!stable.outputExemptible) continue;
+      source = stable.bytes.toString("utf8");
+    } catch {
+      continue;
+    }
+    for (const destination of findExactMarkdownLinkDestinations(source, label)) {
+      const targetPath = normalizeLocalMarkdownLinkDestination(cwd, sourcePath, destination);
+      if (!targetPath
+        || !taskPathMatches(targetPath, task.allowedPathPrefixes ?? [])
+        || isRuntimePath(targetPath)
+        || !isProbablyTextPath(targetPath)
+        || candidates.has(targetPath)) continue;
+      try {
+        const target = await readStableContextFile(cwd, targetPath);
+        if (!target.outputExemptible) continue;
+        renderFileContextContent(target.bytes.toString("utf8"), targetPath, "snippet");
+      } catch {
+        continue;
+      }
+      const candidateSource: ContextCandidateSource = changedPaths.includes(targetPath) ? "changed_file" : "file";
+      candidates.set(targetPath, {
+        id: buildMarkdownLinkCandidateId(targetPath, label),
+        taskId,
+        source: candidateSource,
+        type: "file",
+        reason: `Exact local Markdown link ${label} in ${sourcePath} resolves to an allowed regular file; approval is required before adding the target to the manifest.`,
+        score: candidateSource === "changed_file" ? 11 : 10,
+        priority: "useful",
+        scope: "snippet",
+        exactness: "exact",
+        path: targetPath,
+      });
+    }
+  }
+  return [...candidates.values()]
+    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+    .slice(0, limit);
+}
+
+function findExactMarkdownLinkDestinations(content: string, label: string): string[] {
+  const destinations: string[] = [];
+  const walker = new Parser().parse(content).walker();
+  for (let step = walker.next(); step; step = walker.next()) {
+    if (!step.entering || step.node.type !== "link" || typeof step.node.destination !== "string") continue;
+    if (collectMarkdownInlineText(step.node) === label) destinations.push(step.node.destination);
+  }
+  return destinations;
+}
+
+function collectMarkdownInlineText(root: import("commonmark").Node): string {
+  const text: string[] = [];
+  const walker = root.walker();
+  for (let step = walker.next(); step; step = walker.next()) {
+    if (!step.entering) continue;
+    if ((step.node.type === "text" || step.node.type === "code") && step.node.literal !== null) {
+      text.push(step.node.literal);
+    } else if (step.node.type === "softbreak" || step.node.type === "linebreak") {
+      text.push("\n");
+    }
+  }
+  return text.join("");
+}
+
+function normalizeLocalMarkdownLinkDestination(cwd: string, sourcePath: string, destination: string): string | undefined {
+  if (!destination
+    || destination.includes("\0")
+    || destination.includes("?")
+    || destination.includes("#")
+    || destination.includes("\\")
+    || destination.startsWith("/")
+    || destination.startsWith("//")
+    || /^[a-z][a-z0-9+.-]*:/i.test(destination)) return undefined;
+  const root = resolve(cwd);
+  const target = resolve(root, dirname(sourcePath), destination);
+  const normalized = relative(root, target).split(sep).join("/");
+  if (!normalized || normalized === ".." || normalized.startsWith("../") || isAbsolute(normalized)) return undefined;
+  return normalized;
 }
 
 async function collectCandidateFiles(cwd: string, path: string, depth: number, limit: number): Promise<string[]> {
@@ -1203,6 +1308,11 @@ function buildFunctionCandidateId(path: string, name: string): string {
 function buildMarkdownHeadingCandidateId(path: string, heading: string): string {
   const identity = createHash("sha256").update(path).update("\0").update(heading).digest("hex").slice(0, 12);
   return `candidate-heading-${identity}-${slugify(heading)}-${slugifyPath(path)}`;
+}
+
+function buildMarkdownLinkCandidateId(path: string, label: string): string {
+  const identity = createHash("sha256").update(path).update("\0").update(label).digest("hex").slice(0, 12);
+  return `candidate-link-${identity}-${slugify(label)}-${slugifyPath(path)}`;
 }
 
 function unique(values: string[]): string[] {
