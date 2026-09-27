@@ -499,7 +499,10 @@ execution paths, ordinary target-triggered behavior, wrapper-only refusal,
 malformed allowances, missing `read`, non-shrinking projection and freshness
 checks. These deterministic fixtures do not establish semantic selector
 inference, task decomposition, automatic retry policy, model quality, savings
-or scale; SC-07 remains Partial.
+or scale; SC-07 remains Partial. The PLAN-142 candidate passes the TypeScript
+build, 1,122 unit/component tests, 67 mock integration tests, 7
+conformance/autopilot tests, 95 focused compression/context-split/conductor/
+debug-retry/attempt checks and `git diff --check`.
 
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx

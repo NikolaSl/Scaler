@@ -63,3 +63,6 @@ existing effective split implementation; SC-07 remains Partial.
 - Existing projection, `read`, shrink, prompt-admission and freshness checks
   remain the only path to dispatch; no externalizable item means no forced
   record.
+- Exact-head validation passes the TypeScript build, 1,122 unit/component, 67
+  mock integration, 7 conformance/autopilot and 95 focused checks plus
+  `git diff --check`.

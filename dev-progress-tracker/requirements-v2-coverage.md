@@ -103,6 +103,8 @@ triggers with prompt overage. Missing `read`, wrapper-only overflow,
 non-shrinking projection, malformed allowance and stale evidence still refuse
 before dispatch. Semantic inference, automatic selection, decomposition, model
 quality and savings remain open, so SC-07 stays Partial.
+The candidate passes build, 1,122 unit/component, 67 mock integration, 7
+conformance/autopilot and 95 focused checks plus `git diff --check`.
 
 PLAN-137 adds the model-profile eligibility prerequisite deliberately left open
 by PLAN-132. Versioned profiles carry an exact provider identity, locality,

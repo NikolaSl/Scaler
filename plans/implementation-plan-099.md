@@ -220,7 +220,9 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   and non-shrinking cases still refuse. This does not add semantic inference,
   decomposition, a new executor or model-quality/savings evidence. Split
   records distinguish active-context and final-prompt triggers and retain the
-  measured prompt overage; SC-07/AC-07 stays Partial.
+  measured prompt overage; SC-07/AC-07 stays Partial. The candidate passes
+  build, 1,122 unit/component, 67 mock integration, 7 conformance/autopilot and
+  95 focused checks plus `git diff --check`.
 
 ### Renewed continuation policy (2026-09-19)
 
