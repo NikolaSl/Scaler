@@ -1127,6 +1127,21 @@ function isTypeScriptIdentifier(value: string): boolean {
   return Boolean(declaration && ts.isIdentifier(declaration.name) && declaration.name.text === value);
 }
 
+export function isValidFileContextSelector(selector: unknown): selector is FileContextSelector {
+  if (typeof selector !== "object" || selector === null || Array.isArray(selector)) return false;
+  const value = selector as Record<string, unknown>;
+  if (value.maxChars !== undefined && (!Number.isSafeInteger(value.maxChars) || (value.maxChars as number) <= 0)) {
+    return false;
+  }
+  if (value.kind === "markdown-heading") {
+    return typeof value.heading === "string" && Boolean(trimMarkdownHeadingWhitespace(value.heading));
+  }
+  if (value.kind === "typescript-function") {
+    return typeof value.name === "string" && Boolean(value.name.trim()) && isTypeScriptIdentifier(value.name.trim());
+  }
+  return false;
+}
+
 export function getRequiredContextDiagnostics(items: ContextItem[]): string[] {
   return items
     .filter((item) => item.priority === "required" && item.available === false)
