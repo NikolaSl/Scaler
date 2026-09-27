@@ -146,7 +146,7 @@ test("debug retry dispatches an admitted minimal projection for oversized exact 
     await saveTaskContextManifest(dir, {
       version: 1,
       taskId: "T-RETRY",
-      tokenBudget: 1_000,
+      tokenBudget: 1_600,
       items: [{
         id: "huge-exact", type: "file", reason: "The retry requires exact source.",
         priority: "required", scope: "full", exactness: "exact", source: "inline",
@@ -183,7 +183,7 @@ test("debug retry rejects a result after externalized split evidence changes", a
     await saveTaskContextManifest(dir, {
       version: 1,
       taskId: "T-RETRY",
-      tokenBudget: 1_000,
+      tokenBudget: 1_600,
       items: [{
         id: "huge-exact", type: "file", reason: "The retry requires exact source.",
         priority: "required", scope: "full", exactness: "exact", source: "inline",
