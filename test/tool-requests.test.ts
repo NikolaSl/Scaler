@@ -809,6 +809,74 @@ test("direct catalog execution fails closed on adapter drift before ownership cl
   });
 });
 
+test("direct catalog execution rejects durable argument drift before ownership claim", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "scaler_tool_catalog",
+      request: "Return the exact compact catalog entry for read.",
+      directOperation: {
+        adapterId: "builtin:tool-catalog-entry-v1",
+        arguments: { toolName: "read" },
+      },
+    });
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgentRaw(dir, state, {
+      requestId: prepared.record.id,
+      execute: true,
+      routeEvidenceSupplier: async (basis) => {
+        const requests = await loadToolRequests(dir);
+        await writeFile(getToolRequestsIndexPath(dir), `${JSON.stringify({
+          version: 1,
+          requests: requests.map((request) => request.id === prepared.record!.id
+            ? { ...request, directOperation: { ...request.directOperation!, arguments: { toolName: "bash" } } }
+            : request),
+        }, null, 2)}\n`, "utf8");
+        return admittedDirectRouteEvidenceSupplier(basis);
+      },
+    });
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /changed while live route admission/i);
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
+    assert.deepEqual(await loadToolResults(dir), []);
+  });
+});
+
+test("direct catalog execution blocks an oversized runtime-owned result", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await recordToolSchema(dir, state, {
+      toolName: "oversized_catalog_tool",
+      source: "local-test",
+      description: "x".repeat(DEFAULT_TOOL_EXECUTION_LIMITS.resultBytes),
+      riskLevel: "low",
+    });
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "scaler_tool_catalog",
+      request: "Return the exact compact catalog entry for oversized_catalog_tool.",
+      directOperation: {
+        adapterId: "builtin:tool-catalog-entry-v1",
+        arguments: { toolName: "oversized_catalog_tool" },
+      },
+    });
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgentRaw(dir, state, {
+      requestId: prepared.record.id,
+      execute: true,
+      routeEvidenceSupplier: admittedDirectRouteEvidenceSupplier,
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.transaction?.status, "blocked");
+    assert.match(result.message, /process outcome exit=1/i);
+    assert.deepEqual(await loadToolResults(dir), []);
+    assert.equal((await loadToolRequests(dir))[0]?.status, "blocked");
+  });
+});
+
 test("prepareToolRequest rejects malformed direct catalog arguments without persistence", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
