@@ -1315,6 +1315,193 @@ test("unrelated changed files cannot starve bounded imported caller discovery", 
   });
 });
 
+test("re-export caller discovery approves and resolves the exact top-level caller", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"));
+    await writeFile(
+      join(dir, "src", "target.ts"),
+      "export function internalTarget(value: string): string { return value; }\n",
+      "utf8",
+    );
+    await writeFile(
+      join(dir, "src", "barrel.ts"),
+      "export { internalTarget as publicTarget } from './target.ts';\n",
+      "utf8",
+    );
+    const caller = [
+      "export function loadPublic(value: string): string {",
+      "  return invoke(value);",
+      "}",
+    ].join("\n");
+    await writeFile(
+      join(dir, "src", "entry.ts"),
+      [
+        "import { publicTarget as invoke } from './barrel.ts';",
+        caller,
+        "export function unrelated(value: string): string { return value; }",
+      ].join("\n"),
+      "utf8",
+    );
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-REEXPORT-CALLER", status: "ready", title: "Locate exact re-export caller",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-REEXPORT-CALLER", { query: "reexport-caller:./barrel.ts#publicTarget", limit: 10 },
+    );
+
+    assert.equal(candidates.length, 1);
+    const [candidate] = candidates;
+    assert.equal(candidate?.path, "src/entry.ts");
+    assert.deepEqual(candidate?.selector, { kind: "typescript-function", name: "loadPublic" });
+    assert.match(candidate?.reason ?? "", /exact re-export caller/i);
+
+    const approved = await approveContextCandidate(
+      dir, state, "T-REEXPORT-CALLER", candidate!.id,
+      { query: "reexport-caller:./barrel.ts#publicTarget" },
+    );
+    const item = approved.manifest.items.find((entry) => entry.path === "src/entry.ts");
+    assert.equal(approved.added, true);
+    assert.deepEqual(item?.selector, { kind: "typescript-function", name: "loadPublic" });
+    const resolved = await resolveTaskContextManifest(dir, state, approved.manifest);
+    assert.equal(resolved.find((entry) => entry.id === item?.id)?.content, caller);
+  });
+});
+
+test("re-export caller discovery preserves distinct callers and excludes nested or shadowed calls", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"));
+    await writeFile(join(dir, "src", "target.ts"), "export const target = (): number => 1;\n", "utf8");
+    await writeFile(
+      join(dir, "src", "barrel.ts"),
+      "export { target as exposed } from './target.ts';\n",
+      "utf8",
+    );
+    await writeFile(
+      join(dir, "src", "entry.ts"),
+      [
+        "import { exposed as invoke } from './barrel.ts';",
+        "export const first = (): number => invoke();",
+        "export function second(): number { return invoke(); }",
+        "export function nestedOnly(): () => number { return () => invoke(); }",
+        "export function shadowed(invoke: () => number): number { return invoke(); }",
+      ].join("\n"),
+      "utf8",
+    );
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-REEXPORT-CALLERS", status: "ready", title: "Locate exact re-export callers",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-REEXPORT-CALLERS", { query: "reexport-caller:./barrel.ts#exposed", limit: 10 },
+    );
+
+    assert.deepEqual(
+      candidates.map((candidate) => candidate.selector?.kind === "typescript-function" ? candidate.selector.name : undefined).sort(),
+      ["first", "second"],
+    );
+    assert.equal(new Set(candidates.map((candidate) => candidate.id)).size, 2);
+  });
+});
+
+test("re-export caller discovery fails closed on malformed, ambiguous and unsupported edges", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"));
+    await writeFile(join(dir, "src", "target.ts"), "export function target(): number { return 1; }\n", "utf8");
+    await writeFile(join(dir, "src", "other.ts"), "export function target(): number { return 2; }\n", "utf8");
+    await writeFile(
+      join(dir, "src", "ambiguous.ts"),
+      [
+        "export { target as exposed } from './target.ts';",
+        "export { target as exposed } from './other.ts';",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(join(dir, "src", "star.ts"), "export * from './target.ts';\n", "utf8");
+    await writeFile(join(dir, "src", "type.ts"), "export type { target as exposed } from './target.ts';\n", "utf8");
+    await writeFile(join(dir, "src", "malformed.ts"), "export { target as exposed from './target.ts';\n", "utf8");
+    await writeFile(
+      join(dir, "src", "entry.ts"),
+      [
+        "import { exposed as ambiguousValue } from './ambiguous.ts';",
+        "import { target as starValue } from './star.ts';",
+        "import type { exposed as typeValue } from './type.ts';",
+        "export function ambiguousCaller(): number { return ambiguousValue(); }",
+        "export function starCaller(): number { return starValue(); }",
+        "export function typeCaller(): number { return typeValue(); }",
+      ].join("\n"),
+      "utf8",
+    );
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-REEXPORT-CALLER-REFUSE", status: "ready", title: "Refuse unsafe re-export caller evidence",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    for (const query of [
+      "reexport-caller:",
+      "reexport-caller: ./ambiguous.ts#exposed",
+      "reexport-caller:./ambiguous.ts #exposed",
+      "reexport-caller:./ambiguous.ts# exposed",
+      "reexport-caller:./ambiguous.ts#exposed ",
+      "reexport-caller:./ambiguous#exposed",
+      "reexport-caller:package-name#exposed",
+      "reexport-caller:./ambiguous.ts#not-valid!",
+      "reexport-caller:./ambiguous.ts#exposed#extra",
+      "reexport-caller:./ambiguous.ts#exposed",
+      "reexport-caller:./star.ts#target",
+      "reexport-caller:./type.ts#exposed",
+      "reexport-caller:./malformed.ts#exposed",
+    ]) {
+      assert.deepEqual(
+        await discoverSemanticContextCandidates(
+          dir, state, "T-REEXPORT-CALLER-REFUSE", { query, limit: 10 },
+        ),
+        [],
+        query,
+      );
+    }
+  });
+});
+
+test("unrelated changed files cannot starve bounded re-export caller discovery", async () => {
+  await withTempDir(async (dir) => {
+    await execFileAsync("git", ["init"], { cwd: dir });
+    await mkdir(join(dir, "noise"));
+    await mkdir(join(dir, "src"));
+    for (let index = 0; index < 30; index++) {
+      const name = `noise-${String(index).padStart(2, "0")}.ts`;
+      await writeFile(join(dir, "noise", name), `export function noise${index}(): number { return ${index}; }\n`, "utf8");
+    }
+    await writeFile(join(dir, "src", "target.ts"), "export function target(): string { return 'found'; }\n", "utf8");
+    await writeFile(join(dir, "src", "barrel.ts"), "export { target as exposed } from './target.ts';\n", "utf8");
+    await writeFile(
+      join(dir, "src", "entry.ts"),
+      "import { exposed } from './barrel.ts';\nexport function caller(): string { return exposed(); }\n",
+      "utf8",
+    );
+    await execFileAsync("git", ["add", "-N", "noise", "src/entry.ts", "src/barrel.ts", "src/target.ts"], { cwd: dir });
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-NOISE-REEXPORT-CALLER", status: "ready", title: "Locate bounded re-export caller",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-NOISE-REEXPORT-CALLER",
+      { query: "reexport-caller:./barrel.ts#exposed", limit: 10 },
+    );
+
+    assert.equal(candidates.length, 1);
+    assert.equal(candidates[0]?.path, "src/entry.ts");
+    assert.deepEqual(candidates[0]?.selector, { kind: "typescript-function", name: "caller" });
+  });
+});
+
 test("approveContextCandidate persists selected candidates without duplicating manifest entries", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
