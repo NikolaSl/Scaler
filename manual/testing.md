@@ -465,6 +465,16 @@ The PLAN-139 candidate passes the TypeScript build, 1,112 unit/component tests,
 67 mock integration tests, 7 conformance/autopilot tests, 67 focused context
 checks and `git diff --check`.
 
+PLAN-140 adds exact-name Markdown heading selector candidate discovery. Run
+`node --test --import tsx test/context.test.ts` to cover read-only
+`heading:<text>` lookup, explicit approval, exact CRLF source resolution,
+same-name cross-file choices, empty/duplicate/fenced/unsupported/oversized
+refusal, path-bound candidate identity and unrelated-change starvation. The
+existing CommonMark selector remains the sole eligibility test, and generic and
+function discovery retain their prior behavior. These fixtures do not infer a
+heading from prose, follow document links, choose a candidate, decompose a task
+or establish model quality or savings.
+
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx
 test/stage-artifact-outcome.test.ts test/stage-agents.test.ts

@@ -192,6 +192,15 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   choice and task decomposition remain open, so SC-07/AC-07 stays Partial. The
   candidate passes build, 1,112 unit/component, 67 mock integration, 7
   conformance/autopilot and 67 focused context checks plus `git diff --check`.
+  PLAN-140 applies that bounded discovery bridge to the existing Markdown
+  selector. An explicit `heading:<text>` candidate query searches only allowed
+  Markdown paths and returns a path-bound candidate only when the same
+  CommonMark-backed exact selector finds one unique, within-limit heading.
+  Empty queries, duplicate or fenced headings, unsupported files, oversized
+  sections, unrelated changed paths and premature candidate-limit starvation
+  fail closed. Approval remains manual. Natural-language or fuzzy inference,
+  document-link lookup, automatic selector choice and task decomposition remain
+  open, so SC-07/AC-07 stays Partial.
 
 ### Renewed continuation policy (2026-09-19)
 

@@ -95,6 +95,14 @@ this exact selector across the task's bounded allowed paths only when the user
 supplies `function:<identifier>` explicitly. It emits one path-bound candidate
 per exact match and never selects or approves one automatically.
 
+Markdown heading candidate discovery follows the same read-only boundary. An
+explicit `heading:<text>` query searches only bounded allowed `.md` and
+`.markdown` paths, verifies each match with the existing CommonMark-backed exact
+selector, and emits one path-bound candidate per eligible file. Empty queries,
+duplicate headings, fenced pseudo-headings, unsupported files and oversized
+sections return no selector candidate. Listing never chooses or approves a
+candidate automatically.
+
 ## Final prompt admission
 
 Execution uses the task manifest allowance, an explicit caller allowance, or an
@@ -207,7 +215,7 @@ Default/discovered manifests mark file snippets, task metadata, validation evide
 
 `/scaler-context-status` displays a manifest summary for the specified task, current task, or first task.
 
-`/scaler-context-candidates` lists scored memory/file/PRD/manifest candidates without changing the manifest or active context. An exact `function:<identifier>` query switches to bounded JavaScript/TypeScript selector discovery over allowed task paths. Malformed queries and ineligible declarations return no selector candidate; same-named matches in different files remain separate choices.
+`/scaler-context-candidates` lists scored memory/file/PRD/manifest candidates without changing the manifest or active context. An exact `function:<identifier>` query switches to bounded JavaScript/TypeScript selector discovery; `heading:<text>` does the same for exact Markdown ATX headings. Both search only allowed task paths. Malformed queries and ineligible sections/declarations return no selector candidate; same-named matches in different files remain separate choices.
 
 `/scaler-context-approve` adds the selected candidate to the task manifest unless an equivalent memory/file/content item is already present.
 

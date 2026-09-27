@@ -2,8 +2,8 @@
 
 ## Status
 
-In progress on the P3 preparation branch; final phase review and merge remain
-pending.
+Implemented on the P3 preparation branch; final exact-head validation, phase
+review and merge remain pending.
 
 ## Observed prerequisite gap
 
@@ -53,3 +53,16 @@ decompose a task, configure a model, or prove quality or savings. It adds only
 explicit exact-name discovery for the already supported Markdown selector;
 automatic selector choice and broader semantic lookup remain open, so
 SC-07/AC-07 stays Partial.
+
+## Implementation evidence
+
+- `test/context.test.ts` first reproduced four failures for exact approval and
+  bytes, cross-file ambiguity, malformed/ineligible input and changed-file
+  starvation.
+- `src/context.ts` recognizes only explicit `heading:<text>` queries, searches
+  the bounded allowed-path set, and delegates eligibility to the existing exact
+  CommonMark-backed section resolver.
+- Candidate identity hashes the complete path and raw heading before readable
+  suffixes, preserving separate choices through listing and approval.
+- Focused context validation passes 71/71 checks; final aggregate gate evidence
+  is recorded after the exact-head run.
