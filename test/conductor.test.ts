@@ -268,6 +268,25 @@ test("runConductorStep records context split artifacts for oversized resolved co
   });
 });
 
+test("runConductorStep preparation records measured aggregate context overflow", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    const result = await runConductorStep(dir, state, {
+      tokenBudget: 2_000,
+      contextItems: [
+        { id: "first-understated", type: "file", reason: "First exact input.", content: "x".repeat(3_200), priority: "required", scope: "full", exactness: "exact", estimatedTokens: 1 },
+        { id: "second-understated", type: "file", reason: "Second exact input.", content: "y".repeat(3_200), priority: "required", scope: "full", exactness: "exact", estimatedTokens: 1 },
+      ],
+    });
+
+    assert.equal(result.contextSplit?.trigger, "active_context_target");
+    assert.equal(result.contextSplit?.estimatedTokens, 1_600);
+    assert.equal(result.contextSplit?.overByTokens, 100);
+    assert.deepEqual(result.contextSplit?.externalizeRefs, []);
+    assert.equal((await loadContextSplitRecords(dir))[0]?.id, result.contextSplit?.id);
+  });
+});
+
 test("runConductorStep dispatches an admitted minimal projection for oversized required context", async () => {
   await withTempDir(async (dir) => {
     const state = stateWithTasks(["ready"]);
