@@ -559,6 +559,15 @@ savings; SC-07 remains Partial. The exact-head candidate passes the TypeScript
 build, 1,139 unit/component tests, 67 mock integration tests, 7
 conformance/autopilot tests, 86 focused context checks and `git diff --check`.
 
+PLAN-147 adds one runtime-owned exact direct operation. Run
+`node --test --import tsx test/tool-routing.test.ts test/tool-requests.test.ts
+test/tools.test.ts` to cover structured direct-operation persistence, fresh
+runtime route admission, zero-runner catalog lookup, execution/result identity,
+adapter and durable-argument drift, malformed operations and oversized result
+refusal. This does not execute arbitrary tools or MCP calls, wire current-agent
+or production isolated continuations, prove model quality, or establish savings;
+SC-08/AC-08 remains Partial.
+
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx
 test/stage-artifact-outcome.test.ts test/stage-agents.test.ts

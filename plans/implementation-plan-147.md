@@ -2,8 +2,8 @@
 
 ## Status
 
-In progress on the P3 preparation branch; phase review and merge remain
-pending.
+Implemented and validated on the P3 preparation branch; phase review and merge
+remain pending.
 
 ## Observed prerequisite gap
 
@@ -53,3 +53,19 @@ execution, filesystem reads/writes, current-agent dispatch, production
 continuation wiring, local-model execution, quality, savings or scale evidence.
 It closes only AC-08 scenario (a) for one runtime-owned exact read-only
 operation; SC-08/AC-08 remains Partial.
+
+## Implementation evidence
+
+- `test/tool-requests.test.ts` first reproduced zero-model direct execution,
+  adapter mismatch and malformed exact-argument gaps before implementation.
+- `src/tool-requests.ts` persists and fingerprints one exact direct operation,
+  recomputes a runtime-owned route at dispatch, binds a synthetic invocation to
+  execution ownership, and accepts one bounded catalog result without calling
+  the task-agent runner.
+- `src/tools.ts` exposes only the literal built-in adapter and its one exact
+  catalog-name argument through `scaler_tool_request`.
+- Follow-up regressions cover durable argument drift and oversized result
+  refusal; isolated dispatch behavior remains covered by the existing suite.
+- The exact-head candidate passes the TypeScript build, 1,145 unit/component
+  tests, 67 mock integration tests, 7 conformance/autopilot tests, 101 focused
+  routing/request/tool tests and `git diff --check`.

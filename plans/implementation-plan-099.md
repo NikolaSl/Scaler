@@ -264,6 +264,16 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   remain unavailable. The exact-head candidate passes build, 1,139
   unit/component, 67 mock integration, 7 conformance/autopilot and 86 focused
   context checks plus `git diff --check`; SC-07/AC-07 stays Partial.
+  PLAN-147 closes AC-08 scenario (a) for one exact read-only operation. A
+  structured tool request may persist only the built-in compact catalog-entry
+  adapter and one exact tool name. Dispatch creates a fresh runtime-owned direct
+  route snapshot, binds request, adapter arguments and a synthetic invocation to
+  the execution claim, runs without Pi/model/MCP/shell, and retains the existing
+  ownership and serialized-result acceptance limits. Argument or adapter drift,
+  malformed operations and oversized results fail closed. Current-agent
+  execution, production isolated continuation wiring, generic direct adapters
+  and the complete three-route scenario remain open, so SC-08/AC-08 stays
+  Partial and no quality or savings claim is made.
 
 ### Renewed continuation policy (2026-09-19)
 
