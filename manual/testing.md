@@ -453,6 +453,15 @@ The PLAN-138 candidate passes the TypeScript build, 1,107 unit/component tests,
 67 mock integration tests, 7 conformance/autopilot tests, 72 focused context
 checks and `git diff --check`. No paid or deployed model execution is claimed.
 
+PLAN-139 adds exact-name function selector candidate discovery. Run
+`node --test --import tsx test/context.test.ts` to cover read-only
+`function:<identifier>` lookup, explicit approval, exact source resolution,
+same-name cross-file choices, malformed/duplicate/overload/class/oversized
+refusal, path-bound candidate identity, changed-file scope isolation and
+unrelated-change starvation. Generic semantic discovery remains unchanged.
+These fixtures do not infer a symbol from prose, follow imports/call graphs,
+choose a candidate, decompose a task or establish model quality or savings.
+
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx
 test/stage-artifact-outcome.test.ts test/stage-agents.test.ts

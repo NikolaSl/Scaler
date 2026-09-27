@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress on the P3 preparation branch; final phase review and merge remain
+Implemented on the P3 preparation branch; final phase review and merge remain
 pending.
 
 ## Observed prerequisite gap
@@ -56,3 +56,16 @@ graphs, resolve methods/members/re-exports, authorize a candidate automatically,
 decompose a task, configure a model, or prove quality or savings. It adds
 bounded exact-name discovery over already allowed files; broader semantic
 lookup and automatic selector choice remain open, so SC-07/AC-07 stays Partial.
+
+## Implementation evidence
+
+- Exact function queries bypass generic fuzzy candidates and emit only selectors
+  that the existing parser-backed resolver can retrieve within its size bound.
+- Candidate ids bind the complete path plus symbol identity, while approval
+  persists the path, section scope and selector and normal resolution preserves
+  the selected source bytes.
+- Allowed-path filtering precedes the global candidate limit, so unrelated
+  changed files cannot hide an eligible symbol or become selector candidates.
+- Malformed query syntax, source errors, duplicate/overload declarations,
+  class methods, unsupported extensions and oversized sections yield no
+  approvable candidate. Same-named matches in separate files remain separate.

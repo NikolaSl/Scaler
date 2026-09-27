@@ -182,6 +182,14 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   legacy direct handoff executor stays blocked. Automatic selector discovery,
   cross-file semantic lookup and task decomposition remain open, so SC-07 and
   the broader P3 acceptance matrix remain Partial.
+  PLAN-139 adds an exact-name discovery bridge for the existing function
+  selector. An explicit `function:<identifier>` candidate query searches the
+  bounded allowed-path file set, verifies each declaration through the same
+  parser-backed exact selector, and returns separate path-bound candidates that
+  still require manual approval. Malformed declarations, unsupported files,
+  unrelated changed paths and premature candidate-limit starvation fail closed.
+  Natural-language inference, import/call-graph lookup, automatic selector
+  choice and task decomposition remain open, so SC-07/AC-07 stays Partial.
 
 ### Renewed continuation policy (2026-09-19)
 

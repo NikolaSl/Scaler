@@ -90,7 +90,10 @@ render or rewrite code. Supported extensions are `.ts`, `.tsx`, `.mts`, `.cts`,
 malformed source, unsupported extensions, multi-binding declarations and
 oversized results are unavailable. Class methods, object properties, namespace
 members, anonymous defaults, re-exports, cross-file symbols and automatic
-selector discovery are outside this selector's scope.
+selector choice are outside this selector's scope. Candidate discovery can find
+this exact selector across the task's bounded allowed paths only when the user
+supplies `function:<identifier>` explicitly. It emits one path-bound candidate
+per exact match and never selects or approves one automatically.
 
 ## Final prompt admission
 
@@ -204,7 +207,7 @@ Default/discovered manifests mark file snippets, task metadata, validation evide
 
 `/scaler-context-status` displays a manifest summary for the specified task, current task, or first task.
 
-`/scaler-context-candidates` lists scored memory/file/PRD/manifest candidates without changing the manifest or active context.
+`/scaler-context-candidates` lists scored memory/file/PRD/manifest candidates without changing the manifest or active context. An exact `function:<identifier>` query switches to bounded JavaScript/TypeScript selector discovery over allowed task paths. Malformed queries and ineligible declarations return no selector candidate; same-named matches in different files remain separate choices.
 
 `/scaler-context-approve` adds the selected candidate to the task manifest unless an equivalent memory/file/content item is already present.
 
