@@ -267,11 +267,12 @@ test("runConductorStep records context split artifacts for oversized resolved co
   });
 });
 
-test("runConductorStep refuses an oversized required prompt before execution side effects", async () => {
+test("runConductorStep dispatches an admitted minimal projection for oversized required context", async () => {
   await withTempDir(async (dir) => {
     const state = stateWithTasks(["ready"]);
     state.stage = "execution";
     let runnerCalls = 0;
+    let dispatchedPrompt = "";
     const result = await runConductorStep(dir, state, {
       execute: true,
       tokenBudget: 1_000,
@@ -280,20 +281,32 @@ test("runConductorStep refuses an oversized required prompt before execution sid
         content: `EXACT_START\n${"x".repeat(40_000)}\nEXACT_END`,
         priority: "required", scope: "full", exactness: "exact",
       }],
-    }, async () => {
+    }, async (request) => {
       runnerCalls += 1;
-      throw new Error("must not dispatch");
+      dispatchedPrompt = request.prompt;
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [completedTaskReport(request)],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
     });
 
-    assert.equal(result.accepted, false);
-    assert.equal(result.promptAdmission?.accepted, false);
-    assert.ok((result.promptAdmission?.estimatedTokens ?? 0) > 1_000);
-    assert.match(result.message, /final SCALER prompt refused/i);
-    assert.equal(runnerCalls, 0);
-    assert.deepEqual(await loadTaskAttempts(dir), []);
-    assert.equal(result.state.tasks[0]?.status, "ready");
-    assert.equal(getBudgetState(result.state).usage.spawnedAgents ?? 0, 0);
+    assert.equal(result.accepted, true, result.message);
+    assert.equal(runnerCalls, 1);
+    assert.equal(result.state.tasks[0]?.status, "validating");
     assert.ok(result.contextSplit);
+    assert.equal(result.contextSplit.externalizedMemoryRefs.length, 1);
+    assert.match(dispatchedPrompt, /SCALER Task Agent Request/);
+    assert.ok(dispatchedPrompt.includes(result.contextSplit.externalizedMemoryRefs[0]!.memoryId));
+    assert.doesNotMatch(dispatchedPrompt, /EXACT_START|EXACT_END/);
+    assert.ok(Buffer.byteLength(dispatchedPrompt, "utf8") < Buffer.byteLength("x".repeat(40_000), "utf8"));
+
+    const [attempt] = await loadTaskAttempts(dir);
+    assert.ok(attempt?.inputFingerprint);
+    assert.equal(getBudgetState(result.state).usage.spawnedAgents, 1);
   });
 });
 
