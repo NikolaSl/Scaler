@@ -149,8 +149,9 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   equivalent routes; domain or complex-work nouns and advisory action mentions
   remain lightweight. Imperatives, polite modals and explicit follow-on changes
   preserve their requested workspace, planning or external-effect route. This
-  does not establish general multilingual semantics, justified isolated
-  execution or risk-triggered direction checks.
+  includes request-position checks for ambiguous action nouns/response phrases
+  and common create/edit forms. It does not establish general multilingual
+  semantics, justified isolated execution or risk-triggered direction checks.
   Parent interactive calls, provider-internal retries and alternate provider
   payloads remain open; this is not SC-05/AC-05 completion.
 

@@ -673,6 +673,8 @@ controls ensure that domain words and raw length do not escalate, advice or
 documentation mentioning deployment does not grant effect authority, and an
 explicit follow-on workspace, planning or deployment step cannot hide behind
 informational framing. Complex-work nouns do not escalate without an action;
-polite English/Bulgarian modal requests retain their effects. These are bounded
-deterministic fixtures, not evidence of general multilingual quality or automatic
-isolation/decomposition.
+polite English/Bulgarian modal requests retain their effects. Review cases also
+cover create/edit verbs, noun-only test/build phrases, response-style `send`,
+release-note nouns and the Bulgarian `платформа`/payment distinction. These are
+bounded deterministic fixtures, not evidence of general multilingual quality or
+automatic isolation/decomposition.

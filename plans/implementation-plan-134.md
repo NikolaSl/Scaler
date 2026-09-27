@@ -63,7 +63,11 @@ multi-workstream and external-effect requests. English and Bulgarian controls
 cover direct imperatives, polite modals and explicit follow-on actions. Domain
 and complex-work nouns, advisory or quoted action verbs, and raw length carry no
 effect authority by themselves. Follow-on workspace, planning and deployment
-steps cannot hide behind an informational prefix.
+steps cannot hide behind an informational prefix. Review hardening also binds
+workspace verbs to request position, covers common create/edit/write forms, and
+keeps response phrases, release-note nouns and Bulgarian `платформа` from
+masquerading as external effects while preserving explicit email/payment
+controls.
 
 The selector remains a deterministic bounded vocabulary, not semantic language
 understanding. General paraphrase coverage, justified isolated execution and
