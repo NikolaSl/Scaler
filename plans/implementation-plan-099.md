@@ -296,7 +296,9 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   symlink-backed evidence fails closed. Package/alias resolution, inferred
   extensions, multiple or recursive barrels, semantic/type resolution,
   automatic approval and decomposition remain open, so SC-07/AC-07 stays
-  Partial. Final candidate evidence is recorded in PLAN-149.
+  Partial. The exact implementation-and-documentation candidate passes the
+  TypeScript build, 1,155 unit/component, 68 mock integration, 7
+  conformance/autopilot and 96 focused context checks plus `git diff --check`.
 
 ### Renewed continuation policy (2026-09-19)
 

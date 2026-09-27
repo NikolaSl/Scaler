@@ -584,7 +584,10 @@ starvation. These fixtures remain syntactic one-hop re-export evidence; they do
 not implement package aliases, inferred extensions, recursive barrels,
 TypeScript symbol/type resolution, automatic selection, model quality or
 savings. SC-07 remains Partial. The focused TypeScript build and 5
-re-export-caller checks pass; final full-gate counts are recorded in PLAN-149.
+re-export-caller checks pass. The exact implementation-and-documentation
+candidate passes the TypeScript build, 1,155 unit/component tests, 68 mock
+integration tests, 7 conformance/autopilot tests, 96 focused context checks and
+`git diff --check`.
 
 PLAN-147 adds one runtime-owned exact direct operation. Run
 `node --test --import tsx test/tool-routing.test.ts test/tool-requests.test.ts

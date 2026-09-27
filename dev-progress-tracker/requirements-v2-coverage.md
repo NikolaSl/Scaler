@@ -68,7 +68,9 @@ aliases before a path-and-selector-bound top-level caller is returned. Conflicti
 direct exports, ambiguous/type/star edges, malformed or escaping paths, nested
 or shadowed calls and symlink-backed hops fail closed. Recursive/semantic graphs,
 package/alias resolution, automatic approval and decomposition remain open, so
-SC-07 stays Partial.
+SC-07 stays Partial. The exact implementation-and-documentation candidate passes
+the TypeScript build, 1,155 unit/component tests, 68 mock integration tests, 7
+conformance/autopilot tests, 96 focused context checks and `git diff --check`.
 
 PLAN-138 makes an already justified oversized-context split effective only in
 the normal conductor path. It validates the current task/item set, externalized

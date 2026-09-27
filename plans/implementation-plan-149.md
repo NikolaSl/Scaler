@@ -2,8 +2,8 @@
 
 ## Status
 
-Implemented on the P3 preparation branch; final full-gate evidence, phase review
-and merge remain pending.
+Implemented and validated on the P3 preparation branch; phase review and merge
+remain pending.
 
 ## Observed prerequisite gap
 
@@ -66,5 +66,7 @@ remains Partial.
   re-export, and emits only exact path-and-selector-bound top-level callers.
 - Follow-up regressions reject conflicting direct exports, ambiguous/type/star
   edges, escaping paths and symlink-backed barrel or target hops.
-- The TypeScript build and 5/5 focused re-export-caller checks pass; the final
-  full gate remains to be recorded on the evidence head.
+- The exact implementation-and-documentation candidate passes the TypeScript
+  build, 1,155/1,155 unit/component tests, 68/68 mock-integration tests, 7/7
+  conformance/autopilot tests, 96/96 focused context checks and
+  `git diff --check`.
