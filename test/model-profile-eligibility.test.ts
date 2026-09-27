@@ -206,3 +206,71 @@ test("no eligible profile returns bounded reasons and no fallback identity", () 
   assert.equal(result.selectedProfileId, undefined);
   assert.deepEqual(result.profiles.map((profile) => profile.profileId), ["local-unsupported", "remote-core-v1"]);
 });
+
+test("remote profile is eligible only when locality and every data location are allowed", () => {
+  const result = assessModelProfileEligibility([remoteProfile], {
+    ...requirement,
+    localOnly: false,
+    allowedDataLocations: ["remote:eu"],
+  });
+
+  assert.equal(result.eligible, true);
+  assert.deepEqual(result.eligibleProfileIds, [remoteProfile.profileId]);
+  assert.equal(result.selectedProfileId, undefined);
+});
+
+test("literal unknown capabilities and duplicate evidence are invalid rather than optimistic", () => {
+  const unknownSupport = assessModelProfileEligibility([{
+    ...localProfile,
+    tools: "unknown",
+  } as unknown as ModelCapabilityProfile], requirement);
+  const duplicateEvidence = assessModelProfileEligibility([{
+    ...localProfile,
+    taskSuitability: {
+      "bounded-code-edit": {
+        status: "observed-supported",
+        evidenceRefs: ["evidence:same", "evidence:same"],
+      },
+    },
+  }], requirement);
+
+  assert.equal(unknownSupport.code, "invalid-profiles");
+  assert.equal(duplicateEvidence.code, "invalid-profiles");
+});
+
+test("empty configured set blocks without inventing a configuration error or fallback", () => {
+  const result = assessModelProfileEligibility([], requirement);
+
+  assert.equal(result.code, "no-eligible-profiles");
+  assert.equal(result.eligible, false);
+  assert.match(result.profilesFingerprint ?? "", /^[a-f0-9]{64}$/u);
+  assert.deepEqual(result.profiles, []);
+  assert.deepEqual(result.eligibleProfileIds, []);
+});
+
+test("unsafe integer bounds fail structural validation", () => {
+  for (const value of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1]) {
+    const invalidProfile = assessModelProfileEligibility([{
+      ...localProfile,
+      limits: { ...localProfile.limits, maxInputTokens: value },
+    }], requirement);
+    const invalidRequirement = assessModelProfileEligibility([localProfile], {
+      ...requirement,
+      requiredOutputTokens: value,
+    });
+    assert.equal(invalidProfile.code, "invalid-profiles", `profile value=${String(value)}`);
+    assert.equal(invalidRequirement.code, "invalid-requirement", `requirement value=${String(value)}`);
+  }
+});
+
+test("assessment snapshots exact model identity and is not changed by later input mutation", () => {
+  const mutableProfile = structuredClone(localProfile);
+  const result = assessModelProfileEligibility([mutableProfile], requirement);
+  mutableProfile.model.id = "mutated-after-assessment";
+  mutableProfile.dataLocations[0] = "remote:mutated";
+
+  assert.deepEqual(result.profiles[0]?.model, localProfile.model);
+  assert.deepEqual(result.eligibleProfileIds, [localProfile.profileId]);
+  assert.match(result.requirementFingerprint ?? "", /^[a-f0-9]{64}$/u);
+  assert.match(result.profilesFingerprint ?? "", /^[a-f0-9]{64}$/u);
+});
