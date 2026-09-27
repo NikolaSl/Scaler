@@ -84,7 +84,14 @@ test("task attempt loading fails closed on malformed durable identity", async ()
   });
 });
 
-for (const selector of [null, "markdown-heading", [], 42]) {
+for (const selector of [
+  null,
+  "markdown-heading",
+  [],
+  42,
+  { kind: "typescript-function", name: " target " },
+  { kind: "typescript-function", name: "two words" },
+]) {
   test(`task attempt loading rejects non-object context selector ${JSON.stringify(selector)}`, async () => {
     await withDirectory(async (dir) => {
       const reports = join(dir, ".scaler", "reports");

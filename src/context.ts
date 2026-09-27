@@ -1096,8 +1096,9 @@ function validateTaskContextManifestItem(item: TaskContextManifestItem, ids: Set
         throw new Error(`Task context item ${item.id} Markdown heading selector is invalid.`);
       }
     } else if (item.selector.kind === "typescript-function") {
-      if (typeof item.selector.name !== "string" || !item.selector.name.trim()
-          || !isTypeScriptIdentifier(item.selector.name.trim())) {
+      if (typeof item.selector.name !== "string" || !item.selector.name
+          || item.selector.name !== item.selector.name.trim()
+          || !isTypeScriptIdentifier(item.selector.name)) {
         throw new Error(`Task context item ${item.id} TypeScript function selector is invalid.`);
       }
     } else {
@@ -1137,7 +1138,8 @@ export function isValidFileContextSelector(selector: unknown): selector is FileC
     return typeof value.heading === "string" && Boolean(trimMarkdownHeadingWhitespace(value.heading));
   }
   if (value.kind === "typescript-function") {
-    return typeof value.name === "string" && Boolean(value.name.trim()) && isTypeScriptIdentifier(value.name.trim());
+    return typeof value.name === "string" && Boolean(value.name)
+      && value.name === value.name.trim() && isTypeScriptIdentifier(value.name);
   }
   return false;
 }

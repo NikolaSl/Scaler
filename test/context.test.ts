@@ -709,7 +709,7 @@ test("TypeScript function selector round-trips through the durable manifest", as
 
 test("TypeScript function selector rejects malformed selector names", () => {
   const state = createDefaultState();
-  for (const name of ["", "target.value", "two words", "return", "{ target }"]) {
+  for (const name of ["", " target ", "target.value", "two words", "return", "{ target }"]) {
     assert.throws(() => validateTaskContextManifest({
       version: 1, taskId: "T-FUNCTION", createdAt: state.createdAt, updatedAt: state.createdAt,
       items: [{ id: `selected-${name}`, type: "file", reason: "Exact callable", priority: "required",
