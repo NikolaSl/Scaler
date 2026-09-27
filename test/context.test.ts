@@ -591,6 +591,46 @@ test("file section scope resolves the selected exact Markdown heading", async ()
   });
 });
 
+test("file section scope resolves the selected exact TypeScript function", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await mkdir(join(dir, "src"), { recursive: true });
+    const selected = [
+      "export async function selectedFunction(input: string): Promise<string> {",
+      "  const normalized = input.trim();",
+      "  return normalized.toUpperCase();",
+      "}",
+    ].join("\r\n");
+    const source = [
+      "const unrelatedPrefix = 'do not include';",
+      "export function beforeFunction(): void {}",
+      selected,
+      "export function afterFunction(): void {}",
+      "",
+    ].join("\r\n");
+    await writeFile(join(dir, "src", "example.ts"), source, "utf8");
+    const manifest = {
+      version: 1 as const,
+      taskId: "T-FUNCTION",
+      items: [{
+        id: "selected-function", type: "file" as const, reason: "Exact function contract",
+        priority: "required" as const, scope: "section" as const, source: "file" as const,
+        path: "src/example.ts",
+        selector: { kind: "typescript-function", name: "selectedFunction" },
+      }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    };
+
+    const [item] = await resolveTaskContextManifest(dir, state, manifest as never);
+
+    assert.equal(item?.available, true);
+    assert.equal(item?.content, selected);
+    assert.doesNotMatch(item?.content ?? "", /unrelatedPrefix|beforeFunction|afterFunction/);
+    assert.equal(item?.exactness, "exact");
+  });
+});
+
 test("inline backtick text does not hide the next Markdown heading", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState();
