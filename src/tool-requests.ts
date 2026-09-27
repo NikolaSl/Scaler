@@ -86,6 +86,21 @@ export interface ToolRequestInput {
   permissionRequirement?: string;
   safetyNotes?: string;
   allowedTools?: string[];
+  directOperation?: ToolDirectOperationInput;
+}
+
+export interface ToolDirectOperationInput {
+  adapterId: string;
+  arguments: {
+    toolName: string;
+  };
+}
+
+export interface ToolDirectOperation {
+  adapterId: "builtin:tool-catalog-entry-v1";
+  arguments: {
+    toolName: string;
+  };
 }
 
 export type ToolRequestStatus = "prepared" | "completed" | "failed" | "blocked";
@@ -115,6 +130,7 @@ export interface ToolRequestRecord {
   permissionRequirement?: string;
   safetyNotes?: string;
   allowedTools: string[];
+  directOperation?: ToolDirectOperation;
   status: ToolRequestStatus;
   createdAt: string;
   updatedAt?: string;
@@ -338,6 +354,7 @@ export interface ToolDispatchRouteBasis {
   invocationFingerprint: string;
   toolNames: readonly string[];
   resultBytesReserve: number;
+  directOperation?: Readonly<ToolDirectOperation>;
 }
 
 export interface ToolDispatchRouteSnapshot {
@@ -353,13 +370,15 @@ export type ToolDispatchRouteEvidenceSupplier = (
 
 export interface ToolDispatchAdmissionRecord {
   version: 1;
-  route: "isolated";
+  route: "direct" | "isolated";
   authorized: true;
   requestFingerprint: string;
   invocationFingerprint: string;
   evidenceFingerprint: string;
   profileFingerprint: string;
-  modelId: string;
+  modelId?: string;
+  directAdapterId?: string;
+  directArgumentsFingerprint?: string;
   selectedEstimatedOverheadUpperBound: number;
 }
 
@@ -1368,19 +1387,23 @@ export async function runToolRequestAgent(
   const execution = claim.transaction;
   agentRequest.executionId = execution.id;
   const beforeResultIds = new Set((await loadToolResults(cwd)).map((record) => record.id));
-  const runResult = await runToolAgentWithOutcome(agentRequest, {
-    timeoutMs: options.timeoutMs,
-    command: options.command,
-    outputLimits: limits,
-  }, runner);
+  const runResult = execution.routeAdmission?.route === "direct"
+    ? await runDirectToolOperation(cwd, state, request, execution)
+    : await runToolAgentWithOutcome(agentRequest, {
+        timeoutMs: options.timeoutMs,
+        command: options.command,
+        outputLimits: limits,
+      }, runner);
   const finalized = await finalizeToolExecution(cwd, request, execution, runResult, beforeResultIds, false);
   const { request: updatedRequest, resultRecord, transaction } = finalized;
-  await recordToolExecutionUsage(cwd, runResult.usage, {
-    source: "tool-agent-run",
-    taskId: request.taskId,
-    agentId: request.id,
-    agentType: "tool",
-  });
+  if (execution.routeAdmission?.route !== "direct") {
+    await recordToolExecutionUsage(cwd, runResult.usage, {
+      source: "tool-agent-run",
+      taskId: request.taskId,
+      agentId: request.id,
+      agentType: "tool",
+    });
+  }
   await appendToolExecutionAudit(cwd, state, { eventType: "tool", summary: transaction.message, taskId: request.taskId, details: { transaction, runResult, resultRecord } });
   return {
     accepted: finalized.accepted,
@@ -1723,6 +1746,13 @@ export async function prepareToolRequest(
   if (!input.request.trim()) {
     return rejectToolRequest(cwd, state, input, "Tool request rejected: request is required");
   }
+  const directOperation = normalizeDirectOperation(input.directOperation);
+  if (input.directOperation !== undefined && !directOperation) {
+    return rejectToolRequest(cwd, state, input, "Tool request rejected: direct operation is malformed or unsupported");
+  }
+  if (directOperation && input.toolName.trim() !== "scaler_tool_catalog") {
+    return rejectToolRequest(cwd, state, input, "Tool request rejected: direct operation does not match scaler_tool_catalog");
+  }
 
   const record: ToolRequestRecord = {
     id: randomUUID(),
@@ -1737,6 +1767,7 @@ export async function prepareToolRequest(
     permissionRequirement: input.permissionRequirement?.trim() || undefined,
     safetyNotes: input.safetyNotes?.trim() || undefined,
     allowedTools: uniqueNonEmpty([input.toolName, ...(input.allowedTools ?? [])]),
+    directOperation,
     status: "prepared",
     createdAt: now.toISOString(),
   };
@@ -2043,6 +2074,48 @@ async function selectRunnableToolRequest(cwd: string, requestId?: string): Promi
   return prepared.sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0];
 }
 
+async function runDirectToolOperation(
+  cwd: string,
+  state: ScalerState,
+  request: ToolRequestRecord,
+  execution: ToolTransactionRecord,
+): Promise<TaskAgentRunResult> {
+  const taskId = `tool-${request.id}`;
+  const operation = request.directOperation;
+  const admission = execution.routeAdmission;
+  try {
+    if (!operation
+      || request.toolName !== "scaler_tool_catalog"
+      || admission?.route !== "direct"
+      || admission.directAdapterId !== operation.adapterId
+      || admission.directArgumentsFingerprint !== fingerprintDirectOperation(operation)) {
+      throw new Error("direct execution identity is incomplete or changed");
+    }
+    const entry = getToolCatalogEntries([operation.arguments.toolName], await loadToolSchemaRecords(cwd))[0];
+    if (!entry) throw new Error("direct catalog entry was not produced");
+    await recordToolResult(cwd, state, {
+      requestId: request.id,
+      executionId: execution.id,
+      status: "completed",
+      summary: `Direct catalog lookup completed for ${operation.arguments.toolName}.`,
+      outputs: { entry },
+      validationPerformed: ["runtime-owned exact catalog lookup"],
+    });
+    return { taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
+  } catch {
+    return {
+      taskId,
+      exitCode: 1,
+      stdoutEvents: [],
+      stderr: "Direct tool operation failed before a valid bounded result was recorded.",
+      timedOut: false,
+      aborted: false,
+      stdoutBytes: 0,
+      stderrBytes: 0,
+    };
+  }
+}
+
 async function runToolAgentWithOutcome(
   request: TaskAgentRequest,
   options: RunTaskAgentOptions,
@@ -2104,6 +2177,12 @@ async function prepareToolDispatchAdmission(
     invocationFingerprint: fingerprintInvocation(baseInvocation),
     toolNames: Object.freeze([...request.allowedTools]),
     resultBytesReserve: limits.resultBytes,
+    directOperation: request.directOperation
+      ? Object.freeze({
+          adapterId: request.directOperation.adapterId,
+          arguments: Object.freeze({ ...request.directOperation.arguments }),
+        })
+      : undefined,
   });
 
   let snapshot: ToolDispatchRouteSnapshot;
@@ -2119,19 +2198,44 @@ async function prepareToolDispatchAdmission(
     || !isPlainObject(snapshot.evidence)) {
     return refuse("live route evidence is malformed or bound to another request/execution");
   }
-  if (snapshot.evidence.isolationRequirement !== "capability"
-    && snapshot.evidence.isolationRequirement !== "focus"
-    && snapshot.evidence.isolationRequirement !== "evidence-independence") {
-    return refuse("live route evidence lacks an explicit isolation requirement");
-  }
-
   const routeRequest = buildToolRouteRequestBasis(request, executionId);
   const assessment = assessToolRoute({ ...snapshot.evidence, request: routeRequest });
-  if (assessment.route !== "isolated") {
+  if (assessment.route !== "direct" && assessment.route !== "isolated") {
     return refuse(`live route recomputation recommended ${assessment.route} (${assessment.reasonCode})`);
   }
   if (!assessment.evidenceFingerprint || !assessment.profileFingerprint || assessment.selectedEstimatedOverheadUpperBound === null) {
     return refuse("live route recomputation did not produce complete compact identity");
+  }
+
+  if (assessment.route === "direct") {
+    const directOperation = request.directOperation;
+    if (!directOperation) return refuse("live route recomputation recommended direct but the request has no durable exact operation");
+    if (assessment.direct.adapterId !== directOperation.adapterId) {
+      return refuse(`live direct adapter ${assessment.direct.adapterId ?? "<missing>"} does not match ${directOperation.adapterId}`);
+    }
+    const invocation: TaskAgentInvocation = {
+      command: directOperation.adapterId,
+      args: ["--tool-name", directOperation.arguments.toolName],
+      cwd: baseInvocation.cwd,
+    };
+    const routeAdmission: ToolDispatchAdmissionRecord = {
+      version: 1,
+      route: "direct",
+      authorized: true,
+      requestFingerprint,
+      invocationFingerprint: fingerprintInvocation(invocation),
+      evidenceFingerprint: assessment.evidenceFingerprint,
+      profileFingerprint: assessment.profileFingerprint,
+      directAdapterId: directOperation.adapterId,
+      directArgumentsFingerprint: fingerprintDirectOperation(directOperation),
+      selectedEstimatedOverheadUpperBound: assessment.selectedEstimatedOverheadUpperBound,
+    };
+    return { accepted: true, executionId, agentRequest: baseAgentRequest, invocation, routeAdmission };
+  }
+  if (snapshot.evidence.isolationRequirement !== "capability"
+    && snapshot.evidence.isolationRequirement !== "focus"
+    && snapshot.evidence.isolationRequirement !== "evidence-independence") {
+    return refuse("live route evidence lacks an explicit isolation requirement");
   }
 
   const isolated = isPlainObject(snapshot.evidence.isolated) ? snapshot.evidence.isolated : undefined;
@@ -2214,6 +2318,7 @@ function buildToolRouteRequestBasis(request: ToolRequestRecord, executionId?: st
       riskLevel: request.riskLevel,
       permissionRequirement: request.permissionRequirement,
       safetyNotes: request.safetyNotes,
+      directOperation: request.directOperation,
     },
   };
 }
@@ -2232,6 +2337,7 @@ function fingerprintToolRequest(request: ToolRequestRecord): string {
     permissionRequirement: request.permissionRequirement,
     safetyNotes: request.safetyNotes,
     allowedTools: request.allowedTools,
+    directOperation: request.directOperation,
     status: request.status,
     createdAt: request.createdAt,
   }), "utf8").digest("hex");
@@ -2243,6 +2349,10 @@ function fingerprintInvocation(invocation: TaskAgentInvocation): string {
     args: invocation.args,
     cwd: invocation.cwd,
   }), "utf8").digest("hex");
+}
+
+function fingerprintDirectOperation(operation: ToolDirectOperation): string {
+  return createHash("sha256").update(JSON.stringify(operation), "utf8").digest("hex");
 }
 
 async function beginToolExecution(
@@ -2280,7 +2390,7 @@ async function beginToolExecution(
     const refusal = limitDiagnostics.length > 0
       ? `invalid runtime execution limits: ${limitDiagnostics.join("; ")}`
       : !routeAdmission
-        ? "live isolated route admission is missing"
+        ? "live route admission is missing"
         : !currentRequest
           ? `request ${request.id} disappeared before dispatch`
           : currentRequestFingerprint !== routeAdmission.requestFingerprint
@@ -2369,6 +2479,11 @@ async function finalizeToolExecution(
       && runResult.outputLimitExceeded === undefined;
     const processSucceeded = runResult.exitCode === 0 && !runResult.timedOut && !runResult.aborted && measurementsValid;
     const requestUnchanged = currentRequest?.status === request.status && currentRequest.activeExecutionId === execution.id;
+    const routeIdentityUnchanged = execution.routeAdmission?.route === "isolated"
+      ? typeof execution.routeAdmission.modelId === "string" && execution.routeAdmission.modelId.length > 0
+      : execution.routeAdmission?.route === "direct"
+        && execution.routeAdmission.directAdapterId === request.directOperation?.adapterId
+        && execution.routeAdmission.directArgumentsFingerprint === (request.directOperation ? fingerprintDirectOperation(request.directOperation) : undefined);
     const executionUnchanged = currentExecution?.status === "prepared"
       && currentExecution.requestId === execution.requestId
       && currentExecution.toolName === execution.toolName
@@ -2378,7 +2493,7 @@ async function finalizeToolExecution(
       && JSON.stringify(currentExecution.limits) === JSON.stringify(execution.limits)
       && JSON.stringify(currentExecution.routeAdmission) === JSON.stringify(execution.routeAdmission)
       && execution.routeAdmission?.authorized === true
-      && execution.routeAdmission.route === "isolated"
+      && routeIdentityUnchanged
       && fingerprintToolRequest(currentRequest ?? request) === execution.routeAdmission.requestFingerprint
       && fingerprintInvocation(execution.invocation) === execution.routeAdmission.invocationFingerprint;
     const ownershipUnchanged = requestUnchanged && executionUnchanged;
@@ -2614,6 +2729,19 @@ function redactSecretLikeValue(value: string): string {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeDirectOperation(value: unknown): ToolDirectOperation | undefined {
+  if (!isPlainObject(value)
+    || value.adapterId !== "builtin:tool-catalog-entry-v1"
+    || !isPlainObject(value.arguments)
+    || Object.keys(value).some((key) => key !== "adapterId" && key !== "arguments")
+    || Object.keys(value.arguments).some((key) => key !== "toolName")) {
+    return undefined;
+  }
+  const toolName = value.arguments.toolName;
+  if (typeof toolName !== "string" || toolName.length === 0 || toolName !== toolName.trim()) return undefined;
+  return { adapterId: value.adapterId, arguments: { toolName } };
 }
 
 async function withToolLedgerWriteQueue<T>(cwd: string, fn: () => Promise<T>): Promise<T> {
