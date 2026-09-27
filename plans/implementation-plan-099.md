@@ -218,7 +218,9 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   attempt-bearing prompt that exceeds a valid allowance may trigger the existing
   projection even when context-only usage stays below its 75% target. Wrapper-only
   and non-shrinking cases still refuse. This does not add semantic inference,
-  decomposition, a new executor or model-quality/savings evidence.
+  decomposition, a new executor or model-quality/savings evidence. Split
+  records distinguish active-context and final-prompt triggers and retain the
+  measured prompt overage; SC-07/AC-07 stays Partial.
 
 ### Renewed continuation policy (2026-09-19)
 

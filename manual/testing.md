@@ -488,6 +488,19 @@ TypeScript build, 1,120 unit/component tests, 67 mock integration tests, 7
 conformance/autopilot tests, 44 focused debug-retry/context-split/attempt checks
 and `git diff --check`.
 
+PLAN-142 makes the effective split trigger use measured inline bytes rather than
+trusting an understated caller token estimate. Executed conductor and debug
+retry paths may also project an eligible item when the complete attempt-bearing
+prompt exceeds a valid allowance even though context-only usage remains below
+the 75% target. Run `node --test --import tsx test/compression.test.ts
+test/context-splits.test.ts test/conductor.test.ts test/debug-retry.test.ts
+test/attempt-execution.test.ts` to cover measured candidate selection, both
+execution paths, ordinary target-triggered behavior, wrapper-only refusal,
+malformed allowances, missing `read`, non-shrinking projection and freshness
+checks. These deterministic fixtures do not establish semantic selector
+inference, task decomposition, automatic retry policy, model quality, savings
+or scale; SC-07 remains Partial.
+
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx
 test/stage-artifact-outcome.test.ts test/stage-agents.test.ts

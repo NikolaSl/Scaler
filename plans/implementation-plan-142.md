@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress on the P3 preparation branch; final phase review and merge remain
+Implemented on the P3 preparation branch; final phase review and merge remain
 pending.
 
 ## Observed prerequisite gap
@@ -50,3 +50,16 @@ This unit does not add semantic selector inference, task decomposition, a new
 executor, automatic retry policy, local-model execution, or evidence of model
 quality, savings or scale. It closes only the measured trigger gap around the
 existing effective split implementation; SC-07 remains Partial.
+
+## Implementation evidence
+
+- Compression and split eligibility take the larger of a safe non-negative
+  caller estimate and the measured inline-content estimate.
+- Conductor and debug-retry execution assess the original complete
+  attempt-bearing prompt before deciding whether final-prompt overflow can
+  force an eligible split.
+- Split records persist `active_context_target` or `final_prompt_allowance` and
+  the measured prompt overage where applicable.
+- Existing projection, `read`, shrink, prompt-admission and freshness checks
+  remain the only path to dispatch; no externalizable item means no forced
+  record.
