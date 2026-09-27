@@ -309,6 +309,18 @@ export async function discoverSemanticContextCandidates(
     if (!linkQuery.label) return [];
     return discoverMarkdownLinkCandidates(cwd, task, taskId, linkQuery.label, options.limit ?? 10);
   }
+  const importedCallerQuery = parseImportedCallerCandidateQuery(options.query);
+  if (importedCallerQuery.requested) {
+    if (!importedCallerQuery.specifier || !importedCallerQuery.name) return [];
+    return discoverImportedCallerCandidates(
+      cwd,
+      task,
+      taskId,
+      importedCallerQuery.specifier,
+      importedCallerQuery.name,
+      options.limit ?? 10,
+    );
+  }
   const importedFunctionQuery = parseImportedFunctionCandidateQuery(options.query);
   if (importedFunctionQuery.requested) {
     if (!importedFunctionQuery.specifier || !importedFunctionQuery.name) return [];
@@ -857,6 +869,22 @@ function parseImportedFunctionCandidateQuery(
   return { requested: true, specifier, name };
 }
 
+function parseImportedCallerCandidateQuery(
+  query: string | undefined,
+): { requested: boolean; specifier?: string; name?: string } {
+  const value = query ?? "";
+  const prefix = "import-caller:";
+  if (!value.startsWith(prefix)) return { requested: false };
+  const separator = value.indexOf("#", prefix.length);
+  if (separator < 0 || separator !== value.lastIndexOf("#")) return { requested: true };
+  const specifier = value.slice(prefix.length, separator);
+  const name = value.slice(separator + 1);
+  if (!isEligibleLocalSourceModuleSpecifier(specifier)
+    || !isTypeScriptIdentifier(name)
+    || name !== name.trim()) return { requested: true };
+  return { requested: true, specifier, name };
+}
+
 function isEligibleLocalSourceModuleSpecifier(specifier: string): boolean {
   return Boolean(specifier
     && specifier === specifier.trim()
@@ -1104,6 +1132,171 @@ async function discoverImportedFunctionCandidates(
   return [...candidates.values()]
     .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
     .slice(0, limit);
+}
+
+async function discoverImportedCallerCandidates(
+  cwd: string,
+  task: ScalerTaskState,
+  taskId: string,
+  specifier: string,
+  importedName: string,
+  limit: number,
+): Promise<ContextCandidate[]> {
+  const changedPaths = await getGitChangedPaths(cwd);
+  const candidates = new Map<string, ContextCandidate>();
+  for (const sourcePath of await discoverAllowedCandidateFilePaths(cwd, task, changedPaths)) {
+    const scriptKind = getTypeScriptScriptKind(sourcePath);
+    if (scriptKind === undefined) continue;
+    let source: string;
+    try {
+      const stable = await readStableContextFile(cwd, sourcePath);
+      if (!stable.outputExemptible) continue;
+      source = stable.bytes.toString("utf8");
+    } catch {
+      continue;
+    }
+    const targetPath = normalizeLocalModuleImportDestination(cwd, sourcePath, specifier);
+    if (!targetPath
+      || !taskPathMatches(targetPath, task.allowedPathPrefixes ?? [])
+      || isRuntimePath(targetPath)
+      || getTypeScriptScriptKind(targetPath) === undefined) continue;
+    try {
+      const target = await readStableContextFile(cwd, targetPath);
+      if (!target.outputExemptible
+        || !hasUniqueDirectExportedCallable(target.bytes.toString("utf8"), targetPath, importedName)) continue;
+    } catch {
+      continue;
+    }
+    const callers = findExactImportedTopLevelCallers(source, sourcePath, scriptKind, specifier, importedName);
+    for (const callerName of callers) {
+      const selector = { kind: "typescript-function", name: callerName } as const;
+      try {
+        renderFileContextContent(source, sourcePath, "section", selector);
+      } catch {
+        continue;
+      }
+      const key = `${sourcePath}\0${callerName}`;
+      if (candidates.has(key)) continue;
+      const candidateSource: ContextCandidateSource = changedPaths.includes(sourcePath) ? "changed_file" : "file";
+      candidates.set(key, {
+        id: buildImportedCallerCandidateId(sourcePath, specifier, importedName, callerName),
+        taskId,
+        source: candidateSource,
+        type: "file",
+        reason: `Exact imported caller ${callerName} invokes ${importedName} through local module edge ${specifier} in ${sourcePath}; approval is required before adding its selector to the manifest.`,
+        score: candidateSource === "changed_file" ? 11 : 10,
+        priority: "useful",
+        scope: "section",
+        exactness: "exact",
+        path: sourcePath,
+        selector,
+      });
+    }
+  }
+  return [...candidates.values()]
+    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+    .slice(0, limit);
+}
+
+function findExactImportedTopLevelCallers(
+  content: string,
+  path: string,
+  scriptKind: ts.ScriptKind,
+  specifier: string,
+  importedName: string,
+): string[] {
+  const source = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, true, scriptKind);
+  const parseDiagnostics = (source as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? [];
+  if (parseDiagnostics.length > 0) return [];
+  const localNames = new Set<string>();
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement)
+      || !ts.isStringLiteral(statement.moduleSpecifier)
+      || statement.moduleSpecifier.text !== specifier
+      || !statement.importClause
+      || statement.importClause.isTypeOnly
+      || !statement.importClause.namedBindings
+      || !ts.isNamedImports(statement.importClause.namedBindings)) continue;
+    for (const element of statement.importClause.namedBindings.elements) {
+      if (!element.isTypeOnly && (element.propertyName?.text ?? element.name.text) === importedName) {
+        localNames.add(element.name.text);
+      }
+    }
+  }
+  if (localNames.size === 0) return [];
+
+  const callers = new Set<string>();
+  for (const statement of source.statements) {
+    let callerName: string | undefined;
+    let callable: ts.FunctionLikeDeclaration | undefined;
+    if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) {
+      callerName = statement.name.text;
+      callable = statement;
+    } else if (ts.isVariableStatement(statement) && statement.declarationList.declarations.length === 1) {
+      const declaration = statement.declarationList.declarations[0]!;
+      if (ts.isIdentifier(declaration.name)
+        && declaration.initializer
+        && (ts.isArrowFunction(declaration.initializer) || ts.isFunctionExpression(declaration.initializer))) {
+        callerName = declaration.name.text;
+        callable = declaration.initializer;
+      }
+    }
+    if (!callerName || !callable) continue;
+    for (const localName of localNames) {
+      if (callerName === localName || callableShadowsName(callable, localName)) continue;
+      if (callableContainsDirectCall(callable, localName)) callers.add(callerName);
+    }
+  }
+  return [...callers];
+}
+
+function callableContainsDirectCall(callable: ts.FunctionLikeDeclaration, localName: string): boolean {
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (found) return;
+    if (node !== callable && (ts.isFunctionLike(node) || ts.isClassLike(node))) return;
+    if (ts.isCallExpression(node)
+      && node.questionDotToken === undefined
+      && ts.isIdentifier(node.expression)
+      && node.expression.text === localName) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  if (callable.body) visit(callable.body);
+  return found;
+}
+
+function callableShadowsName(callable: ts.FunctionLikeDeclaration, localName: string): boolean {
+  if (callable.parameters.some((parameter) => bindingNameContains(parameter.name, localName))) return true;
+  let shadowed = false;
+  const visit = (node: ts.Node): void => {
+    if (shadowed) return;
+    if (node !== callable && (ts.isFunctionLike(node) || ts.isClassLike(node))) return;
+    if ((ts.isVariableDeclaration(node) || ts.isParameter(node) || ts.isBindingElement(node))
+      && bindingNameContains(node.name, localName)) {
+      shadowed = true;
+      return;
+    }
+    if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) && node.name?.text === localName) {
+      shadowed = true;
+      return;
+    }
+    if (ts.isCatchClause(node) && node.variableDeclaration
+      && bindingNameContains(node.variableDeclaration.name, localName)) {
+      shadowed = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  if (callable.body) visit(callable.body);
+  return shadowed;
+}
+
+function bindingNameContains(name: ts.BindingName, expected: string): boolean {
+  if (ts.isIdentifier(name)) return name.text === expected;
+  return name.elements.some((element) => !ts.isOmittedExpression(element) && bindingNameContains(element.name, expected));
 }
 
 function hasExactStaticNamedModuleBinding(
@@ -1565,6 +1758,13 @@ function buildLocalModuleImportCandidateId(path: string, specifier: string): str
 function buildImportedFunctionCandidateId(path: string, specifier: string, name: string): string {
   const identity = createHash("sha256").update(path).update("\0").update(specifier).update("\0").update(name).digest("hex").slice(0, 12);
   return `candidate-import-function-${identity}-${slugify(name)}-${slugifyPath(path)}`;
+}
+
+function buildImportedCallerCandidateId(path: string, specifier: string, importedName: string, callerName: string): string {
+  const identity = createHash("sha256")
+    .update(path).update("\0").update(specifier).update("\0").update(importedName).update("\0").update(callerName)
+    .digest("hex").slice(0, 12);
+  return `candidate-import-caller-${identity}-${slugify(callerName)}-${slugifyPath(path)}`;
 }
 
 function unique(values: string[]): string[] {
