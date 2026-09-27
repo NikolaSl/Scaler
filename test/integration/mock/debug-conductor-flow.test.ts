@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { test } from "node:test";
 import { loadDebugAgentRunRecords } from "../../../src/debug-agent.js";
-import { runDebugConductorLoop, type DebugConductorRunners } from "../../../src/debug-conductor.js";
+import type { DebugConductorRunners } from "../../../src/debug-conductor.js";
 import { loadDebugReports } from "../../../src/debug.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { loadProposedExecutionPlan, loadReplanRequests } from "../../../src/plans.js";
@@ -21,7 +21,7 @@ import { loadReplanAgentRunRecords } from "../../../src/replan-agent.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
 import { applyValidationReport } from "../../../src/validation.js";
-import { runValidationDebugLoopWorkflow } from "../../../src/validation-debug-loop.js";
+import { runDebugConductorLoop, runValidationDebugLoopWorkflow } from "./provider-bound-helpers.js";
 
 const execFileAsync = promisify(execFile);
 

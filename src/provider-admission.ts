@@ -123,7 +123,7 @@ export function readProviderAdmissionModelBindingFromEnvironment(
     environment.SCALER_EXPECTED_CONTEXT_WINDOW,
   ];
   if (values.every((value) => value === undefined)) {
-    return { accepted: true, message: "No exact provider model binding configured." };
+    return { accepted: false, message: "Strict provider admission requires an exact provider model binding." };
   }
   const [api, provider, id] = values;
   const contextWindow = parseStrictInteger(environment.SCALER_EXPECTED_CONTEXT_WINDOW);

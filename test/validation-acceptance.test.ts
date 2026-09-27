@@ -11,7 +11,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { test } from "node:test";
-import { runConductorStep } from "../src/conductor.js";
+import { runConductorStep as runConductorStepImpl } from "../src/conductor.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const runConductorStep: typeof runConductorStepImpl = (cwd, state, options = {}, runner) =>
+  runConductorStepImpl(cwd, state, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runner);
 import { commitValidatedTask, loadCommitReports, loadCommitSkips, skipTaskCommit } from "../src/git.js";
 import { commitWithExecutionLock, skipCommitWithExecutionLock } from "../src/operations.js";
 import { getValidationRunsPath } from "../src/paths.js";

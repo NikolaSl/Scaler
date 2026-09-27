@@ -8,12 +8,12 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { runConductorStep } from "../../../src/conductor.js";
 import { dispatchMissingContextRequest, loadMissingContextRequests } from "../../../src/missing-context.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
 import type { ScalerState } from "../../../src/types.js";
 import { saveValidationManifest } from "../../../src/validation.js";
+import { runConductorStep } from "./provider-bound-helpers.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-missing-context-flow-"));

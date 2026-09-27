@@ -28,7 +28,9 @@ export interface TaskAgentRequest {
   appendSystemPromptPath?: string;
   extensionPaths?: string[];
   providerAdmission?: ProviderAdmissionPolicy;
-  /** Optional exact live-model identity bound by the parent admission decision. */
+  /** @deprecated Strict admission always refuses tools the isolated loader cannot provide. */
+  enforceLoadedToolAvailability?: boolean;
+  /** Exact live-model identity bound by the parent admission decision. Required for strict children. */
   providerAdmissionModel?: ProviderAdmissionModel;
   attempt?: TaskAttemptBinding;
 }
@@ -57,6 +59,39 @@ export interface TaskAgentOutputLimits {
   stderrBytes: number;
 }
 
+export class TaskAgentInvocationAdmissionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TaskAgentInvocationAdmissionError";
+  }
+}
+
+const STRICT_CHILD_TOOL_NAMES = new Set([
+  "bash", "edit", "find", "grep", "ls", "read", "write",
+  "scaler_report", "scaler_memory_write", "scaler_memory_retrieve", "scaler_memory_search",
+  "scaler_research_report", "scaler_task_report", "scaler_spawn_task", "scaler_tool_request",
+  "scaler_tool_schema", "scaler_tool_result", "scaler_task_create", "scaler_task_update",
+  "scaler_planning_report", "scaler_prd_write", "scaler_prd_requirement_update",
+  "scaler_validation_manifest_write", "scaler_validation_report", "scaler_debug_attempt",
+]);
+
+export function assertStrictChildToolAvailability(request: TaskAgentRequest): void {
+  if (request.providerAdmission === undefined) return;
+  if (!request.noTools && request.tools !== undefined) {
+    if (!Array.isArray(request.tools)
+      || request.tools.some((tool) => typeof tool !== "string")
+      || Array.from({ length: request.tools.length }, (_, index) => index).some((index) => !(index in request.tools!))) {
+      throw new TaskAgentInvocationAdmissionError("Strict child invocation has malformed granted tools.");
+    }
+  }
+  const unavailableTools = normalizeGrantedTools(request).filter((tool) => !STRICT_CHILD_TOOL_NAMES.has(tool));
+  if (unavailableTools.length > 0) {
+    throw new TaskAgentInvocationAdmissionError(
+      `Strict child invocation cannot load granted tools: ${unavailableTools.join(", ")}.`,
+    );
+  }
+}
+
 export const DEFAULT_TASK_AGENT_OUTPUT_LIMITS: Readonly<TaskAgentOutputLimits> = Object.freeze({
   stdoutBytes: 4 * 1024 * 1024,
   stderrBytes: 1024 * 1024,
@@ -75,16 +110,27 @@ export function buildTaskAgentInvocation(request: TaskAgentRequest, command = "p
   const strictProviderAdmission = request.providerAdmission !== undefined;
   if (strictProviderAdmission) {
     const diagnostics = validateProviderAdmissionPolicy(request.providerAdmission!);
-    if (diagnostics.length > 0) throw new Error(`Invalid provider admission policy: ${diagnostics.join("; ")}.`);
-    if ((request.extensionPaths?.length ?? 0) > 0) {
-      throw new Error("Strict provider admission does not allow additional extension paths.");
+    if (diagnostics.length > 0) {
+      throw new TaskAgentInvocationAdmissionError(`Invalid provider admission policy: ${diagnostics.join("; ")}.`);
     }
-    if (request.providerAdmissionModel) validateProviderAdmissionModelBinding(request.providerAdmissionModel);
+    if ((request.extensionPaths?.length ?? 0) > 0) {
+      throw new TaskAgentInvocationAdmissionError("Strict provider admission does not allow additional extension paths.");
+    }
+    if (!request.providerAdmissionModel) {
+      throw new TaskAgentInvocationAdmissionError("Strict child invocation requires an exact provider model binding.");
+    }
+    validateProviderAdmissionModelBinding(request.providerAdmissionModel);
+    if (request.model !== undefined
+      && request.model !== request.providerAdmissionModel.id
+      && request.model !== `${request.providerAdmissionModel.provider}/${request.providerAdmissionModel.id}`) {
+      throw new TaskAgentInvocationAdmissionError("Strict child model selector conflicts with the exact provider model binding.");
+    }
     args.push("--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files");
   }
   if (!strictProviderAdmission && request.providerAdmissionModel) {
-    throw new Error("Exact provider model binding requires strict provider admission.");
+    throw new TaskAgentInvocationAdmissionError("Exact provider model binding requires strict provider admission.");
   }
+  assertStrictChildToolAvailability(request);
   const grantedTools = normalizeGrantedTools(request);
   const extensionPaths = resolveChildAgentExtensionPaths(request, grantedTools.length > 0);
 
@@ -92,7 +138,9 @@ export function buildTaskAgentInvocation(request: TaskAgentRequest, command = "p
     args.push("-e", extensionPath);
   }
 
-  if (request.model) {
+  if (strictProviderAdmission) {
+    args.push("--provider", String(request.providerAdmissionModel!.provider), "--model", String(request.providerAdmissionModel!.id));
+  } else if (request.model) {
     args.push("--model", request.model);
   }
 
@@ -113,6 +161,23 @@ export function buildTaskAgentInvocation(request: TaskAgentRequest, command = "p
     args,
     cwd: request.cwd,
   };
+}
+
+export function taskAgentRunSucceeded(result: TaskAgentRunResult): boolean {
+  if (result.exitCode !== 0 || result.timedOut || result.aborted || result.outputLimitExceeded !== undefined) return false;
+  for (let index = result.stdoutEvents.length - 1; index >= 0; index -= 1) {
+    const stopReason = terminalStopReason(result.stdoutEvents[index]);
+    if (stopReason) return !["aborted", "error"].includes(stopReason);
+  }
+  return true;
+}
+
+function terminalStopReason(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  if (typeof record.stopReason === "string") return record.stopReason.toLowerCase();
+  if (record.message && typeof record.message === "object") return terminalStopReason(record.message);
+  return undefined;
 }
 
 export function getDefaultScalerChildExtensionPath(): string {
@@ -344,7 +409,7 @@ function validateProviderAdmissionModelBinding(model: ProviderAdmissionModel): v
     || typeof model.contextWindow !== "number"
     || !Number.isSafeInteger(model.contextWindow)
     || model.contextWindow <= 0) {
-    throw new Error("Invalid exact provider model binding.");
+    throw new TaskAgentInvocationAdmissionError("Invalid exact provider model binding.");
   }
 }
 

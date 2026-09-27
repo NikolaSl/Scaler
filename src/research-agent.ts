@@ -10,6 +10,8 @@ import { logAgentPromptAudit, logStructuredReportAudit } from "./logging.js";
 import { loadExecutionPlan, summarizeExecutionPlan, formatExecutionPlanSummary, type ExecutionPlanArtifact } from "./plans.js";
 import { getResearchAgentRunsPath } from "./paths.js";
 import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdCoverageSummary, type RuntimePrdRequirementsFile } from "./prd.js";
+import { requireTaskPromptAdmission, TaskPromptAdmissionError, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
+import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import {
   formatResearchSummary,
@@ -21,7 +23,7 @@ import {
   type ResearchReportInput,
   type ResearchRequest,
 } from "./research.js";
-import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
 import type { ScalerState } from "./types.js";
 
@@ -42,9 +44,11 @@ export interface ResearchAgentInvocationOptions {
   tools?: string[];
   allowInternet?: boolean;
   model?: string;
+  providerAdmissionModel?: ProviderAdmissionModel;
   appendSystemPromptPath?: string;
   extensionPaths?: string[];
   command?: string;
+  tokenBudget?: number;
 }
 
 export interface RunResearchAgentOptions extends ResearchAgentInvocationOptions {
@@ -59,6 +63,7 @@ export interface ResearchAgentPreparation {
   request: TaskAgentRequest;
   invocation: TaskAgentInvocation;
   researchRequest: ResearchRequest;
+  promptAdmission: TaskPromptAdmissionDecision;
 }
 
 export interface ResearchReportExtractionResult {
@@ -103,6 +108,7 @@ export interface ResearchAgentStepResult {
   runRecord?: ResearchAgentRunRecord;
   ingestion?: ResearchReportIngestionResult;
   researchRequest?: ResearchRequest;
+  promptAdmission?: TaskPromptAdmissionDecision;
 }
 
 export type ResearchAgentRunner = typeof runTaskAgent;
@@ -184,6 +190,7 @@ export function prepareResearchAgentInvocation(
 ): ResearchAgentPreparation {
   const grantedTools = resolveResearchAgentGrantedTools(input.request, options);
   const prompt = buildResearchAgentPrompt({ ...input, grantedTools, allowInternet: options.allowInternet });
+  const promptAdmission = requireTaskPromptAdmission(prompt, options.tokenBudget);
   const request: TaskAgentRequest = {
     taskId: `research-agent-${input.request.id}`,
     prompt,
@@ -192,9 +199,12 @@ export function prepareResearchAgentInvocation(
     model: options.model,
     appendSystemPromptPath: options.appendSystemPromptPath,
     extensionPaths: options.extensionPaths,
+    providerAdmission: createStrictProviderAdmissionPolicy(promptAdmission.tokenBudget),
+    providerAdmissionModel: options.providerAdmissionModel,
+    enforceLoadedToolAvailability: true,
   };
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");
-  return { prompt, request, invocation, researchRequest: input.request };
+  return { prompt, request, invocation, researchRequest: input.request, promptAdmission };
 }
 
 export function resolveResearchAgentGrantedTools(request: ResearchRequest, options: ResearchAgentInvocationOptions = {}): string[] {
@@ -233,7 +243,18 @@ export async function runResearchAgentStep(
       const detail = options.requestId ? `No open research request found for ${options.requestId}.` : "No open research request found.";
       return { accepted: false, message: detail };
     }
-    const preparation = prepareResearchAgentInvocation(cwd, context, options);
+    let preparation: ResearchAgentPreparation;
+    try {
+      preparation = prepareResearchAgentInvocation(cwd, context, options);
+    } catch (error) {
+      if (!(error instanceof TaskPromptAdmissionError) && !(error instanceof TaskAgentInvocationAdmissionError)) throw error;
+      return {
+        accepted: false,
+        message: error.message,
+        researchRequest: context.request,
+        promptAdmission: error instanceof TaskPromptAdmissionError ? error.decision : undefined,
+      };
+    }
     await logAgentPromptAudit(cwd, state, {
       agentType: "research",
       agentId: context.request.id,
@@ -251,7 +272,7 @@ export async function runResearchAgentStep(
         agentType: "research",
       });
     }
-    const ingestion = runResult?.exitCode === 0 ? await ingestResearchReport(cwd, runResult.stdoutEvents) : { attempted: false, ingested: false };
+    const ingestion = runResult && taskAgentRunSucceeded(runResult) ? await ingestResearchReport(cwd, runResult.stdoutEvents) : { attempted: false, ingested: false };
     if (ingestion.attempted) {
       await logStructuredReportAudit(cwd, state, {
         reportType: "scaler_research_report",
@@ -272,6 +293,7 @@ export async function runResearchAgentStep(
       runRecord,
       ingestion,
       researchRequest: context.request,
+      promptAdmission: preparation.promptAdmission,
     };
   } finally {
     await releaseExecutionLock(cwd, lock.lock.id);
@@ -386,7 +408,7 @@ export async function recordResearchAgentRun(
   const record: ResearchAgentRunRecord = runResult ? {
     id: `research-agent-${now.getTime()}`,
     requestId,
-    status: runResult.exitCode === 0 ? "passed" : "failed",
+    status: taskAgentRunSucceeded(runResult) ? "passed" : "failed",
     exitCode: runResult.exitCode,
     stdoutEventCount: runResult.stdoutEvents.length,
     stderrSummary: summarizeOutput(runResult.stderr),

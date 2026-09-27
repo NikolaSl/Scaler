@@ -27,6 +27,14 @@ The current unattended mutation deadline is `2026-09-20T20:52:02Z`
 Stop unattended mutations then and preserve a handoff unless Nikola extends
 or changes the instruction. No paid model spending or deployment is authorized.
 
+Nikola renewed continuation for another 24 hours on 2026-09-26 at
+19:56:50Z. The current unattended mutation deadline is
+`2026-09-27T19:56:50Z` (22:56:50 Europe/Sofia), superseding the September 20
+cutoff. Continue from live Git and review state, report each published commit
+or an hourly no-commit status, and release checked ownership at handoff. The
+Copilot, test, expected-head merge, no-spending and no-deployment gates below
+remain in force.
+
 After that handoff, Nikola explicitly requested continuation again. PLAN-106
 records this direct continuation and its bounded scope; the same completed
 Copilot review, test, separate-commit and expected-head merge gates apply.
@@ -109,7 +117,34 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   externalized-source provenance without clipping exact bytes, while `execute`
   refuses before the runner until conductor-equivalent attempt, provider and
   result admission exist. It does not complete automatic effective splitting,
-  SC-07, SC-08 or AC-08.
+  SC-07, SC-08 or AC-08. PLAN-129 applies the existing prompt and provider
+  admission boundary to the shared stage-agent path. PLAN-130 then closes the
+  five reproduced remaining child-launch bypasses: research, diagnostic debug,
+  replanning, tool-schema discovery and explicit task spawn. Oversized or
+  malformed prompts now refuse before child dispatch and successful/prepared
+  run publication, and admitted requests carry the strict provider policy.
+  Unsupported browser/MCP/custom extension grants also refuse rather than being
+  promised to a child whose isolated loader cannot provide them; a trusted
+  external-capability adapter remains open. PLAN-131 makes that loaded-tool
+  check intrinsic to every strict child invocation, including conductor, debug
+  retry, stage agents and isolated tool execution/replay. Callers cannot disable
+  it with the legacy opt-in flag; malformed or sparse runtime grants also return
+  structured refusal before attempt, budget, run-record or execution-claim
+  publication. PLAN-132 then makes the exact host-selected API/provider/model/
+  context-window identity mandatory for every strict child. The same trusted
+  identity renders explicit `--provider` and `--model` selectors, is transported
+  to the final provider hook, and fingerprints task attempts. Missing,
+  malformed or conflicting identity refuses before dispatch or execution-side
+  publication; model-authored explicit-spawn selectors cannot override it.
+  Isolated-tool dispatch retains its fresher supplier-owned binding.
+  PLAN-133 closes the reproduced cross-invocation stage-artifact acceptance
+  bypass: failed or throwing children quarantine only artifact records added or
+  changed during their run, failed run records retain those artifact ids, and
+  conductor/workflow resume refuses the blocked artifact until explicit
+  replacement. This is a parent-observed process boundary, not authentication
+  of arbitrary filesystem writers or a crash-atomic multi-ledger transaction.
+  Parent interactive calls, provider-internal retries and alternate provider
+  payloads remain open; this is not SC-05/AC-05 completion.
 
 ### Renewed continuation policy (2026-09-19)
 

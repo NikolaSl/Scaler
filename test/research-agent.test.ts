@@ -17,14 +17,20 @@ import {
   formatResearchToolPolicy,
   ingestResearchReport,
   loadResearchAgentRunRecords,
-  prepareResearchAgentInvocation,
+  prepareResearchAgentInvocation as prepareResearchAgentInvocationImpl,
   recordResearchAgentRun,
   resolveResearchAgentGrantedTools,
-  runResearchAgentStep,
+  runResearchAgentStep as runResearchAgentStepImpl,
 } from "../src/research-agent.js";
 import { readLogEvents } from "../src/logging.js";
 import { loadResearchReports, loadResearchRequests, recordResearchReport, upsertResearchRequest } from "../src/research.js";
 import { createDefaultState } from "../src/state.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const prepareResearchAgentInvocation: typeof prepareResearchAgentInvocationImpl = (cwd, input, options = {}) =>
+  prepareResearchAgentInvocationImpl(cwd, input, { ...options, providerAdmissionModel: testProviderAdmissionModel });
+const runResearchAgentStep: typeof runResearchAgentStepImpl = (cwd, state, options = {}, runner) =>
+  runResearchAgentStepImpl(cwd, state, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runner);
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-research-agent-test-"));
@@ -106,14 +112,19 @@ test("prepareResearchAgentInvocation builds isolated Pi invocation", async () =>
     currentPlan: { version: 1, planVersion: 0, status: "draft", tasks: [], createdAt: state.createdAt, updatedAt: state.createdAt },
     requirements: { version: 1, requirements: [] },
     coverageSummary: { entries: [], countsByStatus: { pending: 0, in_progress: 0, implemented: 0, validated: 0, blocked: 0, needs_replan: 0 }, unlinkedRequirementIds: [], linkedRequirementIds: [] },
-  }, { command: "pi-test", model: "test-model", tools: ["read"] });
+  }, { command: "pi-test", model: "synthetic-8k", tools: ["read"] });
 
   assert.equal(preparation.researchRequest.id, "RESEARCH-001");
   assert.equal(preparation.request.taskId, "research-agent-RESEARCH-001");
   assert.equal(preparation.invocation.command, "pi-test");
   assert.equal(preparation.invocation.cwd, "/repo");
   assert.ok(preparation.invocation.args.includes("--model"));
-  assert.ok(preparation.invocation.args.includes("test-model"));
+  assert.ok(preparation.invocation.args.includes("synthetic-8k"));
+  assert.deepEqual(preparation.request.providerAdmission, {
+    requestTokenAllowance: 8_000,
+    outputReserveTokens: 1_024,
+    safetyMarginTokens: 1_024,
+  });
   assert.match(preparation.prompt, /Required final response/);
   assert.match(preparation.prompt, /local-scope request/);
 });
@@ -151,11 +162,10 @@ test("research internet grant policy withholds tools until explicitly allowed", 
   assert.equal(withoutGrant.invocation.args.includes("--tools"), false);
   assert.match(withoutGrant.prompt, /not explicitly granted/);
 
-  const withGrant = prepareResearchAgentInvocation("/repo", baseInput, { command: "pi-test", allowInternet: true, tools: ["browser", "mcp-docs"] });
-  assert.deepEqual(withGrant.request.tools, ["browser", "mcp-docs"]);
-  assert.ok(withGrant.invocation.args.includes("--tools"));
-  assert.ok(withGrant.invocation.args.includes("browser,mcp-docs"));
-  assert.match(withGrant.prompt, /Granted tools=browser, mcp-docs/);
+  assert.throws(
+    () => prepareResearchAgentInvocation("/repo", baseInput, { command: "pi-test", allowInternet: true, tools: ["browser", "mcp-docs"] }),
+    /cannot load granted tools: browser, mcp-docs/,
+  );
 });
 
 test("extractResearchReport validates latest structured research report", () => {
@@ -288,5 +298,34 @@ test("runResearchAgentStep prepares oldest open request and executes with report
     const events = await readLogEvents(dir);
     assert.equal(events.some((event) => event.eventType === "agent" && /Agent prompt prepared/.test(event.summary) && event.detailsPath), true);
     assert.equal(events.some((event) => event.eventType === "report" && /Research report ingested/.test(event.summary) && event.detailsPath), true);
+  });
+});
+
+test("runResearchAgentStep refuses an oversized final prompt before audit, runner, or run publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await upsertResearchRequest(dir, {
+      id: "RESEARCH-LARGE",
+      question: "Inspect the supplied source.",
+      reason: "Admission regression.",
+      scope: "local",
+    }, new Date("2026-01-01T00:00:01.000Z"));
+    let runnerCalled = false;
+    const result = await runResearchAgentStep(dir, state, {
+      requestId: "RESEARCH-LARGE",
+      execute: true,
+      tokenBudget: 1,
+      extraInstructions: "EXACT-SOURCE\n".repeat(4_000),
+    } as never, async () => {
+      runnerCalled = true;
+      throw new Error("runner must not be called");
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(runnerCalled, false);
+    assert.match(result.message, /final SCALER prompt refused/i);
+    assert.deepEqual(await loadResearchAgentRunRecords(dir), []);
+    assert.deepEqual(await loadResearchReports(dir), []);
+    assert.deepEqual(await readLogEvents(dir), []);
   });
 });

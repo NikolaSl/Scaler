@@ -18,9 +18,10 @@ import {
   loadToolResults, loadToolSchedules, loadToolSchemaDiscoveryRuns, loadToolTransactions, prepareToolRequest,
   recordToolResult, recordToolSchema, replayToolTransaction as replayToolTransactionRaw, runMcpServerEnumeration,
   runToolIterationWorkflow as runToolIterationWorkflowRaw, runToolRequestAgent as runToolRequestAgentRaw,
-  runToolSchedule as runToolScheduleRaw, runToolSchemaDiscoveryAgent, type ToolDispatchRouteEvidenceSupplier,
+  runToolSchedule as runToolScheduleRaw, type ToolDispatchRouteEvidenceSupplier,
 } from "../../../src/tool-requests.js";
 import { registerScalerTools } from "../../../src/tools.js";
+import { runToolSchemaDiscoveryAgent } from "./provider-bound-helpers.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -102,7 +103,7 @@ test("mock integration: tool schedule executes all guarded requests sequentially
   await withTempRepo(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     await recordToolSchema(dir, state, { toolName: "docs_search", source: "mock", riskLevel: "low", description: "Read-only docs search." });
-    const a = await prepareToolRequest(dir, state, { toolName: "docs_search", request: "Find A.", taskId: "T-SCHED-A", riskLevel: "low" });
+    const a = await prepareToolRequest(dir, state, { toolName: "read", request: "Find A.", taskId: "T-SCHED-A", riskLevel: "low" });
     const b = await prepareToolRequest(dir, state, { toolName: "read", request: "Read file.", taskId: "T-SCHED-B", riskLevel: "low" });
     const c = await prepareToolRequest(dir, state, { toolName: "bash", request: "Run command.", taskId: "T-SCHED-C", riskLevel: "high" });
     assert.ok(a.record && b.record && c.record);
@@ -167,7 +168,7 @@ test("mock integration: tool transaction execution requires structured scaler_to
   await withTempRepo(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     await recordToolSchema(dir, state, {
-      toolName: "mcp_docs_search",
+      toolName: "read",
       source: "mcp://docs/schema",
       description: "Search project docs with a query argument.",
       riskLevel: "low",
@@ -178,7 +179,7 @@ test("mock integration: tool transaction execution requires structured scaler_to
       discoveredByAgentId: "mock-schema-agent",
     });
     const prepared = await prepareToolRequest(dir, state, {
-      toolName: "mcp_docs_search",
+      toolName: "read",
       request: "Find the widget lifecycle API.",
       taskId: "T-TOOL-TXN",
       expectedOutput: "Widget lifecycle API names and source refs.",
@@ -244,7 +245,7 @@ test("mock integration: closed tool replay requires explicit approval and consum
   await withTempRepo(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     const prepared = await prepareToolRequest(dir, state, {
-      toolName: "mcp_docs_search",
+      toolName: "read",
       request: "Find the widget lifecycle API.",
       taskId: "T-TOOL-CLOSED-REPLAY",
       expectedOutput: "Widget lifecycle API names and source refs.",
@@ -303,7 +304,7 @@ test("mock integration: tool iteration workflow blocks an ambiguous missing resu
   await withTempRepo(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     await recordToolSchema(dir, state, {
-      toolName: "mcp_docs_search",
+      toolName: "read",
       source: "mcp://docs/schema",
       description: "Search project docs with a query argument.",
       riskLevel: "low",
@@ -312,7 +313,7 @@ test("mock integration: tool iteration workflow blocks an ambiguous missing resu
       notes: "args: { query: string }",
     });
     const prepared = await prepareToolRequest(dir, state, {
-      toolName: "mcp_docs_search",
+      toolName: "read",
       request: "Find the widget lifecycle API.",
       taskId: "T-TOOL-ITERATE",
       expectedOutput: "Widget lifecycle API names and source refs.",

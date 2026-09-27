@@ -8,10 +8,12 @@ import { dirname } from "node:path";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { logAgentPromptAudit, logStructuredReportAudit } from "./logging.js";
 import { getStageAgentRunsPath } from "./paths.js";
+import { assessTaskPromptAdmission, resolveTaskPromptTokenBudget, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
+import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
-import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
 import { formatStateStatus } from "./state.js";
-import { loadStageArtifacts, stageArtifactStatuses, stageArtifactStages, upsertStageArtifact, type StageArtifact, type StageArtifactInput, type StageArtifactStage } from "./stages.js";
+import { loadStageArtifacts, saveStageArtifacts, stageArtifactStatuses, stageArtifactStages, upsertStageArtifact, type StageArtifact, type StageArtifactInput, type StageArtifactStage } from "./stages.js";
 import type { ScalerState } from "./types.js";
 
 export interface StageAgentPromptInput {
@@ -24,9 +26,11 @@ export interface StageAgentPromptInput {
 export interface StageAgentInvocationOptions {
   tools?: string[];
   model?: string;
+  providerAdmissionModel?: ProviderAdmissionModel;
   appendSystemPromptPath?: string;
   extensionPaths?: string[];
   command?: string;
+  tokenBudget?: number;
 }
 
 export interface StageAgentPreparation {
@@ -34,6 +38,7 @@ export interface StageAgentPreparation {
   prompt: string;
   request: TaskAgentRequest;
   invocation: TaskAgentInvocation;
+  promptAdmission: TaskPromptAdmissionDecision;
 }
 
 export interface StageAgentRunRecord {
@@ -45,6 +50,7 @@ export interface StageAgentRunRecord {
   stderrSummary?: string;
   timedOut?: boolean;
   aborted?: boolean;
+  blockedArtifactIds?: string[];
   createdAt: string;
   usage?: ProviderUsage;
 }
@@ -76,6 +82,7 @@ export interface StageAgentStepResult {
   runResult?: TaskAgentRunResult;
   runRecord?: StageAgentRunRecord;
   ingestion?: StageAgentArtifactIngestionResult;
+  promptAdmission?: TaskPromptAdmissionDecision;
 }
 
 export type StageAgentRunner = typeof runTaskAgent;
@@ -97,6 +104,13 @@ export interface StageAgentReportExtractionResult {
   ok: boolean;
   artifactInput?: StageArtifactInput;
   reason?: string;
+}
+
+export class StageAgentPromptAdmissionError extends Error {
+  constructor(readonly decision: TaskPromptAdmissionDecision) {
+    super(decision.message);
+    this.name = "StageAgentPromptAdmissionError";
+  }
 }
 
 export function buildStageAgentPrompt(input: StageAgentPromptInput): string {
@@ -138,6 +152,9 @@ export function prepareStageAgentInvocation(
 ): StageAgentPreparation {
   const stage = normalizeStage(input.stage);
   const prompt = buildStageAgentPrompt({ ...input, stage });
+  const promptTokenBudget = resolveTaskPromptTokenBudget(options.tokenBudget);
+  const promptAdmission = assessTaskPromptAdmission(prompt, promptTokenBudget);
+  if (!promptAdmission.accepted) throw new StageAgentPromptAdmissionError(promptAdmission);
   const grantedTools = options.tools ?? defaultStageAgentTools(stage);
   const request: TaskAgentRequest = {
     taskId: `stage-${stage}`,
@@ -147,9 +164,11 @@ export function prepareStageAgentInvocation(
     model: options.model,
     appendSystemPromptPath: options.appendSystemPromptPath,
     extensionPaths: options.extensionPaths,
+    providerAdmission: createStrictProviderAdmissionPolicy(promptTokenBudget),
+    providerAdmissionModel: options.providerAdmissionModel,
   };
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");
-  return { stage, prompt, request, invocation };
+  return { stage, prompt, request, invocation, promptAdmission };
 }
 
 export function defaultStageAgentTools(stageInput: StageArtifactStage | string, extraTools: string[] = []): string[] {
@@ -182,12 +201,26 @@ export async function runStageAgentStep(
 
   try {
     const artifacts = await loadStageArtifacts(cwd);
-    const preparation = prepareStageAgentInvocation(cwd, {
-      stage,
-      state,
-      artifacts,
-      extraInstructions: options.extraInstructions,
-    }, options);
+    let preparation: StageAgentPreparation;
+    try {
+      preparation = prepareStageAgentInvocation(cwd, {
+        stage,
+        state,
+        artifacts,
+        extraInstructions: options.extraInstructions,
+      }, options);
+    } catch (error) {
+      if (error instanceof TaskAgentInvocationAdmissionError) {
+        return { accepted: false, message: error.message, stage };
+      }
+      if (!(error instanceof StageAgentPromptAdmissionError)) throw error;
+      return {
+        accepted: false,
+        message: error.message,
+        stage,
+        promptAdmission: error.decision,
+      };
+    }
     await logAgentPromptAudit(cwd, state, {
       agentType: "stage",
       agentId: stage,
@@ -195,7 +228,19 @@ export async function runStageAgentStep(
       inputRefs: artifacts.map((artifact) => artifact.id),
       details: { invocation: preparation.invocation },
     });
-    const runResult = options.execute ? await runner(preparation.request, { timeoutMs: options.timeoutMs }) : undefined;
+    let runResult: TaskAgentRunResult | undefined;
+    if (options.execute) {
+      try {
+        runResult = await runner(preparation.request, { timeoutMs: options.timeoutMs });
+      } catch (error) {
+        const blockedArtifactIds = await blockArtifactsChangedDuringFailedRun(cwd, artifacts);
+        await recordThrownStageAgentRun(cwd, stage, error, blockedArtifactIds);
+        throw error;
+      }
+    }
+    const blockedArtifactIds = runResult && !taskAgentRunSucceeded(runResult)
+      ? await blockArtifactsChangedDuringFailedRun(cwd, artifacts)
+      : [];
     if (runResult?.usage) {
       await recordProviderUsageBudget(cwd, state, runResult.usage, {
         source: "stage-agent-run",
@@ -203,8 +248,8 @@ export async function runStageAgentStep(
         agentType: "stage",
       });
     }
-    const runRecord = await recordStageAgentRun(cwd, stage, runResult, options.execute ? undefined : "prepared");
-    const ingestion = runResult?.exitCode === 0 ? await ingestStageAgentArtifactReport(cwd, stage, runResult.stdoutEvents) : { attempted: false, ingested: false };
+    const runRecord = await recordStageAgentRun(cwd, stage, runResult, options.execute ? undefined : "prepared", new Date(), blockedArtifactIds);
+    const ingestion = runResult && taskAgentRunSucceeded(runResult) ? await ingestStageAgentArtifactReport(cwd, stage, runResult.stdoutEvents) : { attempted: false, ingested: false };
     if (ingestion.attempted) {
       await logStructuredReportAudit(cwd, state, {
         reportType: "scaler_stage_artifact",
@@ -247,17 +292,19 @@ export async function recordStageAgentRun(
   runResult: TaskAgentRunResult | undefined,
   preparedStatus?: "prepared",
   now = new Date(),
+  blockedArtifactIds: string[] = [],
 ): Promise<StageAgentRunRecord> {
   const timestamp = now.toISOString();
   const record: StageAgentRunRecord = runResult ? {
     id: `stage-${stage}-${now.getTime()}`,
     stage,
-    status: runResult.exitCode === 0 ? "passed" : "failed",
+    status: taskAgentRunSucceeded(runResult) ? "passed" : "failed",
     exitCode: runResult.exitCode,
     stdoutEventCount: runResult.stdoutEvents.length,
     stderrSummary: summarizeOutput(runResult.stderr),
     timedOut: runResult.timedOut,
     aborted: runResult.aborted,
+    blockedArtifactIds: blockedArtifactIds.length > 0 ? [...new Set(blockedArtifactIds)].sort() : undefined,
     createdAt: timestamp,
     usage: runResult.usage,
   } : {
@@ -266,6 +313,46 @@ export async function recordStageAgentRun(
     status: preparedStatus ?? "prepared",
     createdAt: timestamp,
   };
+  return await appendStageAgentRunRecord(cwd, record);
+}
+
+export async function blockArtifactsChangedDuringFailedRun(
+  cwd: string,
+  before: StageArtifact[],
+  now = new Date(),
+): Promise<string[]> {
+  const after = await loadStageArtifacts(cwd);
+  const beforeById = new Map(before.map((artifact) => [artifact.id, JSON.stringify(artifact)]));
+  const changed = after.filter((artifact) => beforeById.get(artifact.id) !== JSON.stringify(artifact));
+  if (changed.length === 0) return [];
+
+  const changedIds = new Set(changed.map((artifact) => artifact.id));
+  const timestamp = now.toISOString();
+  await saveStageArtifacts(cwd, after.map((artifact) => changedIds.has(artifact.id)
+    ? { ...artifact, status: "blocked", updatedAt: timestamp }
+    : artifact));
+  return [...changedIds].sort();
+}
+
+async function recordThrownStageAgentRun(
+  cwd: string,
+  stage: StageArtifactStage,
+  error: unknown,
+  blockedArtifactIds: string[],
+  now = new Date(),
+): Promise<StageAgentRunRecord> {
+  const record: StageAgentRunRecord = {
+    id: `stage-${stage}-${now.getTime()}`,
+    stage,
+    status: "failed",
+    stderrSummary: summarizeOutput(error instanceof Error ? error.message : String(error)),
+    blockedArtifactIds: blockedArtifactIds.length > 0 ? [...new Set(blockedArtifactIds)].sort() : undefined,
+    createdAt: now.toISOString(),
+  };
+  return await appendStageAgentRunRecord(cwd, record);
+}
+
+async function appendStageAgentRunRecord(cwd: string, record: StageAgentRunRecord): Promise<StageAgentRunRecord> {
   const runs = [record, ...(await loadStageAgentRunRecords(cwd))];
   const path = getStageAgentRunsPath(cwd);
   await mkdir(dirname(path), { recursive: true });

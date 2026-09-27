@@ -9,11 +9,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { savePrdRequirements } from "../src/prd.js";
-import { runStageConductorLoop, runStageConductorStep } from "../src/stage-conductor.js";
+import { runStageConductorLoop as runStageConductorLoopImpl, runStageConductorStep as runStageConductorStepImpl } from "../src/stage-conductor.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { upsertStageArtifact } from "../src/stages.js";
 import { runTaskValidation, saveValidationManifest } from "../src/validation.js";
 import type { ScalerState } from "../src/types.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const runStageConductorStep: typeof runStageConductorStepImpl = (cwd, state, options = {}, runner) =>
+  runStageConductorStepImpl(cwd, state, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runner);
+const runStageConductorLoop: typeof runStageConductorLoopImpl = (cwd, state, options = {}, runner) =>
+  runStageConductorLoopImpl(cwd, state, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runner);
 
 async function tempDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "scaler-stage-conductor-test-"));
@@ -141,6 +147,41 @@ test("runStageConductorStep rejects unsupported supervisor stages", async () => 
   assert.equal(result.action, "unsupported_stage");
   assert.equal(result.message, "Stage conductor cannot run for supervisor stage idle.");
 });
+
+for (const failure of ["terminal-aborted", "terminal-error", "nonzero", "timeout", "cancelled"] as const) {
+  test(`runStageConductorLoop rejects ${failure} child outcome at both step and loop boundaries`, async () => {
+    const cwd = await tempDir();
+    const state = createDefaultState();
+    state.stage = "prd";
+    await saveState(cwd, state);
+    let calls = 0;
+
+    const result = await runStageConductorLoop(cwd, state, { execute: true, maxSteps: 5 }, async (request) => {
+      calls += 1;
+      return {
+        taskId: request.taskId,
+        exitCode: failure === "nonzero" ? 1 : 0,
+        stdoutEvents: failure.startsWith("terminal-")
+          ? [{ type: "message_end", message: { role: "assistant", stopReason: failure.slice("terminal-".length) } }]
+          : [],
+        stderr: "",
+        timedOut: failure === "timeout",
+        aborted: failure === "cancelled",
+      };
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.stopReason, "step_rejected");
+    assert.equal(result.completed, false);
+    assert.equal(result.steps.length, 1);
+    assert.equal(result.steps[0]?.accepted, false);
+    assert.equal(result.steps[0]?.stageAgent?.runRecord?.status, "failed");
+    assert.equal(result.steps[0]?.advancement, undefined);
+    assert.equal(result.finalState.stage, "prd");
+    assert.equal((await loadState(cwd)).stage, "prd");
+    assert.equal(calls, 1);
+  });
+}
 
 test("runStageConductorLoop chains pre-existing ready artifacts until completion", async () => {
   const cwd = await tempDir();

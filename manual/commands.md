@@ -379,7 +379,7 @@ Lists autonomous stage workflow coordinator run records from `.scaler/reports/st
 
 ## `/scaler-stage-run <stage> [execute]`
 
-Prepares or executes a focused stage-agent subprocess for `prd`, `knowledge`, `planning`, `execution`, or `replanning`. Stage agents receive project-local inspection tools (`read`, `bash`) and stage-specific SCALER report tools by default. Successful executed runs ingest a valid `scaler_stage_artifact` JSON event and attempt ready-artifact advancement automatically.
+Prepares or executes a focused stage-agent subprocess for `prd`, `knowledge`, `planning`, `execution`, or `replanning`. Stage agents receive project-local inspection tools (`read`, `bash`) and stage-specific SCALER report tools by default. Their complete final prompt is bounded before audit or launch, and the child uses strict provider admission with ambient Pi resources disabled. The runtime-owned host API/provider/model/context-window identity renders explicit provider/model selectors and must match again at the final provider hook. Successful executed runs ingest a valid `scaler_stage_artifact` JSON event and attempt ready-artifact advancement automatically.
 
 ## `/scaler-stage-runs [stage]`
 

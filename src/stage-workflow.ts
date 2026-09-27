@@ -21,6 +21,7 @@ import {
   type ReplanProposalAcceptanceResult,
 } from "./plans.js";
 import { getKnowledgeReportPath, getStageWorkflowRunsPath } from "./paths.js";
+import type { ProviderAdmissionModel } from "./provider-admission.js";
 import {
   createPrdVersionSnapshot,
   isRuntimePrdRequirementStatus,
@@ -49,18 +50,21 @@ import { advanceStageAfterReadyArtifact, type StageAdvancementResult } from "./s
 import { defaultStageAgentTools, runStageAgentStep, type StageAgentRunner, type StageAgentStepResult } from "./stage-agents.js";
 import {
   loadStageArtifacts,
+  stageArtifactStages,
+  summarizeStageArtifacts,
   upsertStageArtifact,
   validateStageArtifactReadiness,
   type StageArtifact,
   type StageArtifactStage,
 } from "./stages.js";
-import { extractStructuredReportPayloads, type TaskAgentRunResult } from "./subagents.js";
+import { extractStructuredReportPayloads, taskAgentRunSucceeded, type TaskAgentRunResult } from "./subagents.js";
 import { transitionStage } from "./supervisor.js";
 import type { ScalerState } from "./types.js";
 import { completeRunWithEvidence } from "./run-completion.js";
 
 export type StageWorkflowAction =
   | "advance_ready_stage"
+  | "blocked_artifact"
   | "stage_agent"
   | "research_requests"
   | "research_agents"
@@ -89,6 +93,8 @@ export interface StageWorkflowOptions {
   maxResearchAgents?: number;
   allowInternet?: boolean;
   tools?: string[];
+  model?: string;
+  providerAdmissionModel?: ProviderAdmissionModel;
   stageTools?: string[];
   researchTools?: string[];
   replanTools?: string[];
@@ -269,6 +275,23 @@ export async function runAutonomousStageWorkflowStep(
   options: StageWorkflowOptions = {},
   runners: StageWorkflowRunners = {},
 ): Promise<StageWorkflowStepResult> {
+  if (stageArtifactStages.includes(state.stage as StageArtifactStage)) {
+    const stage = state.stage as StageArtifactStage;
+    const artifact = summarizeStageArtifacts(await loadStageArtifacts(cwd)).latestByStage[stage];
+    if (artifact?.status === "blocked") {
+      return {
+        accepted: false,
+        action: "blocked_artifact",
+        message: `Stage ${stage} artifact ${artifact.id} is blocked and requires an explicit replacement or recovery before another child launch.`,
+        state,
+        continueWorkflow: false,
+        stopReason: "step_rejected",
+        stage,
+        artifact,
+      };
+    }
+  }
+
   switch (state.stage) {
     case "prd":
       return await runArtifactStageWorkflowStep(cwd, state, "prd", options, runners.stage);
@@ -317,7 +340,7 @@ export async function ingestSupplementalStageReports(
   cwd: string,
   input: SupplementalIngestionInput,
 ): Promise<StageWorkflowSupplementalIngestion> {
-  if (!input.runResult || input.runResult.exitCode !== 0) return {};
+  if (!input.runResult || !taskAgentRunSucceeded(input.runResult)) return {};
   const result: StageWorkflowSupplementalIngestion = {};
   if (input.stage === "prd") {
     result.prd = await ingestPrdWriteReport(cwd, input.state, input.runResult.stdoutEvents);
@@ -507,11 +530,16 @@ async function runArtifactStageWorkflowStep(
   const stageAgent = await runStageAgentStep(cwd, state, stage, {
     execute: options.execute,
     tools: resolveStageTools(stage, options),
+    model: options.model,
+    providerAdmissionModel: options.providerAdmissionModel,
     timeoutMs: options.timeoutMs,
   }, runner);
-  const supplemental = await ingestSupplementalStageReports(cwd, { stage, state, runResult: stageAgent.runResult });
+  const runSucceeded = Boolean(stageAgent.runResult && taskAgentRunSucceeded(stageAgent.runResult));
+  const supplemental = runSucceeded
+    ? await ingestSupplementalStageReports(cwd, { stage, state, runResult: stageAgent.runResult })
+    : {};
   const stateForAdvance = supplemental.planning?.result?.state ?? state;
-  const postAdvance = options.execute ? await advanceIfReady(cwd, stateForAdvance, stage) : undefined;
+  const postAdvance = options.execute && runSucceeded ? await advanceIfReady(cwd, stateForAdvance, stage) : undefined;
   const accepted = stageAgent.accepted && (!options.execute || Boolean(postAdvance?.accepted));
   return {
     accepted,
@@ -579,6 +607,8 @@ async function runKnowledgeWorkflowStep(
         execute: options.execute,
         allowInternet: options.allowInternet,
         tools: resolveResearchTools(options),
+        model: options.model,
+        providerAdmissionModel: options.providerAdmissionModel,
         timeoutMs: options.timeoutMs,
       }, researchRunner));
       if (!options.execute) break;
@@ -614,7 +644,12 @@ async function runKnowledgeWorkflowStep(
   }
 
   if (!options.execute) {
-    const stageAgent = await runStageAgentStep(cwd, state, "knowledge", { execute: false, tools: resolveStageTools("knowledge", options) }, stageRunner);
+    const stageAgent = await runStageAgentStep(cwd, state, "knowledge", {
+      execute: false,
+      tools: resolveStageTools("knowledge", options),
+      model: options.model,
+      providerAdmissionModel: options.providerAdmissionModel,
+    }, stageRunner);
     return {
       accepted: stageAgent.accepted,
       action: "stage_agent",
@@ -741,6 +776,8 @@ async function runReplanningWorkflowStep(
     const run = await runReplanAgentStep(cwd, state, {
       execute: options.execute,
       tools: resolveReplanTools(options),
+      model: options.model,
+      providerAdmissionModel: options.providerAdmissionModel,
       timeoutMs: options.timeoutMs,
     }, replanRunner);
     if (!options.execute) {
@@ -786,9 +823,12 @@ async function runReplanningWorkflowStep(
   const stageAgent = await runStageAgentStep(cwd, state, "replanning", {
     execute: options.execute,
     tools: resolveStageTools("replanning", options),
+    model: options.model,
+    providerAdmissionModel: options.providerAdmissionModel,
     timeoutMs: options.timeoutMs,
   }, stageRunner);
-  const postAdvance = options.execute ? await advanceIfReady(cwd, state, "replanning") : undefined;
+  const runSucceeded = Boolean(stageAgent.runResult && taskAgentRunSucceeded(stageAgent.runResult));
+  const postAdvance = options.execute && runSucceeded ? await advanceIfReady(cwd, state, "replanning") : undefined;
   return {
     accepted: stageAgent.accepted && (!options.execute || Boolean(postAdvance?.accepted)),
     action: "stage_agent",

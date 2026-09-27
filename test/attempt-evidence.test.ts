@@ -9,7 +9,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { checkAttemptEvidence } from "../src/attempt-evidence.js";
-import { runConductorStep } from "../src/conductor.js";
+import { runConductorStep as runConductorStepImpl } from "../src/conductor.js";
+import { testProviderAdmissionModel } from "./provider-model-fixture.js";
+
+const runConductorStep: typeof runConductorStepImpl = (cwd, state, options = {}, runner) =>
+  runConductorStepImpl(cwd, state, { ...options, providerAdmissionModel: testProviderAdmissionModel }, runner);
 import { saveTaskContextManifest } from "../src/context.js";
 import { getTaskAgentReportsPath } from "../src/paths.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";

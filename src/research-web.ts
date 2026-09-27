@@ -7,6 +7,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { getResearchTransactionsPath } from "./paths.js";
+import type { ProviderAdmissionModel } from "./provider-admission.js";
 import { loadResearchRequests, type ResearchRequest, type ResearchReport, type ResearchSource } from "./research.js";
 import { runResearchAgentStep, type ResearchAgentRunner, type ResearchAgentStepResult } from "./research-agent.js";
 import { loadToolSchemaRecords, type ToolSchemaRecord } from "./tool-requests.js";
@@ -52,6 +53,8 @@ export interface ResearchWebRunOptions {
   maxQueries?: number;
   timeoutMs?: number;
   command?: string;
+  model?: string;
+  providerAdmissionModel?: ProviderAdmissionModel;
 }
 
 export interface ResearchWebRunResult {
@@ -200,6 +203,8 @@ export async function runResearchWebWorkflow(
     tools,
     timeoutMs: options.timeoutMs,
     command: options.command,
+    model: options.model,
+    providerAdmissionModel: options.providerAdmissionModel,
     extraInstructions,
   }, runner);
 

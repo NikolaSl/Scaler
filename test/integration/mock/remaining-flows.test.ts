@@ -15,7 +15,6 @@ import { ensureTaskContextManifest, loadTaskContextManifest } from "../../../src
 import { loadFreshContextHandoffRecords, prepareFreshContextHandoff } from "../../../src/context-compaction.js";
 import { loadContextSplitRecords } from "../../../src/context-splits.js";
 import { assessDebugRetryGate, loadDebugReports, recordDebugAttempt } from "../../../src/debug.js";
-import { runDebugAgentStep } from "../../../src/debug-agent.js";
 import { assessGitStatusSafety, ensureGitRepository, loadCommitReports, loadCommitSkips } from "../../../src/git.js";
 import { acquireExecutionLock, releaseExecutionLock } from "../../../src/locks.js";
 import { readLogEvents } from "../../../src/logging.js";
@@ -33,21 +32,20 @@ import {
   saveExecutionPlan,
 } from "../../../src/plans.js";
 import { loadPrdRequirements, upsertPrdRequirement } from "../../../src/prd.js";
-import { loadReplanAgentRunRecords, runReplanAgentStep } from "../../../src/replan-agent.js";
+import { loadReplanAgentRunRecords } from "../../../src/replan-agent.js";
 import { loadResearchReports, loadResearchRequests, upsertResearchRequest } from "../../../src/research.js";
-import { loadResearchAgentRunRecords, runResearchAgentStep } from "../../../src/research-agent.js";
+import { loadResearchAgentRunRecords } from "../../../src/research-agent.js";
 import { assessToolCallSafety } from "../../../src/safety.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
-import { loadStageAgentRunRecords, runStageAgentStep } from "../../../src/stage-agents.js";
-import { runStageConductorStep } from "../../../src/stage-conductor.js";
+import { loadStageAgentRunRecords } from "../../../src/stage-agents.js";
 import { loadStageArtifacts, upsertStageArtifact } from "../../../src/stages.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
 import { createTask } from "../../../src/tasks.js";
 import type { ScalerState } from "../../../src/types.js";
 import { getValidationManifestForTask, saveValidationManifest, applyValidationReport, runTaskValidation, upsertValidationManifestCommand } from "../../../src/validation.js";
-import { runConductorStep } from "../../../src/conductor.js";
 import { resumeScalerRun } from "../../../src/checkpoints.js";
 import { loadResumeVerificationRecords, loadWatchdogEvents, recordWatchdogHeartbeat, runWatchdogAssessment } from "../../../src/watchdogs.js";
+import { runConductorStep, runDebugAgentStep, runReplanAgentStep, runResearchAgentStep, runStageAgentStep, runStageConductorStep } from "./provider-bound-helpers.js";
 
 const execFileAsync = promisify(execFile);
 
