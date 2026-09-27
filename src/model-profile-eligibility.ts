@@ -178,7 +178,7 @@ function normalizeProfiles(value: unknown): ValidatedProfiles {
   }
 
   if (diagnostics.length > 0) return { diagnosticCodes: [...new Set(diagnostics)].sort() };
-  normalized.sort((left, right) => left.profileId.localeCompare(right.profileId));
+  normalized.sort((left, right) => compareCodeUnits(left.profileId, right.profileId));
   return { profiles: normalized, diagnosticCodes: [] };
 }
 
@@ -243,7 +243,7 @@ function normalizeProfile(value: unknown): { profile?: ModelCapabilityProfile; d
       tools: value.tools,
       limits: { maxInputTokens: limits.maxInputTokens, maxOutputTokens: limits.maxOutputTokens },
       dataLocations: [...value.dataLocations].sort(),
-      taskSuitability: Object.fromEntries(Object.entries(taskSuitability).sort(([left], [right]) => left.localeCompare(right))),
+      taskSuitability: Object.fromEntries(Object.entries(taskSuitability).sort(([left], [right]) => compareCodeUnits(left, right))),
     },
   };
 }
@@ -318,4 +318,8 @@ function isIdentifier(value: unknown): value is string {
 
 function isPositiveSafeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function compareCodeUnits(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
