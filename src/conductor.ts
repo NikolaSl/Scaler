@@ -767,7 +767,7 @@ export function buildTaskAgentPrompt(input: TaskPromptInput): TaskPromptResult {
     "",
     ...(input.state.stage === "execution" ? [
       "## Execution worker role",
-      "- Implement the admitted task; propose a narrower context, missing sources (needs_data), or a task split (needs_replan). The supervisor validates proposals against the current task contract and state. No report status alone changes scheduler state.",
+      "- Implement the admitted task; propose a narrower context, missing sources (needs_data; never guess), or a task split (needs_replan). The supervisor validates proposals against the current task contract and state. No report status alone changes scheduler state.",
       "",
     ] : []),
     "## Operating rules",
