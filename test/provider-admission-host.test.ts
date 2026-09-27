@@ -171,13 +171,11 @@ async function admissionExtension(): Promise<ExtensionFactory> {
   return (await import("../src/provider-admission-extension.js")).default;
 }
 
-test("installed Pi baseline sends an oversized host envelope despite a small admitted SCALER prompt", async () => {
+test("installed Scaler parent admission aborts an oversized final host envelope", async () => {
   assert.equal(assessTaskPromptAdmission("Inspect the exact source.", 8000).accepted, true);
   const result = await runInstalledHost(40_000);
-  assert.equal(result.fetchCalls, 1);
-  assert.ok(Buffer.byteLength(JSON.stringify(result.payload), "utf8") > 8000);
-  assert.equal(result.payload?.max_completion_tokens, 1, "host floors output at one instead of refusing oversized input");
-  assert.equal((result.payload?.tools as unknown[])?.length, 1);
+  assert.equal(result.fetchCalls, 0, "the complete parent envelope must be refused before transport");
+  assert.equal(result.stopReason, "aborted");
 });
 
 test("provider admission aborts oversized installed Pi requests before transport", async () => {
