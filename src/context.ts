@@ -294,6 +294,11 @@ export async function discoverSemanticContextCandidates(
 ): Promise<ContextCandidate[]> {
   const task = state.tasks.find((candidate) => candidate.id === taskId);
   if (!task) return [];
+  const functionSelectorQuery = parseFunctionSelectorCandidateQuery(options.query);
+  if (functionSelectorQuery.requested) {
+    if (!functionSelectorQuery.name) return [];
+    return discoverTypeScriptFunctionCandidates(cwd, task, taskId, functionSelectorQuery.name, options.limit ?? 10);
+  }
   const queryTerms = options.query?.toLowerCase().split(/\W+/).filter((term) => term.length >= 3) ?? [];
   const terms = unique([...buildTaskSearchTerms(task), ...queryTerms]);
   const candidates: ContextCandidate[] = [];
@@ -386,7 +391,8 @@ export function formatContextCandidates(candidates: ContextCandidate[]): string 
     `Context candidates: ${candidates.length}`,
     ...candidates.map((candidate) => {
       const location = candidate.memoryId ? ` memory=${candidate.memoryId}` : candidate.path ? ` path=${candidate.path}` : "";
-      return `- ${candidate.id}: score=${candidate.score} ${candidate.source}/${candidate.type} ${candidate.priority} ${candidate.scope} exactness=${candidate.exactness}${location}\n  reason=${candidate.reason}`;
+      const selector = candidate.selector ? ` selector=${formatFileContextSelector(candidate.selector)}` : "";
+      return `- ${candidate.id}: score=${candidate.score} ${candidate.source}/${candidate.type} ${candidate.priority} ${candidate.scope} exactness=${candidate.exactness}${location}${selector}\n  reason=${candidate.reason}`;
     }),
   ].join("\n");
 }
@@ -762,6 +768,52 @@ async function discoverCandidateFilePaths(cwd: string, task: ScalerTaskState, ch
   return unique(paths).filter((path) => isProbablyTextPath(path)).slice(0, 25);
 }
 
+function parseFunctionSelectorCandidateQuery(query: string | undefined): { requested: boolean; name?: string } {
+  const value = query?.trim() ?? "";
+  if (!value.startsWith("function:")) return { requested: false };
+  const name = value.slice("function:".length);
+  return isTypeScriptIdentifier(name) && name === name.trim()
+    ? { requested: true, name }
+    : { requested: true };
+}
+
+async function discoverTypeScriptFunctionCandidates(
+  cwd: string,
+  task: ScalerTaskState,
+  taskId: string,
+  name: string,
+  limit: number,
+): Promise<ContextCandidate[]> {
+  const changedPaths = await getGitChangedPaths(cwd);
+  const selector = { kind: "typescript-function", name } as const;
+  const candidates: ContextCandidate[] = [];
+  for (const path of await discoverCandidateFilePaths(cwd, task, changedPaths)) {
+    if (!taskPathMatches(path, task.allowedPathPrefixes ?? []) || getTypeScriptScriptKind(path) === undefined) continue;
+    try {
+      await resolveFileContextContent(cwd, path, "section", selector);
+    } catch {
+      continue;
+    }
+    const source: ContextCandidateSource = changedPaths.includes(path) ? "changed_file" : "file";
+    candidates.push({
+      id: buildFunctionCandidateId(path, name),
+      taskId,
+      source,
+      type: "file",
+      reason: `Exact top-level function ${name} was found in an allowed task path; approval is required before adding its selector to the manifest.`,
+      score: source === "changed_file" ? 11 : 10,
+      priority: "useful",
+      scope: "section",
+      exactness: "exact",
+      path,
+      selector,
+    });
+  }
+  return candidates
+    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+    .slice(0, limit);
+}
+
 async function collectCandidateFiles(cwd: string, path: string, depth: number, limit: number): Promise<string[]> {
   if (limit <= 0 || !path || isRuntimePath(path) || isIgnoredContextDirectory(path)) return [];
   try {
@@ -1069,6 +1121,19 @@ function slugify(value: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 48) || "item";
+}
+
+function slugifyPath(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64) || "file";
+}
+
+function buildFunctionCandidateId(path: string, name: string): string {
+  const identity = createHash("sha256").update(path).update("\0").update(name).digest("hex").slice(0, 12);
+  return `candidate-function-${identity}-${slugify(name)}-${slugifyPath(path)}`;
 }
 
 function unique(values: string[]): string[] {
