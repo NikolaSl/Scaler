@@ -227,7 +227,9 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   use the greater of a valid supplied total and the summed measured/conservative
   item estimates, so multiple understated inline items cannot suppress the
   active-context target, split evidence or overage. It does not invent an
-  externalization candidate or add semantic retrieval/decomposition.
+  externalization candidate or add semantic retrieval/decomposition. The
+  implementation clamps aggregate arithmetic to a safe integer and preserves a
+  more conservative supplied total; SC-07/AC-07 stays Partial.
 
 ### Renewed continuation policy (2026-09-19)
 

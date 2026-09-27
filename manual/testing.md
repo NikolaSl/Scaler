@@ -504,6 +504,17 @@ build, 1,122 unit/component tests, 67 mock integration tests, 7
 conformance/autopilot tests, 95 focused compression/context-split/conductor/
 debug-retry/attempt checks and `git diff --check`.
 
+PLAN-143 corrects aggregate active-context accounting. Run `node --test
+--import tsx test/compression.test.ts test/context-splits.test.ts
+test/conductor.test.ts` to verify that several understated inline items are
+summed from measured/conservative item sizes, a larger supplied aggregate stays
+authoritative, malformed item estimates do not control arithmetic, and
+conductor preparation records target-triggered evidence even without an
+execute-only final-prompt trigger. Items below the large-item threshold do not
+become invented externalization candidates. These fixtures do not establish
+semantic retrieval, decomposition, model quality, savings or scale; SC-07
+remains Partial.
+
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx
 test/stage-artifact-outcome.test.ts test/stage-agents.test.ts

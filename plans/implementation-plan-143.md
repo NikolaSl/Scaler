@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress on the P3 preparation branch; final phase review and merge remain
+Implemented on the P3 preparation branch; final phase review and merge remain
 pending.
 
 ## Observed prerequisite gap
@@ -48,3 +48,13 @@ This unit does not add semantic retrieval, automatic selector choice, task
 decomposition, a new executor, model execution, or evidence of quality, savings
 or scale. It corrects aggregate accounting around the existing split boundary;
 SC-07 remains Partial.
+
+## Implementation evidence
+
+- `assessCompression` sums the same measured/conservative per-item estimates
+  used for large-item eligibility and clamps accumulation to a safe integer.
+- The durable aggregate is the greater of that sum and a valid non-negative
+  supplied total; malformed totals and item estimates are non-authoritative.
+- Conductor preparation now records an `active_context_target` split for the
+  reproduced understated aggregate while preserving an empty externalization
+  set when every item remains below the configured threshold.
