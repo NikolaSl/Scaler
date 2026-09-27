@@ -7,9 +7,15 @@ risk-triggered independent assessment. These behaviors remain proposed and unver
 
 ## 1. Outcome
 
+SCALER turns a problem into a maintainable software project with durable intent,
+plans, implementation history, documentation, validation and evidence. That
+history supports later initiatives, feature requests, bug fixes and refactoring
+without treating each request as a fresh, disconnected generation. The same
+process may produce non-code artifacts when their acceptance is defined.
+
 SCALER coordinates reasoning, tools, evidence and durable progress to complete
-large or complex work with the least justified overhead. It must support
-unattended continuation within granted authority and resource budgets, including
+large or complex work with justified overhead. It must support unattended
+continuation within granted authority and resource safeguards, including
 operation with a configured local model.
 
 Success means an accepted result with traceable evidence and recoverable progress,
@@ -17,6 +23,15 @@ not a large agent count, a populated checklist, or a claim of completion.
 No design can guarantee elimination of hallucinations or make every small model
 capable of every task. SCALER must detect inadequate evidence, bound unsuccessful
 work, and report capability limits without fabricating success.
+
+Some project owners require confidentiality, local data custody, control over
+effects and predictable operation; a cloud model is then ineligible. Model
+proposals are broken into small, reviewable steps with focused context and a
+durable ledger. The supervisor validates FSM transitions and evidence independently
+of model identity. Clear state-specific prompts give a smaller local model the
+role and exact permitted work for each step. This method aims to make such models
+more useful on complex work; it does not promise frontier-model quality from an
+arbitrary model or bypass a task's required capabilities.
 
 ## 2. Problems addressed
 
@@ -135,9 +150,13 @@ correctness. A container label alone is not evidence of security isolation.
 
 ## 9. Economy and scalability
 
-Optimize total resource cost for an accepted result, including coordination,
-validation, retries and recovery. Report time and human intervention separately.
-Caching and local inference affect costs; token totals alone are not currency.
+Prioritize an accepted, maintainable result and recoverable process. Optimize
+total resource use only within those guarantees, including coordination,
+validation, retries and recovery. Budget caps are safeguards against paid-cloud
+spending and locally stalled work, not the purpose of the product or a reason to
+drop necessary context or validation. Report time and human intervention
+separately. Caching and local inference affect costs; token totals alone are not
+currency.
 
 External-agent comparisons are not a prerequisite. Start with repeatable tasks
 and absolute acceptance scenarios. Optional comparisons can later use the same

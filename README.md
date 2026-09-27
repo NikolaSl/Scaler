@@ -8,6 +8,13 @@
 
 SCALER is a Pi extension for supervised autonomous project orchestration. It adds project-level state, staged planning, task agents, validation gates, debugging/retry flows, research, replanning, budgets, watchdogs, safety policies, tool-request workflows, and audit ledgers on top of the Pi coding agent.
 
+Its goal is a maintainable project whose requirements, decisions, code history,
+documentation and validation remain usable for later features, fixes and
+refactoring. Local-only operation can be required for confidentiality and control.
+The model proposes focused work and context; the supervisor validates state
+transitions and evidence. Budgets bound paid usage or stalled work without
+substituting for correctness.
+
 ## Quick start
 
 Install dependencies:

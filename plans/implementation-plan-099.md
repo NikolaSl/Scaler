@@ -320,6 +320,16 @@ Astra/high or higher. Paid model calls and deployments remain out of scope.
 
 ## Architecture direction
 
+The product objective is a durable, maintainable software project across later
+initiatives, features, fixes and refactoring. Focused context, small steps,
+state-specific prompts and the requirement/decision/evidence ledger make a
+configured local model useful without relying on frontier-model behavior.
+Confidentiality, data ownership, effect control and predictable operation can
+exclude cloud inference entirely. Budget limits primarily prevent unauthorized
+paid use or a stalled local run; they never justify skipping required context,
+validation or history. Keep process correctness and model-specific task quality
+as separate observations in P3 through P7.
+
 Keep Pi as the first adapter and keep the sequential workspace policy. Evolve
 existing modules instead of introducing a service cluster, event bus, agent
 hierarchy or second framework. The supervisor owns admission and acceptance;

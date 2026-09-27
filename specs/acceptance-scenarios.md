@@ -182,6 +182,12 @@ From retained events and referenced artifacts, reconstruct a task's inputs, rout
 
 Start with unrelated staged/user changes. Commit only the validated owned snapshot and its compact traceability record. Reject or revalidate a changed post-validation output. Interrupt after commit but before local acknowledgement; resume identifies that commit without duplicating the task. A clone states which external evidence must also be restored. Non-Git/no-change cases have explicit outcomes.
 
+After an accepted initial feature, submit a related bug fix and then a refactor.
+Recover the relevant original intent, changed requirements, rationale, prior failed
+approaches and validation evidence from durable history. Preserve unrelated user
+changes, retain exact prior versions and validate the affected integrated output;
+do not start each iteration as an unrelated generated project.
+
 ## AC-19
 
 **Storage and reference retention — SC-19.**
@@ -222,6 +228,11 @@ Before the scale test, declare hardware/model, history/task fixture sizes, fixed
 
 Produce an evaluation record with task/configuration/model versions, cache conditions, repeat count, acceptance results, total usage, time and interventions. Run invariant scenarios plus real host/local-model tasks. A missing competitor baseline MUST NOT block evaluation. An unexecuted scenario is Not assessed, not Verified; unsupported savings claims fail review.
 
+Report process invariants and false acceptance separately from model-specific
+task success. A small local model that proposes an invalid step and receives a
+truthful bounded blocker demonstrates a working guard, not a completed task.
+Resource totals cannot compensate for missing maintainable outputs or evidence.
+
 Include planted intent/scope errors, assumption promotion, weakened checks and
 reviewer-created requirements alongside correct minimal solutions and necessary
 prerequisites. For an enabled reviewer, report caught/missed errors, false alarms,
@@ -245,6 +256,11 @@ Complete an authorized multi-task fixture through retrieval, repair and validati
 **Requirement coverage — SC-27.**
 
 Link two tasks to a requirement with an additional end-to-end acceptance criterion. Passing both tasks alone does not validate the requirement. Change the requirement statement: preserve old evidence, reassess affected coverage and expose only the relevant version/slice to the next agent.
+
+On a later feature request, bug fix or refactor, identify which earlier decisions,
+dependencies, constraints and acceptance evidence remain valid. Replan and
+revalidate affected slices while keeping accepted unaffected work and the original
+request history retrievable.
 
 Keep original wording, authorized amendments, normalized interpretation and
 assumptions distinguishable. Give a task a thematic requirement link without a
