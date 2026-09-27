@@ -3,13 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join } from "node:path";
+import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { ensureTaskContextManifest, resolveTaskContextManifest, saveTaskContextManifest, type TaskContextManifestItem } from "./context.js";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { searchMemory } from "./memory.js";
 import { getMissingContextRequestsPath } from "./paths.js";
 import { loadResearchReports, upsertResearchRequest } from "./research.js";
-import { saveState } from "./state.js";
+import { loadState, saveState } from "./state.js";
 import { transitionTask } from "./supervisor.js";
 import type { TaskAgentReportRecord } from "./task-reports.js";
 import type { ScalerState } from "./types.js";
@@ -345,16 +346,50 @@ async function dispatchFileRequest(cwd: string, request: MissingContextRequest, 
   const source = request.sourceHint;
   if (!source) return await markMissingContextBlocked(cwd, request, "No file path was supplied or inferred.", now);
   if (!options.execute) return { accepted: true, action: "planned", request, message: `Missing-context file retrieval planned: ${request.id} source=${source}` };
-  const path = isAbsolute(source) ? source : join(cwd, source);
+  const state = await loadState(cwd);
+  const currentTask = state.tasks.find((candidate) => candidate.id === request.taskId);
+  const path = relative(resolve(cwd), resolve(cwd, source)).split(sep).join("/");
+  const parts = path.split("/");
+  if (!currentTask || isAbsolute(source) || source.includes("\\") || source.includes("\0")
+    || path === "." || parts.some((part) => !part || part === ".." || part === "."
+      || [".git", ".scaler", ".ssh", ".aws", ".env"].includes(part)
+      || /\.(?:pem|key|p12)$/i.test(part))
+    || (currentTask.allowedPathPrefixes?.length && !currentTask.allowedPathPrefixes.some((prefix) => {
+      const normalized = prefix.replace(/^\.\//, "").replace(/\/$/, "");
+      return path === normalized || path.startsWith(`${normalized}/`);
+    }))) return await markMissingContextBlocked(cwd, request, "File source is outside the task's direct workspace scope.", now);
   try {
-    const fileStat = await stat(path);
-    if (!fileStat.isFile()) return await markMissingContextBlocked(cwd, request, `Source is not a file: ${source}`, now);
-    const content = await readFile(path, "utf8");
+    for (let depth = 1; depth <= parts.length; depth++) {
+      const observed = await lstat(join(cwd, ...parts.slice(0, depth)));
+      if (observed.isSymbolicLink() || (depth < parts.length ? !observed.isDirectory() : !observed.isFile())) {
+        return await markMissingContextBlocked(cwd, request, `Source is not a direct regular file: ${source}`, now);
+      }
+      if (depth === parts.length && observed.size > 1024 * 1024) {
+        return await markMissingContextBlocked(cwd, request, `Source exceeds the bounded file request; ask for an exact section: ${source}`, now);
+      }
+    }
+    const manifest = await ensureTaskContextManifest(cwd, state, request.taskId);
+    const id = `missing-context-${request.id}`;
+    const existing = manifest.items.find((item) => item.id === id);
+    if (existing && (existing.source !== "file" || existing.path !== path || existing.priority !== "required" || existing.scope !== "full")) {
+      return await markMissingContextBlocked(cwd, request, `Requested context item conflicts with the existing manifest: ${id}`, now);
+    }
+    const item: TaskContextManifestItem = existing ?? {
+      id, type: "file", source: "file", path, scope: "full", exactness: "exact", priority: "required",
+      reason: `Missing-context request ${request.id} requires this exact source before retry.`,
+    };
+    const candidate = { ...manifest, items: existing ? manifest.items : [...manifest.items, item] };
+    const resolvedItems = await resolveTaskContextManifest(cwd, state, candidate);
+    const resolvedItem = resolvedItems.find((entry) => entry.id === id);
+    if (!resolvedItem?.available || !resolvedItem.fileSource?.outputExemptible) {
+      return await markMissingContextBlocked(cwd, request, `Requested source is unavailable as a stable direct file: ${source}`, now);
+    }
+    if (!existing) await saveTaskContextManifest(cwd, candidate);
     const resolved = await upsertMissingContextRequest(cwd, {
       ...request,
       status: "resolved",
-      evidenceRefs: unique([...(request.evidenceRefs ?? []), source]),
-      resultSummary: `Resolved from file ${source} (${content.length} chars).`,
+      evidenceRefs: unique([...(request.evidenceRefs ?? []), path]),
+      resultSummary: `Required exact file context ${path} (${resolvedItem.content.length} chars) is available in the task manifest.`,
     }, now);
     return { accepted: true, action: "resolved", request: resolved, message: `Missing-context file request resolved: ${request.id}` };
   } catch (error) {

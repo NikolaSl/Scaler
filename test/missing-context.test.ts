@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { loadTaskContextManifest, resolveTaskContextManifest } from "../src/context.js";
+import { buildTaskAgentPrompt } from "../src/conductor.js";
 import { writeMemory } from "../src/memory.js";
 import {
   createMissingContextRequestsFromTaskReport,
@@ -93,6 +94,11 @@ test("missing-context requests are created from task reports and file dispatch r
     assert.ok(manifest);
     const resolved = await resolveTaskContextManifest(dir, state, manifest!);
     assert.equal(resolved.find((item) => item.id === requested?.id)?.content, "export const value = 1;\n");
+    const unblocked = await unblockTasksWithResolvedMissingContext(dir, await loadState(dir));
+    assert.deepEqual(unblocked.unblockedTaskIds, ["T-MISS"]);
+    const nextItems = await resolveTaskContextManifest(dir, unblocked.state, (await loadTaskContextManifest(dir, "T-MISS"))!);
+    const nextPrompt = buildTaskAgentPrompt({ state: unblocked.state, task: unblocked.state.tasks[0]!, contextItems: nextItems }).prompt;
+    assert.match(nextPrompt, /export const value = 1;/);
     const again = await dispatchMissingContextRequest(dir, state, created.created[0]?.id, { execute: true });
     assert.equal(again.request?.status, "resolved");
     assert.equal((await loadTaskContextManifest(dir, "T-MISS"))?.items.filter((item) => item.id === requested?.id).length, 1);
@@ -109,12 +115,18 @@ test("file missing-context resolution refuses paths outside scope and symlinked 
     const state = createState();
     state.tasks[0]!.allowedPathPrefixes = ["src"];
     await saveState(dir, state);
-    for (const source of ["other/secret.ts", "../outside.ts", ".scaler/state.json", "src/linked.ts", "src/linked-dir/secret.ts"]) {
+    await mkdir(join(dir, "src", "directory.ts"));
+    await writeFile(join(dir, "src", "oversized.ts"), "x".repeat(1024 * 1024 + 1));
+    for (const source of ["other/secret.ts", "../outside.ts", join(dir, "other", "secret.ts"), ".scaler/state.json", "src/linked.ts", "src/linked-dir/secret.ts", "src/directory.ts", "src/oversized.ts", "src/missing.ts"]) {
       const created = await createMissingContextRequestsFromTaskReport(dir, state, report([`Need \`${source}\` before editing.`]));
       const result = await dispatchMissingContextRequest(dir, state, created.created[0]?.id, { execute: true });
       assert.equal(result.request?.status, "blocked", source);
     }
-    assert.equal((await loadTaskContextManifest(dir, "T-MISS"))?.items.some((item) => item.id.startsWith("missing-context-")), false);
+    const noPath = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need the unknown implementation file before editing."]));
+    const absent = await dispatchMissingContextRequest(dir, state, noPath.created[0]?.id, { execute: true });
+    assert.equal(absent.action, "research_requested");
+    assert.equal(absent.request?.status, "in_progress");
+    assert.equal((await loadTaskContextManifest(dir, "T-MISS"))?.items.some((item) => item.id.startsWith("missing-context-")) ?? false, false);
   });
 });
 
