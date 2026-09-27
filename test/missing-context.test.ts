@@ -131,6 +131,16 @@ test("file missing-context dispatch delivers exact requested Markdown and functi
       assert.match(content, new RegExp(expected));
       assert.doesNotMatch(content, new RegExp(excluded));
     }
+
+    await writeFile(join(dir, "heading:notes.md"), "root-level full file\n");
+    state.tasks[0]!.allowedPathPrefixes = undefined;
+    await saveState(dir, state);
+    const fullCreated = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need `heading:notes.md` before editing."]));
+    const fullResult = await dispatchMissingContextRequest(dir, state, fullCreated.created[0]?.id, { execute: true });
+    assert.equal(fullResult.accepted, true, fullResult.message);
+    const fullItem = (await loadTaskContextManifest(dir, "T-MISS"))?.items.find((item) => item.id === `missing-context-${fullCreated.created[0]?.id}`);
+    assert.equal(fullItem?.scope, "full");
+    assert.equal(fullItem?.selector, undefined);
   });
 });
 
