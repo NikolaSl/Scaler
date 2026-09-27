@@ -105,6 +105,58 @@ test("missing-context requests are created from task reports and file dispatch r
   });
 });
 
+test("file missing-context dispatch delivers exact requested Markdown and function sections", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "docs"), { recursive: true });
+    await mkdir(join(dir, "src"), { recursive: true });
+    await writeFile(join(dir, "docs", "guide.md"), "# Intro\nignore\n\n## Target Section\nrequired details\n\n## Next\nexclude\n");
+    await writeFile(join(dir, "src", "feature.ts"), "export const before = 1;\nexport function targetFunction() { return 42; }\nexport const after = 2;\n");
+    const state = createState();
+    state.tasks[0]!.allowedPathPrefixes = ["docs", "src"];
+    await saveState(dir, state);
+
+    for (const [query, expected, excluded] of [
+      ["Need `docs/guide.md` `heading:Target Section` before editing.", "required details", "exclude"],
+      ["Need `src/feature.ts` `function:targetFunction` before editing.", "targetFunction", "after = 2"],
+    ]) {
+      const created = await createMissingContextRequestsFromTaskReport(dir, state, report([query]));
+      const result = await dispatchMissingContextRequest(dir, state, created.created[0]?.id, { execute: true });
+      assert.equal(result.accepted, true, result.message);
+      const manifest = await loadTaskContextManifest(dir, "T-MISS");
+      const item = manifest?.items.find((candidate) => candidate.id === `missing-context-${created.created[0]?.id}`);
+      assert.equal(item?.scope, "section");
+      assert.ok(item?.selector);
+      const resolved = await resolveTaskContextManifest(dir, state, manifest!);
+      const content = resolved.find((candidate) => candidate.id === item?.id)?.content ?? "";
+      assert.match(content, new RegExp(expected));
+      assert.doesNotMatch(content, new RegExp(excluded));
+    }
+  });
+});
+
+test("file missing-context section requests fail closed on malformed or unavailable selectors", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "docs"), { recursive: true });
+    await writeFile(join(dir, "docs", "guide.md"), "# Duplicate\none\n\n# Duplicate\ntwo\n");
+    const state = createState();
+    state.tasks[0]!.allowedPathPrefixes = ["docs"];
+    await saveState(dir, state);
+
+    for (const query of [
+      "Need `docs/guide.md` `heading:` before editing.",
+      "Need `docs/guide.md` `heading:Duplicate` before editing.",
+      "Need `docs/guide.md` `heading:Missing` before editing.",
+      "Need `docs/guide.md` `heading:Duplicate` `function:other` before editing.",
+    ]) {
+      const created = await createMissingContextRequestsFromTaskReport(dir, state, report([query]));
+      const result = await dispatchMissingContextRequest(dir, state, created.created[0]?.id, { execute: true });
+      assert.equal(result.accepted, false, query);
+      assert.equal(result.request?.status, "blocked", query);
+      assert.equal((await loadTaskContextManifest(dir, "T-MISS"))?.items.some((item) => item.id === `missing-context-${created.created[0]?.id}`) ?? false, false);
+    }
+  });
+});
+
 test("file missing-context resolution refuses paths outside scope and symlinked sources", async () => {
   await withTempDir(async (dir) => {
     await mkdir(join(dir, "src"), { recursive: true });
