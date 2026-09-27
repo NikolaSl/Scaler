@@ -30,7 +30,7 @@ import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.
 import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { assessTaskPromptAdmission, createPromptSizingAttemptBinding, resolveTaskPromptTokenBudget, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
 import { saveState } from "./state.js";
-import { buildTaskAgentInvocation, runTaskAgent, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import {
   completeTaskAttempt,
   taskAttemptBinding,
@@ -474,7 +474,7 @@ export async function runConductorStep(
         agentType: "task",
       })).state;
     }
-    const reportIngestion = runResult?.exitCode === 0
+    const reportIngestion = runResult && taskAgentRunSucceeded(runResult)
       ? await ingestTaskAgentReportFromRun(cwd, nextState, runningTask.id, runResult, attemptBinding!)
       : undefined;
     const outputFingerprint = reportIngestion?.report?.outputFingerprint;
@@ -483,7 +483,7 @@ export async function runConductorStep(
     const handoff = runResult ? await applyTaskRunHandoff(cwd, nextState, runningTask.id, runResult, reportIngestion, new Date(), { attempt: attemptBinding, outputFingerprint }) : undefined;
     if (runResult && activeAttempt) {
       const acceptedReport = reportIngestion?.report;
-      const succeeded = runResult.exitCode === 0 && acceptedReport?.status === "completed";
+      const succeeded = taskAgentRunSucceeded(runResult) && acceptedReport?.status === "completed";
       await completeTaskAttempt(cwd, lock.lock.id, activeAttempt.id, {
         status: succeeded ? "completed" : "failed",
         outcome: succeeded ? "succeeded" : "failed",
@@ -568,7 +568,7 @@ export async function recordTaskAgentRun(
   const record: TaskAgentRunRecord = {
     id: `${runResult.taskId}-${now.getTime()}`,
     taskId: runResult.taskId,
-    status: runResult.exitCode === 0 ? "passed" : "failed",
+    status: taskAgentRunSucceeded(runResult) ? "passed" : "failed",
     exitCode: runResult.exitCode,
     stdoutEventCount: runResult.stdoutEvents.length,
     stderrSummary: summarizeOutput(runResult.stderr),
@@ -650,7 +650,7 @@ function selectTaskRunHandoff(
   reason: string;
   summary: (taskId: string) => string;
 } {
-  if (runResult.exitCode !== 0) {
+  if (!taskAgentRunSucceeded(runResult)) {
     return {
       targetTaskStatus: "failed",
       status: "task_agent_failed",
@@ -710,7 +710,7 @@ export function summarizeTaskAgentReportIngestion(
   reportIngestion: TaskAgentReportIngestionResult | undefined,
   runResult: TaskAgentRunResult,
 ): Pick<TaskAgentRunRecord, "reportStatus" | "reportId" | "reportDiagnostics"> {
-  if (runResult.exitCode !== 0) return { reportStatus: "not_required" };
+  if (!taskAgentRunSucceeded(runResult)) return { reportStatus: "not_required" };
   if (!reportIngestion) return { reportStatus: "missing", reportDiagnostics: ["Report ingestion did not run."] };
   return {
     reportStatus: reportIngestion.status,

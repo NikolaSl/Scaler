@@ -34,7 +34,7 @@ import { recordProviderUsageBudget } from "./provider-usage.js";
 import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { assessTaskPromptAdmission, createPromptSizingAttemptBinding, resolveTaskPromptTokenBudget, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
 import { loadState } from "./state.js";
-import { buildTaskAgentInvocation, runTaskAgent, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
+import { buildTaskAgentInvocation, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
 import { ingestTaskAgentReportFromRun } from "./task-reports.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
 import {
@@ -524,14 +524,14 @@ export async function runDebugNextApproachRetry(
         agentType: "debug-retry-task",
       })).state;
     }
-    const reportIngestion = runResult.exitCode === 0
+    const reportIngestion = taskAgentRunSucceeded(runResult)
       ? await ingestTaskAgentReportFromRun(cwd, workingState, runningTask.id, runResult, binding!)
       : undefined;
     const identity = { attempt: binding, outputFingerprint: reportIngestion?.report?.outputFingerprint };
     const validationContextFingerprint = await captureValidationContext(cwd, workingState, runningTask.id);
     const runRecord = await recordTaskAgentRun(cwd, runResult, new Date(), summarizeTaskAgentReportIngestion(reportIngestion, runResult), identity);
     const handoff = await applyTaskRunHandoff(cwd, workingState, runningTask.id, runResult, reportIngestion, new Date(), identity);
-    const succeeded = runResult.exitCode === 0 && reportIngestion?.report?.status === "completed";
+    const succeeded = taskAgentRunSucceeded(runResult) && reportIngestion?.report?.status === "completed";
     await completeTaskAttempt(cwd, lock.lock.id, activeAttempt.id, {
       status: succeeded ? "completed" : "failed", outcome: succeeded ? "succeeded" : "failed",
       outputFingerprint: identity.outputFingerprint, reportId: reportIngestion?.report?.id,
@@ -539,7 +539,7 @@ export async function runDebugNextApproachRetry(
       diagnostics: reportIngestion?.diagnostics,
     });
     attemptTerminal = true;
-    if (runResult.exitCode !== 0) {
+    if (!taskAgentRunSucceeded(runResult)) {
       const attempt = await recordDebugAttempt(cwd, handoff.state, {
         taskId: runningTask.id,
         failureId: selection.report.failureId ?? selection.failedValidationRun.id,
