@@ -6,7 +6,7 @@
 import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
-import type { CompressionAssessment } from "./compression.js";
+import { normalizeExactness, type CompressionAssessment } from "./compression.js";
 import type { ContextItem, ResolvedContext } from "./context.js";
 import { loadMemoryIndex, writeMemory } from "./memory.js";
 import { getContextSplitsPath } from "./paths.js";
@@ -144,7 +144,7 @@ export async function externalizeContextSplitItems(
       itemId: item.id,
       memoryId: entry.id,
       path: entry.path,
-      exactness: item.exactness ?? "exact",
+      exactness: normalizeExactness(item.exactness, item.scope),
       scope: item.scope,
       originalTokens: estimateContextItemTokens(item),
       replacementTokens: estimateReplacementTokens(entry.id, entry.path),
@@ -238,7 +238,7 @@ export function formatContextSplitRecords(records: ContextSplitRecord[], taskId?
 }
 
 function buildExternalizedSummary(record: ContextSplitRecord, item: ContextItem): string {
-  return `Externalized ${item.exactness ?? "exact"} ${item.type} context item ${item.id} for task ${record.taskId} and split ${record.id}; original estimate ${estimateContextItemTokens(item)} tokens.`;
+  return `Externalized ${normalizeExactness(item.exactness, item.scope)} ${item.type} context item ${item.id} for task ${record.taskId} and split ${record.id}; original estimate ${estimateContextItemTokens(item)} tokens.`;
 }
 
 function formatExternalizedContextMemory(record: ContextSplitRecord, item: ContextItem): string {
@@ -249,7 +249,7 @@ function formatExternalizedContextMemory(record: ContextSplitRecord, item: Conte
     `- splitId: ${record.id}`,
     `- type: ${item.type}`,
     `- scope: ${item.scope}`,
-    `- exactness: ${item.exactness ?? "exact"}`,
+    `- exactness: ${normalizeExactness(item.exactness, item.scope)}`,
     `- priority: ${item.priority}`,
     `- reason: ${item.reason}`,
     `- sha256: ${createHash("sha256").update(item.content ?? "").digest("hex")}`,
@@ -312,7 +312,7 @@ async function verifyExternalizedDispatchSource(
         || !split.externalizeRefs.includes(ref.itemId)) return undefined;
     const item = resolvedContext.included.find((candidate) => candidate.id === ref.itemId);
     if (!item || item.available === false || item.scope !== ref.scope
-        || (item.exactness ?? "exact") !== ref.exactness
+        || normalizeExactness(item.exactness, item.scope) !== ref.exactness
         || createHash("sha256").update(item.content).digest("hex") !== ref.sha256) return undefined;
 
     const memory = await loadMemoryIndex(cwd);

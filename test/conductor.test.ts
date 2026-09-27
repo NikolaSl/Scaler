@@ -161,7 +161,8 @@ test("buildTaskAgentPrompt includes task metadata and report instructions", () =
   assert.match(result.prompt, /Allowed paths: src, test/);
   assert.match(result.prompt, /Dependencies: T-000/);
   assert.match(result.prompt, /Safety and scope/);
-  assert.match(result.prompt, /read\/write\/edit only files under those paths/);
+  assert.match(result.prompt, /write\/edit only files under those paths/);
+  assert.match(result.prompt, /Read-only context paths: none/);
   assert.match(result.prompt, /Do not read or modify protected paths/);
   assert.match(result.prompt, /Do not run destructive commands/);
   assert.match(result.prompt, /Required final report/);
@@ -301,6 +302,8 @@ test("runConductorStep dispatches an admitted minimal projection for oversized r
     assert.equal(result.contextSplit.externalizedMemoryRefs.length, 1);
     assert.match(dispatchedPrompt, /SCALER Task Agent Request/);
     assert.ok(dispatchedPrompt.includes(result.contextSplit.externalizedMemoryRefs[0]!.memoryId));
+    assert.match(dispatchedPrompt, /Read-only context paths: \.scaler\/memory\//);
+    assert.match(dispatchedPrompt, /Read-only context paths are immutable evidence/);
     assert.doesNotMatch(dispatchedPrompt, /EXACT_START|EXACT_END/);
     assert.ok(Buffer.byteLength(dispatchedPrompt, "utf8") < Buffer.byteLength("x".repeat(40_000), "utf8"));
 

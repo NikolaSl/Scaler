@@ -707,6 +707,10 @@ export function buildTaskAgentPrompt(input: TaskPromptInput): TaskPromptResult {
     items: input.contextItems ?? [],
     tokenBudget: input.tokenBudget,
   });
+  const readOnlyContextPaths = [...new Set(resolvedContext.included.flatMap((item) => {
+    const path = item.fileSource?.path.replace(/\\/g, "/").replace(/^\.\//, "");
+    return path?.startsWith(".scaler/memory/") ? [path] : [];
+  }))].sort();
 
   const compressionAssessment = assessCompression({
     items: resolvedContext.included,
@@ -730,6 +734,7 @@ export function buildTaskAgentPrompt(input: TaskPromptInput): TaskPromptResult {
     `Current task status: ${input.task.status}`,
     `Supervisor stage: ${input.state.stage}`,
     `Allowed paths: ${input.task.allowedPathPrefixes?.join(", ") || "not specified"}`,
+    `Read-only context paths: ${readOnlyContextPaths.join(", ") || "none"}`,
     `Dependencies: ${input.task.dependsOn?.join(", ") || "none"}`,
     ...(input.attempt ? [
       `Run ID: ${input.attempt.runId}`,
@@ -748,7 +753,8 @@ export function buildTaskAgentPrompt(input: TaskPromptInput): TaskPromptResult {
     "- Finish by submitting structured Scaler reports/tools where available.",
     "",
     "## Safety and scope",
-    "- If allowed paths are specified, read/write/edit only files under those paths unless explicitly told otherwise by the supervisor.",
+    "- If allowed paths are specified, write/edit only files under those paths. Read another path only when it is listed above as a read-only context path.",
+    "- Read-only context paths are immutable evidence: never write, edit, rename, replace, or delete them.",
     "- Do not read or modify protected paths such as .env, .git/, .ssh/, .aws/, *.pem, *.key, or *.p12.",
     "- Do not run destructive commands such as rm -rf, git reset --hard, git clean -f, sudo, docker system prune, or kubectl delete.",
     "",
