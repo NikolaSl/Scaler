@@ -1229,6 +1229,92 @@ test("imported caller discovery fails closed on malformed queries and non-call e
   });
 });
 
+test("imported caller discovery rejects shadowed, ambiguous, malformed and symlinked evidence", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"));
+    await mkdir(join(dir, "real"));
+    await writeFile(join(dir, "src", "target.ts"), "export function target(): number { return 1; }\n", "utf8");
+    await writeFile(join(dir, "real", "target.ts"), "export function target(): number { return 2; }\n", "utf8");
+    await symlink(join(dir, "real"), join(dir, "src", "linked"));
+    await writeFile(join(dir, "src", "malformed.ts"), "import { target from './target.ts';\n", "utf8");
+    await writeFile(
+      join(dir, "src", "shadowed.ts"),
+      [
+        "import { target as invoke } from './target.ts';",
+        "export function byParameter(invoke: () => number): number { return invoke(); }",
+        "export function byLocal(): number { const invoke = (): number => 3; return invoke(); }",
+        "export function byNested(): () => number { return function invokeLater() { return invoke(); }; }",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      join(dir, "src", "ambiguous.ts"),
+      [
+        "import { target as invoke } from './target.ts';",
+        "export function repeated(): number { return invoke(); }",
+        "export const repeated = (): number => invoke();",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      join(dir, "src", "symlink-edge.ts"),
+      "import { target as invoke } from './linked/target.ts';\nexport function linkedCaller(): number { return invoke(); }\n",
+      "utf8",
+    );
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-IMPORTED-CALLER-HARDEN", status: "ready", title: "Reject unsafe imported caller evidence",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    assert.deepEqual(
+      await discoverSemanticContextCandidates(
+        dir, state, "T-IMPORTED-CALLER-HARDEN", { query: "import-caller:./target.ts#target", limit: 10 },
+      ),
+      [],
+    );
+    assert.deepEqual(
+      await discoverSemanticContextCandidates(
+        dir, state, "T-IMPORTED-CALLER-HARDEN", { query: "import-caller:./linked/target.ts#target", limit: 10 },
+      ),
+      [],
+    );
+  });
+});
+
+test("unrelated changed files cannot starve bounded imported caller discovery", async () => {
+  await withTempDir(async (dir) => {
+    await execFileAsync("git", ["init"], { cwd: dir });
+    await mkdir(join(dir, "noise"));
+    await mkdir(join(dir, "src"));
+    for (let index = 0; index < 30; index++) {
+      const name = `noise-${String(index).padStart(2, "0")}.ts`;
+      await writeFile(join(dir, "noise", name), `export function noise${index}(): number { return ${index}; }\n`, "utf8");
+    }
+    await writeFile(join(dir, "src", "target.ts"), "export function target(): string { return 'found'; }\n", "utf8");
+    await writeFile(
+      join(dir, "src", "entry.ts"),
+      "import { target } from './target.ts';\nexport function caller(): string { return target(); }\n",
+      "utf8",
+    );
+    await execFileAsync("git", ["add", "-N", "noise", "src/entry.ts", "src/target.ts"], { cwd: dir });
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-NOISE-IMPORTED-CALLER", status: "ready", title: "Locate bounded imported caller",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-NOISE-IMPORTED-CALLER",
+      { query: "import-caller:./target.ts#target", limit: 10 },
+    );
+
+    assert.equal(candidates.length, 1);
+    assert.equal(candidates[0]?.path, "src/entry.ts");
+    assert.deepEqual(candidates[0]?.selector, { kind: "typescript-function", name: "caller" });
+  });
+});
+
 test("approveContextCandidate persists selected candidates without duplicating manifest entries", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
