@@ -250,6 +250,9 @@ test("manual resolution records evidence and can unblock", async () => {
     assert.match(buildTaskAgentPrompt({ state: unblocked.state, task: unblocked.state.tasks[0]!, contextItems: context }).prompt, /Tenant is demo/);
     await resolveMissingContextRequest(dir, unblocked.state, { requestId: created.created[0]!.id, summary: "Tenant is demo.", evidenceRefs: ["user:answer"] });
     assert.equal((await loadTaskContextManifest(dir, "T-MISS"))?.items.filter((item) => item.id === answer?.id).length, 1);
+    const conflict = await resolveMissingContextRequest(dir, unblocked.state, { requestId: created.created[0]!.id, summary: "Tenant is another account." });
+    assert.equal(conflict.accepted, false);
+    assert.equal((await loadTaskContextManifest(dir, "T-MISS"))?.items.find((item) => item.id === answer?.id)?.content, answer?.content);
   });
 });
 

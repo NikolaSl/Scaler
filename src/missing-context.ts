@@ -235,11 +235,30 @@ export async function resolveMissingContextRequest(
   const requests = await loadMissingContextRequests(cwd);
   const request = requests.find((candidate) => candidate.id === input.requestId);
   if (!request) return { accepted: false, action: "not_found", message: `No missing-context request found for ${input.requestId}.` };
+  if (request.kind === "file") return { accepted: false, action: "blocked", request, message: `Exact file context requires scoped file dispatch: ${request.id}` };
+  const summary = typeof input.summary === "string" ? input.summary.trim() : "";
+  if (!summary || summary.length > 16_384) return { accepted: false, action: "blocked", request, message: `Manual answer is empty or exceeds the bounded context: ${request.id}` };
+  const liveState = await loadState(cwd);
+  if (!liveState.tasks.some((task) => task.id === request.taskId)) return { accepted: false, action: "blocked", request, message: `Missing-context task is unavailable: ${request.taskId}` };
+  const evidenceRefs = normalizeList([...(request.evidenceRefs ?? []), ...(input.evidenceRefs ?? [])]);
+  const content = `Manual answer (operator-provided claim): ${JSON.stringify({ requestId: request.id, summary, evidenceRefs })}`;
+  if (content.length > 16_384) return { accepted: false, action: "blocked", request, message: `Manual answer exceeds the bounded context: ${request.id}` };
+  const manifest = await ensureTaskContextManifest(cwd, liveState, request.taskId);
+  const id = `missing-manual-${request.id}`;
+  const existing = manifest.items.find((item) => item.id === id);
+  if (existing && (existing.source !== "inline" || existing.priority !== "required" || existing.content !== content)) {
+    return { accepted: false, action: "blocked", request, message: `Manual answer conflicts with required context: ${request.id}` };
+  }
+  if (!existing) await saveTaskContextManifest(cwd, { ...manifest, items: [...manifest.items, {
+    id, type: "knowledge", source: "inline", priority: "required", scope: "full", exactness: "exact",
+    reason: `Attributed manual answer for missing-context request ${request.id}; claims may require source verification.`,
+    content,
+  }] });
   const resolved = await upsertMissingContextRequest(cwd, {
     ...request,
     status: "resolved",
-    resultSummary: input.summary,
-    evidenceRefs: normalizeList([...(request.evidenceRefs ?? []), ...(input.evidenceRefs ?? [])]),
+    resultSummary: summary,
+    evidenceRefs,
   }, now);
   await appendLogEvent(cwd, createLogEvent(state, {
     eventType: "system",
