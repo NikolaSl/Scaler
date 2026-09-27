@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { runScalerAutomation as runScalerAutomationImpl } from "../src/autopilot.js";
+import { loadMissingContextRequests } from "../src/missing-context.js";
 import { loadState, saveState, createDefaultState } from "../src/state.js";
 import { getValidationManifestForTask, saveValidationManifest, upsertValidationManifestCommand } from "../src/validation.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../src/subagents.js";
@@ -188,5 +189,83 @@ test("runScalerAutomation drives planning, task execution, validation, and compl
     const savedState = await loadState(dir);
     assert.equal(savedState.stage, "completed");
     assert.equal(savedState.tasks.find((task) => task.id === "T-AUTO")?.status, "validated");
+  });
+});
+
+test("runScalerAutomation continues a blocked task through local missing-context research", async () => {
+  await withTempDir(async (dir) => {
+    const state = createState("planning");
+    await saveState(dir, state);
+    const question = "Determine the local canonical widget rule.";
+    let taskCalls = 0;
+    let researchCalls = 0;
+
+    const result = await runScalerAutomation(dir, state, {
+      maxSteps: 12,
+      maxStageSteps: 5,
+      researchTools: ["read", "find"],
+    }, {
+      stage: stageRunner,
+      task: async (request) => {
+        taskCalls += 1;
+        if (taskCalls === 1) {
+          return {
+            taskId: request.taskId,
+            exitCode: 0,
+            stdoutEvents: [{
+              type: "scaler_task_report",
+              taskId: request.taskId,
+              ...request.attempt,
+              status: "needs_data",
+              summary: "Need a focused local fact before continuing.",
+              changedFiles: [],
+              blockers: [],
+              missingData: [question],
+            }],
+            stderr: "",
+            timedOut: false,
+            aborted: false,
+          };
+        }
+        assert.match(request.prompt, /Research answer \(reported claim, not verified source bytes\)/);
+        assert.match(request.prompt, /Widgets use the accepted local ledger rule/);
+        return taskRunner(request);
+      },
+      research: async (request) => {
+        researchCalls += 1;
+        assert.match(request.taskId, /^research-agent-RESEARCH-MCTX-T-AUTO-/);
+        assert.match(request.prompt, /Determine the local canonical widget rule/);
+        assert.deepEqual(request.tools, ["read", "find"]);
+        const requestId = request.taskId.slice("research-agent-".length);
+        return {
+          taskId: request.taskId,
+          exitCode: 0,
+          stdoutEvents: [{
+            type: "scaler_research_report",
+            id: "R-AUTO-CONTEXT",
+            requestId,
+            taskId: "T-AUTO",
+            question,
+            status: "complete",
+            sources: [{ id: "local-ledger", title: "Local ledger", quality: "project", path: "docs/local-ledger.md" }],
+            conclusions: [{
+              summary: "Widgets use the accepted local ledger rule.",
+              confidence: "high",
+              sourceRefs: ["local-ledger"],
+            }],
+            unresolvedUnknowns: [],
+          }],
+          stderr: "",
+          timedOut: false,
+          aborted: false,
+        };
+      },
+    });
+
+    assert.equal(result.completed, true, result.message);
+    assert.equal(taskCalls, 2);
+    assert.equal(researchCalls, 1);
+    assert.ok((await loadMissingContextRequests(dir)).every((request) => request.status === "resolved"));
+    assert.equal((await loadState(dir)).tasks.find((task) => task.id === "T-AUTO")?.status, "validated");
   });
 });
