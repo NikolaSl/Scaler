@@ -994,6 +994,24 @@ test("runConductorStep preserves worker-persisted state before accounting and ha
   });
 });
 
+for (const stopReason of ["error", "aborted"] as const) {
+  test(`runConductorStep refuses zero-exit terminal ${stopReason} before report ingestion`, async () => {
+    await withTempDir(async (dir) => {
+      const state = stateWithTasks(["ready"]);
+      state.stage = "execution";
+      const result = await runConductorStep(dir, state, { execute: true }, async (request) => ({
+        taskId: request.taskId, exitCode: 0, timedOut: false, aborted: false, stderr: "",
+        stdoutEvents: [completedTaskReport(request), { type: "message_end", message: { role: "assistant", stopReason } }],
+      }));
+      assert.equal(result.state.tasks[0]?.status, "failed");
+      assert.equal(result.validationHandoff?.status, "task_agent_failed");
+      assert.deepEqual(await loadTaskAgentReports(dir), []);
+      assert.equal((await loadTaskAgentRunRecords(dir))[0]?.status, "failed");
+      assert.equal((await loadTaskAttempts(dir))[0]?.outcome, "failed");
+    });
+  });
+}
+
 test("runConductorStep rejects a child result after the durable run is replaced", async () => {
   await withTempDir(async (dir) => {
     const state = stateWithTasks(["ready"]);

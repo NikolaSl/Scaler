@@ -385,6 +385,24 @@ test("debug retry preserves child state and records unknown outcome after runner
   });
 });
 
+for (const stopReason of ["error", "aborted"] as const) {
+  test(`debug retry refuses zero-exit terminal ${stopReason} before exact validation`, async () => {
+    await withTempDir(async (dir) => {
+      const state = await seedDebuggingTask(dir);
+      const validationRunsBefore = await loadValidationRuns(dir);
+      const result = await runDebugNextApproachRetry(dir, state, { execute: true }, async (request) => ({
+        ...passingRun(request),
+        stdoutEvents: [...passingRun(request).stdoutEvents, { type: "message_end", message: { role: "assistant", stopReason } }],
+      }));
+      assert.equal(result.status, "task_agent_failed");
+      assert.equal(result.exactValidationRun, undefined);
+      assert.equal((await loadValidationRuns(dir)).length, validationRunsBefore.length);
+      assert.deepEqual(await loadTaskAgentReports(dir), []);
+      assert.equal((await loadTaskAttempts(dir))[0]?.outcome, "failed");
+    });
+  });
+}
+
 test("selectDebugRetryWork finds latest next approach and failed exact validation command", async () => {
   await withTempDir(async (dir) => {
     const state = await seedDebuggingTask(dir);
