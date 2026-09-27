@@ -80,5 +80,6 @@ request.
 - Missing `read`, incomplete or duplicate refs, altered memory bytes, foreign
   item identity, a non-shrinking projection and an over-limit final wrapper all
   refuse before runner dispatch. The legacy direct handoff executor is unchanged.
-- Focused build and 72 conductor/context split/context compaction checks passed
-  before the final full candidate gate.
+- The candidate passed build, 1,107 unit/component tests, 67 mock integration
+  tests, 7 conformance/autopilot tests, 72 focused conductor/context
+  split/context-compaction checks and `git diff --check`.

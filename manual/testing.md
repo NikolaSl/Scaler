@@ -449,6 +449,10 @@ acceptance. The legacy direct handoff executor remains blocked. These tests do
 not establish automatic semantic selection, task decomposition, model quality,
 savings or full SC-07/SC-08 acceptance.
 
+The PLAN-138 candidate passes the TypeScript build, 1,107 unit/component tests,
+67 mock integration tests, 7 conformance/autopilot tests, 72 focused context
+checks and `git diff --check`. No paid or deployed model execution is claimed.
+
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx
 test/stage-artifact-outcome.test.ts test/stage-agents.test.ts

@@ -58,7 +58,9 @@ non-shrinking or over-limit requests before dispatch. Attempt admission binds
 the projected request while freshness checks retain both original file and
 externalized memory sources through result acceptance. The legacy handoff
 executor remains blocked; automatic selector discovery, cross-file semantic
-lookup and task decomposition remain open, so SC-07 stays Partial.
+lookup and task decomposition remain open, so SC-07 stays Partial. The candidate
+passes build, 1,107 unit/component, 67 mock integration, 7
+conformance/autopilot and 72 focused checks plus `git diff --check`.
 
 PLAN-137 adds the model-profile eligibility prerequisite deliberately left open
 by PLAN-132. Versioned profiles carry an exact provider identity, locality,
