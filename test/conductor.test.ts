@@ -893,6 +893,32 @@ test("runConductorStep records context tokens and spawned agents", async () => {
   });
 });
 
+test("runConductorStep records measured aggregate context tokens", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+
+    const result = await runConductorStep(dir, state, {
+      execute: true,
+      tokenBudget: 10_000,
+      contextItems: [{
+        id: "understated-budget-context", type: "file", reason: "Budget accounting must measure active context.",
+        content: "x".repeat(3_200), priority: "required", scope: "full", exactness: "exact", estimatedTokens: 1,
+      }],
+    }, async (request) => ({
+      taskId: request.taskId,
+      exitCode: 0,
+      stdoutEvents: [completedTaskReport(request)],
+      stderr: "",
+      timedOut: false,
+      aborted: false,
+    }));
+
+    assert.equal(result.accepted, true, result.message);
+    assert.equal(getBudgetState(result.state).usage.contextTokens, 800);
+  });
+});
+
 test("runConductorStep records provider usage budgets from task-agent runs", async () => {
   await withTempDir(async (dir) => {
     const state = stateWithTasks(["ready"]);
