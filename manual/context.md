@@ -189,6 +189,8 @@ An explicit file request is resolved only after its workspace-relative, task-sco
 
 For a path-unknown research request, only a complete report tied to that exact task, question and research request can resolve the missing-data request. Unresolved unknowns or contradictions keep it pending. Its sourced conclusions and source identifiers are saved as required attributed context before the task resumes, with a 16,384-character bound and normal next-prompt admission. The answer is labeled as a research claim; source metadata does not substitute for exact source bytes. The worker can ask for the precise source in a follow-up request. A partial or conflicting report does not silently unblock the task.
 
+Manual answers follow the same delivery rule: a non-file request is resolved only after a bounded, attributed operator answer is saved as required task context. A blank, oversized or conflicting answer cannot unblock it. An explicit file request must use scoped file dispatch; an operator summary cannot stand in for its exact bytes. Neither route proves an answer true. The next attempt still uses normal prompt admission.
+
 ## Compression and exact preservation
 
 SCALER uses deterministic compression policy helpers for task-agent prompts:

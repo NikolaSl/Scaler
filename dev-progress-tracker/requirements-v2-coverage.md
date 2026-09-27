@@ -26,6 +26,10 @@ foreign, contradictory and unresolved reports remain pending. Report claims do
 not prove exact source bytes, semantic discovery or model quality; SC-07/AC-07
 remains Partial. Candidate evidence: build, 1,158 unit, 68 mock integration,
 7 conformance and 61 focused tests.
+PLAN-153 adds bounded operator answers to required next-attempt context and
+refuses manual summary bypass of exact file requests. This does not verify
+answer truth or source discovery; SC-07/AC-07 remains Partial. Candidate
+evidence: build, 1,159 unit, 68 mock integration, 7 conformance, 56 focused.
 
 Prior review ran the baseline TypeScript build successfully, 488/488 unit tests
 and 66/67 mock integration tests. The failed retention fixture uses fixed

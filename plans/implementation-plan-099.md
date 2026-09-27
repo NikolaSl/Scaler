@@ -315,6 +315,11 @@ foreign, contradictory and unresolved reports cannot unblock the task. The
 report is a claim, not exact source bytes; automatic source discovery and
 decomposition remain open, so SC-07/AC-07 stays Partial. The candidate passes
 build, 1,158 unit, 68 mock integration, 7 conformance and 61 focused tests.
+PLAN-153 delivers a bounded manual answer as required task context before
+resolution and refuses summary-only resolution of exact file requests. Answer
+truth and source discovery are not established; SC-07/AC-07 stays Partial.
+The candidate passes build, 1,159 unit, 68 mock integration, 7 conformance
+and 56 focused tests.
 
 The current scheduled instruction requires a completed Copilot review covering
 the exact merge candidate; independent reviews supplement, not replace, that
