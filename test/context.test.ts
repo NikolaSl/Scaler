@@ -1028,6 +1028,77 @@ test("imported function discovery fails closed on malformed edges and ineligible
   });
 });
 
+test("imported function discovery rejects malformed, indirect and symlinked one-hop evidence", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"));
+    await mkdir(join(dir, "real"));
+    await writeFile(join(dir, "real", "target.ts"), "export function target(): void {}\n", "utf8");
+    await symlink(join(dir, "real"), join(dir, "src", "linked"));
+    await writeFile(join(dir, "src", "malformed.ts"), "import { target from './target.ts';\n", "utf8");
+    await writeFile(join(dir, "src", "target.ts"), "export { target } from './deep.ts';\n", "utf8");
+    await writeFile(join(dir, "src", "deep.ts"), "export function target(): void {}\n", "utf8");
+    await writeFile(
+      join(dir, "src", "edges.ts"),
+      [
+        "import { target } from './target.ts';",
+        "export type { target as targetType } from './deep.ts';",
+        "export { target as forwarded } from './linked/target.ts';",
+      ].join("\n"),
+      "utf8",
+    );
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-IMPORTED-FUNCTION-HARDEN", status: "ready", title: "Refuse indirect imported functions",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    for (const query of [
+      "import-function:./target.ts#target",
+      "import-function:./linked/target.ts#target",
+      "import-function:./linked/target.ts#forwarded",
+      "import-function:./deep.ts#targetType",
+      "import-function:./target.ts#target#extra",
+    ]) {
+      assert.deepEqual(
+        await discoverSemanticContextCandidates(
+          dir, state, "T-IMPORTED-FUNCTION-HARDEN", { query, limit: 10 },
+        ),
+        [],
+        query,
+      );
+    }
+  });
+});
+
+test("unrelated changed files cannot starve bounded imported function discovery", async () => {
+  await withTempDir(async (dir) => {
+    await execFileAsync("git", ["init"], { cwd: dir });
+    await mkdir(join(dir, "noise"));
+    await mkdir(join(dir, "src"));
+    for (let index = 0; index < 30; index++) {
+      const name = `noise-${String(index).padStart(2, "0")}.ts`;
+      await writeFile(join(dir, "noise", name), `export function noise${index}(): number { return ${index}; }\n`, "utf8");
+    }
+    await writeFile(join(dir, "src", "entry.ts"), "import { target } from './target.ts';\n", "utf8");
+    await writeFile(join(dir, "src", "target.ts"), "export function target(): string { return 'found'; }\n", "utf8");
+    await execFileAsync("git", ["add", "-N", "noise", "src/entry.ts", "src/target.ts"], { cwd: dir });
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-NOISE-IMPORTED-FUNCTION", status: "ready", title: "Locate bounded imported function",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-NOISE-IMPORTED-FUNCTION",
+      { query: "import-function:./target.ts#target", limit: 10 },
+    );
+
+    assert.equal(candidates.length, 1);
+    assert.equal(candidates[0]?.path, "src/target.ts");
+    assert.deepEqual(candidates[0]?.selector, { kind: "typescript-function", name: "target" });
+  });
+});
+
 test("approveContextCandidate persists selected candidates without duplicating manifest entries", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
