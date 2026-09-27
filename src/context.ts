@@ -309,6 +309,11 @@ export async function discoverSemanticContextCandidates(
     if (!linkQuery.label) return [];
     return discoverMarkdownLinkCandidates(cwd, task, taskId, linkQuery.label, options.limit ?? 10);
   }
+  const importQuery = parseLocalModuleImportCandidateQuery(options.query);
+  if (importQuery.requested) {
+    if (!importQuery.specifier) return [];
+    return discoverLocalModuleImportCandidates(cwd, task, taskId, importQuery.specifier, options.limit ?? 10);
+  }
   const queryTerms = options.query?.toLowerCase().split(/\W+/).filter((term) => term.length >= 3) ?? [];
   const terms = unique([...buildTaskSearchTerms(task), ...queryTerms]);
   const candidates: ContextCandidate[] = [];
@@ -816,6 +821,21 @@ function parseMarkdownLinkCandidateQuery(query: string | undefined): { requested
   return label ? { requested: true, label } : { requested: true };
 }
 
+function parseLocalModuleImportCandidateQuery(query: string | undefined): { requested: boolean; specifier?: string } {
+  const value = query ?? "";
+  if (!value.startsWith("import:")) return { requested: false };
+  const specifier = value.slice("import:".length);
+  if (!specifier
+    || specifier !== specifier.trim()
+    || (!specifier.startsWith("./") && !specifier.startsWith("../"))
+    || specifier.includes("\0")
+    || specifier.includes("?")
+    || specifier.includes("#")
+    || specifier.includes("\\")
+    || getTypeScriptScriptKind(specifier) === undefined) return { requested: true };
+  return { requested: true, specifier };
+}
+
 async function discoverTypeScriptFunctionCandidates(
   cwd: string,
   task: ScalerTaskState,
@@ -941,6 +961,81 @@ async function discoverMarkdownLinkCandidates(
   return [...candidates.values()]
     .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
     .slice(0, limit);
+}
+
+async function discoverLocalModuleImportCandidates(
+  cwd: string,
+  task: ScalerTaskState,
+  taskId: string,
+  specifier: string,
+  limit: number,
+): Promise<ContextCandidate[]> {
+  const changedPaths = await getGitChangedPaths(cwd);
+  const candidates = new Map<string, ContextCandidate>();
+  for (const sourcePath of await discoverAllowedCandidateFilePaths(cwd, task, changedPaths)) {
+    const scriptKind = getTypeScriptScriptKind(sourcePath);
+    if (scriptKind === undefined) continue;
+    let source: string;
+    try {
+      const stable = await readStableContextFile(cwd, sourcePath);
+      if (!stable.outputExemptible) continue;
+      source = stable.bytes.toString("utf8");
+    } catch {
+      continue;
+    }
+    if (!findExactStaticModuleSpecifiers(source, sourcePath, scriptKind).includes(specifier)) continue;
+    const targetPath = normalizeLocalModuleImportDestination(cwd, sourcePath, specifier);
+    if (!targetPath
+      || !taskPathMatches(targetPath, task.allowedPathPrefixes ?? [])
+      || isRuntimePath(targetPath)
+      || getTypeScriptScriptKind(targetPath) === undefined
+      || candidates.has(targetPath)) continue;
+    try {
+      const target = await readStableContextFile(cwd, targetPath);
+      if (!target.outputExemptible) continue;
+      renderFileContextContent(target.bytes.toString("utf8"), targetPath, "snippet");
+    } catch {
+      continue;
+    }
+    const candidateSource: ContextCandidateSource = changedPaths.includes(targetPath) ? "changed_file" : "file";
+    candidates.set(targetPath, {
+      id: buildLocalModuleImportCandidateId(targetPath, specifier),
+      taskId,
+      source: candidateSource,
+      type: "file",
+      reason: `Exact local module import ${specifier} in ${sourcePath} resolves to an allowed regular source file; approval is required before adding the target to the manifest.`,
+      score: candidateSource === "changed_file" ? 11 : 10,
+      priority: "useful",
+      scope: "snippet",
+      exactness: "exact",
+      path: targetPath,
+    });
+  }
+  return [...candidates.values()]
+    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+    .slice(0, limit);
+}
+
+function findExactStaticModuleSpecifiers(content: string, path: string, scriptKind: ts.ScriptKind): string[] {
+  const source = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, true, scriptKind);
+  const parseDiagnostics = (source as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? [];
+  if (parseDiagnostics.length > 0) return [];
+  const specifiers: string[] = [];
+  for (const statement of source.statements) {
+    const moduleSpecifier = ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement)
+      ? statement.moduleSpecifier
+      : undefined;
+    if (moduleSpecifier && ts.isStringLiteral(moduleSpecifier)) specifiers.push(moduleSpecifier.text);
+  }
+  return specifiers;
+}
+
+function normalizeLocalModuleImportDestination(cwd: string, sourcePath: string, specifier: string): string | undefined {
+  const root = resolve(cwd);
+  const target = resolve(root, dirname(sourcePath), specifier);
+  const normalized = relative(root, target).split(sep).join("/");
+  if (!normalized || normalized === ".." || normalized.startsWith("../") || isAbsolute(normalized)) return undefined;
+  return normalized;
 }
 
 function findExactMarkdownLinkDestinations(content: string, label: string): string[] {
@@ -1313,6 +1408,11 @@ function buildMarkdownHeadingCandidateId(path: string, heading: string): string 
 function buildMarkdownLinkCandidateId(path: string, label: string): string {
   const identity = createHash("sha256").update(path).update("\0").update(label).digest("hex").slice(0, 12);
   return `candidate-link-${identity}-${slugify(label)}-${slugifyPath(path)}`;
+}
+
+function buildLocalModuleImportCandidateId(path: string, specifier: string): string {
+  const identity = createHash("sha256").update(path).update("\0").update(specifier).digest("hex").slice(0, 12);
+  return `candidate-import-${identity}-${slugify(specifier)}-${slugifyPath(path)}`;
 }
 
 function unique(values: string[]): string[] {
