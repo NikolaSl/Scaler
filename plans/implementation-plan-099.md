@@ -152,8 +152,13 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   includes request-position checks for ambiguous action nouns/response phrases
   and common create/edit forms. It does not establish general multilingual
   semantics, justified isolated execution or risk-triggered direction checks.
-  Parent interactive calls, provider-internal retries and alternate provider
-  payloads remain open; this is not SC-05/AC-05 completion.
+  PLAN-135 then closes the reproduced ordinary parent-provider bypass: the
+  installed extension evaluates the exact final payload with the live model
+  context window, explicit output reserve and safety margin before transport.
+  Prompt-composition refusal keeps precedence, child policy remains separate,
+  and compact telemetry contains no prompt/tool bytes. Provider-internal retry
+  interception, alternate provider payloads and exact tokenization remain open;
+  this is not SC-05/AC-05 completion.
 
 ### Renewed continuation policy (2026-09-19)
 

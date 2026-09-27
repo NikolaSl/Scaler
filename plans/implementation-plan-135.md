@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress.
+Implemented; exact-head validation recorded below.
 
 ## Evidence and problem
 
@@ -54,3 +54,16 @@ provider-internal retry interception, local-model quality, automatic splitting,
 or the complete SC-05/AC-05 scenario. The estimator remains the conservative
 serialized UTF-8 byte upper bound. Model-selection eligibility and direction
 checks remain separate work.
+
+## Result
+
+The installed parent extension now evaluates each ordinary final provider
+payload with the shared strict admission primitive and the live model context
+window. Prompt-composition refusal retains precedence, child sessions retain
+their environment-bound policy, and parent refusal calls `ctx.abort()` before
+fallible compact telemetry. Accepted/refused audit events contain only the
+decision code and numeric measurements.
+
+The exact candidate passes the TypeScript build, `git diff --check`, 1,069
+unit/component tests, 67 mock integration tests, 7 conformance/autopilot tests
+and 15 focused installed-host provider checks.

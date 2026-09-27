@@ -294,6 +294,15 @@ Pi's compaction route bypasses the provider-request hook. Run
 This is not tokenizer-accurate evidence and does not validate alternate provider
 APIs, real model quality, token savings or scale.
 
+PLAN-135 extends the same final-envelope check to ordinary parent requests in
+the installed Scaler extension. The host test proves that a small user request
+cannot carry an oversized assembled system/tool/history payload to transport,
+that a fitting request preserves the explicit output reserve, and that refusal
+precedes a failing audit write. Admission events contain the compact decision
+and measurements without prompt or tool bytes. Run `node --test --import tsx
+test/provider-admission-host.test.ts`; strict child binding and compaction tests
+remain in the same file but use their separate environment-owned policy.
+
 PLAN-121 replaces file `scope: "section"` prefix truncation with explicit,
 exact Markdown-heading selection. The conductor fixture puts the required
 section after a 72k-character unrelated prefix and proves that the actual worker
@@ -406,9 +415,10 @@ it.
 
 These checks execute no paid model and establish selection integrity only. They
 do not configure a local profile, prove model eligibility or quality, admit
-parent interactive calls, cover provider-internal retries, complete the three
-tool routes, or demonstrate savings and scale. SC-05/25 remain Partial and
-SC-09 remains Not assessed.
+alternate provider payloads, cover provider-internal retries, complete the three
+tool routes, or demonstrate savings and scale. Ordinary parent envelope
+admission is covered separately by PLAN-135; SC-05/25 remain Partial and SC-09
+remains Not assessed.
 
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx

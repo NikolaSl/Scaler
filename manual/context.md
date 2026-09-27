@@ -124,9 +124,12 @@ Completions text/tool shape. Alternate APIs, image/audio and multiple-completion
 payloads fail closed. The byte bound can conservatively reject a request that an
 exact tokenizer would admit. Conductor, debug retry, stage agents, research,
 diagnostic debug, replanning, tool-schema discovery and explicit task spawns now
-attach this strict policy after early final-prompt admission. Parent interactive
-calls, provider-internal retries, model eligibility policy and reconciliation
-against observed usage remain later P3 work.
+attach this strict policy after early final-prompt admission. The installed
+parent extension separately assesses every ordinary final provider payload
+against the live model context window, output reserve and safety margin; it
+aborts before transport and records only compact measurements. Provider-internal
+retries, model eligibility policy and reconciliation against observed usage
+remain later P3 work.
 
 Strict child launches can currently activate only Pi built-in tools and SCALER
 tools loaded by the isolated child profile. The shared strict invocation
