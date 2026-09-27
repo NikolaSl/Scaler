@@ -708,6 +708,124 @@ test("local link discovery refuses malformed, external, escaping and indirect de
   });
 });
 
+test("local import candidate discovery approves and resolves the exact referenced source file", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"));
+    await writeFile(
+      join(dir, "src", "entry.ts"),
+      "import type { Target } from \"./target.ts\";\nexport { target } from \"./target.ts\";\n",
+      "utf8",
+    );
+    const target = "export interface Target { value: string }\nexport const target = 1;\n";
+    await writeFile(join(dir, "src", "target.ts"), target, "utf8");
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.tasks = [{
+      id: "T-IMPORT-DISCOVERY", status: "ready", title: "Locate exact imported module",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-IMPORT-DISCOVERY", { query: "import:./target.ts", limit: 10 },
+    );
+
+    assert.equal(candidates.length, 1);
+    const [candidate] = candidates;
+    assert.equal(candidate?.path, "src/target.ts");
+    assert.equal(candidate?.scope, "snippet");
+    assert.equal(candidate?.exactness, "exact");
+    assert.equal(candidate?.selector, undefined);
+    assert.match(candidate?.reason ?? "", /exact local module import/i);
+
+    const approved = await approveContextCandidate(
+      dir, state, "T-IMPORT-DISCOVERY", candidate!.id, { query: "import:./target.ts" },
+    );
+    const item = approved.manifest.items.find((entry) => entry.path === "src/target.ts");
+    assert.equal(approved.added, true);
+    assert.equal(item?.scope, "snippet");
+    const resolved = await resolveTaskContextManifest(dir, state, approved.manifest);
+    assert.equal(resolved.find((entry) => entry.id === item?.id)?.content, target);
+  });
+});
+
+test("local import discovery deduplicates repeated edges and keeps distinct exact targets", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src", "first"), { recursive: true });
+    await mkdir(join(dir, "src", "second"), { recursive: true });
+    await writeFile(
+      join(dir, "src", "first", "entry.ts"),
+      "import { value } from \"./target.ts\";\nexport { value } from \"./target.ts\";\n",
+      "utf8",
+    );
+    await writeFile(
+      join(dir, "src", "second", "entry.ts"),
+      "export type { Value } from \"./target.ts\";\n",
+      "utf8",
+    );
+    await writeFile(join(dir, "src", "first", "target.ts"), "export const value = 1;\n", "utf8");
+    await writeFile(join(dir, "src", "second", "target.ts"), "export type Value = 2;\n", "utf8");
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-IMPORT-MULTIPLE", status: "ready", title: "Locate exact local modules",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    const candidates = await discoverSemanticContextCandidates(
+      dir, state, "T-IMPORT-MULTIPLE", { query: "import:./target.ts", limit: 10 },
+    );
+
+    assert.equal(candidates.length, 2);
+    assert.equal(new Set(candidates.map((candidate) => candidate.id)).size, 2);
+    assert.deepEqual(candidates.map((candidate) => candidate.path).sort(), [
+      "src/first/target.ts",
+      "src/second/target.ts",
+    ]);
+  });
+});
+
+test("local import discovery refuses non-static and unsafe module specifiers", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"));
+    await writeFile(join(dir, "outside.ts"), "export const outside = true;\n", "utf8");
+    await writeFile(join(dir, "src", "target.ts"), "export const target = true;\n", "utf8");
+    await writeFile(join(dir, "src", "data.json"), "{}\n", "utf8");
+    await symlink(join(dir, "outside.ts"), join(dir, "src", "linked.ts"));
+    await writeFile(
+      join(dir, "src", "unsafe.ts"),
+      [
+        "import('./target.ts');",
+        "require('./target.ts');",
+        "import value from 'package-name';",
+        "import alias from '@/target.ts';",
+        "import noExtension from './target';",
+        "import query from './target.ts?raw';",
+        "import fragment from './target.ts#part';",
+        "import escape from '../outside.ts';",
+        "import linked from './linked.ts';",
+        "import data from './data.json';",
+      ].join("\n"),
+      "utf8",
+    );
+    const state = createDefaultState();
+    state.tasks = [{
+      id: "T-IMPORT-REFUSE", status: "ready", title: "Refuse unsafe module imports",
+      allowedPathPrefixes: ["src"], updatedAt: state.createdAt,
+    }];
+
+    for (const specifier of [
+      "", " ./target.ts", "./target.ts ", "./target.ts", "package-name", "@/target.ts",
+      "./target", "./target.ts?raw", "./target.ts#part", "../outside.ts", "./linked.ts", "./data.json",
+    ]) {
+      assert.deepEqual(
+        await discoverSemanticContextCandidates(
+          dir, state, "T-IMPORT-REFUSE", { query: `import:${specifier}`, limit: 10 },
+        ),
+        [],
+        specifier || "empty specifier",
+      );
+    }
+  });
+});
+
 test("approveContextCandidate persists selected candidates without duplicating manifest entries", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
