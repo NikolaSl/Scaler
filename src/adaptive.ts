@@ -218,3 +218,62 @@ export function applyAdaptiveOrchestration(
 }
 
 export function formatAdaptiveAssessment(assessment: AdaptiveAssessment): string {
+  const lines = [
+    `Adaptive orchestration: action=${assessment.action} stage=${assessment.currentStage}->${assessment.targetStage} level=${assessment.currentLevel}->${assessment.targetLevel}`,
+    `Stage transition: ${assessment.stageTransitionAvailable ? "available" : "not available from current stage"}`,
+    `Budget: ${assessment.budgetDecision.status} ${assessment.budgetDecision.key} action=${assessment.budgetDecision.recommendedAction}`,
+    `Signals: validationFailures=${assessment.signals.validationFailures} blocked=${assessment.signals.blockedTasks} needsReplan=${assessment.signals.needsReplanTasks} rejected=${assessment.signals.rejectedTransitions}`,
+    `Recommendation: ${assessment.recommendedCommand}`,
+    "Reasons:",
+  ];
+  lines.push(...assessment.reasons.map((reason) => `- ${reason}`));
+  return lines.join("\n");
+}
+
+function getCurrentBudgetDecision(state: ScalerState): BudgetDecision {
+  const budgets = getBudgetState(state);
+  return getStrongestBudgetDecision(
+    budgetUsageKeys.map((key) => evaluateBudgetUsage(key, budgets.usage[key] ?? 0, budgets.limits[key])),
+  );
+}
+
+function collectAdaptiveSignals(state: ScalerState, budgetDecision: BudgetDecision): AdaptiveSignals {
+  const debuggingTasks = state.tasks.filter((task) => task.status === "debugging").length;
+  const failedTasks = state.tasks.filter((task) => task.status === "failed").length;
+  const blockedTasks = state.tasks.filter((task) => task.status === "blocked").length;
+  const needsReplanTasks = state.tasks.filter((task) => task.status === "needs_replan").length;
+  const runnableTasks = state.tasks.filter((task) => task.status === "ready" || task.status === "pending").length;
+  const validatedTasks = state.tasks.filter((task) => task.status === "validated").length;
+
+  return {
+    debuggingTasks,
+    failedTasks,
+    blockedTasks,
+    needsReplanTasks,
+    runnableTasks,
+    validatedTasks,
+    validationFailures: debuggingTasks + failedTasks + (state.failedTaskId ? 1 : 0),
+    blockers: state.blockers.length,
+    rejectedTransitions: state.rejectedTransitions.length,
+    budgetStatus: budgetDecision.status,
+    budgetKey: budgetDecision.key,
+  };
+}
+
+function selectableStage(state: ScalerState, desired: ScalerStage): ScalerStage {
+  if (state.stage === desired || canTransitionStage(state, desired).ok) return desired;
+  return state.stage;
+}
+
+function shouldDeescalateClearRun(state: ScalerState, signals: AdaptiveSignals): boolean {
+  if (state.complexityLevel < 3) return false;
+  if (signals.budgetStatus !== "ok") return false;
+  if (signals.debuggingTasks > 0 || signals.failedTasks > 0 || signals.blockedTasks > 0 || signals.needsReplanTasks > 0) return false;
+  if (signals.blockers > 0 || signals.rejectedTransitions > 0) return false;
+  if (state.stage !== "execution" && state.stage !== "planning") return false;
+  return state.tasks.length <= 1 || (state.tasks.length > 0 && signals.validatedTasks === state.tasks.length);
+}
+
+function formatAdaptiveReason(assessment: AdaptiveAssessment): string {
+  return `Adaptive ${assessment.action}: ${assessment.reasons.join(" ")}`;
+}
