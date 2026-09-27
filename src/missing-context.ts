@@ -5,7 +5,7 @@
 
 import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { ensureTaskContextManifest, resolveTaskContextManifest, saveTaskContextManifest, type TaskContextManifestItem } from "./context.js";
+import { ensureTaskContextManifest, resolveTaskContextManifest, saveTaskContextManifest, trimMarkdownHeadingWhitespace, type FileContextSelector, type TaskContextManifestItem } from "./context.js";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { searchMemory } from "./memory.js";
 import { getMissingContextRequestsPath } from "./paths.js";
@@ -386,6 +386,10 @@ async function dispatchMemoryRequest(cwd: string, request: MissingContextRequest
 async function dispatchFileRequest(cwd: string, request: MissingContextRequest, options: MissingContextDispatchOptions, now: Date): Promise<MissingContextDispatchResult> {
   const source = request.sourceHint;
   if (!source) return await markMissingContextBlocked(cwd, request, "No file path was supplied or inferred.", now);
+  const parsedSelector = parseRequestedFileSelector(request.query);
+  if (parsedSelector.requested && !parsedSelector.selector) {
+    return await markMissingContextBlocked(cwd, request, "The exact file-section selector is malformed or ambiguous.", now);
+  }
   if (!options.execute) return { accepted: true, action: "planned", request, message: `Missing-context file retrieval planned: ${request.id} source=${source}` };
   const state = await loadState(cwd);
   const currentTask = state.tasks.find((candidate) => candidate.id === request.taskId);
@@ -412,11 +416,14 @@ async function dispatchFileRequest(cwd: string, request: MissingContextRequest, 
     const manifest = await ensureTaskContextManifest(cwd, state, request.taskId);
     const id = `missing-context-${request.id}`;
     const existing = manifest.items.find((item) => item.id === id);
-    if (existing && (existing.source !== "file" || existing.path !== path || existing.priority !== "required" || existing.scope !== "full")) {
+    const scope = parsedSelector.selector ? "section" : "full";
+    if (existing && (existing.source !== "file" || existing.path !== path || existing.priority !== "required"
+      || existing.scope !== scope || !sameFileSelector(existing.selector, parsedSelector.selector))) {
       return await markMissingContextBlocked(cwd, request, `Requested context item conflicts with the existing manifest: ${id}`, now);
     }
     const item: TaskContextManifestItem = existing ?? {
-      id, type: "file", source: "file", path, scope: "full", exactness: "exact", priority: "required",
+      id, type: "file", source: "file", path, scope, exactness: "exact", priority: "required",
+      ...(parsedSelector.selector ? { selector: parsedSelector.selector } : {}),
       reason: `Missing-context request ${request.id} requires this exact source before retry.`,
     };
     const candidate = { ...manifest, items: existing ? manifest.items : [...manifest.items, item] };
@@ -430,13 +437,41 @@ async function dispatchFileRequest(cwd: string, request: MissingContextRequest, 
       ...request,
       status: "resolved",
       evidenceRefs: unique([...(request.evidenceRefs ?? []), path]),
-      resultSummary: `Required exact file context ${path} (${resolvedItem.content.length} chars) is available in the task manifest.`,
+      resultSummary: `Required exact file ${scope === "section" ? "section" : "context"} ${path} (${resolvedItem.content.length} chars) is available in the task manifest.`,
     }, now);
     return { accepted: true, action: "resolved", request: resolved, message: `Missing-context file request resolved: ${request.id}` };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return await markMissingContextBlocked(cwd, request, `File not found: ${source}`, now);
+    if (parsedSelector.requested) {
+      const message = error instanceof Error ? error.message : String(error);
+      return await markMissingContextBlocked(cwd, request, `Exact file section is unavailable: ${message}`, now);
+    }
     throw error;
   }
+}
+
+function parseRequestedFileSelector(query: string): { requested: boolean; selector?: FileContextSelector } {
+  const directives = [...query.matchAll(/`([^`\r\n]*)`/g)]
+    .map((match) => match[1] ?? "")
+    .filter((value) => value.startsWith("heading:") || value.startsWith("function:"));
+  if (directives.length === 0) return { requested: false };
+  if (directives.length !== 1) return { requested: true };
+  const directive = directives[0]!;
+  if (directive.startsWith("heading:")) {
+    const heading = trimMarkdownHeadingWhitespace(directive.slice("heading:".length));
+    return heading ? { requested: true, selector: { kind: "markdown-heading", heading } } : { requested: true };
+  }
+  const name = directive.slice("function:".length);
+  return name && name === name.trim() && !/\s/.test(name)
+    ? { requested: true, selector: { kind: "typescript-function", name } }
+    : { requested: true };
+}
+
+function sameFileSelector(first: FileContextSelector | undefined, second: FileContextSelector | undefined): boolean {
+  if (!first || !second) return first === second;
+  return first.kind === second.kind && (first.kind === "markdown-heading"
+    ? first.heading === (second as typeof first).heading
+    : first.name === (second as typeof first).name);
 }
 
 async function dispatchResearchRequest(cwd: string, request: MissingContextRequest, options: MissingContextDispatchOptions, now: Date): Promise<MissingContextDispatchResult> {
