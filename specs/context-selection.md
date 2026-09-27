@@ -48,6 +48,12 @@ only when the exact relative specifier names a supported source extension and
 both files pass the same workspace, task-path and direct regular-file checks.
 Package/alias resolution and dynamic loading remain unavailable unless a later
 adapter establishes their exact semantics.
+An explicit imported-function lookup may additionally compose one such edge
+with the exact TypeScript-function selector only when a static named import or
+named re-export identifies the source name and the target contains one direct
+exported top-level function or callable variable with that name. Default,
+namespace and type-only bindings, indirect exports and recursive export/call
+graph traversal remain unavailable.
 
 Preserve exact code, contracts, identifiers and other exact material externally.
 Summaries MUST cite source versions and distinguish observations from inference.

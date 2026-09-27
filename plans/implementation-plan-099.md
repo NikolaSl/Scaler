@@ -253,6 +253,17 @@ Copilot review, test, separate-commit and expected-head merge gates apply.
   this unit. The exact-head candidate passes build, 1,134 unit/component, 67
   mock integration, 7 conformance/autopilot and 81 focused context checks plus
   `git diff --check`; SC-07/AC-07 stays Partial.
+  PLAN-146 composes that local-code bridge with the existing exact function
+  selector. An explicit `import-function:<specifier>#<identifier>` query
+  requires a parser-backed static named import or re-export, an
+  extension-explicit relative target inside workspace/task scope, and one
+  direct exported top-level function or callable variable with the exact source
+  name. The path-and-selector-bound section candidate still requires manual
+  approval. Default/namespace/type-only bindings, indirect exports, package or
+  alias resolution, dynamic loading, recursive traversal and automatic choice
+  remain unavailable. The exact-head candidate passes build, 1,139
+  unit/component, 67 mock integration, 7 conformance/autopilot and 86 focused
+  context checks plus `git diff --check`; SC-07/AC-07 stays Partial.
 
 ### Renewed continuation policy (2026-09-19)
 

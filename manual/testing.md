@@ -546,6 +546,19 @@ exact-head candidate passes the TypeScript build, 1,134 unit/component tests,
 67 mock integration tests, 7 conformance/autopilot tests, 81 focused context
 checks and `git diff --check`.
 
+PLAN-146 composes one exact static local edge with the existing function
+selector. Run `node --test --import tsx test/context.test.ts` to cover explicit
+`import-function:<specifier>#<identifier>` parsing, named import aliases, named
+re-exports, target deduplication, distinct targets, manual approval and exact
+callable-byte resolution. The suite rejects empty/padded/malformed queries,
+default/namespace/type-only/dynamic edges, package/alias/extensionless targets,
+missing/non-exported/non-callable/ambiguous or indirect declarations, symlinked
+ancestors and changed-file starvation. These fixtures do not implement package
+resolution, recursive export/call graphs, automatic selection, model quality or
+savings; SC-07 remains Partial. The exact-head candidate passes the TypeScript
+build, 1,139 unit/component tests, 67 mock integration tests, 7
+conformance/autopilot tests, 86 focused context checks and `git diff --check`.
+
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx
 test/stage-artifact-outcome.test.ts test/stage-agents.test.ts

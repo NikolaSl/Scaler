@@ -2,8 +2,8 @@
 
 ## Status
 
-Planned on the P3 preparation branch; implementation and validation remain
-pending.
+Implemented and validated on the P3 preparation branch; phase review and merge
+remain pending.
 
 ## Observed prerequisite gap
 
@@ -61,3 +61,20 @@ traversal, natural-language inference, automatic candidate approval, task
 decomposition, model execution, quality or savings evidence. It composes one
 explicit static edge with one exact existing selector; SC-07/AC-07 remains
 Partial.
+
+## Implementation evidence
+
+- `test/context.test.ts` first reproduced exact named-import approval,
+  named-import/re-export deduplication with distinct targets, and fail-closed
+  malformed/ineligible boundaries (81 pass / 3 expected fail before
+  implementation).
+- `src/context.ts` recognizes only well-formed
+  `import-function:<specifier>#<identifier>` queries, verifies one exact static
+  named import/re-export edge, requires one direct exported callable in the
+  stable target bytes, and emits a path-and-selector-bound manual candidate.
+- Follow-up tests reject malformed and type-only bindings, indirect/non-direct
+  target exports, symlinked ancestors and multiple separators, and prove that
+  unrelated changed files cannot starve discovery.
+- The exact-head candidate passes the TypeScript build, 1,139 unit/component
+  tests, 67 mock integration tests, 7 conformance/autopilot tests, 86 focused
+  context tests and `git diff --check`.
