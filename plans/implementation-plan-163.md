@@ -65,3 +65,8 @@ SC-05 remains `Partial`. These bounded scenarios do not yet compose the entire
 AC-05 oversized-source/split, real host envelope, post-tool continuation and
 report-repair sequence into one declared-window milestone, nor reconcile each
 admission estimate with observed provider usage.
+
+Exact candidate validation: TypeScript build, 1,192/1,192 unit/component,
+73/73 mock integration, 10/10 conformance/autopilot and 123/123 focused
+conductor/subagent/provider-admission/installed-host checks pass, together with
+`git diff --check`.
