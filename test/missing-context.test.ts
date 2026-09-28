@@ -296,6 +296,7 @@ test("memory dispatch blocks without candidates or on conflicting manifest scope
 
 test("research dispatch creates a research request and refresh resolves from report", async () => {
   await withTempDir(async (dir) => {
+    await writeFile(join(dir, "package.json"), "{\"version\":\"1.0.0\"}\n");
     const state = createState();
     await saveState(dir, state);
     const created = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need local dependency version"]));
@@ -328,6 +329,53 @@ test("research dispatch creates a research request and refresh resolves from rep
     assert.match(nextPrompt, /package\.json/);
     await refreshAndUnblockMissingContext(dir, await loadState(dir));
     assert.equal((await loadTaskContextManifest(dir, "T-MISS"))?.items.filter((item) => item.id === answer?.id).length, 1);
+  });
+});
+
+test("local research refresh refuses file-backed sources outside task scope", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "private"), { recursive: true });
+    await writeFile(join(dir, "private", "secret.md"), "not task context\n");
+    const state = createState();
+    state.tasks[0]!.allowedPathPrefixes = ["src"];
+    await saveState(dir, state);
+    const created = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need local dependency version"]));
+    const dispatched = await dispatchMissingContextRequest(dir, state, created.created[0]?.id, { execute: true });
+
+    await recordResearchReport(dir, {
+      requestId: dispatched.request!.evidenceRefs![0], question: "Need local dependency version", status: "complete", taskId: "T-MISS",
+      sources: [{ id: "secret", title: "private source", quality: "project", path: "private/secret.md" }],
+      conclusions: [{ summary: "Use the private value.", confidence: "high", sourceRefs: ["secret"] }],
+    });
+
+    const refreshed = await refreshAndUnblockMissingContext(dir, await loadState(dir));
+    assert.deepEqual(refreshed.unblockedTaskIds, []);
+    assert.equal((await loadMissingContextRequests(dir))[0]?.status, "blocked");
+    assert.equal((await loadTaskContextManifest(dir, "T-MISS"))?.items.some((item) => item.id.startsWith("missing-research-")), false);
+  });
+});
+
+test("local research refresh refuses a file-backed claim whose source changed after research", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"), { recursive: true });
+    await writeFile(join(dir, "src", "dependency.json"), "{\"version\":\"1.0.0\"}\n");
+    const state = createState();
+    state.tasks[0]!.allowedPathPrefixes = ["src"];
+    await saveState(dir, state);
+    const created = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need local dependency version"]));
+    const dispatched = await dispatchMissingContextRequest(dir, state, created.created[0]?.id, { execute: true });
+
+    await recordResearchReport(dir, {
+      requestId: dispatched.request!.evidenceRefs![0], question: "Need local dependency version", status: "complete", taskId: "T-MISS",
+      sources: [{ id: "dependency", title: "dependency metadata", quality: "project", path: "src/dependency.json" }],
+      conclusions: [{ summary: "Dependency version is 1.0.0.", confidence: "high", sourceRefs: ["dependency"] }],
+    });
+    await writeFile(join(dir, "src", "dependency.json"), "{\"version\":\"2.0.0\"}\n");
+
+    const refreshed = await refreshAndUnblockMissingContext(dir, await loadState(dir));
+    assert.deepEqual(refreshed.unblockedTaskIds, []);
+    assert.equal((await loadMissingContextRequests(dir))[0]?.status, "blocked");
+    assert.equal((await loadTaskContextManifest(dir, "T-MISS"))?.items.some((item) => item.id.startsWith("missing-research-")), false);
   });
 });
 
