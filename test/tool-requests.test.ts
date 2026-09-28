@@ -510,7 +510,7 @@ test("current-agent tool dispatch binds exact provider identity and one structur
     const payload = { model: "local-32k", messages: [{ role: "user", content: prepared.preparation.prompt }], max_completion_tokens: 1024 };
     const model = { api: "openai-completions", provider: "local", id: "local-32k", contextWindow: 32_000 };
     const policy = { requestTokenAllowance: 32_000, outputReserveTokens: 1024, safetyMarginTokens: 1024 };
-    const admission = await admitCurrentAgentToolProviderCall(dir, state, prepared.preparation, { payload, model, policy, profile });
+    const admission = await admitCurrentAgentToolProviderCall(dir, state, prepared.preparation, { authority: "allowed", payload, model, policy, profile });
     assert.equal(admission.accepted, true);
     assert.equal(admission.transaction?.routeAdmission?.route, "current-agent");
     assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, admission.transaction?.id);
@@ -519,7 +519,7 @@ test("current-agent tool dispatch binds exact provider identity and one structur
       dir,
       state,
       prepared.preparation,
-      { payload, model: { ...model, id: "other-local" }, policy, profile },
+      { authority: "allowed", payload, model: { ...model, id: "other-local" }, policy, profile },
       admission.transaction,
     );
     assert.equal(changedModel.accepted, false);
@@ -529,7 +529,7 @@ test("current-agent tool dispatch binds exact provider identity and one structur
       dir,
       state,
       prepared.preparation,
-      { payload, model: { ...model, provider: "other-local" }, policy, profile },
+      { authority: "allowed", payload, model: { ...model, provider: "other-local" }, policy, profile },
       admission.transaction,
     );
     assert.equal(changedProvider.accepted, false);
@@ -589,6 +589,18 @@ test("current-agent provider dispatch refuses explicit denied authority before c
 
     assert.equal(admission.accepted, false);
     assert.equal(admission.assessment.reasonCode, "authority-denied");
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
+    assert.equal((await loadToolTransactions(dir)).length, 0);
+
+    const hardBudgetState = setBudgetLimits(state, { toolCalls: { hard: 0 } });
+    const hardBudgetAdmission = await admitCurrentAgentToolProviderCall(
+      dir,
+      hardBudgetState,
+      prepared.preparation,
+      { ...evidence, authority: "allowed" } as Parameters<typeof admitCurrentAgentToolProviderCall>[3],
+    );
+    assert.equal(hardBudgetAdmission.accepted, false);
+    assert.match(hardBudgetAdmission.message, /budget hard limit.*toolCalls/i);
     assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
     assert.equal((await loadToolTransactions(dir)).length, 0);
   });

@@ -423,6 +423,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       let admission: Awaited<ReturnType<typeof admitCurrentAgentToolProviderCall>>;
       try {
         admission = await admitCurrentAgentToolProviderCall(ctx.cwd, state, currentAgentRun.preparation, {
+          authority: "allowed",
           payload: event.payload,
           model: snapshotHostModel(ctx.model) ?? {},
           policy: createStrictProviderAdmissionPolicy(contextWindow),

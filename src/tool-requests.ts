@@ -8,13 +8,14 @@ import { mkdir, open, readFile, rename, rm, rmdir, writeFile } from "node:fs/pro
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { appendLogEvent, createLogEvent } from "./logging.js";
+import { budgetUsageKeys, evaluateBudgetUsage, getBudgetState, getStrongestBudgetDecision, type BudgetDecision } from "./budgets.js";
 import { getMcpServersPath, getToolCatalogPath, getToolIterationPolicyPath, getToolIterationRunsPath, getToolReplayApprovalsPath, getToolRequestsIndexPath, getToolResultsPath, getToolSchedulesPath, getToolSchemaDiscoveryRunsPath, getToolTransactionsPath } from "./paths.js";
 import { requireTaskPromptAdmission, TaskPromptAdmissionError, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
 import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { loadState } from "./state.js";
 import { DEFAULT_TASK_AGENT_OUTPUT_LIMITS, buildTaskAgentInvocation, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type RunTaskAgentOptions, type TaskAgentInvocation, type TaskAgentOutputLimits, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
-import { assessToolRoute, type ToolIsolationRequirement, type ToolRouteAssessment, type ToolRouteAssessmentInput } from "./tool-routing.js";
+import { assessToolRoute, type ToolIsolationRequirement, type ToolRouteAssessment, type ToolRouteAssessmentInput, type ToolRouteAuthority } from "./tool-routing.js";
 import type { ScalerState } from "./types.js";
 
 export type ToolRiskLevel = "low" | "medium" | "high" | "destructive" | "external" | "secret" | "unknown";
@@ -374,6 +375,8 @@ export interface ToolDispatchAdmissionRecord {
   version: 1;
   route: "direct" | "current-agent" | "isolated";
   authorized: true;
+  authority: "allowed";
+  budgetDecision: BudgetDecision;
   requestFingerprint: string;
   invocationFingerprint: string;
   evidenceFingerprint: string;
@@ -420,6 +423,8 @@ export interface CurrentAgentToolPrepareResult {
 }
 
 export interface CurrentAgentProviderEvidence {
+  /** Host-owned live permission decision; request/model content cannot set it. */
+  authority: ToolRouteAuthority;
   payload: unknown;
   model: ProviderAdmissionModel;
   policy: ReturnType<typeof createStrictProviderAdmissionPolicy>;
@@ -1402,6 +1407,7 @@ export async function runToolRequestAgent(
   const routeEvidenceSupplier = options.routeEvidenceSupplier
     ?? (request.directOperation ? createBuiltinDirectRouteSnapshot : undefined);
   const admission = await prepareToolDispatchAdmission(
+    state,
     request,
     agentRequest,
     invocation,
@@ -1519,7 +1525,7 @@ export async function admitCurrentAgentToolProviderCall(
   const assessment = assessToolRoute({
     request: buildToolRouteRequestBasis(preparation.request, preparation.executionId),
     profile: evidence.profile,
-    authority: "allowed",
+    authority: evidence.authority,
     direct: { exactArgumentsAvailable: false, argumentsValidated: false },
     currentAgent: {
       available: true,
@@ -1550,6 +1556,10 @@ export async function admitCurrentAgentToolProviderCall(
     }
     return { accepted: false, message, assessment };
   };
+  const budgetDecision = assessToolDispatchBudget(state);
+  if (budgetDecision.status === "hard_limit") {
+    return refuse(`budget hard limit (${budgetDecision.key}): ${budgetDecision.reason}`);
+  }
   if (assessment.route !== "current-agent") return refuse(`live route recomputation recommended ${assessment.route} (${assessment.reasonCode})`);
   if (!assessment.evidenceFingerprint || !assessment.profileFingerprint || assessment.selectedEstimatedOverheadUpperBound === null) {
     return refuse("live route recomputation did not produce complete compact identity");
@@ -1595,6 +1605,8 @@ export async function admitCurrentAgentToolProviderCall(
     version: 1,
     route: "current-agent",
     authorized: true,
+    authority: "allowed",
+    budgetDecision,
     requestFingerprint: fingerprintToolRequest(preparation.request),
     invocationFingerprint: fingerprintInvocation(preparation.invocation),
     evidenceFingerprint: assessment.evidenceFingerprint,
@@ -1858,6 +1870,7 @@ export async function replayToolTransaction(
     return { accepted: false, message: transaction.message, original, request, prompt: replayRequest.prompt, invocation, transaction };
   }
   const admission = await prepareToolDispatchAdmission(
+    state,
     request,
     replayRequest,
     invocation,
@@ -2422,6 +2435,7 @@ function normalizeToolRunMeasurements(result: TaskAgentRunResult, limits: TaskAg
 }
 
 async function prepareToolDispatchAdmission(
+  state: ScalerState,
   request: ToolRequestRecord,
   baseAgentRequest: TaskAgentRequest,
   baseInvocation: TaskAgentInvocation,
@@ -2438,6 +2452,10 @@ async function prepareToolDispatchAdmission(
     executionId,
     message: `Tool transaction dispatch rejected: ${reason}.`,
   });
+  const budgetDecision = assessToolDispatchBudget(state);
+  if (budgetDecision.status === "hard_limit") {
+    return refuse(`budget hard limit (${budgetDecision.key}): ${budgetDecision.reason}`);
+  }
   if (!supplier) return refuse("a live route evidence supplier is required for isolated execution");
 
   const requestFingerprint = fingerprintToolRequest(request);
@@ -2494,6 +2512,8 @@ async function prepareToolDispatchAdmission(
       version: 1,
       route: "direct",
       authorized: true,
+      authority: "allowed",
+      budgetDecision,
       requestFingerprint,
       invocationFingerprint: fingerprintInvocation(invocation),
       evidenceFingerprint: assessment.evidenceFingerprint,
@@ -2564,6 +2584,8 @@ async function prepareToolDispatchAdmission(
     version: 1,
     route: "isolated",
     authorized: true,
+    authority: "allowed",
+    budgetDecision,
     requestFingerprint,
     invocationFingerprint: fingerprintInvocation(invocation),
     evidenceFingerprint: assessment.evidenceFingerprint,
@@ -2572,6 +2594,12 @@ async function prepareToolDispatchAdmission(
     selectedEstimatedOverheadUpperBound: assessment.selectedEstimatedOverheadUpperBound,
   };
   return { accepted: true, executionId, agentRequest, invocation, routeAdmission };
+}
+
+function assessToolDispatchBudget(state: ScalerState): BudgetDecision {
+  const budget = getBudgetState(state);
+  return getStrongestBudgetDecision(budgetUsageKeys.map((key) =>
+    evaluateBudgetUsage(key, budget.usage[key] ?? 0, budget.limits[key])));
 }
 
 function buildToolRouteRequestBasis(request: ToolRequestRecord, executionId?: string): ToolRouteAssessmentInput["request"] {

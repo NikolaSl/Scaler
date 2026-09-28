@@ -159,6 +159,8 @@ test("three-route milestone stays bounded across 32K and 128K windows", async ()
     assert.equal(directResult.accepted, true);
     assert.equal(directModelCalls, 0);
     assert.equal(directResult.transaction?.routeAdmission?.route, "direct");
+    assert.equal(directResult.transaction?.routeAdmission?.authority, "allowed");
+    assert.equal(directResult.transaction?.routeAdmission?.budgetDecision.status, "ok");
 
     let previousProfileFingerprint: string | undefined;
     for (const [index, contextWindow] of [32_768, 131_072].entries()) {
@@ -216,6 +218,7 @@ test("three-route milestone stays bounded across 32K and 128K windows", async ()
         max_completion_tokens: 1_024,
       };
       const currentAdmission = await admitCurrentAgentToolProviderCall(dir, state, preparedCurrent.preparation, {
+        authority: "allowed",
         payload,
         model,
         policy,
@@ -223,6 +226,8 @@ test("three-route milestone stays bounded across 32K and 128K windows", async ()
       });
       assert.equal(currentAdmission.accepted, true);
       assert.equal(currentAdmission.transaction?.routeAdmission?.route, "current-agent");
+      assert.equal(currentAdmission.transaction?.routeAdmission?.authority, "allowed");
+      assert.equal(currentAdmission.transaction?.routeAdmission?.budgetDecision.status, "ok");
       assert.equal(currentAdmission.transaction?.routeAdmission?.profileFingerprint, selectedProfile.fingerprint);
       assert.equal(currentAdmission.assessment.currentAgent.legs[0]?.provider.payloadBytes, Buffer.byteLength(JSON.stringify(payload), "utf8"));
       assert.deepEqual(payload.tools.map((tool) => tool.function.name).sort(), activeToolNames.slice().sort());
@@ -347,6 +352,8 @@ test("three-route milestone stays bounded across 32K and 128K windows", async ()
       assert.equal(isolatedResult.accepted, true, isolatedResult.message);
       assert.equal(isolatedModelCalls, 1);
       assert.equal(isolatedResult.transaction?.routeAdmission?.route, "isolated");
+      assert.equal(isolatedResult.transaction?.routeAdmission?.authority, "allowed");
+      assert.equal(isolatedResult.transaction?.routeAdmission?.budgetDecision.status, "ok");
       assert.equal(isolatedResult.transaction?.routeAdmission?.profileFingerprint, isolatedProfile.fingerprint);
       const isolatedPayloadBytes = Buffer.byteLength(JSON.stringify(isolatedProviderPayload(contextWindow)), "utf8");
       assert.equal(
