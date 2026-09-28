@@ -226,13 +226,42 @@ export function validateExecutionPlan(plan: ExecutionPlanArtifact): void {
   if (plan.version !== 1) throw new Error(`Unsupported execution plan version: ${String(plan.version)}`);
   if (!executionPlanStatuses.includes(plan.status)) throw new Error(`Invalid execution plan status: ${String(plan.status)}`);
   const taskIds = new Set<string>();
+  const tasksById = new Map<string, ExecutionPlanTask>();
   for (const task of plan.tasks) {
     normalizeOutputPaths(task.outputPaths);
     if (!task.id.trim()) throw new Error("Execution plan task id is required.");
     if (taskIds.has(task.id)) throw new Error(`Duplicate execution plan task id: ${task.id}`);
     taskIds.add(task.id);
+    tasksById.set(task.id, task);
     if (!task.title.trim()) throw new Error(`Execution plan task ${task.id} title is required.`);
   }
+
+  for (const task of plan.tasks) {
+    for (const dependencyId of task.dependsOn ?? []) {
+      if (!taskIds.has(dependencyId)) {
+        throw new Error(`Unknown dependency ${dependencyId} referenced by execution plan task ${task.id}.`);
+      }
+    }
+  }
+
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const path: string[] = [];
+  const visit = (taskId: string): void => {
+    if (visited.has(taskId)) return;
+    if (visiting.has(taskId)) {
+      const cycleStart = path.indexOf(taskId);
+      const cycle = [...path.slice(cycleStart), taskId];
+      throw new Error(`Execution plan dependency cycle: ${cycle.join(" -> ")}.`);
+    }
+    visiting.add(taskId);
+    path.push(taskId);
+    for (const dependencyId of tasksById.get(taskId)?.dependsOn ?? []) visit(dependencyId);
+    path.pop();
+    visiting.delete(taskId);
+    visited.add(taskId);
+  };
+  for (const task of plan.tasks) visit(task.id);
 }
 
 export async function loadExecutionPlan(cwd: string): Promise<ExecutionPlanArtifact> {
