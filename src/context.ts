@@ -700,7 +700,7 @@ export async function verifyFileContextSources(
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      diagnostics.push(`Task ${taskId} context source ${source.itemId} is missing or unreadable: ${source.path} (${message}).`);
+      diagnostics.push(`Task ${taskId} context source ${source.itemId} changed, is missing, or is unreadable: ${source.path} (${message}).`);
     }
   }
   return diagnostics;

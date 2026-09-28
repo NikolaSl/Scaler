@@ -298,21 +298,18 @@ test("result acceptance rejects declared output changed from regular file to FIF
 });
 
 for (const symlinkKind of ["leaf", "ancestor"] as const) {
-  test(`exact output exemption rejects ${symlinkKind} symlink-backed context`, async () => {
+  test(`context resolution refuses ${symlinkKind} symlink-backed source before reading it`, async () => {
     await fixture(async (dir) => {
       let contextPath: string;
-      let referentPath: string;
       if (symlinkKind === "leaf") {
         await mkdir(join(dir, "src"), { recursive: true });
-        referentPath = "reference.md";
         contextPath = "src/app.ts";
-        await writeFile(join(dir, referentPath), "ORIGINAL\n", "utf8");
+        await writeFile(join(dir, "reference.md"), "PRIVATE-REFERENT\n", "utf8");
         await symlink("../reference.md", join(dir, contextPath));
       } else {
         await mkdir(join(dir, "real"), { recursive: true });
-        referentPath = "real/app.ts";
         contextPath = "linked/app.ts";
-        await writeFile(join(dir, referentPath), "ORIGINAL\n", "utf8");
+        await writeFile(join(dir, "real/app.ts"), "PRIVATE-REFERENT\n", "utf8");
         await symlink("real", join(dir, "linked"));
       }
       const initial = await admittedFileContext(dir, {
@@ -321,11 +318,10 @@ for (const symlinkKind of ["leaf", "ancestor"] as const) {
         allowedPathPrefixes: [contextPath.split("/")[0]!],
         outputPaths: [contextPath],
       });
-      assert.equal(initial.attempt.contextSources?.[0]?.outputExemptible, false);
-      const started = await startTaskExecution(dir, initial.lockId, initial.state, initial.attempt);
-      await writeFile(join(dir, referentPath), "CHANGED\n", "utf8");
-      const checked = await checkTaskExecutionResult(dir, started.attempt, "T-1");
-      assert.match(checked.diagnostics.join(" "), /context.*changed/i);
+      assert.equal(initial.context.included[0]?.available, false);
+      assert.match(initial.context.included[0]?.diagnostic ?? "", /not a direct regular file/i);
+      assert.doesNotMatch(initial.context.text, /PRIVATE-REFERENT/);
+      assert.deepEqual(initial.attempt.contextSources, []);
     });
   });
 }
