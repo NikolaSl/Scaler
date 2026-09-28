@@ -278,6 +278,7 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
   let nextRequests = requests;
 
   const blockRequest = (request: MissingContextRequest, reason: string): void => {
+    if (request.status === "blocked" && request.resultSummary === reason) return;
     const blocked: MissingContextRequest = {
       ...request,
       status: "blocked",
@@ -301,7 +302,8 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
       && !(report.contradictions ?? []).some((contradiction) => contradiction.status === "unresolved"));
     if (!matchingReport) continue;
     const referencedSourceIds = new Set(matchingReport.conclusions.flatMap((conclusion) => conclusion.sourceRefs));
-    const fileSources = matchingReport.sources.filter((source) => referencedSourceIds.has(source.id) && source.path);
+    const referencedSources = matchingReport.sources.filter((source) => referencedSourceIds.has(source.id));
+    const fileSources = referencedSources.filter((source) => source.path);
     const manifest = await ensureTaskContextManifest(cwd, state, request.taskId);
     const sourceItems: TaskContextManifestItem[] = [];
     if (request.kind === "local_research") {
@@ -343,7 +345,7 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
     }
     const content = `Research answer (reported claim, not verified source bytes): ${JSON.stringify({
       reportId: matchingReport.id,
-      sources: matchingReport.sources.map((source) => ({ id: source.id, title: source.title, path: source.path, url: source.url, version: source.version, contentFingerprint: source.contentFingerprint, summary: source.summary })),
+      sources: referencedSources.map((source) => ({ id: source.id, title: source.title, path: source.path, url: source.url, version: source.version, contentFingerprint: source.contentFingerprint, summary: source.summary })),
       conclusions: matchingReport.conclusions.map((conclusion) => ({ summary: conclusion.summary, confidence: conclusion.confidence, sourceRefs: conclusion.sourceRefs })),
     })}`;
     if (content.length > 16_384) continue;
