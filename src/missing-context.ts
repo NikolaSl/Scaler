@@ -373,12 +373,53 @@ async function dispatchMemoryRequest(cwd: string, request: MissingContextRequest
   const results = await searchMemory(cwd, { query: request.query, limit: 5 });
   if (!options.execute) return { accepted: true, action: "planned", request, message: `Missing-context memory retrieval planned: ${request.id} candidates=${results.length}` };
   if (results.length === 0) return await markMissingContextBlocked(cwd, request, "No memory candidates matched the missing context query.", now);
+  const state = await loadState(cwd);
+  if (!state.tasks.some((task) => task.id === request.taskId)) {
+    return await markMissingContextBlocked(cwd, request, `Missing-context task is unavailable: ${request.taskId}`, now);
+  }
+  const manifest = await ensureTaskContextManifest(cwd, state, request.taskId);
+  const items: TaskContextManifestItem[] = [];
+  for (const { entry } of results) {
+    const existing = manifest.items.find((candidate) => candidate.memoryId === entry.id);
+    const id = existing?.id ?? `missing-memory-${safeId(request.id)}-${shortHash(entry.id)}`;
+    const idOwner = manifest.items.find((candidate) => candidate.id === id);
+    if ((existing && (existing.source !== "memory" || existing.scope !== "summary" || existing.exactness !== "summary-ok"))
+      || (idOwner && idOwner !== existing)) {
+      return await markMissingContextBlocked(cwd, request, `Memory candidate conflicts with the existing manifest: ${id}`, now);
+    }
+    items.push({
+      id,
+      type: "memory",
+      source: "memory",
+      memoryId: entry.id,
+      priority: "required",
+      scope: "summary",
+      exactness: "summary-ok",
+      reason: `Bounded memory candidate for missing-context request ${request.id}; candidate validity remains visible to the worker.`,
+    });
+  }
+  const candidate = {
+    ...manifest,
+    items: [
+      ...manifest.items.filter((existing) => !items.some((item) => item.id === existing.id)),
+      ...items,
+    ],
+  };
+  const resolvedItems = await resolveTaskContextManifest(cwd, state, candidate);
+  const supplied = items.map((item) => resolvedItems.find((resolved) => resolved.id === item.id));
+  if (supplied.some((item) => !item?.available)) {
+    return await markMissingContextBlocked(cwd, request, "A matched memory candidate is unavailable.", now);
+  }
+  if (supplied.reduce((total, item) => total + (item?.content.length ?? 0), 0) > 16_384) {
+    return await markMissingContextBlocked(cwd, request, "Matched memory candidate summaries exceed the bounded context; narrow the request.", now);
+  }
+  if (JSON.stringify(candidate.items) !== JSON.stringify(manifest.items)) await saveTaskContextManifest(cwd, candidate);
   const evidenceRefs = results.map((result) => result.entry.id);
   const resolved = await upsertMissingContextRequest(cwd, {
     ...request,
     status: "resolved",
     evidenceRefs: unique([...(request.evidenceRefs ?? []), ...evidenceRefs]),
-    resultSummary: `Resolved from memory candidates: ${evidenceRefs.join(", ")}`,
+    resultSummary: `Supplied bounded memory candidate summaries: ${evidenceRefs.join(", ")}`,
   }, now);
   return { accepted: true, action: "resolved", request: resolved, message: `Missing-context memory request resolved: ${request.id}` };
 }
