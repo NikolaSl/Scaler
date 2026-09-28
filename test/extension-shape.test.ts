@@ -16,6 +16,7 @@ import packagedScalerExtension from "../extensions/scaler/index.js";
 import { loadWatchdogHeartbeats } from "../src/watchdogs.js";
 import { readLogEvents } from "../src/logging.js";
 import { loadExecutionLock } from "../src/locks.js";
+import { writeMemory } from "../src/memory.js";
 import { getLogToolsDir } from "../src/paths.js";
 import { loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
@@ -267,6 +268,64 @@ test("extension executes one prepared tool request through the admitted current 
     const transaction = (await loadToolTransactions(dir))[0];
     assert.equal(transaction?.routeAdmission?.route, "current-agent");
     assert.equal(transaction?.status, "completed");
+  });
+});
+
+test("current-agent memory retrieval cannot expand a bounded request to a full memory body", async () => {
+  await withTempDir(async (dir) => {
+    const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
+    const tools = new Map<string, { execute: (...args: any[]) => Promise<any> }>();
+    let activeTools = ["read", "scaler_memory_retrieve", "scaler_tool_result"];
+    const allTools = activeTools.map((name) => ({
+      name,
+      description: name,
+      parameters: { type: "object", properties: {} },
+      sourceInfo: { source: "test" },
+    }));
+    const fakePi = {
+      on() {},
+      registerTool(definition: { name: string; execute: (...args: any[]) => Promise<any> }) { tools.set(definition.name, definition); },
+      registerCommand(name: string, definition: { handler: (args: string, ctx: any) => Promise<void> }) { commands.set(name, definition); },
+      getAllTools: () => allTools,
+      getActiveTools: () => [...activeTools],
+      setActiveTools: (names: string[]) => { activeTools = [...names]; },
+      sendUserMessage() {},
+    };
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-MEMORY";
+    state.tasks = [{ id: "T-MEMORY", status: "running", title: "Bounded memory", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+    const memory = await writeMemory(dir, {
+      title: "Bounded context",
+      summary: "The bounded summary.",
+      content: "The bounded summary.\n\nSECRET FULL MEMORY BODY",
+      taskId: "T-MEMORY",
+    });
+    const prepared = await prepareToolRequest(dir, state, {
+      taskId: "T-MEMORY",
+      toolName: "scaler_memory_retrieve",
+      request: "Retrieve only the bounded memory summary.",
+      allowedTools: ["scaler_memory_retrieve"],
+    });
+    assert.ok(prepared.record);
+
+    scalerExtension(fakePi as never);
+    await commands.get("scaler-tool-current")!.handler(prepared.record.id, {
+      cwd: dir,
+      hasUI: false,
+      isIdle: () => true,
+      model: { api: "openai-completions", provider: "local", id: "local-32k", contextWindow: 32_000 },
+    });
+
+    const result = await tools.get("scaler_memory_retrieve")!.execute("memory-call", {
+      memoryIdOrPath: memory.id,
+      scope: "full",
+      reason: "Attempt to broaden the current-agent context.",
+    }, undefined, undefined, { cwd: dir });
+    assert.match(result.content[0].text, /The bounded summary\./);
+    assert.doesNotMatch(result.content[0].text, /SECRET FULL MEMORY BODY/);
+    assert.equal(result.details.scope, "summary");
   });
 });
 
