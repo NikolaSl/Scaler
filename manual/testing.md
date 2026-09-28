@@ -944,3 +944,29 @@ Final accumulated phase results: build, 1,177/1,177 unit/component, 72/72 mock
 integration, 10/10 conformance/autopilot and 18/18 focused checks plus
 `git diff --check`. This is FSM/context-delivery evidence, not proof of memory
 truth, model quality, savings or full SC-07 acceptance.
+
+PLAN-161 reconciles SC-07 against the intended model-proposal and
+supervisor-validation contract. Re-run the exact-section, missing-context,
+conductor, automation and unknown-source window scenarios with:
+
+```bash
+node --test --import tsx test/context.test.ts test/context-splits.test.ts test/missing-context.test.ts test/conductor.test.ts test/autopilot.test.ts
+node --test --import tsx test/integration/mock/unknown-source-context-flow.test.ts test/integration/mock/varied-window-context-flow.test.ts
+```
+
+The focused result is 174/174 component tests and 4/4 integration scenarios.
+The complete candidate gate is build, 1,187/1,187 unit/component, 72/72 mock
+integration, 10/10 conformance/autopilot and `git diff --check`. Independent
+review found that file-backed sources inside pathless local-research answers
+needed task-scope and version validation. The follow-up regressions prove
+out-of-scope and symlink refusal, report-time staleness refusal, immutable
+inherited fingerprints, refusal of summary-only/mixed unbound citations,
+revalidation and quarantine of resolved stale bindings, reblocking after a
+resolved local or internet report becomes incomplete, unresolved or oversized, required
+freshness binding before retry, exact agent-output binding to its selected
+research request/task/question, immutable report identity, refusal of direct
+research-child ledger writes through tool or shell authority, and pre-read
+leaf/ancestor symlink refusal. The gate
+does not verify source truth, model quality,
+token savings or a configured local host; those remain separate evidence
+domains.

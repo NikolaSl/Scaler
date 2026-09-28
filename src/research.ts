@@ -5,8 +5,11 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { normalizeTaskScopedContextPath, snapshotFileContextSource } from "./context.js";
 import { getResearchReportsPath, getResearchRequestsPath } from "./paths.js";
 import { writeMemory } from "./memory.js";
+import { loadState } from "./state.js";
+import type { ScalerTaskState } from "./types.js";
 
 export const researchRequestStatuses = ["open", "in_progress", "resolved", "blocked", "superseded"] as const;
 export type ResearchRequestStatus = (typeof researchRequestStatuses)[number];
@@ -57,6 +60,7 @@ export interface ResearchSource {
   path?: string;
   version?: string;
   summary?: string;
+  contentFingerprint?: string;
 }
 
 export interface ResearchConclusion {
@@ -229,7 +233,32 @@ export async function saveResearchReports(cwd: string, reports: ResearchReport[]
 export async function recordResearchReport(cwd: string, input: ResearchReportInput, now = new Date()): Promise<ResearchReport> {
   const timestamp = now.toISOString();
   const reports = await loadResearchReports(cwd);
-  const existing = input.id ? reports.find((report) => report.id === input.id) : undefined;
+  const reportId = input.id?.trim();
+  const existing = reportId ? reports.find((report) => report.id === reportId) : undefined;
+  if (existing && input.sources !== undefined && input.conclusions === undefined) {
+    throw new Error(`Research report ${existing.id} source revisions require explicit conclusions.`);
+  }
+  const question = cleanRequired(input.question, "Research report question is required.");
+  const requestId = clean(input.requestId) ?? existing?.requestId;
+  const taskId = clean(input.taskId) ?? existing?.taskId;
+  if (existing && (requestId !== existing.requestId || taskId !== existing.taskId || question !== existing.question)) {
+    throw new Error(`Research report ${existing.id} request, task, and question identity is immutable.`);
+  }
+  if (requestId) {
+    const request = (await loadResearchRequests(cwd)).find((candidate) => candidate.id === requestId);
+    if (request && (question !== request.question || (request.taskId !== undefined && taskId !== request.taskId))) {
+      throw new Error(`Research report binding does not match research request ${requestId}.`);
+    }
+  }
+  let sourceTask: ScalerTaskState | undefined;
+  if (taskId) {
+    try {
+      sourceTask = (await loadState(cwd)).tasks.find((task) => task.id === taskId);
+    } catch {
+      // A report may exist independently of an active run. Without task scope,
+      // file-backed claims remain unbound and cannot unblock local work.
+    }
+  }
   const memoryRefs = [...(input.memoryRefs ?? existing?.memoryRefs ?? [])];
   for (const evidence of input.rawEvidence ?? []) {
     const memory = await writeMemory(cwd, {
@@ -244,13 +273,15 @@ export async function recordResearchReport(cwd: string, input: ResearchReportInp
   }
 
   const report: ResearchReport = {
-    id: input.id?.trim() || existing?.id || `RPT-RESEARCH-${timestamp.replace(/[^0-9]/g, "")}`,
+    id: reportId || existing?.id || `RPT-RESEARCH-${timestamp.replace(/[^0-9]/g, "")}`,
     status: normalizeReportStatus(input.status ?? existing?.status ?? "partial"),
-    question: cleanRequired(input.question, "Research report question is required."),
-    requestId: clean(input.requestId) ?? existing?.requestId,
-    taskId: clean(input.taskId) ?? existing?.taskId,
+    question,
+    requestId,
+    taskId,
     requirementRefs: normalizeList(input.requirementRefs ?? existing?.requirementRefs),
-    sources: normalizeSources(input.sources ?? existing?.sources ?? [], timestamp),
+    sources: input.sources !== undefined
+      ? await normalizeSources(cwd, input.sources, timestamp, sourceTask)
+      : existing?.sources.map((source) => ({ ...source })) ?? [],
     conclusions: normalizeConclusions(input.conclusions ?? existing?.conclusions ?? []),
     contradictions: normalizeContradictions(input.contradictions ?? existing?.contradictions),
     unresolvedUnknowns: normalizeList(input.unresolvedUnknowns ?? existing?.unresolvedUnknowns),
@@ -323,6 +354,9 @@ function validateResearchSource(source: ResearchSource, sourceIds: Set<string>, 
   if (!researchSourceQualities.includes(source.quality)) throw new Error(`Invalid research source quality: ${String(source.quality)}`);
   if (!source.checkedAt.trim()) throw new Error(`Research source ${source.id} checkedAt is required.`);
   if (!source.url && !source.path && !source.summary) throw new Error(`Research source ${source.id} requires url, path, or summary.`);
+  if (source.contentFingerprint !== undefined && !/^sha256:[0-9a-f]{64}$/.test(source.contentFingerprint)) {
+    throw new Error(`Research source ${source.id} contentFingerprint is invalid.`);
+  }
 }
 
 function validateResearchConclusion(conclusion: ResearchConclusion, sourceIds: Set<string>, reportId: string): void {
@@ -344,17 +378,37 @@ function validateResearchContradiction(contradiction: ResearchContradiction, sou
   }
 }
 
-function normalizeSources(sources: ResearchSourceInput[], timestamp: string): ResearchSource[] {
-  return sources.map((source) => ({
-    id: cleanRequired(source.id, "Research source id is required."),
-    title: cleanRequired(source.title, "Research source title is required."),
-    quality: normalizeSourceQuality(source.quality),
-    checkedAt: clean(source.checkedAt) ?? timestamp,
-    url: clean(source.url),
-    path: clean(source.path),
-    version: clean(source.version),
-    summary: clean(source.summary),
-  })).sort((a, b) => rankResearchSourceQuality(a.quality) - rankResearchSourceQuality(b.quality) || a.id.localeCompare(b.id));
+async function normalizeSources(
+  cwd: string,
+  sources: ResearchSourceInput[],
+  timestamp: string,
+  task: ScalerTaskState | undefined,
+): Promise<ResearchSource[]> {
+  const normalized = await Promise.all(sources.map(async (source): Promise<ResearchSource> => {
+    const path = clean(source.path);
+    let contentFingerprint: string | undefined;
+    const scopedPath = path ? normalizeTaskScopedContextPath(cwd, path, task) : undefined;
+    if (scopedPath) {
+      try {
+        contentFingerprint = await snapshotFileContextSource(cwd, scopedPath);
+      } catch {
+        // Preserve the report as evidence, but leave the source unbound so
+        // admission can fail closed with task-specific context.
+      }
+    }
+    return {
+      id: cleanRequired(source.id, "Research source id is required."),
+      title: cleanRequired(source.title, "Research source title is required."),
+      quality: normalizeSourceQuality(source.quality),
+      checkedAt: clean(source.checkedAt) ?? timestamp,
+      url: clean(source.url),
+      path,
+      version: clean(source.version),
+      summary: clean(source.summary),
+      contentFingerprint,
+    };
+  }));
+  return normalized.sort((a, b) => rankResearchSourceQuality(a.quality) - rankResearchSourceQuality(b.quality) || a.id.localeCompare(b.id));
 }
 
 function normalizeConclusions(conclusions: ResearchConclusionInput[]): ResearchConclusion[] {

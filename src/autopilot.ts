@@ -424,7 +424,7 @@ async function continueMissingContext(
     requestId: researchRequestId,
     execute: true,
     allowInternet: options.allowInternet,
-    tools: options.researchTools ?? Array.from(new Set(["read", "bash", ...(options.tools ?? []), "scaler_research_report"])),
+    tools: options.researchTools ?? Array.from(new Set(["read", "find", "grep", "ls", ...(options.tools ?? [])])),
     timeoutMs: options.timeoutMs,
     model: options.model,
     providerAdmissionModel: options.providerAdmissionModel,

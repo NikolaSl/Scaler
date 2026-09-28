@@ -59,6 +59,7 @@ test("buildResearchAgentPrompt includes request context, PRD coverage, prior rep
       status: "complete",
       requestId: "RESEARCH-001",
       question: "Which API is supported?",
+      taskId: "T-001",
       sources: [{ id: "local", title: "Local", quality: "project", path: "package.json" }],
       conclusions: [{ summary: "Local package pins version.", confidence: "medium", sourceRefs: ["local"] }],
     }, new Date("2026-01-01T00:00:01.000Z"));
@@ -112,7 +113,7 @@ test("prepareResearchAgentInvocation builds isolated Pi invocation", async () =>
     currentPlan: { version: 1, planVersion: 0, status: "draft", tasks: [], createdAt: state.createdAt, updatedAt: state.createdAt },
     requirements: { version: 1, requirements: [] },
     coverageSummary: { entries: [], countsByStatus: { pending: 0, in_progress: 0, implemented: 0, validated: 0, blocked: 0, needs_replan: 0 }, unlinkedRequirementIds: [], linkedRequirementIds: [] },
-  }, { command: "pi-test", model: "synthetic-8k", tools: ["read"] });
+  }, { command: "pi-test", model: "synthetic-8k", tools: ["read", "scaler_research_report"] });
 
   assert.equal(preparation.researchRequest.id, "RESEARCH-001");
   assert.equal(preparation.request.taskId, "research-agent-RESEARCH-001");
@@ -120,6 +121,7 @@ test("prepareResearchAgentInvocation builds isolated Pi invocation", async () =>
   assert.equal(preparation.invocation.cwd, "/repo");
   assert.ok(preparation.invocation.args.includes("--model"));
   assert.ok(preparation.invocation.args.includes("synthetic-8k"));
+  assert.deepEqual(preparation.request.tools, ["read"]);
   assert.deepEqual(preparation.request.providerAdmission, {
     requestTokenAllowance: 8_000,
     outputReserveTokens: 1_024,
@@ -127,6 +129,35 @@ test("prepareResearchAgentInvocation builds isolated Pi invocation", async () =>
   });
   assert.match(preparation.prompt, /Required final response/);
   assert.match(preparation.prompt, /local-scope request/);
+});
+
+test("research children receive inspection-only tools", () => {
+  const createdAt = "2026-01-01T00:00:00.000Z";
+  const request = {
+    id: "RESEARCH-READ-ONLY",
+    status: "open" as const,
+    question: "Which project evidence answers this task?",
+    reason: "Need bounded local inspection.",
+    scope: "local" as const,
+    createdAt,
+    updatedAt: createdAt,
+  };
+
+  assert.deepEqual(resolveResearchAgentGrantedTools(request, {
+    tools: [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "bash",
+      "edit",
+      "write",
+      "scaler_research_report",
+      "scaler_memory_retrieve",
+      "scaler_memory_search",
+      "scaler_task_update",
+    ],
+  }), ["read", "grep", "find", "ls"]);
 });
 
 test("research internet grant policy withholds tools until explicitly allowed", () => {
@@ -221,7 +252,7 @@ test("extractResearchReport reports missing, error, and invalid reports", () => 
 
 test("ingestResearchReport records report and resolves complete request", async () => {
   await withTempDir(async (dir) => {
-    await upsertResearchRequest(dir, { id: "RESEARCH-001", question: "Which API?", reason: "Need docs" }, new Date("2026-01-01T00:00:00.000Z"));
+    const request = await upsertResearchRequest(dir, { id: "RESEARCH-001", question: "Which API?", reason: "Need docs" }, new Date("2026-01-01T00:00:00.000Z"));
     const ingestion = await ingestResearchReport(dir, [{
       type: "scaler_research_report",
       requestId: "RESEARCH-001",
@@ -230,7 +261,7 @@ test("ingestResearchReport records report and resolves complete request", async 
       sources: [{ id: "local", title: "Local file", quality: "project", path: "package.json" }],
       conclusions: [{ summary: "Use local version.", confidence: "medium", sourceRefs: ["local"] }],
       rawEvidence: [{ title: "package excerpt", content: "version metadata", sourceId: "local" }],
-    }], new Date("2026-01-01T00:00:01.000Z"));
+    }], request, new Date("2026-01-01T00:00:01.000Z"));
 
     assert.equal(ingestion.attempted, true);
     assert.equal(ingestion.ingested, true);
@@ -298,6 +329,42 @@ test("runResearchAgentStep prepares oldest open request and executes with report
     const events = await readLogEvents(dir);
     assert.equal(events.some((event) => event.eventType === "agent" && /Agent prompt prepared/.test(event.summary) && event.detailsPath), true);
     assert.equal(events.some((event) => event.eventType === "report" && /Research report ingested/.test(event.summary) && event.detailsPath), true);
+  });
+});
+
+test("research-agent ingestion rejects a report retargeted to another request", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await upsertResearchRequest(dir, {
+      id: "RESEARCH-EXPECTED",
+      question: "Which API is supported?",
+      reason: "Need task-scoped evidence.",
+      taskId: "TASK-EXPECTED",
+    });
+
+    const executed = await runResearchAgentStep(dir, state, {
+      requestId: "RESEARCH-EXPECTED",
+      execute: true,
+    }, async (request) => ({
+      taskId: request.taskId,
+      exitCode: 0,
+      stdoutEvents: [{
+        type: "scaler_research_report",
+        requestId: "RESEARCH-OTHER",
+        taskId: "TASK-OTHER",
+        question: "Which API is supported?",
+        status: "complete",
+        sources: [{ id: "source", title: "Source", quality: "project", summary: "Foreign evidence" }],
+        conclusions: [{ summary: "Foreign conclusion", confidence: "high", sourceRefs: ["source"] }],
+      }],
+      stderr: "",
+      timedOut: false,
+      aborted: false,
+    }));
+
+    assert.equal(executed.ingestion?.ingested, false);
+    assert.match(executed.ingestion?.reason ?? "", /RESEARCH-EXPECTED|selected research request/i);
+    assert.deepEqual(await loadResearchReports(dir), []);
   });
 });
 

@@ -354,6 +354,17 @@ extension/tool/provider-host checks,
 including 15 installed-host checks, plus `git diff --check`. Production isolated continuation wiring,
 generic direct/MCP adapters and the complete three-route scenario remain open,
 so SC-08/AC-08 stays Partial; no model-quality or savings claim is made.
+PLAN-161 reconciles the completed context evidence with the intended division
+of responsibility: the model proposes a source, selector or pathless question;
+the supervisor validates scope, authority, identity and the complete next
+envelope. Existing exact-section, unknown-source, automation, memory-summary and
+32K/128K scenarios satisfy SC-07 without requiring semantic inference or
+automatic supervisor context choice. Independent review found and PLAN-161
+closed the remaining pathless-research admission gap: each cited local file is
+now task-scope checked, bound to its report-time SHA-256 identity and rechecked
+through the normal manifest before retry. SC-07/AC-07 is Verified for this
+model-independent process boundary. Configured local-host execution remains
+SC-09/P7 work, and no source-truth, model-quality or savings claim is made.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
 unresolved in-scope findings. The primary exact-head gate passed build,

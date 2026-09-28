@@ -94,6 +94,7 @@ export interface TaskContextManifestItem {
   memoryId?: string;
   taskId?: string;
   selector?: FileContextSelector;
+  sourceFingerprint?: string;
 }
 
 export interface TaskContextManifest {
@@ -251,6 +252,7 @@ export async function saveTaskContextManifest(cwd: string, manifest: TaskContext
       memoryId: item.memoryId?.trim() || undefined,
       taskId: item.taskId?.trim() || undefined,
       selector: item.selector ? normalizeFileContextSelector(item.selector) : undefined,
+      sourceFingerprint: item.sourceFingerprint?.trim() || undefined,
     })),
   };
   validateTaskContextManifest(normalized);
@@ -608,6 +610,10 @@ async function resolveFileContextSource(
   const path = entry.path!;
   const normalizedPath = normalizeContextSourcePath(cwd, path);
   const source = await readStableContextFile(cwd, normalizedPath);
+  const contentFingerprint = fingerprintFileBytes(source.bytes);
+  if (entry.sourceFingerprint && entry.sourceFingerprint !== contentFingerprint) {
+    throw new Error(`Context source fingerprint changed: ${normalizedPath}`);
+  }
   return {
     content: renderFileContextContent(source.bytes.toString("utf8"), normalizedPath, entry.scope, entry.selector),
     binding: {
@@ -615,10 +621,47 @@ async function resolveFileContextSource(
       path: normalizedPath,
       scope: entry.scope,
       ...(entry.selector ? { selector: { ...entry.selector } } : {}),
-      contentFingerprint: fingerprintFileBytes(source.bytes),
+      contentFingerprint,
       outputExemptible: source.outputExemptible,
     },
   };
+}
+
+export async function snapshotFileContextSource(cwd: string, path: string): Promise<string> {
+  const normalizedPath = normalizeContextSourcePath(cwd, path);
+  if (!await directProjectFileStat(cwd, normalizedPath)) {
+    throw new Error(`Context source is not a direct project file: ${path}`);
+  }
+  const resolved = await resolveFileContextSource(cwd, {
+    id: "research-source-snapshot",
+    type: "file",
+    reason: "Capture a stable local research source version.",
+    priority: "required",
+    scope: "reference-only",
+    exactness: "reference-only",
+    source: "file",
+    path: normalizedPath,
+  });
+  if (!resolved.binding.outputExemptible) throw new Error(`Context source identity changed: ${path}`);
+  return resolved.binding.contentFingerprint;
+}
+
+export function normalizeTaskScopedContextPath(
+  cwd: string,
+  source: string,
+  task: ScalerTaskState | undefined,
+): string | undefined {
+  const path = relative(resolve(cwd), resolve(cwd, source)).split(sep).join("/");
+  const parts = path.split("/");
+  if (!task || isAbsolute(source) || source.includes("\\") || source.includes("\0")
+    || path === "." || parts.some((part) => !part || part === ".." || part === "."
+      || [".git", ".scaler", ".ssh", ".aws", ".env"].includes(part)
+      || /\.(?:pem|key|p12)$/i.test(part))
+    || (task.allowedPathPrefixes?.length && !task.allowedPathPrefixes.some((prefix) => {
+      const normalized = prefix.replace(/^\.\//, "").replace(/\/$/, "");
+      return path === normalized || path.startsWith(`${normalized}/`);
+    }))) return undefined;
+  return path;
 }
 
 function renderFileContextContent(
@@ -657,7 +700,7 @@ export async function verifyFileContextSources(
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      diagnostics.push(`Task ${taskId} context source ${source.itemId} is missing or unreadable: ${source.path} (${message}).`);
+      diagnostics.push(`Task ${taskId} context source ${source.itemId} changed, is missing, or is unreadable: ${source.path} (${message}).`);
     }
   }
   return diagnostics;
@@ -678,18 +721,22 @@ async function readStableContextFile(
 ): Promise<{ bytes: Buffer; outputExemptible: boolean }> {
   const absolute = resolveContextPath(cwd, path);
   const directBefore = await directProjectFileStat(cwd, path);
-  const file = await open(absolute, constants.O_RDONLY | constants.O_NONBLOCK);
+  if (!directBefore) throw new Error(`Context source is not a direct regular file: ${path}`);
+  const file = await open(absolute, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
   try {
     const before = await file.stat();
     if (!before.isFile()) throw new Error(`Context source is not a regular file: ${path}`);
+    const directOpened = await directProjectFileStat(cwd, path);
+    if (!directOpened || !sameFile(directOpened, before)) {
+      throw new Error(`Context source path changed before reading: ${path}`);
+    }
     const bytes = await file.readFile();
     const after = await file.stat();
     if (!sameFile(before, after)) throw new Error(`Context source changed while reading: ${path}`);
     const directAfter = await directProjectFileStat(cwd, path);
     return {
       bytes,
-      outputExemptible: directBefore !== undefined && sameFile(directBefore, before)
-        && directAfter !== undefined && sameFile(directAfter, after),
+      outputExemptible: sameFile(directBefore, before) && directAfter !== undefined && sameFile(directAfter, after),
     };
   } finally {
     await file.close();
@@ -1944,6 +1991,11 @@ function validateTaskContextManifestItem(item: TaskContextManifestItem, ids: Set
   if (!item.reason.trim()) throw new Error(`Task context item ${item.id} reason is required.`);
   if (item.source === "inline" && !item.content?.trim()) throw new Error(`Task context item ${item.id} inline content is required.`);
   if (item.source === "file" && !item.path?.trim()) throw new Error(`Task context item ${item.id} file path is required.`);
+  if (item.sourceFingerprint !== undefined) {
+    if (item.source !== "file" || !/^sha256:[0-9a-f]{64}$/.test(item.sourceFingerprint)) {
+      throw new Error(`Task context item ${item.id} sourceFingerprint is invalid.`);
+    }
+  }
   if (item.selector !== undefined) {
     if (item.source !== "file" || item.scope !== "section") {
       throw new Error(`Task context item ${item.id} selector requires file section scope.`);
