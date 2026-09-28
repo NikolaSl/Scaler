@@ -307,7 +307,14 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
       && report.conclusions.length > 0
       && (report.unresolvedUnknowns ?? []).length === 0
       && !(report.contradictions ?? []).some((contradiction) => contradiction.status === "unresolved"));
-    if (!matchingReport) continue;
+    if (!matchingReport) {
+      if (request.kind === "local_research" && request.status === "resolved") {
+        const manifest = await ensureTaskContextManifest(cwd, state, request.taskId);
+        await removeResearchContextItems(cwd, manifest, request.id);
+        blockRequest(request, "Resolved local research report is no longer complete and admissible.");
+      }
+      continue;
+    }
     const referencedSourceIds = new Set(matchingReport.conclusions.flatMap((conclusion) => conclusion.sourceRefs));
     const referencedSources = matchingReport.sources.filter((source) => referencedSourceIds.has(source.id));
     const fileSources = referencedSources.filter((source) => source.path);
@@ -360,7 +367,13 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
       sources: referencedSources.map((source) => ({ id: source.id, title: source.title, path: source.path, url: source.url, version: source.version, contentFingerprint: source.contentFingerprint, summary: source.summary })),
       conclusions: matchingReport.conclusions.map((conclusion) => ({ summary: conclusion.summary, confidence: conclusion.confidence, sourceRefs: conclusion.sourceRefs })),
     })}`;
-    if (content.length > 16_384) continue;
+    if (content.length > 16_384) {
+      if (request.kind === "local_research") {
+        await removeResearchContextItems(cwd, manifest, request.id);
+        blockRequest(request, "Local research answer exceeds the bounded task-context allowance.");
+      }
+      continue;
+    }
     const id = `missing-research-${request.id}`;
     const existing = manifest.items.find((item) => item.id === id);
     if (existing && (existing.source !== "inline" || existing.priority !== "required" || existing.content !== content)) {
