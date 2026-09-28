@@ -93,7 +93,10 @@ fixtures, main-loop continuation and bounded memory-summary delivery before
 resume. PLAN-161 verifies that these paths satisfy the model-independent SC-07
 contract: the worker proposes an exact source/selector or a pathless question,
 and the supervisor validates and admits the resulting exact bytes or bounded
-candidate/summary before retry. Natural-language selector inference, recursive
+candidate/summary before retry. File-backed local-research sources are
+fingerprinted when reported, checked against task scope and revalidated as
+required manifest bindings before the claim reaches the retry prompt.
+Natural-language selector inference, recursive
 semantic traversal and automatic supervisor choice are optional discovery
 enhancements, not acceptance prerequisites. A configured local-provider run is
 tracked separately by SC-09/AC-09. SC-07 is Verified for the process boundary;

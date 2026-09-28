@@ -308,7 +308,9 @@ semantic selection, ranking or approval.
 PLAN-161 reconciles this evidence with the intended contract. The local model
 chooses what information it needs and proposes a path, selector or pathless
 question; the supervisor validates scope, authority, source identity and the
-complete next envelope. SC-07 is therefore verified at the model-independent
+complete next envelope. Cited local-research files are fingerprinted when the
+report is recorded, checked against task scope and revalidated through required
+manifest bindings before retry. SC-07 is therefore verified at the model-independent
 process boundary. Natural-language inference, recursive semantic traversal and
 automatic context choice by the supervisor are not required. A configured
 local-model run and its resource envelope remain separate SC-09/P7 evidence.

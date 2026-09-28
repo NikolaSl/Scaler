@@ -51,17 +51,18 @@ resource envelope remain SC-09/P7 evidence.
 
 ## Outcome
 
-No production change was necessary. The existing worker-proposed exact-source,
-exact-selector and pathless-question paths pass their positive and negative
-controls. Required context reaches the retried task through the normal manifest
-and complete provider-admission boundary; unavailable, malformed and
-out-of-scope direct proposals remain blocked. Independent review identified a
-remaining exception: file-backed sources embedded in a pathless local-research
-answer are not yet task-scope and version validated before retry. SC-07/AC-07
-therefore remains Partial pending that bounded fix; SC-09 and real local-host
-evidence remain separate.
+The existing worker-proposed exact-source, exact-selector and pathless-question
+paths pass their positive and negative controls. Independent review found one
+remaining exception, which this unit closes minimally: cited file-backed local
+research sources are captured with a runtime-owned SHA-256 fingerprint, checked
+against task path scope and persisted as required reference bindings for
+freshness revalidation before retry. Out-of-scope, indirect, absent and changed
+sources block without injecting the claim. Uncited source metadata is omitted.
 
-Exact-tree validation passes the TypeScript build, 1,177/1,177 unit/component
-tests, 72/72 mock integration tests, 10/10 conformance/autopilot tests, 167/167
-focused context/missing-context/conductor/automation tests, 4/4 focused
-unknown-source and varied-window scenarios, and `git diff --check`.
+The exact-tree candidate passes the TypeScript build, 1,180/1,180
+unit/component tests, 72/72 mock integration tests, 10/10
+conformance/autopilot tests, 170/170 focused
+context/missing-context/conductor/automation tests, 4/4 focused unknown-source
+and varied-window scenarios, and `git diff --check`. SC-07/AC-07 is Verified at
+the model-independent process boundary. SC-09 and real local-host evidence
+remain separate.
