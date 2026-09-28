@@ -316,6 +316,8 @@ reports are checked again on refresh, and stale, conflicting, incomplete,
 unresolved or oversized items are removed before the task is blocked again.
 Agent output must retain the selected research request, task and question
 identity; an existing report ID cannot be retargeted while inheriting evidence.
+The child has inspection tools but not the report-ledger write tool, so only its
+bound structured final event can cross this admission boundary.
 File descriptors are matched to a fresh direct-path identity
 before reading, so leaf and ancestor symlink swaps do not expose source bytes.
 SC-07 is therefore verified at the model-independent

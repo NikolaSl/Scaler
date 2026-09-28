@@ -61,7 +61,9 @@ summary-only or mixed unbound claims block. Resolved bindings and their
 admissible reports are revalidated, and stale, conflicting, incomplete,
 unresolved or oversized context is removed before the task is blocked again.
 The selected research request, task and question identity is checked at agent
-ingestion and cannot be retargeted through an existing report ID.
+ingestion and cannot be retargeted through an existing report ID. Research
+children receive inspection tools but no direct report-ledger write tool, so
+their only admitted result is that bound structured final event.
 Out-of-scope, absent and changed sources block without injecting the claim.
 Leaf and ancestor symlinks are refused before source bytes are read by matching
 the opened descriptor to a fresh direct-path identity. Unrelated report updates

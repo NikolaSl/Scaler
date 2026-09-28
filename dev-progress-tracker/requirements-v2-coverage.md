@@ -68,7 +68,8 @@ runtime-owned SHA-256 identity and revalidated through the required context
 manifest before retry; resolved bindings and reports are rechecked, and stale,
 incomplete, unresolved or oversized context is removed before the task is
 blocked again. Agent ingestion is bound to the selected request, task and
-question, and an existing report cannot be retargeted. Direct descriptor/path identity is
+question, an existing report cannot be retargeted, and research children cannot
+write reports around that ingestion boundary. Direct descriptor/path identity is
 verified before bytes are read, so leaf or ancestor symlink swaps fail closed.
 Configured local-host execution remains SC-09/P7 evidence and no source-truth,
 quality or savings claim is made. Candidate evidence: build, 1,185 unit,

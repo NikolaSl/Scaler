@@ -964,7 +964,8 @@ inherited fingerprints, refusal of summary-only/mixed unbound citations,
 revalidation and quarantine of resolved stale bindings, reblocking after a
 resolved report becomes incomplete, unresolved or oversized, required
 freshness binding before retry, exact agent-output binding to its selected
-research request/task/question, immutable report identity, and pre-read
+research request/task/question, immutable report identity, refusal of direct
+research-child report-ledger writes, and pre-read
 leaf/ancestor symlink refusal. The gate
 does not verify source truth, model quality,
 token savings or a configured local host; those remain separate evidence
