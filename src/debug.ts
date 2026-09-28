@@ -335,8 +335,9 @@ export async function recordDebugReport(
 }
 
 export async function assessDebugRetryGate(cwd: string, taskId: string): Promise<DebugRetryGateResult> {
-  const attempts = (await loadDebugAttempts(cwd))
-    .filter((attempt) => attempt.taskId === taskId && attempt.result !== "fixed")
+  const taskAttempts = (await loadDebugAttempts(cwd))
+    .filter((attempt) => attempt.taskId === taskId && attempt.result !== "fixed");
+  const attempts = [...taskAttempts]
     .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   if (attempts.length === 0) {
     return { allowed: true, taskId, reason: `No debug retry gate for ${taskId}.`, replanRequestIds: [], acceptedReplanDecisionIds: [] };
@@ -348,7 +349,9 @@ export async function assessDebugRetryGate(cwd: string, taskId: string): Promise
     return { allowed: true, taskId, reason: `No repeated failed debug fingerprint for ${taskId}.`, replanRequestIds: [], acceptedReplanDecisionIds: [] };
   }
 
-  if (attempts.some((attempt) => attempt.timestamp >= blockingAttempt.timestamp && Boolean(attempt.newEvidence?.trim()))) {
+  if (taskAttempts.some((attempt, index) =>
+    attempt.timestamp >= blockingAttempt.timestamp
+    && hasFreshReferencedEvidence(attempt, taskAttempts.slice(0, index)))) {
     return {
       allowed: true,
       taskId,
@@ -418,7 +421,7 @@ export async function recordDebugAttempt(
     resultingFailureFingerprint,
   });
 
-  if (duplicate && !input.newEvidence?.trim()) {
+  if (duplicate && !hasFreshReferencedEvidence(input, attempts.filter((attempt) => attempt.taskId === input.taskId))) {
     const message = `Debug attempt rejected: repeated attempt ${duplicate.id} without new evidence`;
     await appendLogEvent(
       cwd,
@@ -494,6 +497,25 @@ export async function recordDebugAttempt(
   );
 
   return { accepted: true, message, attempt, cycleDetected, replanRequestId };
+}
+
+function hasFreshReferencedEvidence(
+  candidate: Pick<DebugAttemptInput, "newEvidence" | "evidence" | "validationRun" | "logRefs">,
+  priorAttempts: Array<Pick<DebugAttemptRecord, "evidence" | "validationRun" | "logRefs">>,
+): boolean {
+  if (!candidate.newEvidence?.trim()) return false;
+  const priorReferences = new Set(priorAttempts.flatMap(debugEvidenceReferences));
+  return debugEvidenceReferences(candidate).some((reference) => !priorReferences.has(reference));
+}
+
+function debugEvidenceReferences(
+  attempt: Pick<DebugAttemptInput, "evidence" | "validationRun" | "logRefs">,
+): string[] {
+  return [...new Set([
+    ...(attempt.evidence ?? []),
+    ...(attempt.validationRun ? [attempt.validationRun] : []),
+    ...(attempt.logRefs ?? []),
+  ].map((reference) => reference.trim()).filter(Boolean))];
 }
 
 function isBlockingDebugAttempt(attempt: DebugAttemptRecord, failures: DebugFailureRecord[]): boolean {
