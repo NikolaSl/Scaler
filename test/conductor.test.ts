@@ -27,6 +27,7 @@ import { loadTaskAgentReports } from "../src/task-reports.js";
 import { admitTaskAttempt, loadTaskAttempts, markTaskAttemptDispatching, type TaskAttemptBinding } from "../src/task-attempts.js";
 import { fingerprintJson } from "../src/fingerprints.js";
 import { acquireExecutionLock, loadExecutionLock, releaseExecutionLock } from "../src/locks.js";
+import { readLogEvents } from "../src/logging.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import type { ScalerTaskStatus } from "../src/types.js";
 import { saveValidationManifest } from "../src/validation.js";
@@ -1242,6 +1243,13 @@ test("runConductorStep repairs one malformed report without replaying task tools
     assert.ok(runs.some((run) => run.reportStatus === "accepted"));
     assert.equal((await loadTaskAttempts(dir))[0]?.outcome, "succeeded");
     assert.equal(getBudgetState(result.state).usage.spawnedAgents, 2);
+    const agentEvent = (await readLogEvents(dir)).find((event) => event.eventType === "agent" && event.taskId === "T-001");
+    const details = agentEvent?.details as { reportRepairBudgetDecision?: { status?: string; key?: string; usage?: number } } | undefined;
+    assert.deepEqual(details?.reportRepairBudgetDecision, {
+      status: "ok", key: "spawnedAgents", usage: 2,
+      softLimit: undefined, hardLimit: undefined,
+      reason: "spawnedAgents within budget (2).", recommendedAction: "continue",
+    });
   });
 });
 
@@ -1318,6 +1326,10 @@ test("runConductorStep contains a report-only repair runner failure", async () =
     assert.match(result.validationHandoff?.diagnostics?.join(" ") ?? "", /report-only repair runner failed.*transport unavailable/i);
     assert.equal((await loadTaskAttempts(dir))[0]?.outcome, "failed");
     assert.equal(await loadExecutionLock(dir), undefined);
+    const runs = await loadTaskAgentRunRecords(dir);
+    assert.equal(runs.length, 2, "both the original run and failed repair dispatch need durable records");
+    assert.equal(runs[0]?.status, "failed");
+    assert.match(runs[0]?.stderrSummary ?? "", /repair runner failed.*transport unavailable/i);
   });
 });
 
