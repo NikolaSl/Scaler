@@ -297,7 +297,6 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
 
   for (const request of requests) {
     if ((request.kind !== "local_research" && request.kind !== "internet_research") || request.status === "superseded") continue;
-    if (request.status === "resolved" && request.kind !== "local_research") continue;
     const task = state.tasks.find((candidate) => candidate.id === request.taskId);
     if (!task) continue;
     const matchingReport = reports.find((report) => report.status === "complete"
@@ -308,10 +307,10 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
       && (report.unresolvedUnknowns ?? []).length === 0
       && !(report.contradictions ?? []).some((contradiction) => contradiction.status === "unresolved"));
     if (!matchingReport) {
-      if (request.kind === "local_research" && request.status === "resolved") {
+      if (request.status === "resolved") {
         const manifest = await ensureTaskContextManifest(cwd, state, request.taskId);
         await removeResearchContextItems(cwd, manifest, request.id);
-        blockRequest(request, "Resolved local research report is no longer complete and admissible.");
+        blockRequest(request, "Resolved research report is no longer complete and admissible.");
       }
       continue;
     }
@@ -368,19 +367,15 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
       conclusions: matchingReport.conclusions.map((conclusion) => ({ summary: conclusion.summary, confidence: conclusion.confidence, sourceRefs: conclusion.sourceRefs })),
     })}`;
     if (content.length > 16_384) {
-      if (request.kind === "local_research") {
-        await removeResearchContextItems(cwd, manifest, request.id);
-        blockRequest(request, "Local research answer exceeds the bounded task-context allowance.");
-      }
+      await removeResearchContextItems(cwd, manifest, request.id);
+      blockRequest(request, "Research answer exceeds the bounded task-context allowance.");
       continue;
     }
     const id = `missing-research-${request.id}`;
     const existing = manifest.items.find((item) => item.id === id);
     if (existing && (existing.source !== "inline" || existing.priority !== "required" || existing.content !== content)) {
-      if (request.kind === "local_research") {
-        await removeResearchContextItems(cwd, manifest, request.id);
-        blockRequest(request, `Research answer conflicts with the existing manifest: ${id}`);
-      }
+      await removeResearchContextItems(cwd, manifest, request.id);
+      blockRequest(request, `Research answer conflicts with the existing manifest: ${id}`);
       continue;
     }
     const answer: TaskContextManifestItem = existing ?? {
