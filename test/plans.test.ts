@@ -33,7 +33,7 @@ import {
   validateExecutionPlan,
   validateReplanRequest,
 } from "../src/plans.js";
-import { computePrdCoverageSummary, loadPrdChanges, loadPrdCoverage, loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
+import { computePrdCoverageSummary, loadPrdChanges, loadPrdCoverage, loadPrdRequirements, savePrdCoverage, upsertPrdRequirement } from "../src/prd.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { saveValidationManifest } from "../src/validation.js";
 
@@ -767,6 +767,101 @@ test("acceptReplanProposal snapshots, saves proposed plan, applies tasks, resolv
     assert.equal((await loadReplanRequests(dir))[0]?.status, "resolved");
     assert.equal((await loadReplanDecisions(dir))[0]?.status, "accepted");
     assert.equal((await loadExecutionPlan(dir)).tasks.length, 2);
+  });
+});
+
+test("acceptReplanProposal reopens only validated tasks linked to needs_replan coverage", async () => {
+  await withTempDir(async (dir) => {
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    const state = createDefaultState(now);
+    state.stage = "replanning";
+    state.tasks = [
+      { id: "T-AFFECTED", title: "Old affected work", status: "validated", prdRefs: ["REQ-AFFECTED"], updatedAt: state.createdAt },
+      { id: "T-KEEP", title: "Keep accepted work", status: "validated", prdRefs: ["REQ-KEEP"], updatedAt: state.createdAt },
+    ];
+    state.validatedTaskIds = ["T-AFFECTED", "T-KEEP"];
+    state.completedTaskIds = ["T-AFFECTED", "T-KEEP"];
+    await saveState(dir, state);
+    await savePrdCoverage(dir, {
+      version: 1,
+      entries: [
+        {
+          requirementId: "REQ-AFFECTED",
+          status: "needs_replan",
+          taskIds: ["T-AFFECTED"],
+          evidenceRefs: ["validation:affected:v1"],
+          notes: "Historical acceptance before the requirement changed.",
+          updatedAt: now.toISOString(),
+        },
+        {
+          requirementId: "REQ-KEEP",
+          status: "validated",
+          taskIds: ["T-KEEP"],
+          evidenceRefs: ["validation:keep:v1"],
+          updatedAt: now.toISOString(),
+        },
+      ],
+    });
+    const currentPlan = await saveExecutionPlan(dir, {
+      version: 1,
+      planVersion: 1,
+      status: "active",
+      tasks: [
+        validPlanTask("T-AFFECTED", "Old affected work", { prdRefs: ["REQ-AFFECTED"] }),
+        validPlanTask("T-KEEP", "Keep accepted work", { prdRefs: ["REQ-KEEP"] }),
+      ],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    }, now);
+    const proposedPlan: ExecutionPlanArtifact = {
+      version: 1,
+      planVersion: 2,
+      status: "draft",
+      tasks: [
+        validPlanTask("T-AFFECTED", "Rework affected requirement", { prdRefs: ["REQ-AFFECTED"] }),
+        validPlanTask("T-KEEP", "Keep accepted work", { prdRefs: ["REQ-KEEP"] }),
+      ],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    };
+    const requirements = {
+      version: 1 as const,
+      requirements: [
+        { id: "REQ-AFFECTED", statement: "Changed", createdAt: state.createdAt, updatedAt: state.createdAt },
+        { id: "REQ-KEEP", statement: "Stable", createdAt: state.createdAt, updatedAt: state.createdAt },
+      ],
+    };
+
+    const result = await acceptReplanProposal(dir, state, requirements, {
+      currentPlan,
+      proposedPlan,
+      now: new Date("2026-01-01T00:01:00.000Z"),
+    });
+
+    assert.equal(result.accepted, true, result.message);
+    assert.equal(result.state.tasks.find((task) => task.id === "T-AFFECTED")?.status, "ready");
+    assert.equal(result.state.tasks.find((task) => task.id === "T-AFFECTED")?.title, "Rework affected requirement");
+    assert.equal(result.state.tasks.find((task) => task.id === "T-KEEP")?.status, "validated");
+    assert.deepEqual(result.state.validatedTaskIds, ["T-KEEP"]);
+    assert.deepEqual(result.state.completedTaskIds, ["T-KEEP"]);
+    assert.deepEqual(result.decision.reopenedTaskIds, ["T-AFFECTED"]);
+    assert.deepEqual((await loadPrdCoverage(dir)).entries, [
+      {
+        requirementId: "REQ-AFFECTED",
+        status: "in_progress",
+        taskIds: ["T-AFFECTED"],
+        evidenceRefs: ["validation:affected:v1"],
+        notes: "Historical acceptance before the requirement changed.",
+        updatedAt: "2026-01-01T00:01:00.000Z",
+      },
+      {
+        requirementId: "REQ-KEEP",
+        status: "validated",
+        taskIds: ["T-KEEP"],
+        evidenceRefs: ["validation:keep:v1"],
+        updatedAt: now.toISOString(),
+      },
+    ]);
   });
 });
 
