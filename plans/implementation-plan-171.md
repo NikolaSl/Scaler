@@ -48,7 +48,12 @@ acceptance derives invalidated requirements from current `needs_replan` coverage
 reopens only their explicitly linked validated tasks, retains unrelated validated
 tasks and preserves accepted task contracts. Affected coverage advances to
 `in_progress` with evidence and notes retained; decisions record reopened task
-ids. The candidate passes build, 1,220 unit/component, 73 mock integration, 10
-conformance/autopilot and 32 focused plan checks. SC-12 and SC-27 remain Partial
-for the deliberately excluded trigger, replacement/obsolescence and semantic
-impact boundaries.
+ids. Exact-head review exposed two interruption/concurrency gaps: a partial
+acceptance could lose its reopened-task audit on retry, and a stale whole-file
+coverage write could erase an unrelated invalidation. The existing decision
+ledger now journals `applying` before core mutations and resumes that exact
+proposal idempotently; the PRD lock rereads and merges only the journaled
+requirements when their captured revisions still match. The candidate passes
+build, 1,222 unit/component, 73 mock integration, 10 conformance/autopilot and
+51 focused plan/PRD checks. SC-12 and SC-27 remain Partial for the deliberately
+excluded trigger, replacement/obsolescence and semantic impact boundaries.
