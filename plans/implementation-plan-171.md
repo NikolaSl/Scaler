@@ -19,8 +19,9 @@ Baseline: PLAN-170 exact tree
    `prdRefs` or the coverage row's retained `taskIds`; remove only those task IDs
    from current validated/completed sets. Preserve unrelated validated tasks.
 3. Require the proposed plan to retain the affected task ID under the existing
-   preservation gate. Apply its admitted task contract, set the affected
-   coverage row to `in_progress`, and retain historical evidence/notes.
+   preservation gate. Reopen that preserved contract without letting a model
+   rewrite accepted metadata, set the affected coverage row to `in_progress`,
+   and retain historical evidence/notes.
 4. Record reopened task IDs in the replan decision. Keep the existing plan,
    coverage, task-quality, dependency and acceptance-policy gates.
 5. Do not infer semantic impact beyond explicit links, automatically replace or
@@ -39,3 +40,15 @@ Baseline: PLAN-170 exact tree
 This unit makes a preservation-valid replan executable without restarting
 unaffected work. Replacement/obsolescence and semantic affected-slice discovery
 remain later bounded units.
+
+## Outcome
+
+Implemented on `implementation/v2-p4-requirement-invalidation`. Replan
+acceptance derives invalidated requirements from current `needs_replan` coverage,
+reopens only their explicitly linked validated tasks, retains unrelated validated
+tasks and preserves accepted task contracts. Affected coverage advances to
+`in_progress` with evidence and notes retained; decisions record reopened task
+ids. The candidate passes build, 1,220 unit/component, 73 mock integration, 10
+conformance/autopilot and 32 focused plan checks. SC-12 and SC-27 remain Partial
+for the deliberately excluded trigger, replacement/obsolescence and semantic
+impact boundaries.

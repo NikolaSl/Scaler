@@ -74,7 +74,7 @@ Structured `scaler_planning_report` output synchronizes planner-provided runtime
 
 `/scaler-replan-proposal-status` validates `.scaler/plans/proposed-plan.json` against the current plan, runtime PRD requirements, and supervisor state.
 
-`/scaler-replan-accept` accepts `.scaler/plans/proposed-plan.json` only when preservation checks pass. Acceptance snapshots the previous current plan, saves the proposed plan as current, applies missing task records, resolves open replan requests, and records a decision.
+`/scaler-replan-accept` accepts `.scaler/plans/proposed-plan.json` only when preservation checks pass. Acceptance snapshots the previous current plan, saves the proposed plan as current, applies missing task records, resolves open replan requests, and records a decision. If current requirement coverage is explicitly `needs_replan`, validated tasks linked through that coverage or their `prdRefs` must remain in the proposed plan and are reopened to `ready`; unrelated validated tasks remain accepted. Their prior evidence stays historical, the coverage entry becomes `in_progress`, and the decision records the reopened task ids. This does not authorize model-written replacement of an exercised task contract.
 
 ## Replan triggers and preservation checks
 

@@ -45,7 +45,9 @@ establishes current acceptance. If no explicit coverage row exists, amendment
 does not create one. A title-only presentation change preserves the coverage
 status; it still creates a new requirement revision, so the separate validation-
 receipt freshness gate may require linked tasks to be revalidated. This boundary
-does not choose or rewrite corrective tasks.
+does not choose or rewrite corrective tasks. A later preservation-valid replan
+may reopen the same explicitly linked validated task while retaining unrelated
+validated tasks; replacement or obsolescence of task ids is not inferred.
 
 ## Task linkage
 
