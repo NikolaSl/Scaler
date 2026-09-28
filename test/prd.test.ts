@@ -277,6 +277,21 @@ test("title-only requirement amendment preserves current coverage", async () => 
   });
 });
 
+test("material amendment does not manufacture missing coverage", async () => {
+  await withTempDir(async (dir) => {
+    await upsertPrdRequirement(dir, { id: "REQ-NEW", statement: "Original" });
+
+    await amendPrdRequirement(dir, {
+      id: "REQ-NEW",
+      expectedRevision: 1,
+      reason: "User changed the requirement before coverage existed.",
+      changes: { statement: "Revised" },
+    });
+
+    assert.deepEqual((await loadPrdCoverage(dir)).entries, []);
+  });
+});
+
 test("acceptance criteria reject exact duplicate ids hidden by Unicode collation", async () => {
   await withTempDir(async (dir) => {
     await upsertPrdRequirement(dir, { id: "REQ-UNICODE", statement: "Original requirement." });

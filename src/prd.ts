@@ -392,12 +392,8 @@ async function amendPrdRequirementLocked(
   };
   const acceptanceBasisChanged = !sameRequirementAcceptanceBasis(existing, proposedContent);
   const coverage = acceptanceBasisChanged ? await loadPrdCoverage(cwd) : undefined;
-  await savePrdRequirementsUnlocked(cwd, {
-    version: 1,
-    requirements: [...requirements.requirements.filter((candidate) => candidate.id !== input.id), requirement],
-  });
-  if (coverage) {
-    const existingCoverage = coverage.entries.find((entry) => entry.requirementId === input.id);
+  const existingCoverage = coverage?.entries.find((entry) => entry.requirementId === input.id);
+  if (coverage && existingCoverage) {
     const invalidatedCoverage: RuntimePrdCoverageEntry = {
       ...existingCoverage,
       requirementId: input.id,
@@ -412,6 +408,10 @@ async function amendPrdRequirementLocked(
       ],
     });
   }
+  await savePrdRequirementsUnlocked(cwd, {
+    version: 1,
+    requirements: [...requirements.requirements.filter((candidate) => candidate.id !== input.id), requirement],
+  });
   await appendPrdChange(cwd, {
     timestamp,
     reason,

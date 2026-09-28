@@ -41,8 +41,11 @@ are permitted inside the JSON payload.
 Changing the statement, source or acceptance criteria marks that requirement's
 current coverage `needs_replan` while preserving its task links, evidence
 references and notes. The historical evidence remains available but no longer
-establishes current acceptance. A title-only presentation change preserves the
-coverage status. This boundary does not choose or rewrite corrective tasks.
+establishes current acceptance. If no explicit coverage row exists, amendment
+does not create one. A title-only presentation change preserves the coverage
+status; it still creates a new requirement revision, so the separate validation-
+receipt freshness gate may require linked tasks to be revalidated. This boundary
+does not choose or rewrite corrective tasks.
 
 ## Task linkage
 

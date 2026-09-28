@@ -481,8 +481,10 @@ PLAN-170 closes the smallest reproduced requirement-validity gap. A
 user-authorized statement, source or acceptance-criteria amendment now marks only
 that requirement's coverage `needs_replan` under the existing PRD lock while
 preserving task links, evidence references, notes, immutable history and unrelated
-coverage. Title-only changes preserve coverage. The candidate passes build,
-1,218 unit/component, 73 mock integration and 10 conformance/autopilot checks.
+coverage; amendments do not manufacture missing coverage rows. Title-only changes
+preserve coverage but not the separate revision-bound receipt freshness. The
+candidate passes build, 1,219 unit/component, 73 mock integration and 10
+conformance/autopilot checks.
 SC-06/12/27 remain Partial because this boundary neither selects affected tasks
 nor infers semantic necessity or corrective work.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an

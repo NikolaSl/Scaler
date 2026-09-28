@@ -405,8 +405,10 @@ version-history record. Model-facing PRD/planning tools cannot invoke this
 authority path and cannot change existing requirement content or criteria.
 Statement, source and acceptance-criteria changes mark only the amended
 requirement's coverage `needs_replan`, retaining links and historical evidence;
-a title-only change leaves coverage unchanged. Task reopening/replacement remains
-a separate preservation-gated replanning decision.
+no row is created when explicit coverage is absent. A title-only change leaves
+coverage unchanged, although its new requirement revision can still make linked
+validation receipts stale. Task reopening/replacement remains a separate
+preservation-gated replanning decision.
 
 Example:
 

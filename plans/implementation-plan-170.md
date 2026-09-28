@@ -43,7 +43,10 @@ Implemented on `implementation/v2-p4-requirement-invalidation`. Material
 statement, source and acceptance-criteria amendments update only the matching
 coverage row to `needs_replan` inside the existing PRD lock. Existing links,
 evidence, notes and unrelated rows are retained; title-only changes leave
-coverage unchanged. The candidate passes build, 1,218 unit/component, 73 mock
+coverage unchanged. The candidate passes build, 1,219 unit/component, 73 mock
 integration and 10 conformance/autopilot checks. SC-06, SC-12 and SC-27 remain
 Partial: affected task reopening/replacement and semantic necessity are outside
-this bounded unit.
+this bounded unit. Exact-head review also constrained invalidation to an existing
+coverage row and ordered that fail-closed write before requirement publication.
+Title-only coverage preservation does not override the separate revision-bound
+validation-receipt freshness gate.
