@@ -1704,8 +1704,15 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         return;
       }
       currentAgentRuns.set(ctx.cwd, { preparation: prepared.preparation, providerCalls: 0 });
+      try {
+        pi.sendUserMessage(prepared.preparation.prompt);
+      } catch {
+        currentAgentRuns.delete(ctx.cwd);
+        restoreParentToolFocus(ctx.cwd, pi, activeToolFocusSnapshots);
+        notify("Current-agent tool dispatch rejected: the host could not deliver the bounded request prompt.", false);
+        return;
+      }
       notify(prepared.message, true);
-      pi.sendUserMessage(prepared.preparation.prompt);
     },
   });
 
