@@ -301,6 +301,42 @@ test("runResearchAgentStep prepares oldest open request and executes with report
   });
 });
 
+test("research-agent ingestion rejects a report retargeted to another request", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await upsertResearchRequest(dir, {
+      id: "RESEARCH-EXPECTED",
+      question: "Which API is supported?",
+      reason: "Need task-scoped evidence.",
+      taskId: "TASK-EXPECTED",
+    });
+
+    const executed = await runResearchAgentStep(dir, state, {
+      requestId: "RESEARCH-EXPECTED",
+      execute: true,
+    }, async (request) => ({
+      taskId: request.taskId,
+      exitCode: 0,
+      stdoutEvents: [{
+        type: "scaler_research_report",
+        requestId: "RESEARCH-OTHER",
+        taskId: "TASK-OTHER",
+        question: "Which API is supported?",
+        status: "complete",
+        sources: [{ id: "source", title: "Source", quality: "project", summary: "Foreign evidence" }],
+        conclusions: [{ summary: "Foreign conclusion", confidence: "high", sourceRefs: ["source"] }],
+      }],
+      stderr: "",
+      timedOut: false,
+      aborted: false,
+    }));
+
+    assert.equal(executed.ingestion?.ingested, false);
+    assert.match(executed.ingestion?.reason ?? "", /RESEARCH-EXPECTED|selected research request/i);
+    assert.deepEqual(await loadResearchReports(dir), []);
+  });
+});
+
 test("runResearchAgentStep refuses an oversized final prompt before audit, runner, or run publication", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));

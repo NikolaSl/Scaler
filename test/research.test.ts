@@ -109,6 +109,43 @@ test("recordResearchReport sorts sources, stores raw evidence in memory, and res
   });
 });
 
+test("recordResearchReport cannot retarget an existing report identity", async () => {
+  await withTempDir(async (dir) => {
+    await upsertResearchRequest(dir, {
+      id: "RESEARCH-A",
+      question: "Which local API is supported?",
+      reason: "Task A needs evidence.",
+      taskId: "TASK-A",
+    });
+    await upsertResearchRequest(dir, {
+      id: "RESEARCH-B",
+      question: "Which local API is supported?",
+      reason: "Task B needs separate evidence.",
+      taskId: "TASK-B",
+    });
+    await recordResearchReport(dir, {
+      id: "REPORT-A",
+      status: "complete",
+      requestId: "RESEARCH-A",
+      taskId: "TASK-A",
+      question: "Which local API is supported?",
+      sources: [{ id: "source", title: "Evidence", quality: "project", summary: "Task A evidence" }],
+      conclusions: [{ summary: "Task A conclusion", confidence: "high", sourceRefs: ["source"] }],
+    });
+
+    await assert.rejects(recordResearchReport(dir, {
+      id: "REPORT-A",
+      status: "complete",
+      requestId: "RESEARCH-B",
+      taskId: "TASK-B",
+      question: "Which local API is supported?",
+    }), /identity|request|task/i);
+    const [stored] = await loadResearchReports(dir);
+    assert.equal(stored?.requestId, "RESEARCH-A");
+    assert.equal(stored?.taskId, "TASK-A");
+  });
+});
+
 test("research validation rejects invalid references and incomplete contradictions", () => {
   assert.throws(() => validateResearchRequest({
     id: "REQ",
