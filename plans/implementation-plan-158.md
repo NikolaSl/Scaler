@@ -44,3 +44,21 @@ A deterministic integration regression must demonstrate:
 
 Run the focused regression, then the applicable build, unit/mock-integration,
 conformance and `git diff --check` gate once on the candidate tree.
+
+## Outcome
+
+`runScalerAutomation` now dispatches one existing unresolved request for its
+blocked task. Deterministic memory/file requests use their existing resolvers;
+local research uses one existing research-agent pass with the default project
+inspection/report tools. Complete matched evidence is refreshed into the task
+manifest before the task returns to `ready`. Failed, malformed, partial and
+unresolved research stops without another attempt in the same automation call.
+Internet, user and tool authority remains unchanged.
+
+The successful regression reaches task retry, validation and completion with
+the attributed bounded research answer in the retry prompt. The negative
+regression runs research once and leaves the task blocked. Candidate gate:
+TypeScript build, 1,167/1,167 unit/component, 72/72 mock integration, 9/9
+conformance/autopilot, 28/28 focused context/automation checks and
+`git diff --check` pass. These deterministic runners validate the FSM, not
+source truth, model quality or full SC-07/AC-07 completion.

@@ -183,7 +183,7 @@ Task agents must report missing data instead of guessing. When an accepted `scal
 .scaler/context/missing-requests.json
 ```
 
-Each request records status, kind (`memory`, `file`, `local_research`, `internet_research`, `user`, or `tool`), task/report links, query, source hint, PRD refs, evidence refs, and result summaries. `/scaler-missing-context-run` can resolve file/memory requests, dispatch local/internet research requests, or mark user/tool requests blocked for explicit action. `/scaler-missing-context-resolve` records an operator/user answer. Once all missing-context requests for a blocked task are resolved, SCALER moves the task back to `ready`; `/scaler-step` also refreshes research-backed missing-context resolutions before selecting the next task.
+Each request records status, kind (`memory`, `file`, `local_research`, `internet_research`, `user`, or `tool`), task/report links, query, source hint, PRD refs, evidence refs, and result summaries. `/scaler-missing-context-run` can resolve file/memory requests, dispatch local/internet research requests, or mark user/tool requests blocked for explicit action. `/scaler-missing-context-resolve` records an operator/user answer. The main `/scaler` automation processes one unresolved request for its blocked task at a time through those same resolvers. Local research receives the bounded project-inspection tools and must return one accepted complete report; malformed, failed, partial or unresolved research stops the current automation call instead of looping. Internet research still requires its explicit grant, and user/tool requests still require explicit action. Once all missing-context requests for a blocked task are resolved, SCALER moves the task back to `ready`; `/scaler-step` also refreshes research-backed missing-context resolutions before selecting the next task.
 
 An explicit file request is resolved only after its workspace-relative, task-scoped regular file is added to the task manifest as required exact context. A worker can request a bounded existing selector by naming the path first and one separate backtick directive, for example `` `docs/guide.md` `heading:API Contract` `` or `` `src/client.ts` `function:createClient` ``. SCALER persists the path plus selector as required section context and delegates exact extraction, uniqueness, parser, size and freshness checks to the normal context resolver. Malformed, duplicate, missing, ambiguous or oversized selectors remain blocked without publishing the requested item. Without a directive the full-file behavior is unchanged. Symlinked ancestors or files, protected paths, missing/non-regular files and source files over 1 MiB are refused at this boundary. The next task attempt re-resolves the manifest and applies its normal full-prompt admission and freshness checks. A file changing or disappearing before that attempt cannot be treated as satisfied. A request without a known path uses bounded local research; it is not silently mapped to a guessed file. This flow does not infer a path or selector, guarantee that the worker chooses the right request, or automatically decompose a task.
 
@@ -282,3 +282,12 @@ Both final prompts pass the normal task-prompt and strict child provider-binding
 admission and advance only to validation. These deterministic runners establish
 the supervisor/FSM boundary, not real local-model execution, source truth,
 model quality or savings. SC-07 remains Partial.
+
+PLAN-158 connects the same typed lifecycle to the main automation loop. A
+worker-proposed unknown local fact now causes one existing research request and
+one focused research-agent pass; only a complete task/question/request-matched
+report can return the task to `ready`. The next worker receives the attributed
+bounded claim through the normal context manifest. Incomplete evidence stops
+without an automatic retry. This removes the operator command between existing
+FSM transitions; it does not add source inference, trust a research claim as
+source bytes, prove model quality, or complete SC-07.

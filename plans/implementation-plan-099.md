@@ -317,6 +317,17 @@ allowance is narrowed to its required exact heading, while both windows exclude
 the unrelated source bytes and admit the final worker prompt. This validates
 the model-independent process boundary, not a real local-model run, source
 truth, model quality or savings; SC-07/AC-07 stays Partial.
+PLAN-158 connects typed execution-time missing-context requests to the main
+automation loop. It resolves one request at a time through the existing
+memory/file/research boundary, grants local research only the normal project
+inspection/report tools, and resumes a task only after complete matched
+evidence is persisted in its manifest. Partial or malformed evidence stops the
+call without an internal retry; internet, user and tool boundaries remain
+explicit. The candidate passes build, 1,167 unit/component, 72 mock integration,
+9 conformance/autopilot and 28 focused checks plus `git diff --check`.
+This removes an operator step from the existing FSM but does not establish
+source truth, automatic task/context choice, local-model quality or full
+SC-07/AC-07 completion.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
 unresolved in-scope findings. The primary exact-head gate passed build,

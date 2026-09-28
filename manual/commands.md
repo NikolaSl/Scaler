@@ -15,10 +15,11 @@ Current behavior:
 - executes the staged workflow to produce/ingest PRD, knowledge, and planning artifacts as needed
 - applies the execution plan into tasks
 - executes runnable task agents with default project-local tools (`read`, `bash`, `edit`, `write`) plus `scaler_task_report`
+- for a task blocked by typed missing context, resolves existing memory/file requests or runs one focused local research pass with `read`, `bash`, and `scaler_research_report`; only complete accepted evidence resumes the task
 - runs validation for completed task-agent reports
 - when validation fails, runs the debug conductor, follows a `next_approach` debug retry, and then revalidates
 - commits or records accepted commit-skip evidence when validation passes
-- repeats until all tasks validate and the run completes, or until budgets, safety, missing data, unresolved debug/replan blockers, or approvals require a stop
+- repeats until all tasks validate and the run completes, or until budgets, safety, unresolved/externally gated missing data, debug/replan blockers, or approvals require a stop
 - logs the request and automation summary to `.scaler/logs/events.jsonl`
 
 Calling `/scaler` with no request only initializes/prints current state.
