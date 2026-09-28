@@ -84,3 +84,10 @@ The minimal fix keeps one mutable decision on the active host lifecycle and
 reads it immediately before every provider admission; it adds no permission
 service or approval workflow. The full gate remains green and a new independent
 exact-head review is still required before merge.
+
+The fresh-context GPT-5.6 Terra/high review of implementation head `7e725f7`
+reported **No findings** after independently checking explicit direct/current
+authority, the live allowed-to-denied continuation, claim-time budget refresh
+and durable safeguard replacement refusal. Its build, diff check and 14 focused
+checks passed. This review-evidence-only update requires one final exact-head
+confirmation before merge.

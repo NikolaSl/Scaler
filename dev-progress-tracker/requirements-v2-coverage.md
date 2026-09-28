@@ -92,8 +92,9 @@ and minimal fixes close them. Its follow-up identified and test-first closed
 two additional implicit-authority and valid-looking durable-evidence gaps.
 The next review identified one valid cached-authority continuation gap; an
 installed-host allowed-to-denied regression and a live lifecycle decision close
-it without a permission subsystem. Final exact-head independent review remains
-the merge gate.
+it without a permission subsystem. The fresh Terra/high review of implementation
+head `7e725f7` reports no findings; its review-evidence-only successor remains
+subject to final exact-head confirmation before merge.
 
 Prior review ran the baseline TypeScript build successfully, 488/488 unit tests
 and 66/67 mock integration tests. The failed retention fixture uses fixed
