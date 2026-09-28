@@ -468,6 +468,13 @@ A compact one-task/one-requirement plan remains valid. The candidate passes
 build, 1,212 unit/component, 73 mock integration, 10 conformance/autopilot and
 58 affected plan/policy checks. This still does not treat links as proof of
 semantic necessity or requested-scope completeness.
+PLAN-169 reuses the existing task-quality assessor as a read-only planning
+preflight. The exact prospective task overlay must satisfy DoD, path scope,
+atomicity and validation/test-first policy (or explicit waivers) before any
+planning publication. Existing manifest inheritance is preserved. The candidate
+passes build, 1,214 unit/component, 73 mock integration, 10
+conformance/autopilot and 63 affected checks. This verifies contract admission,
+not the semantic quality or necessity of model-proposed work.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
 unresolved in-scope findings. The primary exact-head gate passed build,
