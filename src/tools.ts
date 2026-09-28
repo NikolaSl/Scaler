@@ -392,6 +392,7 @@ const DebugAttemptParams = Type.Object({
 
 export interface ScalerToolRuntimeBindings {
   resolveToolResultExecutionId?: (cwd: string, requestId: string) => string | undefined;
+  resolveMemoryRetrieveScope?: (cwd: string, requestedScope: string | undefined) => string | undefined;
 }
 
 export function registerScalerTools(pi: ExtensionAPI, runtimeBindings: ScalerToolRuntimeBindings = {}): void {
@@ -441,9 +442,10 @@ export function registerScalerTools(pi: ExtensionAPI, runtimeBindings: ScalerToo
     description: "Retrieve external memory content by id/path and log the operation.",
     parameters: MemoryRetrieveParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const memory = await retrieveMemory(ctx.cwd, params.memoryIdOrPath, { scope: params.scope });
-      await logTool(ctx.cwd, "scaler_memory_retrieve", `Memory retrieved: ${memory.entry.id}`, { params, entry: memory.entry });
-      return textResult(memory.content, { status: "retrieved", entry: memory.entry, reason: params.reason, scope: params.scope });
+      const scope = runtimeBindings.resolveMemoryRetrieveScope?.(ctx.cwd, params.scope) ?? params.scope;
+      const memory = await retrieveMemory(ctx.cwd, params.memoryIdOrPath, { scope });
+      await logTool(ctx.cwd, "scaler_memory_retrieve", `Memory retrieved: ${memory.entry.id}`, { params, effectiveScope: scope, entry: memory.entry });
+      return textResult(memory.content, { status: "retrieved", entry: memory.entry, reason: params.reason, scope });
     },
   });
 

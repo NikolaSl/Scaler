@@ -229,6 +229,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const run = currentAgentRuns.get(cwd);
       return run?.transaction?.requestId === requestId ? run.transaction.id : undefined;
     },
+    resolveMemoryRetrieveScope: (cwd, requestedScope) => currentAgentRuns.has(cwd) ? "summary" : requestedScope,
   });
 
   const originalRegisterCommand = pi.registerCommand.bind(pi);
