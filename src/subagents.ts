@@ -513,12 +513,18 @@ function acceptedProviderAdmissionMatches(
     + (outputLimitTokens as number)
     + expectedPolicy.safetyMarginTokens;
   if (!Number.isSafeInteger(requiredEnvelopeTokensUpperBound)) return false;
-  return event.outputReserveTokens === expectedPolicy.outputReserveTokens
+  const effectiveLimitTokens = Math.min(
+    expectedPolicy.requestTokenAllowance,
+    expectedModel.contextWindow as number,
+  );
+  return (outputLimitTokens as number) >= expectedPolicy.outputReserveTokens
+    && requiredEnvelopeTokensUpperBound <= effectiveLimitTokens
+    && event.outputReserveTokens === expectedPolicy.outputReserveTokens
     && event.safetyMarginTokens === expectedPolicy.safetyMarginTokens
     && event.requiredEnvelopeTokensUpperBound === requiredEnvelopeTokensUpperBound
     && event.taskAllowanceTokens === expectedPolicy.requestTokenAllowance
     && event.modelContextWindowTokens === expectedModel.contextWindow
-    && event.effectiveLimitTokens === Math.min(expectedPolicy.requestTokenAllowance, expectedModel.contextWindow as number)
+    && event.effectiveLimitTokens === effectiveLimitTokens
     && event.modelId === expectedModel.id
     && event.provider === expectedModel.provider
     && event.api === expectedModel.api;
