@@ -25,9 +25,16 @@ import type { ScalerState } from "./types.js";
 
 export type WatchdogScopeKind = "run" | "stage" | "task" | "agent" | "tool" | "validation" | "debug" | "replan";
 export type WatchdogHeartbeatStatus = "running" | "progress" | "completed" | "failed" | "timeout" | "aborted";
+export type WatchdogProgressKind = "accepted_artifact" | "fixed_failure" | "ruled_out_hypothesis" | "retrieved_fact" | "acceptance_check";
 export type WatchdogSeverity = "info" | "warning" | "hard";
 export type WatchdogRecommendedAction = "continue" | "pause" | "debug" | "replan" | "cleanup" | "approve_budget";
 export type WatchdogEventKind = "no_progress" | "repeated_replanning" | "subprocess_cleanup" | "budget_policy_approval" | "resume_verification";
+
+export interface WatchdogProgressEvidence {
+  kind: WatchdogProgressKind;
+  summary: string;
+  evidenceRefs: string[];
+}
 
 export interface WatchdogHeartbeatRecord {
   id: string;
@@ -38,6 +45,7 @@ export interface WatchdogHeartbeatRecord {
   taskId?: string;
   agentId?: string;
   details?: unknown;
+  progress?: WatchdogProgressEvidence;
   timestamp: string;
   lastProgressAt: string;
 }
@@ -50,6 +58,7 @@ export interface WatchdogHeartbeatInput {
   taskId?: string;
   agentId?: string;
   details?: unknown;
+  progress?: WatchdogProgressEvidence;
   now?: Date;
 }
 
@@ -152,7 +161,10 @@ export async function recordWatchdogHeartbeat(cwd: string, input: WatchdogHeartb
   const now = input.now ?? new Date();
   const timestamp = now.toISOString();
   const scopeKind = input.scopeKind ?? "run";
-  const status = input.status ?? "progress";
+  const status = input.status ?? "running";
+  const records = await loadWatchdogHeartbeats(cwd);
+  const previous = records.find((record) => record.scopeKind === scopeKind && record.scopeId === input.scopeId);
+  const progress = status === "progress" ? validateProgressEvidence(input.progress) : undefined;
   const id = `${scopeKind}-${input.scopeId}-${now.getTime()}`.replace(/[^a-zA-Z0-9._-]/g, "-");
   const record: WatchdogHeartbeatRecord = {
     id,
@@ -163,11 +175,29 @@ export async function recordWatchdogHeartbeat(cwd: string, input: WatchdogHeartb
     taskId: input.taskId,
     agentId: input.agentId,
     details: input.details,
+    progress,
     timestamp,
-    lastProgressAt: status === "running" || status === "progress" ? timestamp : timestamp,
+    lastProgressAt: status === "progress" ? timestamp : previous?.lastProgressAt ?? timestamp,
   };
-  await writeWatchdogHeartbeats(cwd, [record, ...(await loadWatchdogHeartbeats(cwd))].slice(0, 500));
+  await writeWatchdogHeartbeats(cwd, [record, ...records].slice(0, 500));
   return record;
+}
+
+function validateProgressEvidence(progress: WatchdogProgressEvidence | undefined): WatchdogProgressEvidence {
+  if (!progress || typeof progress !== "object") throw new Error("Progress evidence is required for a progress heartbeat.");
+  const kinds: WatchdogProgressKind[] = ["accepted_artifact", "fixed_failure", "ruled_out_hypothesis", "retrieved_fact", "acceptance_check"];
+  if (!kinds.includes(progress.kind)) throw new Error(`Unsupported progress evidence kind: ${String(progress.kind)}.`);
+  if (typeof progress.summary !== "string") throw new Error("Progress evidence summary must contain 1-500 characters.");
+  const summary = progress.summary.trim();
+  if (summary.length === 0 || summary.length > 500) throw new Error("Progress evidence summary must contain 1-500 characters.");
+  if (!Array.isArray(progress.evidenceRefs)) throw new Error("Progress evidence must contain 1-20 references.");
+  if (progress.evidenceRefs.length === 0 || progress.evidenceRefs.length > 20) throw new Error("Progress evidence must contain 1-20 references.");
+  if (progress.evidenceRefs.some((reference) => typeof reference !== "string")) throw new Error("Each progress evidence reference must contain 1-1000 characters.");
+  const evidenceRefs = [...new Set(progress.evidenceRefs.map((reference) => reference.trim()))];
+  if (evidenceRefs.some((reference) => reference.length === 0 || reference.length > 1_000)) {
+    throw new Error("Each progress evidence reference must contain 1-1000 characters.");
+  }
+  return { kind: progress.kind, summary, evidenceRefs };
 }
 
 export async function loadWatchdogHeartbeats(cwd: string): Promise<WatchdogHeartbeatRecord[]> {

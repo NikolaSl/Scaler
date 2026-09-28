@@ -9,6 +9,7 @@ import { runScalerAutomation } from "./autopilot.js";
 import { formatBudgetStatus, getBudgetState, isBudgetUsageKey, persistBudgetDecision, setBudgetLimits, setBudgetUsage } from "./budgets.js";
 import {
   parseBudgetSetArgs,
+  parseCommaList,
   parseCicdEnvArgs,
   parseCommitArgs,
   parseCommitSkipArgs,
@@ -119,7 +120,7 @@ import { admitCurrentAgentToolProviderCall, buildRuntimeToolCatalog, buildRuntim
 import { registerScalerTools } from "./tools.js";
 import { formatValidationChecklist, recordValidationChecklist, upsertValidationManifestCommand } from "./validation.js";
 import { runValidationDebugLoopWorkflow, selectTaskForValidationDebugLoop } from "./validation-debug-loop.js";
-import { applyComplexityBudgetPolicy, formatComplexityBudgetPolicies, formatResumeVerificationRecords, formatWatchdogCleanupRecords, formatWatchdogEvents, formatWatchdogHeartbeats, loadResumeVerificationRecords, loadWatchdogCleanupRecords, loadWatchdogEvents, loadWatchdogHeartbeats, recordWatchdogHeartbeat, runWatchdogAssessment, verifyResumeReadiness } from "./watchdogs.js";
+import { applyComplexityBudgetPolicy, formatComplexityBudgetPolicies, formatResumeVerificationRecords, formatWatchdogCleanupRecords, formatWatchdogEvents, formatWatchdogHeartbeats, loadResumeVerificationRecords, loadWatchdogCleanupRecords, loadWatchdogEvents, loadWatchdogHeartbeats, recordWatchdogHeartbeat, runWatchdogAssessment, verifyResumeReadiness, type WatchdogProgressKind } from "./watchdogs.js";
 import { formatWorkflowSummary, summarizeWorkflow } from "./workflow.js";
 
 type RuntimeToolAPI = Partial<Pick<ExtensionAPI, "getAllTools" | "getActiveTools" | "setActiveTools">>;
@@ -290,7 +291,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     await recordWatchdogHeartbeat(ctx.cwd, {
       scopeKind: "run",
       scopeId: state.runId,
-      status: "progress",
+      status: "running",
       action: "turn_end",
       taskId: state.currentTaskId ?? undefined,
       details: { usage },
@@ -2530,7 +2531,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("scaler-heartbeat", {
-    description: "Record/list watchdog heartbeats: /scaler-heartbeat [scope|action|status|taskId] or /scaler-heartbeat list [scopeId]",
+    description: "Record/list watchdog heartbeats: /scaler-heartbeat [scope|action|status|taskId|progressKind|evidenceRefs|summary] or /scaler-heartbeat list [scopeId]",
     handler: async (args, ctx) => {
       const parts = (args ?? "").split("|").map((part) => part.trim());
       if ((parts[0] ?? "").toLowerCase() === "list" || parts.length === 1 && !parts[0]) {
@@ -2543,7 +2544,12 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const scopeId = parts[0] || state.currentTaskId || state.runId;
       const action = parts[1] || "manual heartbeat";
       const status = normalizeHeartbeatStatus(parts[2]);
-      const record = await recordWatchdogHeartbeat(ctx.cwd, { scopeKind: "task", scopeId, taskId: parts[3] || state.currentTaskId || undefined, status, action });
+      const progress = status === "progress" ? {
+        kind: parseWatchdogProgressKind(parts[4]),
+        evidenceRefs: parseCommaList(parts[5]) ?? [],
+        summary: parts[6] ?? "",
+      } : undefined;
+      const record = await recordWatchdogHeartbeat(ctx.cwd, { scopeKind: "task", scopeId, taskId: parts[3] || state.currentTaskId || undefined, status, action, progress });
       const message = `Watchdog heartbeat recorded: ${record.id} ${record.status}`;
       if (ctx.hasUI) ctx.ui.notify(message, "info");
       else console.log(message);
@@ -2671,7 +2677,13 @@ function isActiveTaskForSafety(status: string): boolean {
 function normalizeHeartbeatStatus(value: string | undefined): "running" | "progress" | "completed" | "failed" | "timeout" | "aborted" {
   const normalized = value?.trim().toLowerCase();
   if (normalized === "running" || normalized === "progress" || normalized === "completed" || normalized === "failed" || normalized === "timeout" || normalized === "aborted") return normalized;
-  return "progress";
+  return "running";
+}
+
+function parseWatchdogProgressKind(value: string | undefined): WatchdogProgressKind {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === "accepted_artifact" || normalized === "fixed_failure" || normalized === "ruled_out_hypothesis" || normalized === "retrieved_fact" || normalized === "acceptance_check") return normalized;
+  throw new Error("Progress heartbeat requires one of: accepted_artifact, fixed_failure, ruled_out_hypothesis, retrieved_fact, acceptance_check.");
 }
 
 function normalizeMemoryValidityFilter(value: string | undefined): MemoryValidity | "any" | undefined {
