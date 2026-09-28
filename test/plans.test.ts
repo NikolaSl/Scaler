@@ -317,6 +317,47 @@ test("applyPlanningReport accepts a compact one-task one-requirement plan", asyn
   });
 });
 
+test("applyPlanningReport rejects an incomplete covered task before publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+
+    await assert.rejects(() => applyPlanningReport(dir, state, {
+      requirements: [{ id: "REQ-CONTRACT", statement: "One covered outcome" }],
+      plan: {
+        planVersion: 1,
+        status: "active",
+        tasks: [{ id: "T-COARSE", title: "Coarse future work", prdRefs: ["REQ-CONTRACT"] }],
+      },
+    }), /task contract preflight.*T-COARSE.*missing_dod.*missing_allowed_paths.*missing_atomicity.*missing_validation.*missing_test_first/i);
+
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    assert.deepEqual((await loadPrdCoverage(dir)).entries, []);
+    assert.deepEqual(await loadPrdChanges(dir), []);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual(await loadPlanningReports(dir), []);
+    assert.deepEqual(state.tasks, []);
+  });
+});
+
+test("applyPlanningReport honors an explicit task-quality waiver during preflight", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const task = validPlanTask("T-WAIVED", "Waived path scope", {
+      prdRefs: ["REQ-WAIVED"],
+      allowedPathPrefixes: undefined,
+      qualityWaivers: [{ code: "missing_allowed_paths", reason: "This bounded non-filesystem check has no project path." }],
+    });
+
+    const result = await applyPlanningReport(dir, state, {
+      requirements: [{ id: "REQ-WAIVED", statement: "Perform the bounded non-filesystem check" }],
+      plan: { planVersion: 1, status: "active", tasks: [task] },
+    });
+
+    assert.equal(result.accepted, true);
+    assert.deepEqual(result.state.tasks[0]?.qualityWaivers?.map((waiver) => waiver.code), ["missing_allowed_paths"]);
+  });
+});
+
 test("planning report rejects requirement amendments before plan or task writes", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
