@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -195,6 +195,8 @@ test("runScalerAutomation drives planning, task execution, validation, and compl
 
 test("runScalerAutomation continues a blocked task through local missing-context research", async () => {
   await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"), { recursive: true });
+    await writeFile(join(dir, "src", "autopilot.ts"), "// Widgets use the accepted local ledger rule.\n");
     const state = createState("planning");
     await saveState(dir, state);
     const question = "Determine the local canonical widget rule.";
@@ -249,7 +251,7 @@ test("runScalerAutomation continues a blocked task through local missing-context
             taskId: "T-AUTO",
             question,
             status: "complete",
-            sources: [{ id: "local-ledger", title: "Local ledger", quality: "project", path: "docs/local-ledger.md" }],
+            sources: [{ id: "local-ledger", title: "Local ledger", quality: "project", path: "src/autopilot.ts" }],
             conclusions: [{
               summary: "Widgets use the accepted local ledger rule.",
               confidence: "high",
@@ -341,6 +343,8 @@ test("runScalerAutomation stops after one unresolved missing-context research re
 
 test("runScalerAutomation refreshes completed explicit research before attempting another run", async () => {
   await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"), { recursive: true });
+    await writeFile(join(dir, "src", "autopilot.ts"), "// Explicit research already established the widget rule.\n");
     const state = createState("planning");
     await saveState(dir, state);
     const question = "Determine the already researched local widget rule.";
@@ -374,7 +378,7 @@ test("runScalerAutomation refreshes completed explicit research before attemptin
       taskId: "T-AUTO",
       question,
       status: "complete",
-      sources: [{ id: "explicit-local", title: "Explicit local evidence", quality: "project", path: "docs/local-ledger.md" }],
+      sources: [{ id: "explicit-local", title: "Explicit local evidence", quality: "project", path: "src/autopilot.ts" }],
       conclusions: [{
         summary: "Explicit research already established the widget rule.",
         confidence: "high",
