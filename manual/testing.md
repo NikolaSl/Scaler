@@ -916,3 +916,18 @@ call does not rerun unresolved research. Internet, user and tool authority is
 unchanged. Candidate results: build, 1,168/1,168 unit/component, 72/72 mock
 integration, 10/10 conformance/autopilot and 29/29 focused context/automation
 checks plus `git diff --check`.
+
+PLAN-159 verifies that a memory missing-context request cannot unblock a task
+with candidate identifiers alone:
+
+```bash
+node --test --import tsx test/missing-context.test.ts test/autopilot.test.ts
+```
+
+The focused cases require bounded candidate summaries in the next worker
+prompt, preserve visible validity metadata, exclude the full memory body and
+block no-match or conflicting-scope requests without changing the existing
+manifest. Candidate results: build, 1,169/1,169 unit/component, 72/72 mock
+integration, 10/10 conformance/autopilot and 17/17 focused checks plus
+`git diff --check`. This is FSM/context-delivery evidence, not proof of memory
+truth, model quality, savings or full SC-07 acceptance.

@@ -30,3 +30,15 @@ candidate gate once.
 
 This unit does not establish memory freshness semantics, automatic semantic
 selection, arbitrary-model quality, token savings or full SC-07/AC-07 coverage.
+
+## Outcome
+
+The memory dispatcher now promotes matched entries to required bounded summary
+context and validates their availability and aggregate size before persisting
+the manifest and resolving the request. The resumed task prompt receives the
+summary plus source/validity metadata and not the full memory body. No-match and
+conflicting-scope regressions remain blocked without manifest mutation.
+
+Candidate validation: TypeScript build, 1,169/1,169 unit/component, 72/72 mock
+integration, 10/10 conformance/autopilot, 17/17 focused missing-context/autopilot
+checks and `git diff --check`.

@@ -330,6 +330,14 @@ explicit. The candidate passes build, 1,168 unit/component, 72 mock integration,
 This removes an operator step from the existing FSM but does not establish
 source truth, automatic task/context choice, local-model quality or full
 SC-07/AC-07 completion.
+PLAN-159 requires matched memory candidate summaries to enter the task manifest
+before a memory missing-context request resolves. The existing memory resolver
+keeps source and validity metadata visible, full bodies remain excluded, and
+missing, unavailable, conflicting or oversized candidates keep the task
+blocked. The candidate passes build, 1,169 unit/component, 72 mock integration,
+10 conformance/autopilot and 17 focused checks plus `git diff --check`. It adds
+no new ranking or approval subsystem and does not establish memory truth,
+automatic task/context choice, model quality, savings or full SC-07/AC-07.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
 unresolved in-scope findings. The primary exact-head gate passed build,

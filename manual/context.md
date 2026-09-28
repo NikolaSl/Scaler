@@ -294,3 +294,13 @@ bounded claim through the normal context manifest. Incomplete evidence stops
 without an automatic retry. This removes the operator command between existing
 FSM transitions; it does not add source inference, trust a research claim as
 source bytes, prove model quality, or complete SC-07.
+
+PLAN-159 closes the equivalent memory-request gap. A matched search result is
+persisted as required `memory` context with bounded `summary` scope before the
+request resolves, so the next worker receives the candidate summary together
+with its source and validity metadata. No match, an unavailable memory entry, a
+conflicting manifest identity or an oversized combined summary keeps the task
+blocked. Candidates remain attributed context rather than established facts;
+the worker can request exact material or further investigation. This reuses the
+existing search, manifest and memory resolvers and does not add automatic
+semantic selection, ranking or approval.
