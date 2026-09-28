@@ -10,9 +10,9 @@ repair. AC-05 remains open because those boundaries have not been exercised in
 one declared-window process and the admission estimate has not been reconciled
 with provider-observed usage.
 
-The minimal sufficient change is one integration scenario. No new production
-abstraction or retry policy is justified unless the composed test reproduces a
-real gap.
+The minimal sufficient change starts with one integration scenario. No retry
+policy or speculative adapter is justified; production changes are limited to
+gaps reproduced by that scenario.
 
 ## Bounded unit
 
@@ -35,28 +35,37 @@ real gap.
 
 ## Validation
 
-Run the focused integrated host/conductor scenario first. If it passes without
-production changes, update SC-05 evidence and run the TypeScript build, full
+Run the focused integrated host/conductor scenario first. After closing any
+reproduced production gap, update SC-05 evidence and run the TypeScript build, full
 unit/component, mock-integration and conformance/autopilot gates plus
 `git diff --check`. Obtain a fresh-context GPT-5.6 Terra/high exact-head review
 before merging the coherent P3 phase PR.
 
 ## Outcome
 
-The composed installed-host scenario passes without production changes. Under
-one declared 32,768-token model window, conductor externalizes an oversized
+The first composed fixture reproduced two evidence gaps: it exercised a parent
+host rather than the production strict-child environment, and it added observed
+usage to the budget without retaining a dispatch-correlated estimate/observation
+pair. The accepted review fix is intentionally small. Strict launches now assign
+one runtime-owned dispatch ID; the final provider hook records its admitted
+serialized-payload byte bound under that ID; the runner retrieves only matching
+records; and each durable task-run record stores the aggregate estimated input
+upper bound, observed provider input and their delta.
+
+The corrected installed-host scenario uses the production environment builder
+and extension ordering. Under one declared 32,768-token model window, conductor externalizes an oversized
 exact source, dispatches only a fitting prompt with a resolvable memory path,
-and the real Pi host keeps both `read` and the selected test tool available. A
-9 KB result is externalized before the second provider request. The otherwise
+and the real strict child keeps its granted `read` tool available. Reading the
+oversized exact source produces a large result which is externalized before the
+second provider request. The otherwise
 successful process omits its task report, so conductor performs exactly one
-tool-less repair with the same attempt identity; that repair is independently
-admitted by the installed host and reaches `validating` only after a valid
-structured report.
+tool-less repair with the same attempt identity and admission-only extension;
+that repair reaches `validating` only after a valid structured report.
 
 The fixture extracts usage from the actual synthetic provider messages for
 both the original run and repair. Separate durable run records retain those
-observations, while the budget ledger equals the conservative pre-dispatch
-context estimate plus both observed provider totals. This satisfies AC-05 for
+observations and their matching final-payload estimates; the normal budget
+ledger still accounts for provider totals independently. This satisfies AC-05 for
 the supported model-independent FSM and OpenAI Chat Completions adapter. It
 does not establish tokenizer-exact measurement, other provider adapters,
 configured local inference, model quality, savings or scale.

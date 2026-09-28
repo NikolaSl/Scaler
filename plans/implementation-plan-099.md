@@ -392,13 +392,14 @@ before the re-admitted continuation. This is not a general retry framework;
 SC-05 stays Partial until the entire AC-05 sequence is one declared-window
 scenario with estimate-versus-observed reconciliation, and broader attempt-
 contract work stays in P4.
-PLAN-164 composes that complete AC-05 sequence without adding production code.
-One declared 32,768-token scenario externalizes an oversized exact source into
-a resolvable split, admits the compact request through the installed Pi host,
-externalizes a 9 KB selected-tool result before the continuation, and admits one
-tool-less same-attempt report repair before validation. Provider usage extracted
-from both installed-host runs is preserved in separate run records and added to
-the conservative pre-dispatch estimate in the durable budget ledger. SC-05/AC-05
+PLAN-164 composes that complete AC-05 sequence through the production strict-child
+environment and extension order. One declared 32,768-token scenario externalizes
+an oversized exact source into a resolvable split, admits the compact request,
+uses the actually granted `read` tool, externalizes its large result before the
+continuation, and admits one admission-only, tool-less, same-attempt report repair
+before validation. A runtime-owned dispatch ID correlates every final-payload
+byte-bound estimate with provider-observed input in the durable task-run record;
+the budget ledger separately retains ordinary provider usage accounting. SC-05/AC-05
 is Verified for the supported model-independent FSM and OpenAI Chat Completions
 adapter. This does not claim exact tokenization, alternate-provider coverage,
 configured local inference, model quality, savings or scale.
