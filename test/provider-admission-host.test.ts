@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -19,10 +19,20 @@ import { loadContextSplitRecords } from "../src/context-splits.js";
 import scalerExtension from "../src/index.js";
 import { readLogEvents } from "../src/logging.js";
 import { assessTaskPromptAdmission } from "../src/prompt-admission.js";
-import { assessProviderRequestAdmission, createStrictProviderAdmissionPolicy } from "../src/provider-admission.js";
+import {
+  assessProviderRequestAdmission,
+  createStrictProviderAdmissionPolicy,
+  providerAdmissionEnvironmentKeys,
+  type ProviderAdmissionRecord,
+} from "../src/provider-admission.js";
 import { extractProviderUsage } from "../src/provider-usage.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
-import type { TaskAgentRequest, TaskAgentRunResult } from "../src/subagents.js";
+import {
+  buildTaskAgentEnvironment,
+  resolveChildAgentExtensionPaths,
+  type TaskAgentRequest,
+  type TaskAgentRunResult,
+} from "../src/subagents.js";
 import { saveValidationManifest } from "../src/validation.js";
 
 const policyEnv = {
@@ -38,17 +48,20 @@ const policyEnv = {
 
 // All provider traffic is replaced before creating the SDK session. No live
 // credentials, endpoints, command providers or global resource discovery are used.
-async function runInstalledHost(systemCharacters: number, extensions: ExtensionFactory[] = [], options: { autoCompaction?: boolean; activeTask?: boolean; largeUnselectedTool?: boolean; largeSelectedToolResult?: boolean; reemitBeforeStartPrompt?: boolean; rewriteBeforeScaler?: boolean; defaultSystemPrompt?: boolean; failScalerAuditBeforeStart?: boolean; failScalerAuditBeforeProvider?: boolean; queueFollowUpAfterAbort?: boolean; wrongExpectedModel?: boolean; modelContextWindow?: number; modelMaxTokens?: number; noTools?: boolean; prompt?: string; responseText?: string; memorySourceDir?: string } = {}) {
+async function runInstalledHost(systemCharacters: number, extensions: ExtensionFactory[] = [], options: { autoCompaction?: boolean; activeTask?: boolean; largeUnselectedTool?: boolean; largeSelectedToolResult?: boolean; selectedReadPath?: string; reemitBeforeStartPrompt?: boolean; rewriteBeforeScaler?: boolean; defaultSystemPrompt?: boolean; failScalerAuditBeforeStart?: boolean; failScalerAuditBeforeProvider?: boolean; queueFollowUpAfterAbort?: boolean; wrongExpectedModel?: boolean; modelContextWindow?: number; modelMaxTokens?: number; noTools?: boolean; prompt?: string; responseText?: string; memorySourceDir?: string; childEnvironment?: NodeJS.ProcessEnv; includeScalerExtension?: boolean } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "scaler-provider-host-test-"));
   const savedFetch = globalThis.fetch;
-  const savedEnv = Object.fromEntries(Object.keys(policyEnv).map((key) => [key, process.env[key]]));
+  const environmentKeys = Array.from(new Set([
+    ...Object.keys(policyEnv), ...providerAdmissionEnvironmentKeys, "SCALER_CHILD_AGENT", "SCALER_TOOL_EXECUTION_ID",
+  ]));
+  const savedEnv = Object.fromEntries(environmentKeys.map((key) => [key, process.env[key]]));
   let session: AgentSession | undefined;
   let fetchCalls = 0;
   let payload: Record<string, unknown> | undefined;
   const payloads: Record<string, unknown>[] = [];
   let compactionCancelled = false;
   try {
-    Object.assign(process.env, policyEnv);
+    Object.assign(process.env, options.childEnvironment ?? policyEnv);
     if (options.memorySourceDir) {
       await cp(join(options.memorySourceDir, ".scaler", "memory"), join(dir, ".scaler", "memory"), { recursive: true });
     }
@@ -67,11 +80,11 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
       assert.equal(typeof init?.body, "string", "expected SDK JSON request body");
       payload = JSON.parse(init?.body as string) as Record<string, unknown>;
       payloads.push(payload);
-      if (options.largeSelectedToolResult) {
+      if (options.largeSelectedToolResult || options.selectedReadPath) {
         const common = { id: "synthetic", object: "chat.completion.chunk", created: 0, model: "synthetic-window" };
         const chunks = fetchCalls === 1
           ? [
-            { ...common, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "call-large", type: "function", function: { name: "large_selected", arguments: "{}" } }] }, finish_reason: null }] },
+            { ...common, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "call-large", type: "function", function: options.selectedReadPath ? { name: "read", arguments: JSON.stringify({ path: options.selectedReadPath }) } : { name: "large_selected", arguments: "{}" } }] }, finish_reason: null }] },
             { ...common, choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }], usage: { prompt_tokens: 100, completion_tokens: 5, total_tokens: 105 } },
           ]
           : [
@@ -138,7 +151,7 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
             await mkdir(eventLog, { recursive: true });
           });
         }) satisfies ExtensionFactory] : []),
-        ...(options.autoCompaction ? [] : [scalerExtension]),
+        ...(options.autoCompaction || options.includeScalerExtension === false ? [] : [scalerExtension]),
         ...(options.failScalerAuditBeforeProvider ? [((pi) => {
           pi.on("before_agent_start", async () => {
             const eventLog = join(dir, ".scaler", "logs", "events.jsonl");
@@ -193,6 +206,8 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
         ? []
         : options.largeSelectedToolResult
           ? ["read", "large_selected"]
+        : options.selectedReadPath
+          ? ["read"]
         : options.activeTask
           ? ["read", ...(options.largeUnselectedTool ? ["large_unselected"] : []), "scaler_tool_request", "scaler_task_report"]
           : ["read"],
@@ -203,9 +218,15 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
     await session.prompt(options.prompt ?? (options.autoCompaction ? `Inspect. ${"x".repeat(4000)}` : "Inspect the exact source."));
     const lastMessage = session.messages.at(-1);
     const events = await readLogEvents(dir).catch(() => []);
+    const providerAdmissions: ProviderAdmissionRecord[] = [];
+    const admissionDirectory = join(dir, ".scaler", "reports", "provider-admission");
+    for (const filename of await readdir(admissionDirectory).catch(() => [])) {
+      const parsed = JSON.parse(await readFile(join(admissionDirectory, filename), "utf8")) as ProviderAdmissionRecord;
+      providerAdmissions.push(parsed);
+    }
     return {
       fetchCalls, payload, payloads, model, compactionCancelled, events,
-      usage: extractProviderUsage(session.messages),
+      usage: extractProviderUsage(session.messages), providerAdmissions,
       lastMessage,
       activeToolNames: session.getActiveToolNames(),
       stopReason: lastMessage?.role === "assistant" ? lastMessage.stopReason : undefined,
@@ -284,7 +305,6 @@ test("installed Pi composes the complete AC-05 envelope process under one declar
     const rawSourceMarker = "OVERSIZED_REQUIRED_SOURCE_MUST_NOT_REACH_PROVIDER";
     const requests: TaskAgentRequest[] = [];
     const observedTotals: number[] = [];
-    let conservativeEstimate = -1;
     const result = await runConductorStep(dir, state, {
       execute: true,
       tokenBudget: 8_000,
@@ -298,31 +318,37 @@ test("installed Pi composes the complete AC-05 envelope process under one declar
       }],
     }, async (request): Promise<TaskAgentRunResult> => {
       requests.push(request);
+      const dispatchId = `plan164-${requests.length}`;
+      const childEnvironment = buildTaskAgentEnvironment(request, process.env, dispatchId);
+      const extensionPaths = resolveChildAgentExtensionPaths(request);
       if (requests.length === 1) {
-        conservativeEstimate = getBudgetState(await loadState(dir)).usage.contextTokens ?? -1;
-        assert.ok(conservativeEstimate > 0);
+        assert.ok((getBudgetState(await loadState(dir)).usage.contextTokens ?? 0) > 0);
         assert.match(request.prompt, /\.scaler\/memory\//);
         assert.doesNotMatch(request.prompt, new RegExp(rawSourceMarker));
         assert.equal(assessTaskPromptAdmission(request.prompt, 8_000).accepted, true);
 
-        const host = await runInstalledHost(40, [], {
-          largeSelectedToolResult: true,
+        const [split] = await loadContextSplitRecords(dir);
+        const selectedReadPath = split?.externalizedMemoryRefs[0]?.path;
+        assert.ok(selectedReadPath);
+        assert.equal(extensionPaths.length, 2, "strict tool child must load SCALER plus admission");
+        const host = await runInstalledHost(40, [await admissionExtension()], {
+          selectedReadPath,
           memorySourceDir: dir,
           modelContextWindow: 32_768,
           prompt: request.prompt,
+          childEnvironment,
         });
         assert.equal(host.fetchCalls, 2);
-        assert.deepEqual(host.activeToolNames.sort(), ["large_selected", "read"]);
+        assert.deepEqual(host.activeToolNames, ["read"]);
         assert.ok(host.usage?.totalTokens);
         observedTotals.push(host.usage.totalTokens);
         const continuation = JSON.stringify(host.payloads[1]);
-        assert.doesNotMatch(continuation, /LARGE_TOOL_RESULT_RAW/);
+        assert.doesNotMatch(continuation, new RegExp(rawSourceMarker));
         assert.match(continuation, /stored large tool result by reference/);
-        assert.ok(host.events.some((event) => event.summary === "SCALER parent provider request admitted"));
-        assert.ok(host.events.some((event) => event.summary === "Tool result externalized: large_selected"));
+        assert.ok(host.events.some((event) => event.summary === "Tool result externalized: read"));
         return {
           taskId: request.taskId, exitCode: 0, stdoutEvents: [{ type: "done" }], stderr: "",
-          timedOut: false, aborted: false, usage: host.usage,
+          timedOut: false, aborted: false, usage: host.usage, providerAdmissions: host.providerAdmissions,
         };
       }
 
@@ -336,11 +362,14 @@ test("installed Pi composes the complete AC-05 envelope process under one declar
         memoryRefs: [], validations: [], validationRefs: [], evidenceRefs: [], blockers: [], missingData: [],
         recommendedNextAction: "validate",
       };
-      const host = await runInstalledHost(40, [], {
+      assert.equal(extensionPaths.length, 1, "strict tool-less repair must load admission only");
+      const host = await runInstalledHost(40, [await admissionExtension()], {
         modelContextWindow: 32_768,
         noTools: true,
         prompt: request.prompt,
         responseText: JSON.stringify(report),
+        childEnvironment,
+        includeScalerExtension: false,
       });
       assert.equal(host.fetchCalls, 1);
       assert.deepEqual(host.activeToolNames, []);
@@ -350,7 +379,7 @@ test("installed Pi composes the complete AC-05 envelope process under one declar
       return {
         taskId: request.taskId, exitCode: 0,
         stdoutEvents: [{ type: "message_end", message: host.lastMessage }], stderr: "",
-        timedOut: false, aborted: false, usage: host.usage,
+        timedOut: false, aborted: false, usage: host.usage, providerAdmissions: host.providerAdmissions,
       };
     });
 
@@ -365,11 +394,16 @@ test("installed Pi composes the complete AC-05 envelope process under one declar
       runs.map((run) => run.usage?.totalTokens).sort((left, right) => (left ?? 0) - (right ?? 0)),
       [...observedTotals].sort((left, right) => left - right),
     );
-    assert.equal(
-      getBudgetState(result.state).usage.contextTokens,
-      conservativeEstimate + observedTotals.reduce((sum, value) => sum + value, 0),
-      "durable accounting must retain the conservative estimate and add observed provider usage",
-    );
+    assert.equal(runs.length, 2);
+    for (const run of runs) {
+      assert.ok(run.providerUsageReconciliation, "each strict dispatch must durably reconcile estimate and observation");
+      assert.equal(run.providerUsageReconciliation.dispatchId.startsWith("plan164-"), true);
+      assert.equal(run.providerUsageReconciliation.observedInputTokens, run.usage?.inputTokens);
+      assert.equal(
+        run.providerUsageReconciliation.inputDeltaTokens,
+        run.providerUsageReconciliation.observedInputTokens - run.providerUsageReconciliation.estimatedInputTokensUpperBound,
+      );
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
