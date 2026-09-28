@@ -35,7 +35,7 @@ import {
   validateExecutionPlan,
   validateReplanRequest,
 } from "../src/plans.js";
-import { amendPrdRequirement, computePrdCoverageSummary, loadPrdChanges, loadPrdCoverage, loadPrdRequirements, savePrdCoverage, savePrdRequirements, upsertPrdRequirement } from "../src/prd.js";
+import { amendPrdRequirement, computePrdCoverageSummary, fingerprintRuntimePrdCoverageEntries, fingerprintRuntimePrdRequirements, loadPrdChanges, loadPrdCoverage, loadPrdRequirements, savePrdCoverage, savePrdRequirements, upsertPrdRequirement } from "../src/prd.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { saveValidationManifest } from "../src/validation.js";
 
@@ -935,32 +935,6 @@ test("acceptReplanProposal resumes an applying decision without losing audit or 
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
     }]);
-    await appendReplanDecision(dir, {
-      id: "DECISION-APPLYING",
-      status: "applying" as never,
-      summary: "Applying proposed execution plan version 2.",
-      requestIds: ["REPLAN-AFFECTED"],
-      previousPlanVersion: 1,
-      proposedPlanVersion: 2,
-      snapshotPath: ".scaler/plans/versions/PLAN-v001.json",
-      reopenedTaskIds: ["T-AFFECTED"],
-      proposalFingerprint,
-      previousPlanFingerprint: createHash("sha256").update(JSON.stringify({ ...currentPlanIdentity, planVersion: 1 })).digest("hex"),
-      affectedRequirementRevisions: { "REQ-AFFECTED": 2 },
-      affectedCoverageEntries: {
-        "REQ-AFFECTED": { requirementId: "REQ-AFFECTED", status: "needs_replan", taskIds: ["T-AFFECTED"], updatedAt: now.toISOString() },
-      },
-      preservation: {
-        ok: true,
-        preservedValidatedTaskIds: ["T-KEEP"],
-        droppedValidatedTaskIds: [],
-        preservedValidatedRequirementIds: ["REQ-KEEP"],
-        droppedValidatedRequirementIds: [],
-        unlinkedRequirementIds: [],
-        planUnlinkedTaskIds: [],
-      },
-      createdAt: now.toISOString(),
-    } as never);
     await upsertPrdRequirement(dir, { id: "REQ-AFFECTED", statement: "Original", now });
     await upsertPrdRequirement(dir, { id: "REQ-KEEP", statement: "Stable", now });
     await upsertPrdRequirement(dir, { id: "REQ-CONCURRENT", statement: "Original later", now });
@@ -987,6 +961,35 @@ test("acceptReplanProposal resumes an applying decision without losing audit or 
         { requirementId: "REQ-CONCURRENT", status: "needs_replan", updatedAt: "2026-01-01T00:00:30.000Z" },
       ],
     });
+    const journaledCoverage = await loadPrdCoverage(dir);
+    await appendReplanDecision(dir, {
+      id: "DECISION-APPLYING",
+      status: "applying" as never,
+      summary: "Applying proposed execution plan version 2.",
+      requestIds: ["REPLAN-AFFECTED"],
+      previousPlanVersion: 1,
+      proposedPlanVersion: 2,
+      snapshotPath: ".scaler/plans/versions/PLAN-v001.json",
+      reopenedTaskIds: ["T-AFFECTED"],
+      proposalFingerprint,
+      previousPlanFingerprint: createHash("sha256").update(JSON.stringify({ ...currentPlanIdentity, planVersion: 1 })).digest("hex"),
+      requirementsFingerprint: fingerprintRuntimePrdRequirements(requirements),
+      unaffectedCoverageFingerprint: fingerprintRuntimePrdCoverageEntries(journaledCoverage.entries, new Set(["REQ-AFFECTED"])),
+      affectedRequirementRevisions: { "REQ-AFFECTED": 2 },
+      affectedCoverageEntries: {
+        "REQ-AFFECTED": { requirementId: "REQ-AFFECTED", status: "needs_replan", taskIds: ["T-AFFECTED"], updatedAt: now.toISOString() },
+      },
+      preservation: {
+        ok: true,
+        preservedValidatedTaskIds: ["T-KEEP"],
+        droppedValidatedTaskIds: [],
+        preservedValidatedRequirementIds: ["REQ-KEEP"],
+        droppedValidatedRequirementIds: [],
+        unlinkedRequirementIds: [],
+        planUnlinkedTaskIds: [],
+      },
+      createdAt: now.toISOString(),
+    } as never);
 
     const result = await acceptReplanProposal(dir, state, requirements, {
       currentPlan,
@@ -1074,7 +1077,9 @@ test("acceptReplanProposal rejects stale applying coverage before durable plan o
       const proposalFingerprint = createHash("sha256").update(JSON.stringify(proposalIdentity)).digest("hex");
       const { updatedAt: _currentUpdatedAt, ...currentPlanIdentity } = currentPlan;
       const previousPlanFingerprint = createHash("sha256").update(JSON.stringify(currentPlanIdentity)).digest("hex");
-      const journaledCoverage = (await loadPrdCoverage(dir)).entries[0]!;
+      const journaledRequirements = await loadPrdRequirements(dir);
+      const journaledCoverageFile = await loadPrdCoverage(dir);
+      const journaledCoverage = journaledCoverageFile.entries[0]!;
       await appendReplanDecision(dir, {
         id: `DECISION-${drift.toUpperCase()}`,
         status: "applying",
@@ -1086,6 +1091,8 @@ test("acceptReplanProposal rejects stale applying coverage before durable plan o
         reopenedTaskIds: ["T-AFFECTED"],
         proposalFingerprint,
         previousPlanFingerprint,
+        requirementsFingerprint: fingerprintRuntimePrdRequirements(journaledRequirements),
+        unaffectedCoverageFingerprint: fingerprintRuntimePrdCoverageEntries(journaledCoverageFile.entries, new Set(["REQ-AFFECTED"])),
         affectedRequirementRevisions: { "REQ-AFFECTED": 2 },
         affectedCoverageEntries: { "REQ-AFFECTED": journaledCoverage },
         preservation: {

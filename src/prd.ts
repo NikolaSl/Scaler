@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { appendFile, mkdir, open, readFile, readdir, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -77,6 +77,8 @@ export interface RuntimePrdCoverageFile {
 export interface AdvanceReplannedCoverageInput {
   affectedRequirementRevisions: Record<string, number>;
   expectedCoverageEntries: Record<string, RuntimePrdCoverageEntry>;
+  expectedRequirementsFingerprint: string;
+  expectedUnaffectedCoverageFingerprint: string;
   taskIdsByRequirement: Record<string, string[]>;
   updatedAt: string;
 }
@@ -250,9 +252,16 @@ export async function advanceReplannedCoverageAndRun<T>(
 ): Promise<T> {
   const affectedIds = Object.keys(input.affectedRequirementRevisions);
   return withPrdRequirementsLock(cwd, async () => {
-    const coverage = await loadPrdCoverage(cwd);
-    if (affectedIds.length === 0) return publish(coverage);
     const requirements = await loadPrdRequirementsUnlocked(cwd);
+    const coverage = await loadPrdCoverage(cwd);
+    if (fingerprintRuntimePrdRequirements(requirements) !== input.expectedRequirementsFingerprint) {
+      throw new Error("Stale replan PRD basis: requirements changed after acceptance preflight.");
+    }
+    if (fingerprintRuntimePrdCoverageEntries(coverage.entries, new Set(affectedIds))
+      !== input.expectedUnaffectedCoverageFingerprint) {
+      throw new Error("Stale replan PRD basis: unrelated coverage changed after acceptance preflight.");
+    }
+    if (affectedIds.length === 0) return publish(coverage);
     const affected = new Set(affectedIds);
     for (const id of affectedIds) {
       const requirement = requirements.requirements.find((candidate) => candidate.id === id);
@@ -298,6 +307,25 @@ export async function advanceReplannedCoverageAndRun<T>(
     await savePrdCoverageUnlocked(cwd, updated);
     return publish(updated);
   });
+}
+
+export function fingerprintRuntimePrdRequirements(requirements: RuntimePrdRequirementsFile): string {
+  const normalized = normalizePrdRequirementsFile(requirements);
+  const canonical = {
+    version: normalized.version,
+    requirements: [...normalized.requirements].sort((left, right) => left.id.localeCompare(right.id)),
+  };
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+}
+
+export function fingerprintRuntimePrdCoverageEntries(
+  entries: RuntimePrdCoverageEntry[],
+  excludedRequirementIds: ReadonlySet<string> = new Set(),
+): string {
+  const canonical = entries
+    .filter((entry) => !excludedRequirementIds.has(entry.requirementId))
+    .sort((left, right) => left.requirementId.localeCompare(right.requirementId));
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
 }
 
 function samePrdCoverageEntry(left: RuntimePrdCoverageEntry, right: RuntimePrdCoverageEntry): boolean {

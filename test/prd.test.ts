@@ -4,7 +4,6 @@
  */
 
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,6 +17,8 @@ import {
   appendPrdChange,
   computePrdCoverageSummary,
   createPrdVersionSnapshot,
+  fingerprintRuntimePrdCoverageEntries,
+  fingerprintRuntimePrdRequirements,
   isRuntimePrdRequirementStatus,
   loadCurrentPrd,
   loadPrdChanges,
@@ -359,12 +360,16 @@ test("advanceReplannedCoverage merges only matching affected revisions", async (
       changes: { statement: "A2" },
       now,
     });
+    const initialRequirements = await loadPrdRequirements(dir);
+    const initialCoverage = await loadPrdCoverage(dir);
 
     await advanceReplannedCoverage(dir, {
       affectedRequirementRevisions: { "REQ-A": 2 },
       expectedCoverageEntries: {
         "REQ-A": { requirementId: "REQ-A", status: "needs_replan", updatedAt: now.toISOString() },
       },
+      expectedRequirementsFingerprint: fingerprintRuntimePrdRequirements(initialRequirements),
+      expectedUnaffectedCoverageFingerprint: fingerprintRuntimePrdCoverageEntries(initialCoverage.entries, new Set(["REQ-A"])),
       taskIdsByRequirement: { "REQ-A": ["T-A"] },
       updatedAt: "2026-01-01T00:01:00.000Z",
     });
@@ -379,11 +384,15 @@ test("advanceReplannedCoverage merges only matching affected revisions", async (
       changes: { statement: "A3" },
       now: new Date("2026-01-01T00:02:00.000Z"),
     });
+    const amendedRequirements = await loadPrdRequirements(dir);
+    const amendedCoverage = await loadPrdCoverage(dir);
     await assert.rejects(() => advanceReplannedCoverage(dir, {
       affectedRequirementRevisions: { "REQ-A": 2 },
       expectedCoverageEntries: {
         "REQ-A": { requirementId: "REQ-A", status: "in_progress", taskIds: ["T-A"], updatedAt: "2026-01-01T00:01:00.000Z" },
       },
+      expectedRequirementsFingerprint: fingerprintRuntimePrdRequirements(amendedRequirements),
+      expectedUnaffectedCoverageFingerprint: fingerprintRuntimePrdCoverageEntries(amendedCoverage.entries, new Set(["REQ-A"])),
       taskIdsByRequirement: { "REQ-A": ["T-A"] },
       updatedAt: "2026-01-01T00:03:00.000Z",
     }), /stale replan coverage update.*expected revision 2.*current revision 3/i);
@@ -404,7 +413,9 @@ test("advanceReplannedCoverageAndRun holds the requirement fence through publica
       changes: { statement: "A2" },
       now,
     });
-    const expectedCoverageEntry = (await loadPrdCoverage(dir)).entries[0]!;
+    const requirements = await loadPrdRequirements(dir);
+    const coverage = await loadPrdCoverage(dir);
+    const expectedCoverageEntry = coverage.entries[0]!;
     let enterPublication!: () => void;
     const publicationEntered = new Promise<void>((resolve) => { enterPublication = resolve; });
     let releasePublication!: () => void;
@@ -413,6 +424,8 @@ test("advanceReplannedCoverageAndRun holds the requirement fence through publica
     const publication = advanceReplannedCoverageAndRun(dir, {
       affectedRequirementRevisions: { "REQ-A": 2 },
       expectedCoverageEntries: { "REQ-A": expectedCoverageEntry },
+      expectedRequirementsFingerprint: fingerprintRuntimePrdRequirements(requirements),
+      expectedUnaffectedCoverageFingerprint: fingerprintRuntimePrdCoverageEntries(coverage.entries, new Set(["REQ-A"])),
       taskIdsByRequirement: { "REQ-A": ["T-A"] },
       updatedAt: "2026-01-01T00:01:00.000Z",
     }, async () => {
@@ -444,6 +457,8 @@ test("advanceReplannedCoverageAndRun holds the requirement fence without affecte
   await withTempDir(async (dir) => {
     const now = new Date("2026-01-01T00:00:00.000Z");
     await upsertPrdRequirement(dir, { id: "REQ-A", statement: "A1", now });
+    const requirements = await loadPrdRequirements(dir);
+    const coverage = await loadPrdCoverage(dir);
     let enterPublication!: () => void;
     const publicationEntered = new Promise<void>((resolve) => { enterPublication = resolve; });
     let releasePublication!: () => void;
@@ -452,6 +467,8 @@ test("advanceReplannedCoverageAndRun holds the requirement fence without affecte
     const publication = advanceReplannedCoverageAndRun(dir, {
       affectedRequirementRevisions: {},
       expectedCoverageEntries: {},
+      expectedRequirementsFingerprint: fingerprintRuntimePrdRequirements(requirements),
+      expectedUnaffectedCoverageFingerprint: fingerprintRuntimePrdCoverageEntries(coverage.entries),
       taskIdsByRequirement: {},
       updatedAt: "2026-01-01T00:01:00.000Z",
     }, async () => {
@@ -489,9 +506,28 @@ test("advanceReplannedCoverageAndRun rejects stale full PRD basis without affect
       expectedCoverageEntries: {},
       taskIdsByRequirement: {},
       updatedAt: "2026-01-01T00:01:00.000Z",
-      expectedRequirementsFingerprint: createHash("sha256").update(JSON.stringify(requirements)).digest("hex"),
-      expectedUnaffectedCoverageFingerprint: createHash("sha256").update(JSON.stringify(coverage.entries)).digest("hex"),
+      expectedRequirementsFingerprint: fingerprintRuntimePrdRequirements(requirements),
+      expectedUnaffectedCoverageFingerprint: fingerprintRuntimePrdCoverageEntries(coverage.entries),
     }, async () => undefined), /stale replan.*requirements changed/i);
+  });
+
+  await withTempDir(async (dir) => {
+    await upsertPrdRequirement(dir, { id: "REQ-A", statement: "A1" });
+    const requirements = await loadPrdRequirements(dir);
+    const coverage = await loadPrdCoverage(dir);
+    await savePrdCoverage(dir, {
+      version: 1,
+      entries: [{ requirementId: "REQ-A", status: "pending", notes: "Concurrent coverage update.", updatedAt: "2026-01-01T00:00:30.000Z" }],
+    });
+
+    await assert.rejects(() => advanceReplannedCoverageAndRun(dir, {
+      affectedRequirementRevisions: {},
+      expectedCoverageEntries: {},
+      taskIdsByRequirement: {},
+      updatedAt: "2026-01-01T00:01:00.000Z",
+      expectedRequirementsFingerprint: fingerprintRuntimePrdRequirements(requirements),
+      expectedUnaffectedCoverageFingerprint: fingerprintRuntimePrdCoverageEntries(coverage.entries),
+    }, async () => undefined), /stale replan.*coverage changed/i);
   });
 });
 

@@ -16,7 +16,7 @@ import {
   getReplanDecisionsPath,
   getReplanRequestsPath,
 } from "./paths.js";
-import { advanceReplannedCoverageAndRun, applyPrdRequirementUpserts, computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdAcceptanceCriterion, type RuntimePrdCoverageEntry, type RuntimePrdRequirementStatus, type RuntimePrdRequirementsFile } from "./prd.js";
+import { advanceReplannedCoverageAndRun, applyPrdRequirementUpserts, computePrdCoverageSummary, fingerprintRuntimePrdCoverageEntries, fingerprintRuntimePrdRequirements, loadPrdCoverage, loadPrdRequirements, type RuntimePrdAcceptanceCriterion, type RuntimePrdCoverageEntry, type RuntimePrdRequirementStatus, type RuntimePrdRequirementsFile } from "./prd.js";
 import { assertStateSnapshotCurrent, saveState } from "./state.js";
 import { assessTaskDefinitionQuality, normalizeTaskKind } from "./task-quality.js";
 import { createTask, reviewTaskAcceptancePolicyMutation, updateTask, type UpdateTaskInput } from "./tasks.js";
@@ -189,6 +189,8 @@ export interface ReplanDecisionRecord {
   rejectedTaskIds?: string[];
   proposalFingerprint?: string;
   previousPlanFingerprint?: string;
+  requirementsFingerprint?: string;
+  unaffectedCoverageFingerprint?: string;
   affectedRequirementRevisions?: Record<string, number>;
   affectedCoverageEntries?: Record<string, RuntimePrdCoverageEntry>;
   preservation: ExecutionPlanPreservationCheck;
@@ -370,6 +372,10 @@ async function acceptReplanProposalLocked(
         throw new Error(`Accepted replan decision ${acceptedDecision.id} is stale for ${id}: expected revision ${expectedRevision}, current revision ${requirement ? currentRevision : "missing"}.`);
       }
     }
+    if (!acceptedDecision.requirementsFingerprint
+      || fingerprintRuntimePrdRequirements(durableRequirements) !== acceptedDecision.requirementsFingerprint) {
+      throw new Error(`Accepted replan decision ${acceptedDecision.id} is stale: PRD basis changed.`);
+    }
     const acceptedCoverage = await loadPrdCoverage(cwd);
     const reInvalidated = Object.keys(acceptedDecision.affectedRequirementRevisions ?? {}).filter((id) => {
       const entry = acceptedCoverage.entries.find((candidate) => candidate.requirementId === id);
@@ -377,6 +383,13 @@ async function acceptReplanProposalLocked(
     });
     if (reInvalidated.length > 0) {
       throw new Error(`Accepted replan decision ${acceptedDecision.id} no longer covers: ${reInvalidated.join(", ")}.`);
+    }
+    if (!acceptedDecision.unaffectedCoverageFingerprint
+      || fingerprintRuntimePrdCoverageEntries(
+        acceptedCoverage.entries,
+        new Set(Object.keys(acceptedDecision.affectedRequirementRevisions ?? {})),
+      ) !== acceptedDecision.unaffectedCoverageFingerprint) {
+      throw new Error(`Accepted replan decision ${acceptedDecision.id} is stale: PRD coverage basis changed.`);
     }
     return {
       accepted: true,
@@ -482,6 +495,14 @@ async function acceptReplanProposalLocked(
       if (!entry) throw new Error(`Replan acceptance requires coverage entry ${id}.`);
       return [id, entry];
     }));
+  if (applyingDecision
+    && (!applyingDecision.requirementsFingerprint || !applyingDecision.unaffectedCoverageFingerprint)) {
+    throw new Error(`Replan decision ${applyingDecision.id} lacks its PRD acceptance basis.`);
+  }
+  const requirementsFingerprint = applyingDecision?.requirementsFingerprint
+    ?? fingerprintRuntimePrdRequirements(requirements);
+  const unaffectedCoverageFingerprint = applyingDecision?.unaffectedCoverageFingerprint
+    ?? fingerprintRuntimePrdCoverageEntries(coverage.entries, affectedRequirementIds);
   const previousPlanFingerprint = applyingDecision?.previousPlanFingerprint
     ?? fingerprintReplanProposal(currentPlan);
   const durablePlan = await loadExecutionPlan(cwd);
@@ -503,6 +524,8 @@ async function acceptReplanProposalLocked(
     reopenedTaskIds,
     proposalFingerprint,
     previousPlanFingerprint,
+    requirementsFingerprint,
+    unaffectedCoverageFingerprint,
     affectedRequirementRevisions,
     affectedCoverageEntries,
     preservation,
@@ -523,6 +546,8 @@ async function acceptReplanProposalLocked(
   const published = await advanceReplannedCoverageAndRun(cwd, {
     affectedRequirementRevisions,
     expectedCoverageEntries: affectedCoverageEntries,
+    expectedRequirementsFingerprint: requirementsFingerprint,
+    expectedUnaffectedCoverageFingerprint: unaffectedCoverageFingerprint,
     taskIdsByRequirement: Object.fromEntries(taskIdsByRequirement),
     updatedAt: journal.createdAt,
   }, async () => {
