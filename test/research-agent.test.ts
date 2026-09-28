@@ -59,6 +59,7 @@ test("buildResearchAgentPrompt includes request context, PRD coverage, prior rep
       status: "complete",
       requestId: "RESEARCH-001",
       question: "Which API is supported?",
+      taskId: "T-001",
       sources: [{ id: "local", title: "Local", quality: "project", path: "package.json" }],
       conclusions: [{ summary: "Local package pins version.", confidence: "medium", sourceRefs: ["local"] }],
     }, new Date("2026-01-01T00:00:01.000Z"));
@@ -221,7 +222,7 @@ test("extractResearchReport reports missing, error, and invalid reports", () => 
 
 test("ingestResearchReport records report and resolves complete request", async () => {
   await withTempDir(async (dir) => {
-    await upsertResearchRequest(dir, { id: "RESEARCH-001", question: "Which API?", reason: "Need docs" }, new Date("2026-01-01T00:00:00.000Z"));
+    const request = await upsertResearchRequest(dir, { id: "RESEARCH-001", question: "Which API?", reason: "Need docs" }, new Date("2026-01-01T00:00:00.000Z"));
     const ingestion = await ingestResearchReport(dir, [{
       type: "scaler_research_report",
       requestId: "RESEARCH-001",
@@ -230,7 +231,7 @@ test("ingestResearchReport records report and resolves complete request", async 
       sources: [{ id: "local", title: "Local file", quality: "project", path: "package.json" }],
       conclusions: [{ summary: "Use local version.", confidence: "medium", sourceRefs: ["local"] }],
       rawEvidence: [{ title: "package excerpt", content: "version metadata", sourceId: "local" }],
-    }], new Date("2026-01-01T00:00:01.000Z"));
+    }], request, new Date("2026-01-01T00:00:01.000Z"));
 
     assert.equal(ingestion.attempted, true);
     assert.equal(ingestion.ingested, true);

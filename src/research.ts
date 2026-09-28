@@ -237,7 +237,18 @@ export async function recordResearchReport(cwd: string, input: ResearchReportInp
   if (existing && input.sources !== undefined && input.conclusions === undefined) {
     throw new Error(`Research report ${existing.id} source revisions require explicit conclusions.`);
   }
+  const question = cleanRequired(input.question, "Research report question is required.");
+  const requestId = clean(input.requestId) ?? existing?.requestId;
   const taskId = clean(input.taskId) ?? existing?.taskId;
+  if (existing && (requestId !== existing.requestId || taskId !== existing.taskId || question !== existing.question)) {
+    throw new Error(`Research report ${existing.id} request, task, and question identity is immutable.`);
+  }
+  if (requestId) {
+    const request = (await loadResearchRequests(cwd)).find((candidate) => candidate.id === requestId);
+    if (request && (question !== request.question || (request.taskId !== undefined && taskId !== request.taskId))) {
+      throw new Error(`Research report binding does not match research request ${requestId}.`);
+    }
+  }
   let sourceTask: ScalerTaskState | undefined;
   if (taskId) {
     try {
@@ -263,8 +274,8 @@ export async function recordResearchReport(cwd: string, input: ResearchReportInp
   const report: ResearchReport = {
     id: input.id?.trim() || existing?.id || `RPT-RESEARCH-${timestamp.replace(/[^0-9]/g, "")}`,
     status: normalizeReportStatus(input.status ?? existing?.status ?? "partial"),
-    question: cleanRequired(input.question, "Research report question is required."),
-    requestId: clean(input.requestId) ?? existing?.requestId,
+    question,
+    requestId,
     taskId,
     requirementRefs: normalizeList(input.requirementRefs ?? existing?.requirementRefs),
     sources: input.sources !== undefined

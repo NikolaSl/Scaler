@@ -272,7 +272,9 @@ export async function runResearchAgentStep(
         agentType: "research",
       });
     }
-    const ingestion = runResult && taskAgentRunSucceeded(runResult) ? await ingestResearchReport(cwd, runResult.stdoutEvents) : { attempted: false, ingested: false };
+    const ingestion = runResult && taskAgentRunSucceeded(runResult)
+      ? await ingestResearchReport(cwd, runResult.stdoutEvents, context.request)
+      : { attempted: false, ingested: false };
     if (ingestion.attempted) {
       await logStructuredReportAudit(cwd, state, {
         reportType: "scaler_research_report",
@@ -300,10 +302,27 @@ export async function runResearchAgentStep(
   }
 }
 
-export async function ingestResearchReport(cwd: string, stdoutEvents: unknown[], now = new Date()): Promise<ResearchReportIngestionResult> {
+export async function ingestResearchReport(
+  cwd: string,
+  stdoutEvents: unknown[],
+  expectedRequest: ResearchRequest,
+  now = new Date(),
+): Promise<ResearchReportIngestionResult> {
   const extraction = extractResearchReport(stdoutEvents, now);
   if (!extraction.ok || !extraction.input) {
     return { attempted: true, ingested: false, reason: extraction.reason ?? "Research report extraction failed." };
+  }
+
+  const reportRequestId = extraction.input.requestId?.trim();
+  const reportTaskId = extraction.input.taskId?.trim() || undefined;
+  if (reportRequestId !== expectedRequest.id
+    || reportTaskId !== expectedRequest.taskId
+    || extraction.input.question.trim() !== expectedRequest.question) {
+    return {
+      attempted: true,
+      ingested: false,
+      reason: `Research report identity does not match selected research request ${expectedRequest.id}.`,
+    };
   }
 
   try {

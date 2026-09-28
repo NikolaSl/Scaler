@@ -545,13 +545,17 @@ test("research refresh retains blockers for partial, foreign or unresolved answe
     const dispatched = await dispatchMissingContextRequest(dir, state, created.created[0]?.id, { execute: true });
     const researchId = dispatched.request?.evidenceRefs?.[0];
     assert.ok(researchId);
-    for (const [id, status, taskId, unknowns] of [
-      ["RPT-PARTIAL", "partial", "T-MISS", []],
-      ["RPT-FOREIGN", "complete", "T-OTHER", []],
-      ["RPT-UNKNOWN", "complete", "T-MISS", ["Which exact version?"]],
+    await assert.rejects(recordResearchReport(dir, {
+      id: "RPT-FOREIGN", requestId: researchId, question: "Need local dependency version", status: "complete", taskId: "T-OTHER",
+      sources: [{ id: "package", title: "package.json", quality: "project", path: "package.json" }],
+      conclusions: [{ summary: "The version might be 1.0.", confidence: "high", sourceRefs: ["package"] }],
+    }), /does not match research request/);
+    for (const [id, status, unknowns] of [
+      ["RPT-PARTIAL", "partial", []],
+      ["RPT-UNKNOWN", "complete", ["Which exact version?"]],
     ] as const) {
       await recordResearchReport(dir, {
-        id, requestId: researchId, question: "Need local dependency version", status, taskId,
+        id, requestId: researchId, question: "Need local dependency version", status, taskId: "T-MISS",
         sources: [{ id: "package", title: "package.json", quality: "project", path: "package.json" }],
         conclusions: [{ summary: "The version might be 1.0.", confidence: "high", sourceRefs: ["package"] }],
         unresolvedUnknowns: [...unknowns],
