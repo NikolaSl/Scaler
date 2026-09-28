@@ -403,6 +403,10 @@ required, and the JSON object may supply `statement`, `title`, `source`, or
 or no-op changes. Accepted changes increment the revision and append an exact
 version-history record. Model-facing PRD/planning tools cannot invoke this
 authority path and cannot change existing requirement content or criteria.
+Statement, source and acceptance-criteria changes mark only the amended
+requirement's coverage `needs_replan`, retaining links and historical evidence;
+a title-only change leaves coverage unchanged. Task reopening/replacement remains
+a separate preservation-gated replanning decision.
 
 Example:
 

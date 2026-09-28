@@ -36,3 +36,14 @@ Baseline: merged PLAN-167–169 / PR #34, exact tree
 
 This unit establishes truthful current coverage after a requirement change. It
 does not prove semantic impact analysis or complete affected-only replanning.
+
+## Outcome
+
+Implemented on `implementation/v2-p4-requirement-invalidation`. Material
+statement, source and acceptance-criteria amendments update only the matching
+coverage row to `needs_replan` inside the existing PRD lock. Existing links,
+evidence, notes and unrelated rows are retained; title-only changes leave
+coverage unchanged. The candidate passes build, 1,218 unit/component, 73 mock
+integration and 10 conformance/autopilot checks. SC-06, SC-12 and SC-27 remain
+Partial: affected task reopening/replacement and semantic necessity are outside
+this bounded unit.

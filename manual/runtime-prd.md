@@ -38,6 +38,12 @@ or `acceptanceCriteria`). It cannot create a requirement. A stale revision or an
 empty/no-op amendment fails without changing the catalog. Literal `|` characters
 are permitted inside the JSON payload.
 
+Changing the statement, source or acceptance criteria marks that requirement's
+current coverage `needs_replan` while preserving its task links, evidence
+references and notes. The historical evidence remains available but no longer
+establishes current acceptance. A title-only presentation change preserves the
+coverage status. This boundary does not choose or rewrite corrective tasks.
+
 ## Task linkage
 
 Tasks may store `prdRefs` during creation/update:

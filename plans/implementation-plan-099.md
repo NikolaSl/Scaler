@@ -477,6 +477,14 @@ application path leaves unchanged. Existing manifest inheritance is preserved. T
 candidate passes build, 1,216 unit/component, 73 mock integration, 10
 conformance/autopilot and 65 affected checks. This verifies contract admission,
 not the semantic quality or necessity of model-proposed work.
+PLAN-170 closes the smallest reproduced requirement-validity gap. A
+user-authorized statement, source or acceptance-criteria amendment now marks only
+that requirement's coverage `needs_replan` under the existing PRD lock while
+preserving task links, evidence references, notes, immutable history and unrelated
+coverage. Title-only changes preserve coverage. The candidate passes build,
+1,218 unit/component, 73 mock integration and 10 conformance/autopilot checks.
+SC-06/12/27 remain Partial because this boundary neither selects affected tasks
+nor infers semantic necessity or corrective work.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
 unresolved in-scope findings. The primary exact-head gate passed build,
