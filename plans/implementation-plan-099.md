@@ -410,6 +410,36 @@ the budget ledger separately retains ordinary provider usage accounting. SC-05/A
 is Verified for the supported model-independent FSM and OpenAI Chat Completions
 adapter. This does not claim exact tokenization, alternate-provider coverage,
 configured local inference, model quality, savings or scale.
+PLAN-165 closes the remaining SC-08 route safeguard boundary without adding a
+permission subsystem. Current-agent provider admission receives an explicit
+host-owned authority decision instead of assuming `allowed`; direct, current-
+agent, isolated and replay dispatches re-evaluate the existing live budget
+ledger, refuse hard limits before execution and retain accepted authority plus
+budget evidence in the route admission. The coherent 32K/128K scenario now
+covers denied authority and hard-budget refusal for all three routes. SC-08/AC-08
+is Verified at the model-independent FSM boundary. Configured local inference
+remains SC-09 and the installed Pi continuation-envelope limitation remains
+SC-25; no model-quality or savings claim is made.
+The first independent Terra/high review found valid host-authority, stale-budget
+and durable-safeguard validation gaps. Test-first regressions now bind authority
+to host preparation, repeat the budget decision inside the serialized execution
+claim and fail closed on incomplete or mismatched safeguard evidence. The
+first follow-up review also found two valid implicit-authority and durable
+evidence-replacement gaps. Omitted authority now fails closed as `unknown`, the
+direct host command carries the explicit decision, and current-agent
+continuation compares durable safeguards with its trusted execution record.
+The updated candidate passes build, 1,208 unit/component, 73 mock integration,
+10 conformance/autopilot and 13 focused safeguard checks; a fresh exact-head
+Terra/high review remains required before merge.
+The next exact-head review found one valid cached-authority continuation gap.
+The active host lifecycle now re-reads its mutable host-owned decision at every
+provider admission, and an installed-host `allowed` then `denied` regression
+proves the continuation aborts. This remains a minimal decision boundary, not a
+permission service or approval workflow.
+The fresh-context Terra/high review of implementation head `7e725f7` reports no
+findings after checking the authority, budget and durable-evidence boundaries.
+The review-evidence-only successor still requires exact-head confirmation before
+merge.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
 unresolved in-scope findings. The primary exact-head gate passed build,

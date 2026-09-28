@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
+import { setBudgetLimits } from "../src/budgets.js";
 import { getToolRequestsIndexPath, getToolResultsPath, getToolTransactionsPath } from "../src/paths.js";
 import * as toolRequestsModule from "../src/tool-requests.js";
 import {
@@ -490,6 +491,7 @@ test("current-agent tool dispatch binds exact provider identity and one structur
       state,
       request.record.id,
       ["read", "scaler_tool_result"],
+      "allowed",
     );
     assert.ok(prepared.preparation);
     assert.deepEqual(prepared.preparation.activeToolNames, ["read", "scaler_tool_result"]);
@@ -545,6 +547,243 @@ test("current-agent tool dispatch binds exact provider identity and one structur
     assert.equal(finalized.accepted, true);
     assert.equal(finalized.transaction?.status, "completed");
     assert.equal(finalized.resultRecord?.acceptanceStatus, "accepted");
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
+  });
+});
+
+test("current-agent continuation and finalization reject incomplete safeguard evidence", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const request = await prepareToolRequest(dir, state, {
+      toolName: "read",
+      request: "Read one approved file.",
+      allowedTools: ["read"],
+    });
+    assert.ok(request.record);
+    const prepared = await prepareCurrentAgentToolExecution(
+      dir,
+      state,
+      request.record.id,
+      ["read", "scaler_tool_result"],
+      "allowed",
+    );
+    assert.ok(prepared.preparation);
+    const active = prepared.preparation.activeToolNames;
+    const profile = buildRuntimeToolEnvelopeProfile(active.map((name) => ({
+      name,
+      description: name,
+      parameters: { type: "object" },
+    })), active, { requestedToolNames: active, selectionApisAvailable: true });
+    const model = { api: "openai-completions", provider: "local", id: "local-32k", contextWindow: 32_000 };
+    const evidence = {
+      payload: {
+        model: model.id,
+        messages: [{ role: "user", content: prepared.preparation.prompt }],
+        max_completion_tokens: 1_024,
+      },
+      model,
+      policy: { requestTokenAllowance: 32_000, outputReserveTokens: 1_024, safetyMarginTokens: 1_024 },
+      profile,
+    };
+    const admission = await admitCurrentAgentToolProviderCall(dir, state, prepared.preparation, evidence);
+    assert.ok(admission.transaction?.routeAdmission);
+    delete (admission.transaction!.routeAdmission as { budgetDecision?: unknown }).budgetDecision;
+    const transactions = await loadToolTransactions(dir);
+    delete (transactions[0]!.routeAdmission as Partial<NonNullable<typeof transactions[0]["routeAdmission"]>>).budgetDecision;
+    await writeFile(getToolTransactionsPath(dir), `${JSON.stringify({ version: 1, transactions }, null, 2)}\n`, "utf8");
+
+    const continuation = await admitCurrentAgentToolProviderCall(
+      dir,
+      state,
+      prepared.preparation,
+      evidence,
+      admission.transaction,
+    );
+    assert.equal(continuation.accepted, false);
+    assert.match(continuation.message, /identity changed|safeguard/i);
+
+    await recordToolResult(dir, state, {
+      requestId: request.record.id,
+      executionId: admission.transaction.id,
+      status: "completed",
+      summary: "Read completed.",
+      outputs: { fact: "bounded" },
+    });
+    const finalized = await finalizeCurrentAgentToolExecution(
+      dir,
+      state,
+      prepared.preparation,
+      admission.transaction,
+    );
+    assert.equal(finalized.accepted, false);
+    assert.equal(finalized.transaction?.status, "blocked");
+  });
+});
+
+test("current-agent continuation rejects valid-looking forged budget evidence", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const request = await prepareToolRequest(dir, state, {
+      toolName: "read",
+      request: "Read one approved file.",
+      allowedTools: ["read"],
+    });
+    assert.ok(request.record);
+    const prepared = await prepareCurrentAgentToolExecution(
+      dir,
+      state,
+      request.record.id,
+      ["read", "scaler_tool_result"],
+      "allowed",
+    );
+    assert.ok(prepared.preparation);
+    const active = prepared.preparation.activeToolNames;
+    const profile = buildRuntimeToolEnvelopeProfile(active.map((name) => ({
+      name,
+      description: name,
+      parameters: { type: "object" },
+    })), active, { requestedToolNames: active, selectionApisAvailable: true });
+    const model = { api: "openai-completions", provider: "local", id: "local-32k", contextWindow: 32_000 };
+    const evidence = {
+      payload: {
+        model: model.id,
+        messages: [{ role: "user", content: prepared.preparation.prompt }],
+        max_completion_tokens: 1_024,
+      },
+      model,
+      policy: { requestTokenAllowance: 32_000, outputReserveTokens: 1_024, safetyMarginTokens: 1_024 },
+      profile,
+    };
+    const admission = await admitCurrentAgentToolProviderCall(dir, state, prepared.preparation, evidence);
+    assert.ok(admission.transaction?.routeAdmission);
+    const originalDecision = structuredClone(admission.transaction.routeAdmission.budgetDecision);
+    const transactions = await loadToolTransactions(dir);
+    transactions[0]!.routeAdmission!.budgetDecision = {
+      ...originalDecision,
+      usage: originalDecision.usage + 1,
+      reason: "forged but structurally valid budget evidence",
+    };
+    await writeFile(getToolTransactionsPath(dir), `${JSON.stringify({ version: 1, transactions }, null, 2)}\n`, "utf8");
+
+    const continuation = await admitCurrentAgentToolProviderCall(
+      dir,
+      state,
+      prepared.preparation,
+      evidence,
+      admission.transaction,
+    );
+
+    assert.equal(continuation.accepted, false);
+    assert.match(continuation.message, /identity changed|safeguard/i);
+  });
+});
+
+test("current-agent provider dispatch refuses explicit denied authority before claim", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const request = await prepareToolRequest(dir, state, {
+      toolName: "read",
+      request: "Read one approved file.",
+      allowedTools: ["read"],
+    });
+    assert.ok(request.record);
+    const prepared = await prepareCurrentAgentToolExecution(
+      dir,
+      state,
+      request.record.id,
+      ["read", "scaler_tool_result"],
+      "denied",
+    );
+    assert.ok(prepared.preparation);
+    const active = prepared.preparation.activeToolNames;
+    const profile = buildRuntimeToolEnvelopeProfile(active.map((name) => ({
+      name,
+      description: name,
+      parameters: { type: "object" },
+    })), active, { requestedToolNames: active, selectionApisAvailable: true });
+    const model = { api: "openai-completions", provider: "local", id: "local-32k", contextWindow: 32_000 };
+    const evidence = {
+      payload: {
+        model: model.id,
+        messages: [{ role: "user", content: prepared.preparation.prompt }],
+        max_completion_tokens: 1_024,
+      },
+      model,
+      policy: { requestTokenAllowance: 32_000, outputReserveTokens: 1_024, safetyMarginTokens: 1_024 },
+      profile,
+    } as Parameters<typeof admitCurrentAgentToolProviderCall>[3];
+
+    const admission = await admitCurrentAgentToolProviderCall(dir, state, prepared.preparation, evidence);
+
+    assert.equal(admission.accepted, false);
+    assert.equal(admission.assessment.reasonCode, "authority-denied");
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
+    assert.equal((await loadToolTransactions(dir)).length, 0);
+
+    const allowedPreparation = await prepareCurrentAgentToolExecution(
+      dir,
+      state,
+      request.record.id,
+      ["read", "scaler_tool_result"],
+      "allowed",
+    );
+    assert.ok(allowedPreparation.preparation);
+    const hardBudgetState = setBudgetLimits(state, { toolCalls: { hard: 0 } });
+    const hardBudgetAdmission = await admitCurrentAgentToolProviderCall(
+      dir,
+      hardBudgetState,
+      allowedPreparation.preparation,
+      evidence,
+    );
+    assert.equal(hardBudgetAdmission.accepted, false);
+    assert.match(hardBudgetAdmission.message, /budget hard limit.*toolCalls/i);
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
+    assert.equal((await loadToolTransactions(dir)).length, 0);
+  });
+});
+
+test("current-agent preparation does not infer omitted authority", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const request = await prepareToolRequest(dir, state, {
+      toolName: "read",
+      request: "Read one file.",
+      allowedTools: ["read"],
+    });
+    assert.ok(request.record);
+
+    const prepared = await prepareCurrentAgentToolExecution(
+      dir,
+      state,
+      request.record.id,
+      ["read", "scaler_tool_result"],
+    );
+
+    assert.ok(prepared.preparation);
+    assert.equal((prepared.preparation as typeof prepared.preparation & { authority?: string }).authority, "unknown");
+  });
+});
+
+test("builtin direct dispatch does not infer omitted authority", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "scaler_tool_catalog",
+      request: "Return the exact compact catalog entry for read.",
+      directOperation: {
+        adapterId: "builtin:tool-catalog-entry-v1",
+        arguments: { toolName: "read" },
+      },
+    });
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgentRaw(dir, state, {
+      requestId: prepared.record.id,
+      execute: true,
+    });
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /authority-unknown/i);
     assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
   });
 });
@@ -873,6 +1112,7 @@ test("runToolRequestAgent executes an exact direct catalog lookup without a mode
     const result = await runToolRequestAgentRaw(dir, state, {
       requestId: prepared.record.id,
       execute: true,
+      authority: "allowed",
     }, async (request) => {
       runnerCalled = true;
       return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
@@ -894,6 +1134,96 @@ test("runToolRequestAgent executes an exact direct catalog lookup without a mode
       },
     });
     assert.equal((await loadToolRequests(dir))[0]?.status, "completed");
+  });
+});
+
+test("runToolRequestAgent refuses a hard budget limit before direct dispatch", async () => {
+  await withTempDir(async (dir) => {
+    const state = setBudgetLimits(
+      createDefaultState(new Date("2026-01-01T00:00:00.000Z")),
+      { toolCalls: { hard: 0 } },
+    );
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "scaler_tool_catalog",
+      request: "Return the exact compact catalog entry for read.",
+      directOperation: {
+        adapterId: "builtin:tool-catalog-entry-v1",
+        arguments: { toolName: "read" },
+      },
+    });
+    assert.ok(prepared.record);
+    let runnerCalled = false;
+
+    const result = await runToolRequestAgentRaw(dir, state, {
+      requestId: prepared.record.id,
+      execute: true,
+    }, async (request) => {
+      runnerCalled = true;
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(runnerCalled, false);
+    assert.match(result.message, /budget hard limit.*toolCalls/i);
+    assert.equal(result.transaction?.status, "rejected");
+    assert.equal(result.transaction?.executed, false);
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
+  });
+});
+
+test("builtin direct dispatch does not infer required permission from an exact operation", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "scaler_tool_catalog",
+      request: "Return the exact compact catalog entry for read.",
+      permissionRequirement: "operator approval",
+      directOperation: {
+        adapterId: "builtin:tool-catalog-entry-v1",
+        arguments: { toolName: "read" },
+      },
+    });
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgentRaw(dir, state, {
+      requestId: prepared.record.id,
+      execute: true,
+    });
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /authority-unknown/i);
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
+  });
+});
+
+test("dispatch rechecks a hard budget written while route evidence is supplied", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await saveState(dir, state);
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "scaler_tool_catalog",
+      request: "Return the exact compact catalog entry for read.",
+      directOperation: {
+        adapterId: "builtin:tool-catalog-entry-v1",
+        arguments: { toolName: "read" },
+      },
+    });
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgentRaw(dir, state, {
+      requestId: prepared.record.id,
+      execute: true,
+      routeEvidenceSupplier: async (basis) => {
+        const current = await loadState(dir);
+        await saveState(dir, setBudgetLimits(current, { toolCalls: { hard: 0 } }));
+        return admittedDirectRouteEvidenceSupplier(basis);
+      },
+    });
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /budget hard limit.*toolCalls/i);
+    assert.equal(result.transaction?.status, "rejected");
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
   });
 });
 

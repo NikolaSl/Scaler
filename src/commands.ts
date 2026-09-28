@@ -251,6 +251,7 @@ export interface ParsedResearchWebArgs {
 export interface ParsedToolRunArgs {
   requestId?: string;
   execute: boolean;
+  authority?: "allowed" | "denied" | "unknown";
 }
 
 export interface ParsedToolIterateArgs {
@@ -745,9 +746,16 @@ export function parseResearchWebArgs(args: string | undefined): ParsedResearchWe
 
 export function parseToolRunArgs(args: string | undefined): ParsedToolRunArgs {
   const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  const authorityPart = parts.find((part) => /^authority=/i.test(part));
+  const authorityValue = authorityPart?.slice(authorityPart.indexOf("=") + 1).toLowerCase();
+  const authority = authorityValue === "allowed" || authorityValue === "denied" || authorityValue === "unknown"
+    ? authorityValue
+    : undefined;
+  const optionParts = new Set(parts.filter((part) => part.toLowerCase() === "execute" || /^authority=/i.test(part)));
   return {
-    requestId: parts.find((part) => part.toLowerCase() !== "execute"),
+    requestId: parts.find((part) => !optionParts.has(part)),
     execute: parts.some((part) => part.toLowerCase() === "execute"),
+    ...(authority ? { authority } : {}),
   };
 }
 

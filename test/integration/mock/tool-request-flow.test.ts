@@ -116,6 +116,7 @@ test("mock integration: exact direct catalog request completes without a model r
     const completed = await runToolRequestAgentRaw(dir, state, {
       requestId: prepared.record.id,
       execute: true,
+      authority: "allowed",
     }, async (request) => {
       runnerCalled = true;
       return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };

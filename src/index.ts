@@ -220,6 +220,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   const blockedParentPromptCompositions = new Map<string, string>();
   const currentAgentRuns = new Map<string, {
     preparation: CurrentAgentToolPreparation;
+    authority: CurrentAgentToolPreparation["authority"];
     transaction?: ToolTransactionRecord;
     providerCalls: number;
     blockedReason?: string;
@@ -422,7 +423,11 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const contextWindow = typeof ctx.model?.contextWindow === "number" ? ctx.model.contextWindow : Number.NaN;
       let admission: Awaited<ReturnType<typeof admitCurrentAgentToolProviderCall>>;
       try {
-        admission = await admitCurrentAgentToolProviderCall(ctx.cwd, state, currentAgentRun.preparation, {
+        const livePreparation = {
+          ...currentAgentRun.preparation,
+          authority: currentAgentRun.authority,
+        };
+        admission = await admitCurrentAgentToolProviderCall(ctx.cwd, state, livePreparation, {
           payload: event.payload,
           model: snapshotHostModel(ctx.model) ?? {},
           policy: createStrictProviderAdmissionPolicy(contextWindow),
@@ -1660,11 +1665,15 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("scaler-tool-run", {
-    description: "Prepare or execute an isolated tool-agent transaction: /scaler-tool-run [requestId] [execute]",
+    description: "Prepare or execute a tool transaction: /scaler-tool-run [requestId] [execute] [authority=allowed|denied|unknown]",
     handler: async (args, ctx) => {
       const parsed = parseToolRunArgs(args);
       const state = await ensureState(ctx.cwd);
-      const result = await runToolRequestAgent(ctx.cwd, state, { requestId: parsed.requestId, execute: parsed.execute });
+      const result = await runToolRequestAgent(ctx.cwd, state, {
+        requestId: parsed.requestId,
+        execute: parsed.execute,
+        authority: parsed.authority,
+      });
       const suffix = result.transaction ? ` transaction=${result.transaction.id} status=${result.transaction.status}` : "";
       const message = `${result.message}${suffix}`;
       if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
@@ -1673,9 +1682,21 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("scaler-tool-current", {
-    description: "Execute one prepared tool request in the current agent: /scaler-tool-current [requestId]",
+    description: "Execute one prepared tool request in the current agent: /scaler-tool-current [requestId] [authority=allowed|denied|unknown]",
     handler: async (args, ctx) => {
-      const requestId = args?.trim() || undefined;
+      const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+      const authorityPart = parts.find((part) => part.startsWith("authority="));
+      const authorityValue = authorityPart?.slice("authority=".length);
+      if (authorityValue !== undefined
+        && authorityValue !== "allowed"
+        && authorityValue !== "denied"
+        && authorityValue !== "unknown") {
+        const message = "Current-agent tool dispatch rejected: authority must be allowed, denied or unknown.";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+      const requestId = parts.find((part) => !part.startsWith("authority="));
       const state = await ensureState(ctx.cwd);
       const notify = (message: string, accepted: boolean) => {
         if (ctx.hasUI) ctx.ui.notify(message, accepted ? "info" : "warning");
@@ -1683,6 +1704,20 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       };
       if (isChildAgent) {
         notify("Current-agent tool dispatch rejected: child agents cannot start a parent-session route.", false);
+        return;
+      }
+      const existingRun = currentAgentRuns.get(ctx.cwd);
+      if (existingRun) {
+        if (!authorityValue) {
+          notify("Current-agent authority update rejected: an explicit authority decision is required.", false);
+          return;
+        }
+        if (requestId && requestId !== existingRun.preparation.request.id) {
+          notify(`Current-agent authority update rejected: active request is ${existingRun.preparation.request.id}.`, false);
+          return;
+        }
+        existingRun.authority = authorityValue;
+        notify(`Current-agent authority updated: ${authorityValue}.`, true);
         return;
       }
       if (!ctx.isIdle()) {
@@ -1697,7 +1732,13 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         notify("Current-agent tool dispatch rejected: another focused agent lifecycle is active.", false);
         return;
       }
-      const prepared = await prepareCurrentAgentToolExecution(ctx.cwd, state, requestId, pi.getAllTools().map((tool) => tool.name));
+      const prepared = await prepareCurrentAgentToolExecution(
+        ctx.cwd,
+        state,
+        requestId,
+        pi.getAllTools().map((tool) => tool.name),
+        authorityValue,
+      );
       if (!prepared.accepted || !prepared.preparation) {
         notify(prepared.message, false);
         return;
@@ -1710,7 +1751,11 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         notify("Current-agent tool dispatch rejected: the host did not apply the exact selected tool set.", false);
         return;
       }
-      currentAgentRuns.set(ctx.cwd, { preparation: prepared.preparation, providerCalls: 0 });
+      currentAgentRuns.set(ctx.cwd, {
+        preparation: prepared.preparation,
+        authority: prepared.preparation.authority,
+        providerCalls: 0,
+      });
       try {
         pi.sendUserMessage(prepared.preparation.prompt);
       } catch {
