@@ -22,6 +22,7 @@ import { requestReplan } from "./replanning.js";
 import { saveState } from "./state.js";
 import { transitionTask } from "./supervisor.js";
 import type { ScalerState, ScalerTaskStatus } from "./types.js";
+import { recordWatchdogHeartbeat } from "./watchdogs.js";
 import { setTimeout as delay } from "node:timers/promises";
 
 export type ValidationStatus = "passed" | "failed" | "partial" | "blocked" | "not_applicable";
@@ -1155,6 +1156,20 @@ async function runTaskValidationLocked(cwd: string, state: ScalerState, taskId: 
     gates: commandRuns.map((run) => ({ commandId: run.commandId, gate: run.gate, required: run.required, status: run.status, disposition: run.disposition })),
     details: record,
   });
+  if (record.status === "passed" && result.accepted) {
+    await recordWatchdogHeartbeat(cwd, {
+      scopeKind: "run",
+      scopeId: result.state.runId,
+      status: "progress",
+      action: "validation_accepted",
+      taskId,
+      progress: {
+        kind: "acceptance_check",
+        summary: `Accepted validation resolved the open checks for ${taskId}.`,
+        evidenceRefs: [`validation:${record.id}`],
+      },
+    });
+  }
   return record;
 }
 

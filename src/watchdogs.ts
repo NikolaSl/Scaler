@@ -3,8 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, readdir, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { getBudgetState, setBudgetLimits, setScopedBudgetPolicy, type BudgetLimit, type BudgetScopeKind, type BudgetUsageKey, type ScopedBudgetPolicy } from "./budgets.js";
 import { assessGitStatusSafety, type GitStatusSafetyDecision } from "./git.js";
 import { appendLogEvent, createLogEvent } from "./logging.js";
@@ -25,9 +27,16 @@ import type { ScalerState } from "./types.js";
 
 export type WatchdogScopeKind = "run" | "stage" | "task" | "agent" | "tool" | "validation" | "debug" | "replan";
 export type WatchdogHeartbeatStatus = "running" | "progress" | "completed" | "failed" | "timeout" | "aborted";
+export type WatchdogProgressKind = "accepted_artifact" | "fixed_failure" | "ruled_out_hypothesis" | "retrieved_fact" | "acceptance_check";
 export type WatchdogSeverity = "info" | "warning" | "hard";
 export type WatchdogRecommendedAction = "continue" | "pause" | "debug" | "replan" | "cleanup" | "approve_budget";
 export type WatchdogEventKind = "no_progress" | "repeated_replanning" | "subprocess_cleanup" | "budget_policy_approval" | "resume_verification";
+
+export interface WatchdogProgressEvidence {
+  kind: WatchdogProgressKind;
+  summary: string;
+  evidenceRefs: string[];
+}
 
 export interface WatchdogHeartbeatRecord {
   id: string;
@@ -38,6 +47,7 @@ export interface WatchdogHeartbeatRecord {
   taskId?: string;
   agentId?: string;
   details?: unknown;
+  progress?: WatchdogProgressEvidence;
   timestamp: string;
   lastProgressAt: string;
 }
@@ -50,6 +60,7 @@ export interface WatchdogHeartbeatInput {
   taskId?: string;
   agentId?: string;
   details?: unknown;
+  progress?: WatchdogProgressEvidence;
   now?: Date;
 }
 
@@ -152,31 +163,70 @@ export async function recordWatchdogHeartbeat(cwd: string, input: WatchdogHeartb
   const now = input.now ?? new Date();
   const timestamp = now.toISOString();
   const scopeKind = input.scopeKind ?? "run";
-  const status = input.status ?? "progress";
-  const id = `${scopeKind}-${input.scopeId}-${now.getTime()}`.replace(/[^a-zA-Z0-9._-]/g, "-");
-  const record: WatchdogHeartbeatRecord = {
-    id,
-    scopeKind,
-    scopeId: input.scopeId,
-    status,
-    action: input.action,
-    taskId: input.taskId,
-    agentId: input.agentId,
-    details: input.details,
-    timestamp,
-    lastProgressAt: status === "running" || status === "progress" ? timestamp : timestamp,
-  };
-  await writeWatchdogHeartbeats(cwd, [record, ...(await loadWatchdogHeartbeats(cwd))].slice(0, 500));
-  return record;
+  const status = input.status ?? "running";
+  const progress = status === "progress" ? validateProgressEvidence(input.progress) : undefined;
+  return withWatchdogHeartbeatLock(cwd, async () => {
+    const records = await loadWatchdogHeartbeats(cwd);
+    const previous = records.find((record) => record.scopeKind === scopeKind && record.scopeId === input.scopeId);
+    const previousProgressAt = previous?.lastProgressAt;
+    const lastProgressAt = status === "progress" && previousProgressAt && previousProgressAt > timestamp
+      ? previousProgressAt
+      : status === "progress" ? timestamp : previousProgressAt ?? timestamp;
+    const id = `${scopeKind}-${input.scopeId}-${now.getTime()}-${randomUUID()}`.replace(/[^a-zA-Z0-9._-]/g, "-");
+    const record: WatchdogHeartbeatRecord = {
+      id,
+      scopeKind,
+      scopeId: input.scopeId,
+      status,
+      action: input.action,
+      taskId: input.taskId,
+      agentId: input.agentId,
+      details: input.details,
+      progress,
+      timestamp,
+      lastProgressAt,
+    };
+    await writeWatchdogHeartbeats(cwd, [record, ...records].slice(0, 500));
+    return record;
+  });
+}
+
+function validateProgressEvidence(progress: WatchdogProgressEvidence | undefined): WatchdogProgressEvidence {
+  if (!progress || typeof progress !== "object") throw new Error("Progress evidence is required for a progress heartbeat.");
+  const kinds: WatchdogProgressKind[] = ["accepted_artifact", "fixed_failure", "ruled_out_hypothesis", "retrieved_fact", "acceptance_check"];
+  if (!kinds.includes(progress.kind)) throw new Error(`Unsupported progress evidence kind: ${String(progress.kind)}.`);
+  if (typeof progress.summary !== "string") throw new Error("Progress evidence summary must contain 1-500 characters.");
+  const summary = progress.summary.trim();
+  if (summary.length === 0 || summary.length > 500) throw new Error("Progress evidence summary must contain 1-500 characters.");
+  if (!Array.isArray(progress.evidenceRefs)) throw new Error("Progress evidence must contain 1-20 references.");
+  if (progress.evidenceRefs.length === 0 || progress.evidenceRefs.length > 20) throw new Error("Progress evidence must contain 1-20 references.");
+  if (progress.evidenceRefs.some((reference) => typeof reference !== "string")) throw new Error("Each progress evidence reference must contain 1-1000 characters.");
+  const evidenceRefs = [...new Set(progress.evidenceRefs.map((reference) => reference.trim()))];
+  if (evidenceRefs.some((reference) => reference.length === 0 || reference.length > 1_000)) {
+    throw new Error("Each progress evidence reference must contain 1-1000 characters.");
+  }
+  return { kind: progress.kind, summary, evidenceRefs };
 }
 
 export async function loadWatchdogHeartbeats(cwd: string): Promise<WatchdogHeartbeatRecord[]> {
   try {
     const raw = await readFile(getWatchdogHeartbeatsPath(cwd), "utf8");
-    return (JSON.parse(raw) as WatchdogHeartbeatIndex).heartbeats ?? [];
+    return ((JSON.parse(raw) as WatchdogHeartbeatIndex).heartbeats ?? []).map((record) => {
+      if (record.status !== "progress" || hasValidProgressEvidence(record.progress)) return record;
+      return { ...record, status: "running", progress: undefined };
+    });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
+  }
+}
+
+function hasValidProgressEvidence(progress: WatchdogProgressEvidence | undefined): boolean {
+  try {
+    validateProgressEvidence(progress);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -443,9 +493,14 @@ async function assessWatchdogEvents(cwd: string, state: ScalerState, policy: Wat
 }
 
 function findStaleHeartbeat(records: WatchdogHeartbeatRecord[], timeoutMs: number, now: Date): WatchdogHeartbeatRecord | undefined {
-  const active = records
+  const latestByScope = new Map<string, WatchdogHeartbeatRecord>();
+  for (const record of [...records].sort((a, b) => b.timestamp.localeCompare(a.timestamp))) {
+    const key = `${record.scopeKind}\0${record.scopeId}`;
+    if (!latestByScope.has(key)) latestByScope.set(key, record);
+  }
+  const active = [...latestByScope.values()]
     .filter((record) => record.status === "running" || record.status === "progress")
-    .sort((a, b) => b.lastProgressAt.localeCompare(a.lastProgressAt))[0];
+    .sort((a, b) => a.lastProgressAt.localeCompare(b.lastProgressAt))[0];
   if (!active) return undefined;
   return now.getTime() - Date.parse(active.lastProgressAt) > timeoutMs ? active : undefined;
 }
@@ -524,7 +579,41 @@ function mergePolicyLimits(policies: ScopedBudgetPolicy[]): Partial<Record<Budge
 async function writeWatchdogHeartbeats(cwd: string, heartbeats: WatchdogHeartbeatRecord[]): Promise<void> {
   const path = getWatchdogHeartbeatsPath(cwd);
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify({ version: 1, heartbeats } satisfies WatchdogHeartbeatIndex, null, 2)}\n`, "utf8");
+  const temporaryPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporaryPath, `${JSON.stringify({ version: 1, heartbeats } satisfies WatchdogHeartbeatIndex, null, 2)}\n`, "utf8");
+    await rename(temporaryPath, path);
+  } finally {
+    await rm(temporaryPath, { force: true });
+  }
+}
+
+async function withWatchdogHeartbeatLock<T>(cwd: string, operation: () => Promise<T>): Promise<T> {
+  const lockPath = `${getWatchdogHeartbeatsPath(cwd)}.lock`;
+  await mkdir(dirname(lockPath), { recursive: true });
+  const deadline = Date.now() + 2_000;
+  while (true) {
+    try {
+      await mkdir(lockPath);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST" || Date.now() >= deadline) {
+        throw new Error(`Watchdog heartbeat publication lock is busy: ${lockPath}. Reconcile the owner before removing it.`, { cause: error });
+      }
+      await delay(10);
+    }
+  }
+  try {
+    return await operation();
+  } finally {
+    try {
+      await rmdir(lockPath);
+    } catch (error) {
+      process.emitWarning(`Watchdog heartbeat publication lock could not be released: ${lockPath}. Reconcile it before another heartbeat write. ${String(error)}`, {
+        code: "SCALER_WATCHDOG_LOCK_RELEASE_FAILED",
+      });
+    }
+  }
 }
 
 async function writeWatchdogEvents(cwd: string, events: WatchdogEventRecord[]): Promise<void> {

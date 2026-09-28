@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -68,6 +68,153 @@ test("watchdog heartbeats persist and stale progress pauses execution", async ()
     assert.equal((await loadWatchdogHeartbeats(dir))[0]?.id, heartbeat.id);
     assert.match(formatWatchdogHeartbeats(await loadWatchdogHeartbeats(dir)), /agent-1/);
     assert.match(formatWatchdogEvents(await loadWatchdogEvents(dir)), /no_progress/);
+  });
+});
+
+test("running heartbeats preserve the evidenced-progress clock", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    await saveState(dir, state);
+    await recordWatchdogHeartbeat(dir, {
+      scopeKind: "agent",
+      scopeId: "agent-live",
+      action: "started",
+      status: "running",
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    await recordWatchdogHeartbeat(dir, {
+      scopeKind: "agent",
+      scopeId: "agent-live",
+      action: "still alive",
+      status: "running",
+      now: new Date("2026-01-01T00:00:00.750Z"),
+    });
+    const latest = await recordWatchdogHeartbeat(dir, {
+      scopeKind: "agent",
+      scopeId: "agent-live",
+      action: "still alive",
+      status: "running",
+      now: new Date("2026-01-01T00:00:01.500Z"),
+    });
+
+    const result = await runWatchdogAssessment(dir, state, {
+      policy: { noProgressTimeoutMs: 1_000 },
+      now: new Date("2026-01-01T00:00:02.000Z"),
+    });
+
+    assert.equal(latest.lastProgressAt, "2026-01-01T00:00:00.000Z");
+    assert.equal(result.events[0]?.kind, "no_progress");
+  });
+});
+
+test("only structured evidence can advance the progress clock", async () => {
+  await withTempDir(async (dir) => {
+    await assert.rejects(recordWatchdogHeartbeat(dir, {
+      scopeKind: "task",
+      scopeId: "T-progress",
+      action: "claimed progress",
+      status: "progress",
+      now: new Date("2026-01-01T00:00:00.500Z"),
+    }), /progress evidence/i);
+
+    const progress = await recordWatchdogHeartbeat(dir, {
+      scopeKind: "task",
+      scopeId: "T-progress",
+      action: "accept artifact",
+      status: "progress",
+      progress: {
+        kind: "accepted_artifact",
+        summary: "Accepted the bounded implementation artifact.",
+        evidenceRefs: ["artifact://T-progress/output"],
+      },
+      now: new Date("2026-01-01T00:00:00.750Z"),
+    });
+    const liveness = await recordWatchdogHeartbeat(dir, {
+      scopeKind: "task",
+      scopeId: "T-progress",
+      action: "still alive",
+      status: "running",
+      now: new Date("2026-01-01T00:00:01.250Z"),
+    });
+
+    assert.equal(progress.lastProgressAt, "2026-01-01T00:00:00.750Z");
+    assert.equal(liveness.lastProgressAt, progress.lastProgressAt);
+    assert.deepEqual(progress.progress?.evidenceRefs, ["artifact://T-progress/output"]);
+  });
+});
+
+test("a terminal heartbeat closes the active scope", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    await saveState(dir, state);
+    await recordWatchdogHeartbeat(dir, {
+      scopeKind: "agent",
+      scopeId: "agent-done",
+      action: "started",
+      status: "running",
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    await recordWatchdogHeartbeat(dir, {
+      scopeKind: "agent",
+      scopeId: "agent-done",
+      action: "finished",
+      status: "completed",
+      now: new Date("2026-01-01T00:00:00.500Z"),
+    });
+
+    const result = await runWatchdogAssessment(dir, state, {
+      policy: { noProgressTimeoutMs: 1_000 },
+      now: new Date("2026-01-01T00:00:02.000Z"),
+    });
+
+    assert.equal(result.events.some((event) => event.kind === "no_progress"), false);
+  });
+});
+
+test("legacy progress records are downgraded to liveness", async () => {
+  await withTempDir(async (dir) => {
+    const watchdogDir = join(dir, ".scaler", "watchdogs");
+    await mkdir(watchdogDir, { recursive: true });
+    await writeFile(join(watchdogDir, "heartbeats.json"), `${JSON.stringify({
+      version: 1,
+      heartbeats: [{
+        id: "legacy-progress",
+        scopeKind: "run",
+        scopeId: "legacy-run",
+        status: "progress",
+        action: "turn_end",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        lastProgressAt: "2026-01-01T00:00:00.000Z",
+      }],
+    })}\n`, "utf8");
+
+    const [record] = await loadWatchdogHeartbeats(dir);
+
+    assert.equal(record?.status, "running");
+    assert.equal(record?.progress, undefined);
+  });
+});
+
+test("concurrent heartbeat writers retain every record and evidenced progress", async () => {
+  await withTempDir(async (dir) => {
+    await Promise.all(Array.from({ length: 24 }, (_, index) => recordWatchdogHeartbeat(dir, {
+      scopeKind: "run",
+      scopeId: "concurrent-run",
+      action: `event-${index}`,
+      status: index === 12 ? "progress" : "running",
+      progress: index === 12 ? {
+        kind: "acceptance_check",
+        summary: "Accepted concurrent validation evidence.",
+        evidenceRefs: ["validation:concurrent"],
+      } : undefined,
+      now: new Date(1_767_225_600_000 + index),
+    })));
+
+    const records = await loadWatchdogHeartbeats(dir);
+    assert.equal(records.length, 24);
+    assert.equal(records.filter((record) => record.status === "progress").length, 1);
   });
 });
 

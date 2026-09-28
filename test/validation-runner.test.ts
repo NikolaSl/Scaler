@@ -11,6 +11,7 @@ import { test } from "node:test";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { loadValidationEnvironmentRecords } from "../src/validation-environments.js";
 import { loadValidationRuns, runTaskValidation, runValidationCommand, saveValidationManifest } from "../src/validation.js";
+import { loadWatchdogHeartbeats } from "../src/watchdogs.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-validation-runner-test-"));
@@ -109,6 +110,10 @@ test("runTaskValidation records policy warnings without blocking default impleme
     assert.equal(run.status, "passed");
     assert.deepEqual(run.policyDiagnostics?.map((diagnostic) => diagnostic.code), ["missing_dependency_check", "missing_test_first"]);
     assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
+    const progress = (await loadWatchdogHeartbeats(dir)).find((record) => record.action === "validation_accepted");
+    assert.equal(progress?.status, "progress");
+    assert.equal(progress?.progress?.kind, "acceptance_check");
+    assert.deepEqual(progress?.progress?.evidenceRefs, [`validation:${run.id}`]);
   });
 });
 

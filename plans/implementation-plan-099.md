@@ -502,6 +502,20 @@ accepted retry fail closed if either basis has changed. The model cannot use
 this path to rewrite an exercised accepted contract. The candidate passes build, 1,223 unit/component, 73 mock integration,
 10 conformance/autopilot and 52 focused plan/PRD checks. SC-12/27 remain Partial because automatic replan triggering, task
 replacement/obsolescence and semantic affected-slice discovery are not provided.
+PLAN-172 starts P5 with the smallest reproduced SC-15 boundary. `running`
+heartbeats, including ordinary parent `turn_end` events, now preserve the last
+evidenced-progress timestamp for their scope. A `progress` heartbeat is admitted
+only with one allowed progress kind, a bounded non-empty evidence-reference set
+and a concise summary; this structural record does not make the referenced claim
+true outside its owning acceptance gate. Focused watchdog and extension
+regressions cover repeated liveness, unsupported progress claims and valid
+evidenced progress. Independent review then required invocation-specific scopes,
+serialized atomic heartbeat publication, legacy evidence-free progress downgrade
+and a trusted automatic publisher; supervisor-accepted task validation now emits
+the first persisted `acceptance_check` progress record. SC-15 remains Partial:
+other automatic progress publishers, aggregate tactic/review limits,
+enclosing-run history across worker replacement/resumption and declared
+long-running-operation allowances are not implemented by this unit.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
 unresolved in-scope findings. The primary exact-head gate passed build,
