@@ -12,11 +12,11 @@ Artifacts:
 
 ## Attempt gate
 
-`scaler_debug_attempt` records debug attempts. SCALER rejects duplicate failed attempts with the same signature and resulting fingerprint unless `newEvidence` is supplied.
+`scaler_debug_attempt` records debug attempts. SCALER rejects duplicate failed attempts with the same signature and resulting fingerprint unless `newEvidence` explains the change and the attempt adds a previously unrecorded `evidence`, `validationRun`, or `logRefs` identity for the task.
 
 The conductor checks a debug retry gate before preparing or executing a task. It refuses unresolved repeated failed fingerprints, blocked debug attempts, or detected fingerprint cycles until one of these clears the gate:
 
-- a later accepted debug attempt includes `newEvidence`, or
+- a later accepted debug attempt includes `newEvidence` plus a fresh evidence reference, or
 - the related debug replan request is accepted/resolved.
 
 Cycle detection includes direct A→B→A loops and longer hidden chains such as A→B→C→A.

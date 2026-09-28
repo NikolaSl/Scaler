@@ -381,7 +381,7 @@ const DebugAttemptParams = Type.Object({
   evidence: Type.Optional(Type.Array(Type.String())),
   validationRun: Type.Optional(Type.String()),
   logRefs: Type.Optional(Type.Array(Type.String())),
-  newEvidence: Type.Optional(Type.String({ description: "New evidence that justifies retrying an otherwise repeated attempt." })),
+  newEvidence: Type.Optional(Type.String({ description: "Explanation of new evidence. A repeated attempt also requires a fresh evidence, validationRun, or logRefs identity." })),
   failureSummary: Type.Optional(Type.String()),
   validationCommand: Type.Optional(Type.String()),
   expectedResult: Type.Optional(Type.String()),

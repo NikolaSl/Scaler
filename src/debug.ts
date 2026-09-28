@@ -4,8 +4,9 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rmdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { getDebugAttemptsPath, getDebugFailuresPath, getDebugReportsPath, getDebugRetriesPath } from "./paths.js";
 import { loadReplanDecisions, loadReplanRequests } from "./plans.js";
@@ -335,29 +336,29 @@ export async function recordDebugReport(
 }
 
 export async function assessDebugRetryGate(cwd: string, taskId: string): Promise<DebugRetryGateResult> {
-  const attempts = (await loadDebugAttempts(cwd))
-    .filter((attempt) => attempt.taskId === taskId && attempt.result !== "fixed")
-    .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-  if (attempts.length === 0) {
+  const allTaskAttempts = (await loadDebugAttempts(cwd))
+    .filter((attempt) => attempt.taskId === taskId);
+  const taskAttempts = allTaskAttempts.filter((attempt) => attempt.result !== "fixed");
+  if (taskAttempts.length === 0) {
     return { allowed: true, taskId, reason: `No debug retry gate for ${taskId}.`, replanRequestIds: [], acceptedReplanDecisionIds: [] };
   }
 
-  const failures = await loadDebugFailures(cwd);
-  const blockingAttempt = attempts.find((attempt) => isBlockingDebugAttempt(attempt, failures));
+  const { blockingAttemptIndex, clearedBlockingAttemptIndex } = findUnresolvedBlockingAttempt(taskAttempts, allTaskAttempts);
+  const blockingAttempt = taskAttempts[blockingAttemptIndex];
   if (!blockingAttempt) {
+    const clearedBlockingAttempt = taskAttempts[clearedBlockingAttemptIndex];
+    if (clearedBlockingAttempt) {
+      return {
+        allowed: true,
+        taskId,
+        reason: `Debug retry gate cleared by new evidence for ${taskId}.`,
+        blockingAttemptId: clearedBlockingAttempt.id,
+        failureId: clearedBlockingAttempt.failureId,
+        replanRequestIds: [],
+        acceptedReplanDecisionIds: [],
+      };
+    }
     return { allowed: true, taskId, reason: `No repeated failed debug fingerprint for ${taskId}.`, replanRequestIds: [], acceptedReplanDecisionIds: [] };
-  }
-
-  if (attempts.some((attempt) => attempt.timestamp >= blockingAttempt.timestamp && Boolean(attempt.newEvidence?.trim()))) {
-    return {
-      allowed: true,
-      taskId,
-      reason: `Debug retry gate cleared by new evidence for ${taskId}.`,
-      blockingAttemptId: blockingAttempt.id,
-      failureId: blockingAttempt.failureId,
-      replanRequestIds: [],
-      acceptedReplanDecisionIds: [],
-    };
   }
 
   const replanRequests = (await loadReplanRequests(cwd)).filter((request) =>
@@ -407,6 +408,8 @@ export async function recordDebugAttempt(
     return { accepted: false, message };
   }
 
+  const result = input.result;
+  return withDebugAttemptLock(cwd, async () => {
   const attempts = await loadDebugAttempts(cwd);
   const attemptSignature = normalizeSignature(input.attemptSignature ?? `${input.hypothesis} ${input.actionSummary}`);
   const failureFingerprint = normalizeFingerprint(input.failureFingerprint);
@@ -418,7 +421,7 @@ export async function recordDebugAttempt(
     resultingFailureFingerprint,
   });
 
-  if (duplicate && !input.newEvidence?.trim()) {
+  if (duplicate && !hasFreshReferencedEvidence(input, attempts.filter((attempt) => attempt.taskId === input.taskId))) {
     const message = `Debug attempt rejected: repeated attempt ${duplicate.id} without new evidence`;
     await appendLogEvent(
       cwd,
@@ -439,7 +442,7 @@ export async function recordDebugAttempt(
     failureId: input.failureId,
     hypothesis: input.hypothesis,
     actionSummary: input.actionSummary,
-    result: input.result,
+    result,
     attemptSignature,
     failureFingerprint: failureFingerprint || undefined,
     resultingFailureFingerprint: resultingFailureFingerprint || undefined,
@@ -461,7 +464,7 @@ export async function recordDebugAttempt(
 
   let finalState = state;
   let replanRequestId: string | undefined;
-  if (cycleDetected || input.result === "blocked") {
+  if (cycleDetected || result === "blocked") {
     const task = state.tasks.find((candidate) => candidate.id === input.taskId);
     if (task?.status === "debugging") {
       finalState = transitionTask(state, input.taskId, "needs_replan", {
@@ -493,16 +496,79 @@ export async function recordDebugAttempt(
     }),
   );
 
-  return { accepted: true, message, attempt, cycleDetected, replanRequestId };
+    return { accepted: true, message, attempt, cycleDetected, replanRequestId };
+  });
 }
 
-function isBlockingDebugAttempt(attempt: DebugAttemptRecord, failures: DebugFailureRecord[]): boolean {
-  if (attempt.result === "fixed") return false;
-  if (attempt.cycleDetected) return true;
-  if (attempt.result === "blocked") return true;
-  const failure = failures.find((candidate) => candidate.taskId === attempt.taskId && candidate.id === attempt.failureId);
+function hasFreshReferencedEvidence(
+  candidate: Pick<DebugAttemptInput, "newEvidence" | "evidence" | "validationRun" | "logRefs">,
+  priorAttempts: Array<Pick<DebugAttemptRecord, "evidence" | "validationRun" | "logRefs">>,
+): boolean {
+  if (typeof candidate.newEvidence !== "string" || !candidate.newEvidence.trim()) return false;
+  const priorReferences = new Set(priorAttempts.flatMap(debugEvidenceReferences));
+  return debugEvidenceReferences(candidate).some((reference) => !priorReferences.has(reference));
+}
+
+function debugEvidenceReferences(
+  attempt: Pick<DebugAttemptInput, "evidence" | "validationRun" | "logRefs">,
+): string[] {
+  const evidence = Array.isArray(attempt.evidence) ? attempt.evidence : [];
+  const logRefs = Array.isArray(attempt.logRefs) ? attempt.logRefs : [];
+  const references: unknown[] = [
+    ...evidence,
+    ...(typeof attempt.validationRun === "string" ? [attempt.validationRun] : []),
+    ...logRefs,
+  ];
+  return [...new Set(references
+    .filter((reference): reference is string => typeof reference === "string")
+    .map((reference) => reference.trim())
+    .filter(Boolean))];
+}
+
+function findUnresolvedBlockingAttempt(
+  attempts: DebugAttemptRecord[],
+  allTaskAttempts: DebugAttemptRecord[],
+): {
+  blockingAttemptIndex: number;
+  clearedBlockingAttemptIndex: number;
+} {
+  let blockingIndex = -1;
+  let clearedBlockingAttemptIndex = -1;
+  let segmentStart = 0;
+
+  for (let index = 0; index < attempts.length; index += 1) {
+    const attempt = attempts[index]!;
+    const explicitlyBlocking = Boolean(attempt.cycleDetected) || attempt.result === "blocked";
+    if (blockingIndex >= 0) {
+      if (explicitlyBlocking) {
+        blockingIndex = index;
+      } else {
+        const allAttemptIndex = allTaskAttempts.indexOf(attempt);
+        const priorAttempts = allAttemptIndex >= 0
+          ? allTaskAttempts.slice(0, allAttemptIndex)
+          : allTaskAttempts;
+        if (!hasFreshReferencedEvidence(attempt, priorAttempts)) continue;
+        clearedBlockingAttemptIndex = blockingIndex;
+        blockingIndex = -1;
+        segmentStart = index + 1;
+      }
+      continue;
+    }
+
+    if (explicitlyBlocking || isRepeatedFailureBoundary(attempt, attempts.slice(segmentStart, index + 1))) {
+      blockingIndex = index;
+    }
+  }
+
+  return { blockingAttemptIndex: blockingIndex, clearedBlockingAttemptIndex };
+}
+
+function isRepeatedFailureBoundary(attempt: DebugAttemptRecord, attemptsThroughCandidate: DebugAttemptRecord[]): boolean {
   const failedResult = attempt.result === "same_failure" || attempt.result === "new_failure" || attempt.result === "partial" || attempt.result === "no_effect" || attempt.result === "worse";
-  return failedResult && (failure?.attemptCount ?? 0) >= 2;
+  return failedResult && attemptsThroughCandidate.filter((candidate) =>
+    candidate.taskId === attempt.taskId
+    && candidate.failureId === attempt.failureId
+    && candidate.result !== "fixed").length >= 2;
 }
 
 function findDuplicateAttempt(
@@ -706,4 +772,32 @@ async function readJsonFile<T>(path: string, fallback: T): Promise<T> {
 async function writeJsonFile(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+async function withDebugAttemptLock<T>(cwd: string, operation: () => Promise<T>): Promise<T> {
+  const lockPath = `${getDebugAttemptsPath(cwd)}.lock`;
+  await mkdir(dirname(lockPath), { recursive: true });
+  const deadline = Date.now() + 2_000;
+  while (true) {
+    try {
+      await mkdir(lockPath);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST" || Date.now() >= deadline) {
+        throw new Error(`Debug attempt publication lock is busy: ${lockPath}. Reconcile the owner before removing it.`, { cause: error });
+      }
+      await delay(10);
+    }
+  }
+  try {
+    return await operation();
+  } finally {
+    try {
+      await rmdir(lockPath);
+    } catch (error) {
+      process.emitWarning(`Debug attempt publication lock could not be released: ${lockPath}. Reconcile it before recording another attempt. ${String(error)}`, {
+        code: "SCALER_DEBUG_LOCK_RELEASE_FAILED",
+      });
+    }
+  }
 }

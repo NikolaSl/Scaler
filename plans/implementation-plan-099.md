@@ -516,6 +516,21 @@ the first persisted `acceptance_check` progress record. SC-15 remains Partial:
 other automatic progress publishers, aggregate tactic/review limits,
 enclosing-run history across worker replacement/resumption and declared
 long-running-operation allowances are not implemented by this unit.
+PLAN-173 closes one narrow SC-11 admission bypass: `newEvidence` prose alone no
+longer admits a repeated failed attempt or clears a fingerprint-cycle gate. The
+attempt must also introduce a normalized `evidence`, `validationRun` or `logRefs`
+identity not already recorded for the task. This remains structural admission;
+the owning evidence gate decides whether the referenced claim is true. Review
+closure also requires a strictly later persisted attempt, serializes concurrent
+claims under a bounded non-stealing lock and rejects malformed legacy reference
+values and containers without crashing. The gate tracks the latest unresolved
+blocker, so evidence that cleared an earlier cycle cannot mask a later cycle.
+Malformed non-string `newEvidence` explanations also fail closed.
+Evidence freshness includes references from fixed attempts even though those
+attempts remain excluded from blocker counting.
+SC-11
+remains Partial because semantic rewording detection, aggregate tactic limits
+across replacement/resumption and the full AC-11 bounded fixture remain open.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
 unresolved in-scope findings. The primary exact-head gate passed build,

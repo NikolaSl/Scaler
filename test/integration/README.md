@@ -206,7 +206,7 @@ When adding a new integration scenario:
   - debug-agent `needs_research` report ingestion;
   - research-agent report ingestion and request resolution;
   - debug-agent `next_approach` report ingestion;
-  - retry-gate clearance by later `newEvidence`;
+  - retry-gate clearance by later `newEvidence` with a fresh evidence reference;
   - rejection of free-form debug-agent output.
 - `mock/debug-conductor-flow.test.ts`
   - bounded debug conductor from failed validation through debug `needs_research` → research completion → debug `next_approach`;
