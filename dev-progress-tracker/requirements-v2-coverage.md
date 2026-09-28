@@ -66,8 +66,8 @@ unavailable and out-of-scope proposals block truthfully. A cited local-research
 file is captured with a runtime-owned SHA-256 identity, checked against task
 scope and revalidated through the required context manifest before retry.
 Configured local-host execution remains SC-09/P7 evidence and no source-truth,
-quality or savings claim is made. Candidate evidence: build, 1,180 unit,
-72 mock integration, 10 conformance and 170 focused component checks.
+quality or savings claim is made. Candidate evidence: build, 1,181 unit,
+72 mock integration, 10 conformance and 171 focused component checks.
 
 Prior review ran the baseline TypeScript build successfully, 488/488 unit tests
 and 66/67 mock integration tests. The failed retention fixture uses fixed

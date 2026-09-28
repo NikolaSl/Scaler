@@ -56,12 +56,13 @@ paths pass their positive and negative controls. Independent review found one
 remaining exception, which this unit closes minimally: cited file-backed local
 research sources are captured with a runtime-owned SHA-256 fingerprint, checked
 against task path scope and persisted as required reference bindings for
-freshness revalidation before retry. Out-of-scope, indirect, absent and changed
-sources block without injecting the claim. Uncited source metadata is omitted.
+freshness revalidation before retry. Out-of-scope, symlink-backed, absent and
+changed sources block without injecting the claim; unrelated report updates
+cannot rebaseline inherited source fingerprints. Uncited metadata is omitted.
 
-The exact-tree candidate passes the TypeScript build, 1,180/1,180
+The exact-tree candidate passes the TypeScript build, 1,181/1,181
 unit/component tests, 72/72 mock integration tests, 10/10
-conformance/autopilot tests, 170/170 focused
+conformance/autopilot tests, 171/171 focused
 context/missing-context/conductor/automation tests, 4/4 focused unknown-source
 and varied-window scenarios, and `git diff --check`. SC-07/AC-07 is Verified at
 the model-independent process boundary. SC-09 and real local-host evidence
