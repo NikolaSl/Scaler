@@ -954,15 +954,15 @@ node --test --import tsx test/context.test.ts test/context-splits.test.ts test/m
 node --test --import tsx test/integration/mock/unknown-source-context-flow.test.ts test/integration/mock/varied-window-context-flow.test.ts
 ```
 
-The focused result is 173/173 component tests and 4/4 integration scenarios.
-The complete candidate gate is build, 1,185/1,185 unit/component, 72/72 mock
+The focused result is 174/174 component tests and 4/4 integration scenarios.
+The complete candidate gate is build, 1,186/1,186 unit/component, 72/72 mock
 integration, 10/10 conformance/autopilot and `git diff --check`. Independent
 review found that file-backed sources inside pathless local-research answers
 needed task-scope and version validation. The follow-up regressions prove
 out-of-scope and symlink refusal, report-time staleness refusal, immutable
 inherited fingerprints, refusal of summary-only/mixed unbound citations,
 revalidation and quarantine of resolved stale bindings, reblocking after a
-resolved report becomes incomplete, unresolved or oversized, required
+resolved local or internet report becomes incomplete, unresolved or oversized, required
 freshness binding before retry, exact agent-output binding to its selected
 research request/task/question, immutable report identity, refusal of direct
 research-child report-ledger writes, and pre-read

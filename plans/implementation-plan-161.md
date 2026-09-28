@@ -59,7 +59,8 @@ against task path scope and persisted as required reference bindings for
 freshness revalidation before retry. Every cited local source must be file-backed;
 summary-only or mixed unbound claims block. Resolved bindings and their
 admissible reports are revalidated, and stale, conflicting, incomplete,
-unresolved or oversized context is removed before the task is blocked again.
+unresolved or oversized local or internet research context is removed before
+the task is blocked again.
 The selected research request, task and question identity is checked at agent
 ingestion and cannot be retargeted through an existing report ID. Research
 children receive inspection tools but no direct report-ledger write tool, so
@@ -69,9 +70,9 @@ Leaf and ancestor symlinks are refused before source bytes are read by matching
 the opened descriptor to a fresh direct-path identity. Unrelated report updates
 cannot rebaseline inherited source fingerprints. Uncited metadata is omitted.
 
-The exact-tree candidate passes the TypeScript build, 1,185/1,185
+The exact-tree candidate passes the TypeScript build, 1,186/1,186
 unit/component tests, 72/72 mock integration tests, 10/10
-conformance/autopilot tests, 173/173 focused
+conformance/autopilot tests, 174/174 focused
 context/missing-context/conductor/automation tests, 4/4 focused unknown-source
 and varied-window scenarios, and `git diff --check`. SC-07/AC-07 is Verified at
 the model-independent process boundary. SC-09 and real local-host evidence

@@ -313,7 +313,8 @@ report is recorded, checked against task scope and revalidated through required
 manifest bindings before retry. Every cited local source must be file-backed;
 summary-only or mixed unbound citations block. Resolved bindings and their
 reports are checked again on refresh, and stale, conflicting, incomplete,
-unresolved or oversized items are removed before the task is blocked again.
+unresolved or oversized local or internet research items are removed before
+the task is blocked again.
 Agent output must retain the selected research request, task and question
 identity; an existing report ID cannot be retargeted while inheriting evidence.
 The child has inspection tools but not the report-ledger write tool, so only its
