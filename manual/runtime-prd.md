@@ -38,6 +38,20 @@ or `acceptanceCriteria`). It cannot create a requirement. A stale revision or an
 empty/no-op amendment fails without changing the catalog. Literal `|` characters
 are permitted inside the JSON payload.
 
+Changing the statement, source or acceptance criteria marks that requirement's
+current coverage `needs_replan` while preserving its task links, evidence
+references and notes. The historical evidence remains available but no longer
+establishes current acceptance. If no explicit coverage row exists, amendment
+does not create one. A title-only presentation change preserves the coverage
+status; it still creates a new requirement revision, so the separate validation-
+receipt freshness gate may require linked tasks to be revalidated. This boundary
+does not choose or rewrite corrective tasks. A later preservation-valid replan
+may reopen the same explicitly linked validated task while retaining unrelated
+validated tasks. Its coverage transition is revision-checked and affected-only
+under the PRD lock, so a concurrent unrelated invalidation is preserved and a
+new amendment to the same requirement blocks stale acceptance. Replacement or
+obsolescence of task ids is not inferred.
+
 ## Task linkage
 
 Tasks may store `prdRefs` during creation/update:

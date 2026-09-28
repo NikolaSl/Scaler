@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { appendFile, mkdir, open, readFile, readdir, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -72,6 +72,15 @@ export interface RuntimePrdCoverageEntry {
 export interface RuntimePrdCoverageFile {
   version: 1;
   entries: RuntimePrdCoverageEntry[];
+}
+
+export interface AdvanceReplannedCoverageInput {
+  affectedRequirementRevisions: Record<string, number>;
+  expectedCoverageEntries: Record<string, RuntimePrdCoverageEntry>;
+  expectedRequirementsFingerprint: string;
+  expectedUnaffectedCoverageFingerprint: string;
+  taskIdsByRequirement: Record<string, string[]>;
+  updatedAt: string;
 }
 
 export interface RuntimePrdChangeRecord {
@@ -227,6 +236,114 @@ export async function loadPrdCoverage(cwd: string): Promise<RuntimePrdCoverageFi
 
 export async function savePrdCoverage(cwd: string, coverage: RuntimePrdCoverageFile): Promise<void> {
   await withPrdRequirementsLock(cwd, async () => savePrdCoverageUnlocked(cwd, coverage));
+}
+
+export async function advanceReplannedCoverage(
+  cwd: string,
+  input: AdvanceReplannedCoverageInput,
+): Promise<RuntimePrdCoverageFile> {
+  return advanceReplannedCoverageAndRun(cwd, input, async (coverage) => coverage);
+}
+
+export async function advanceReplannedCoverageAndRun<T>(
+  cwd: string,
+  input: AdvanceReplannedCoverageInput,
+  publish: (coverage: RuntimePrdCoverageFile) => Promise<T>,
+): Promise<T> {
+  const affectedIds = Object.keys(input.affectedRequirementRevisions);
+  return withPrdRequirementsLock(cwd, async () => {
+    const requirements = await loadPrdRequirementsUnlocked(cwd);
+    const coverage = await loadPrdCoverage(cwd);
+    if (fingerprintRuntimePrdRequirements(requirements) !== input.expectedRequirementsFingerprint) {
+      throw new Error("Stale replan PRD basis: requirements changed after acceptance preflight.");
+    }
+    if (fingerprintRuntimePrdCoverageEntries(coverage.entries, new Set(affectedIds))
+      !== input.expectedUnaffectedCoverageFingerprint) {
+      throw new Error("Stale replan PRD basis: unrelated coverage changed after acceptance preflight.");
+    }
+    if (affectedIds.length === 0) return publish(coverage);
+    const affected = new Set(affectedIds);
+    for (const id of affectedIds) {
+      const requirement = requirements.requirements.find((candidate) => candidate.id === id);
+      if (!requirement) throw new Error(`Replan coverage update requires runtime PRD requirement ${id}.`);
+      const expectedRevision = input.affectedRequirementRevisions[id];
+      const currentRevision = requirement.revision ?? 1;
+      if (currentRevision !== expectedRevision) {
+        throw new Error(`Stale replan coverage update for ${id}: expected revision ${expectedRevision}, current revision ${currentRevision}.`);
+      }
+      const entry = coverage.entries.find((candidate) => candidate.requirementId === id);
+      if (!entry) throw new Error(`Replan coverage update requires coverage entry ${id}.`);
+      const expectedCoverageEntry = input.expectedCoverageEntries[id];
+      if (!expectedCoverageEntry
+        || expectedCoverageEntry.requirementId !== id
+        || expectedCoverageEntry.status !== "needs_replan") {
+        throw new Error(`Replan coverage update for ${id} lacks an expected coverage basis.`);
+      }
+      const completedTransition: RuntimePrdCoverageEntry = {
+        ...expectedCoverageEntry,
+        status: "in_progress",
+        taskIds: input.taskIdsByRequirement[id] ?? expectedCoverageEntry.taskIds,
+        updatedAt: input.updatedAt,
+      };
+      const matchesJournaledInvalidation = samePrdCoverageEntry(entry, expectedCoverageEntry);
+      const matchesCompletedTransition = samePrdCoverageEntry(entry, completedTransition);
+      if (!matchesJournaledInvalidation && !matchesCompletedTransition) {
+        throw new Error(`Stale replan coverage update for ${id}: coverage changed after the acceptance journal.`);
+      }
+    }
+    const updated: RuntimePrdCoverageFile = {
+      version: 1,
+      entries: coverage.entries.map((entry) => affected.has(entry.requirementId)
+        ? entry.status === "in_progress" && entry.updatedAt === input.updatedAt
+          ? entry
+          : {
+            ...entry,
+            status: "in_progress",
+            taskIds: input.taskIdsByRequirement[entry.requirementId] ?? entry.taskIds,
+            updatedAt: input.updatedAt,
+          }
+        : entry),
+    };
+    await savePrdCoverageUnlocked(cwd, updated);
+    return publish(updated);
+  });
+}
+
+export function fingerprintRuntimePrdRequirements(requirements: RuntimePrdRequirementsFile): string {
+  const normalized = normalizePrdRequirementsFile(requirements);
+  const canonical = {
+    version: normalized.version,
+    requirements: [...normalized.requirements].sort((left, right) => left.id.localeCompare(right.id)),
+  };
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+}
+
+export function fingerprintRuntimePrdCoverageEntries(
+  entries: RuntimePrdCoverageEntry[],
+  excludedRequirementIds: ReadonlySet<string> = new Set(),
+): string {
+  const canonical = entries
+    .filter((entry) => !excludedRequirementIds.has(entry.requirementId))
+    .sort((left, right) => left.requirementId.localeCompare(right.requirementId));
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+}
+
+function samePrdCoverageEntry(left: RuntimePrdCoverageEntry, right: RuntimePrdCoverageEntry): boolean {
+  return JSON.stringify({
+    requirementId: left.requirementId,
+    status: left.status,
+    taskIds: left.taskIds ?? [],
+    evidenceRefs: left.evidenceRefs ?? [],
+    notes: left.notes ?? null,
+    updatedAt: left.updatedAt,
+  }) === JSON.stringify({
+    requirementId: right.requirementId,
+    status: right.status,
+    taskIds: right.taskIds ?? [],
+    evidenceRefs: right.evidenceRefs ?? [],
+    notes: right.notes ?? null,
+    updatedAt: right.updatedAt,
+  });
 }
 
 export async function upsertPrdRequirement(cwd: string, input: UpsertPrdRequirementInput): Promise<RuntimePrdRequirement> {
@@ -390,6 +507,24 @@ async function amendPrdRequirementLocked(
     createdAt: existing.createdAt,
     updatedAt: timestamp,
   };
+  const acceptanceBasisChanged = !sameRequirementAcceptanceBasis(existing, proposedContent);
+  const coverage = acceptanceBasisChanged ? await loadPrdCoverage(cwd) : undefined;
+  const existingCoverage = coverage?.entries.find((entry) => entry.requirementId === input.id);
+  if (coverage && existingCoverage) {
+    const invalidatedCoverage: RuntimePrdCoverageEntry = {
+      ...existingCoverage,
+      requirementId: input.id,
+      status: "needs_replan",
+      updatedAt: timestamp,
+    };
+    await savePrdCoverageUnlocked(cwd, {
+      version: 1,
+      entries: [
+        ...coverage.entries.filter((entry) => entry.requirementId !== input.id),
+        invalidatedCoverage,
+      ],
+    });
+  }
   await savePrdRequirementsUnlocked(cwd, {
     version: 1,
     requirements: [...requirements.requirements.filter((candidate) => candidate.id !== input.id), requirement],
@@ -618,6 +753,21 @@ function sameRequirementContent(
   });
 }
 
+function sameRequirementAcceptanceBasis(
+  existing: Pick<RuntimePrdRequirement, "statement" | "source" | "acceptanceCriteria">,
+  proposed: Pick<RuntimePrdRequirement, "statement" | "source" | "acceptanceCriteria">,
+): boolean {
+  return JSON.stringify({
+    statement: existing.statement,
+    source: existing.source ?? null,
+    acceptanceCriteria: existing.acceptanceCriteria ?? [],
+  }) === JSON.stringify({
+    statement: proposed.statement,
+    source: proposed.source ?? null,
+    acceptanceCriteria: proposed.acceptanceCriteria ?? [],
+  });
+}
+
 function requiredRequirementString(value: unknown, field: string): string {
   if (typeof value !== "string" || !value.trim()) {
     throw new Error(`Invalid runtime PRD requirement: ${field} is required.`);
@@ -709,10 +859,15 @@ function unique(values: string[]): string[] {
 }
 
 function validatePrdCoverage(coverage: RuntimePrdCoverageFile): void {
+  const requirementIds = new Set<string>();
   for (const entry of coverage.entries) {
     if (!isRuntimePrdRequirementStatus(entry.status)) {
       throw new Error(`Invalid runtime PRD requirement status: ${entry.status}`);
     }
+    if (requirementIds.has(entry.requirementId)) {
+      throw new Error(`Duplicate runtime PRD coverage requirement id: ${entry.requirementId}`);
+    }
+    requirementIds.add(entry.requirementId);
   }
 }
 

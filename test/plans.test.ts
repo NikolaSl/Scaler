@@ -4,6 +4,7 @@
  */
 
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,11 +30,12 @@ import {
   loadReplanRequests,
   saveExecutionPlan,
   saveProposedExecutionPlan,
+  saveReplanRequests,
   summarizeExecutionPlan,
   validateExecutionPlan,
   validateReplanRequest,
 } from "../src/plans.js";
-import { computePrdCoverageSummary, loadPrdChanges, loadPrdCoverage, loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
+import { amendPrdRequirement, computePrdCoverageSummary, fingerprintRuntimePrdCoverageEntries, fingerprintRuntimePrdRequirements, loadPrdChanges, loadPrdCoverage, loadPrdRequirements, savePrdCoverage, savePrdRequirements, upsertPrdRequirement } from "../src/prd.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { saveValidationManifest } from "../src/validation.js";
 
@@ -729,6 +731,9 @@ test("acceptReplanProposal snapshots, saves proposed plan, applies tasks, resolv
     const state = createDefaultState(now);
     state.tasks = [{ id: "T-001", status: "validated", prdRefs: ["REQ-001"], updatedAt: state.createdAt }];
     state.validatedTaskIds = ["T-001"];
+    await upsertPrdRequirement(dir, { id: "REQ-001", statement: "One", now });
+    await upsertPrdRequirement(dir, { id: "REQ-002", statement: "Two", now });
+    const requirements = await loadPrdRequirements(dir);
     const currentPlan = await saveExecutionPlan(dir, {
       version: 1,
       planVersion: 1,
@@ -750,13 +755,10 @@ test("acceptReplanProposal snapshots, saves proposed plan, applies tasks, resolv
     }, now);
     await appendReplanRequest(dir, { id: "REPLAN-001", trigger: "manual", reason: "Need new task" }, now);
 
-    const result = await acceptReplanProposal(dir, state, {
-      version: 1,
-      requirements: [
-        { id: "REQ-001", statement: "One", createdAt: state.createdAt, updatedAt: state.createdAt },
-        { id: "REQ-002", statement: "Two", createdAt: state.createdAt, updatedAt: state.createdAt },
-      ],
-    }, { currentPlan, now: new Date("2026-01-01T00:00:01.000Z") });
+    const result = await acceptReplanProposal(dir, state, requirements, {
+      currentPlan,
+      now: new Date("2026-01-01T00:00:01.000Z"),
+    });
 
     assert.equal(result.accepted, true);
     assert.equal(result.savedPlan?.status, "active");
@@ -767,7 +769,385 @@ test("acceptReplanProposal snapshots, saves proposed plan, applies tasks, resolv
     assert.equal((await loadReplanRequests(dir))[0]?.status, "resolved");
     assert.equal((await loadReplanDecisions(dir))[0]?.status, "accepted");
     assert.equal((await loadExecutionPlan(dir)).tasks.length, 2);
+
+    const proposedPlan = await loadProposedExecutionPlan(dir);
+    assert.ok(proposedPlan);
+    const timestampOnlyRetry = await saveProposedExecutionPlan(dir, proposedPlan, new Date("2026-01-01T00:00:02.000Z"));
+    const retried = await acceptReplanProposal(dir, result.state, requirements, {
+      currentPlan: result.savedPlan,
+      proposedPlan: timestampOnlyRetry,
+      now: new Date("2026-01-01T00:00:03.000Z"),
+    });
+    assert.equal(retried.savedPlan?.planVersion, 2);
+    assert.equal(retried.decision.id, result.decision.id);
+    assert.equal((await loadReplanDecisions(dir)).length, 1);
+
+    await upsertPrdRequirement(dir, { id: "REQ-003", statement: "Concurrent new requirement" });
+    const driftedRequirements = await loadPrdRequirements(dir);
+    await assert.rejects(() => acceptReplanProposal(dir, retried.state, driftedRequirements, {
+      currentPlan: retried.savedPlan,
+      proposedPlan: timestampOnlyRetry,
+      now: new Date("2026-01-01T00:00:04.000Z"),
+    }), /accepted replan decision.*stale.*PRD basis/i);
   });
+});
+
+test("acceptReplanProposal reopens only validated tasks linked to needs_replan coverage", async () => {
+  await withTempDir(async (dir) => {
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    const state = createDefaultState(now);
+    state.stage = "replanning";
+    state.tasks = [
+      { id: "T-AFFECTED", title: "Old affected work", status: "validated", prdRefs: ["REQ-AFFECTED"], updatedAt: state.createdAt },
+      { id: "T-KEEP", title: "Keep accepted work", status: "validated", prdRefs: ["REQ-KEEP"], updatedAt: state.createdAt },
+    ];
+    state.validatedTaskIds = ["T-AFFECTED", "T-KEEP"];
+    state.completedTaskIds = ["T-AFFECTED", "T-KEEP"];
+    await saveState(dir, state);
+    await savePrdCoverage(dir, {
+      version: 1,
+      entries: [
+        {
+          requirementId: "REQ-AFFECTED",
+          status: "needs_replan",
+          taskIds: ["T-AFFECTED"],
+          evidenceRefs: ["validation:affected:v1"],
+          notes: "Historical acceptance before the requirement changed.",
+          updatedAt: now.toISOString(),
+        },
+        {
+          requirementId: "REQ-KEEP",
+          status: "validated",
+          taskIds: ["T-KEEP"],
+          evidenceRefs: ["validation:keep:v1"],
+          updatedAt: now.toISOString(),
+        },
+      ],
+    });
+    const currentPlan = await saveExecutionPlan(dir, {
+      version: 1,
+      planVersion: 1,
+      status: "active",
+      tasks: [
+        validPlanTask("T-AFFECTED", "Old affected work", { prdRefs: ["REQ-AFFECTED"] }),
+        validPlanTask("T-KEEP", "Keep accepted work", { prdRefs: ["REQ-KEEP"] }),
+      ],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    }, now);
+    const proposedPlan: ExecutionPlanArtifact = {
+      version: 1,
+      planVersion: 2,
+      status: "draft",
+      tasks: [
+        validPlanTask("T-AFFECTED", "Old affected work", { prdRefs: ["REQ-AFFECTED"] }),
+        validPlanTask("T-KEEP", "Keep accepted work", { prdRefs: ["REQ-KEEP"] }),
+      ],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    };
+    const requirements = {
+      version: 1 as const,
+      requirements: [
+        { id: "REQ-AFFECTED", statement: "Changed", createdAt: state.createdAt, updatedAt: state.createdAt },
+        { id: "REQ-KEEP", statement: "Stable", createdAt: state.createdAt, updatedAt: state.createdAt },
+      ],
+    };
+    await savePrdRequirements(dir, requirements);
+
+    const result = await acceptReplanProposal(dir, state, requirements, {
+      currentPlan,
+      proposedPlan,
+      now: new Date("2026-01-01T00:01:00.000Z"),
+    });
+
+    assert.equal(result.accepted, true, result.message);
+    assert.equal(result.state.tasks.find((task) => task.id === "T-AFFECTED")?.status, "ready");
+    assert.equal(result.state.tasks.find((task) => task.id === "T-KEEP")?.status, "validated");
+    assert.deepEqual(result.state.validatedTaskIds, ["T-KEEP"]);
+    assert.deepEqual(result.state.completedTaskIds, ["T-KEEP"]);
+    assert.deepEqual(result.decision.reopenedTaskIds, ["T-AFFECTED"]);
+    assert.deepEqual((await loadPrdCoverage(dir)).entries, [
+      {
+        requirementId: "REQ-AFFECTED",
+        status: "in_progress",
+        taskIds: ["T-AFFECTED"],
+        evidenceRefs: ["validation:affected:v1"],
+        notes: "Historical acceptance before the requirement changed.",
+        updatedAt: "2026-01-01T00:01:00.000Z",
+      },
+      {
+        requirementId: "REQ-KEEP",
+        status: "validated",
+        taskIds: ["T-KEEP"],
+        evidenceRefs: ["validation:keep:v1"],
+        updatedAt: now.toISOString(),
+      },
+    ]);
+  });
+});
+
+test("acceptReplanProposal resumes an applying decision without losing audit or unrelated invalidation", async () => {
+  await withTempDir(async (dir) => {
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    const state = createDefaultState(now);
+    state.stage = "replanning";
+    state.tasks = [
+      { id: "T-AFFECTED", title: "Affected", status: "ready", prdRefs: ["REQ-AFFECTED"], updatedAt: state.createdAt },
+      { id: "T-KEEP", title: "Keep", status: "validated", prdRefs: ["REQ-KEEP"], updatedAt: state.createdAt },
+    ];
+    state.validatedTaskIds = ["T-KEEP"];
+    state.completedTaskIds = ["T-KEEP"];
+    await saveState(dir, state);
+    await savePrdCoverage(dir, {
+      version: 1,
+      entries: [
+        { requirementId: "REQ-AFFECTED", status: "in_progress", taskIds: ["T-AFFECTED"], updatedAt: now.toISOString() },
+        { requirementId: "REQ-KEEP", status: "validated", taskIds: ["T-KEEP"], updatedAt: now.toISOString() },
+        { requirementId: "REQ-CONCURRENT", status: "needs_replan", updatedAt: "2026-01-01T00:00:30.000Z" },
+      ],
+    });
+    const currentPlan: ExecutionPlanArtifact = {
+      version: 1,
+      planVersion: 2,
+      status: "active",
+      source: "replan-proposal",
+      tasks: [
+        validPlanTask("T-AFFECTED", "Affected", { prdRefs: ["REQ-AFFECTED"] }),
+        validPlanTask("T-KEEP", "Keep", { prdRefs: ["REQ-KEEP"] }),
+        validPlanTask("T-CONCURRENT", "Concurrent invalidation", { prdRefs: ["REQ-CONCURRENT"] }),
+      ],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    };
+    await saveExecutionPlan(dir, currentPlan, now);
+    const proposedPlan: ExecutionPlanArtifact = { ...currentPlan, status: "draft" };
+    const { updatedAt: _proposalUpdatedAt, ...proposalIdentity } = proposedPlan;
+    const proposalFingerprint = createHash("sha256").update(JSON.stringify(proposalIdentity)).digest("hex");
+    const { updatedAt: _currentUpdatedAt, ...currentPlanIdentity } = currentPlan;
+    await saveReplanRequests(dir, [{
+      id: "REPLAN-AFFECTED",
+      status: "resolved",
+      trigger: "plan_replacement",
+      reason: "Requirement changed.",
+      requirementRefs: ["REQ-AFFECTED"],
+      planVersion: 2,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    }]);
+    await upsertPrdRequirement(dir, { id: "REQ-AFFECTED", statement: "Original", now });
+    await upsertPrdRequirement(dir, { id: "REQ-KEEP", statement: "Stable", now });
+    await upsertPrdRequirement(dir, { id: "REQ-CONCURRENT", statement: "Original later", now });
+    await amendPrdRequirement(dir, {
+      id: "REQ-AFFECTED",
+      expectedRevision: 1,
+      reason: "Changed for recovery scenario.",
+      changes: { statement: "Changed" },
+      now,
+    });
+    await amendPrdRequirement(dir, {
+      id: "REQ-CONCURRENT",
+      expectedRevision: 1,
+      reason: "Changed concurrently.",
+      changes: { statement: "Changed later" },
+      now,
+    });
+    const requirements = await loadPrdRequirements(dir);
+    await savePrdCoverage(dir, {
+      version: 1,
+      entries: [
+        { requirementId: "REQ-AFFECTED", status: "in_progress", taskIds: ["T-AFFECTED"], updatedAt: now.toISOString() },
+        { requirementId: "REQ-KEEP", status: "validated", taskIds: ["T-KEEP"], updatedAt: now.toISOString() },
+        { requirementId: "REQ-CONCURRENT", status: "needs_replan", updatedAt: "2026-01-01T00:00:30.000Z" },
+      ],
+    });
+    const journaledCoverage = await loadPrdCoverage(dir);
+    await appendReplanDecision(dir, {
+      id: "DECISION-APPLYING",
+      status: "applying" as never,
+      summary: "Applying proposed execution plan version 2.",
+      requestIds: ["REPLAN-AFFECTED"],
+      previousPlanVersion: 1,
+      proposedPlanVersion: 2,
+      snapshotPath: ".scaler/plans/versions/PLAN-v001.json",
+      reopenedTaskIds: ["T-AFFECTED"],
+      proposalFingerprint,
+      previousPlanFingerprint: createHash("sha256").update(JSON.stringify({ ...currentPlanIdentity, planVersion: 1 })).digest("hex"),
+      requirementsFingerprint: fingerprintRuntimePrdRequirements(requirements),
+      unaffectedCoverageFingerprint: fingerprintRuntimePrdCoverageEntries(journaledCoverage.entries, new Set(["REQ-AFFECTED"])),
+      affectedRequirementRevisions: { "REQ-AFFECTED": 2 },
+      affectedCoverageEntries: {
+        "REQ-AFFECTED": { requirementId: "REQ-AFFECTED", status: "needs_replan", taskIds: ["T-AFFECTED"], updatedAt: now.toISOString() },
+      },
+      preservation: {
+        ok: true,
+        preservedValidatedTaskIds: ["T-KEEP"],
+        droppedValidatedTaskIds: [],
+        preservedValidatedRequirementIds: ["REQ-KEEP"],
+        droppedValidatedRequirementIds: [],
+        unlinkedRequirementIds: [],
+        planUnlinkedTaskIds: [],
+      },
+      createdAt: now.toISOString(),
+    } as never);
+
+    const result = await acceptReplanProposal(dir, state, requirements, {
+      currentPlan,
+      proposedPlan: { ...proposedPlan, updatedAt: "2026-01-01T00:00:45.000Z" },
+      now: new Date("2026-01-01T00:01:00.000Z"),
+    });
+
+    assert.equal(result.accepted, true, result.message);
+    assert.equal(result.savedPlan?.planVersion, 2);
+    assert.equal(result.decision.id, "DECISION-APPLYING");
+    assert.equal(result.decision.status, "accepted");
+    assert.deepEqual(result.decision.reopenedTaskIds, ["T-AFFECTED"]);
+    assert.deepEqual(result.decision.requestIds, ["REPLAN-AFFECTED"]);
+    assert.equal((await loadReplanDecisions(dir)).length, 1);
+    const coverage = await loadPrdCoverage(dir);
+    assert.equal(coverage.entries.find((entry) => entry.requirementId === "REQ-AFFECTED")?.status, "in_progress");
+    assert.equal(coverage.entries.find((entry) => entry.requirementId === "REQ-CONCURRENT")?.status, "needs_replan");
+
+    const retried = await acceptReplanProposal(dir, result.state, requirements, {
+      currentPlan: result.savedPlan,
+      proposedPlan,
+      now: new Date("2026-01-01T00:02:00.000Z"),
+    });
+    assert.equal(retried.accepted, true, retried.message);
+    assert.equal(retried.savedPlan?.planVersion, 2);
+    assert.equal(retried.decision.id, "DECISION-APPLYING");
+    assert.equal((await loadReplanDecisions(dir)).length, 1);
+
+    await amendPrdRequirement(dir, {
+      id: "REQ-AFFECTED",
+      expectedRevision: 2,
+      reason: "Invalidate the completed acceptance.",
+      changes: { statement: "Changed again" },
+      now: new Date("2026-01-01T00:03:00.000Z"),
+    });
+    const amendedRequirements = await loadPrdRequirements(dir);
+    await assert.rejects(() => acceptReplanProposal(dir, retried.state, amendedRequirements, {
+      currentPlan: retried.savedPlan,
+      proposedPlan,
+      now: new Date("2026-01-01T00:04:00.000Z"),
+    }), /accepted replan decision.*stale.*expected revision 2.*current revision 3/i);
+  });
+});
+
+test("acceptReplanProposal rejects stale applying coverage before durable plan or task changes", async () => {
+  for (const drift of ["coverage", "coverage_same_timestamp", "revision", "plan", "plan_metadata"] as const) {
+    await withTempDir(async (dir) => {
+      const now = new Date("2026-01-01T00:00:00.000Z");
+      const state = createDefaultState(now);
+      state.stage = "replanning";
+      state.tasks = [{
+        id: "T-AFFECTED",
+        title: "Affected",
+        status: "validated",
+        prdRefs: ["REQ-AFFECTED"],
+        updatedAt: state.createdAt,
+      }];
+      state.validatedTaskIds = ["T-AFFECTED"];
+      state.completedTaskIds = ["T-AFFECTED"];
+      await saveState(dir, state);
+      await upsertPrdRequirement(dir, {
+        id: "REQ-AFFECTED",
+        statement: "Original",
+        status: "needs_replan",
+        taskIds: ["T-AFFECTED"],
+        now,
+      });
+      await amendPrdRequirement(dir, {
+        id: "REQ-AFFECTED",
+        expectedRevision: 1,
+        reason: "Create the journaled revision.",
+        changes: { statement: "Changed" },
+        now,
+      });
+      const currentPlan = await saveExecutionPlan(dir, {
+        version: 1,
+        planVersion: 1,
+        status: "active",
+        tasks: [validPlanTask("T-AFFECTED", "Affected", { prdRefs: ["REQ-AFFECTED"] })],
+        createdAt: state.createdAt,
+        updatedAt: state.createdAt,
+      }, now);
+      const proposedPlan: ExecutionPlanArtifact = { ...currentPlan, planVersion: 2, status: "draft" };
+      const { updatedAt: _proposalUpdatedAt, ...proposalIdentity } = proposedPlan;
+      const proposalFingerprint = createHash("sha256").update(JSON.stringify(proposalIdentity)).digest("hex");
+      const { updatedAt: _currentUpdatedAt, ...currentPlanIdentity } = currentPlan;
+      const previousPlanFingerprint = createHash("sha256").update(JSON.stringify(currentPlanIdentity)).digest("hex");
+      const journaledRequirements = await loadPrdRequirements(dir);
+      const journaledCoverageFile = await loadPrdCoverage(dir);
+      const journaledCoverage = journaledCoverageFile.entries[0]!;
+      await appendReplanDecision(dir, {
+        id: `DECISION-${drift.toUpperCase()}`,
+        status: "applying",
+        summary: "Applying proposed execution plan version 2.",
+        requestIds: [],
+        previousPlanVersion: 1,
+        proposedPlanVersion: 2,
+        snapshotPath: ".scaler/plans/versions/PLAN-v001.json",
+        reopenedTaskIds: ["T-AFFECTED"],
+        proposalFingerprint,
+        previousPlanFingerprint,
+        requirementsFingerprint: fingerprintRuntimePrdRequirements(journaledRequirements),
+        unaffectedCoverageFingerprint: fingerprintRuntimePrdCoverageEntries(journaledCoverageFile.entries, new Set(["REQ-AFFECTED"])),
+        affectedRequirementRevisions: { "REQ-AFFECTED": 2 },
+        affectedCoverageEntries: { "REQ-AFFECTED": journaledCoverage },
+        preservation: {
+          ok: true,
+          preservedValidatedTaskIds: [],
+          droppedValidatedTaskIds: [],
+          preservedValidatedRequirementIds: [],
+          droppedValidatedRequirementIds: [],
+          unlinkedRequirementIds: [],
+          planUnlinkedTaskIds: [],
+        },
+        createdAt: now.toISOString(),
+      } as never);
+
+      if (drift === "coverage" || drift === "coverage_same_timestamp") {
+        await upsertPrdRequirement(dir, {
+          id: "REQ-AFFECTED",
+          statement: "Changed",
+          status: "needs_replan",
+          taskIds: ["T-AFFECTED"],
+          notes: drift === "coverage_same_timestamp" ? "New invalidation at the same timestamp." : undefined,
+          now: drift === "coverage_same_timestamp" ? now : new Date("2026-01-01T00:00:30.000Z"),
+        });
+      } else {
+        if (drift === "revision") {
+          await amendPrdRequirement(dir, {
+            id: "REQ-AFFECTED",
+            expectedRevision: 2,
+            reason: "Invalidate the applying decision.",
+            changes: { statement: "Changed again" },
+            now: new Date("2026-01-01T00:00:30.000Z"),
+          });
+        } else if (drift === "plan") {
+          await saveExecutionPlan(dir, { ...currentPlan, title: "Concurrent replacement" }, now);
+        } else {
+          await saveExecutionPlan(dir, { ...currentPlan, source: "concurrent-replacement" }, now);
+        }
+      }
+
+      const requirements = await loadPrdRequirements(dir);
+      await assert.rejects(() => acceptReplanProposal(dir, state, requirements, {
+        currentPlan,
+        proposedPlan,
+        now: new Date("2026-01-01T00:01:00.000Z"),
+      }), /stale replan|replan coverage.*changed|plan.*conflict/i, drift);
+
+      assert.equal((await loadExecutionPlan(dir)).planVersion, 1);
+      if (drift === "plan") assert.equal((await loadExecutionPlan(dir)).title, "Concurrent replacement");
+      if (drift === "plan_metadata") assert.equal((await loadExecutionPlan(dir)).source, "concurrent-replacement");
+      assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
+      assert.deepEqual((await loadState(dir)).validatedTaskIds, ["T-AFFECTED"]);
+      assert.equal((await loadPrdCoverage(dir)).entries[0]?.status, "needs_replan");
+      assert.equal((await loadReplanDecisions(dir))[0]?.status, "applying");
+    });
+  }
 });
 
 test("acceptReplanProposal rejects unsafe proposals and records decision", async () => {

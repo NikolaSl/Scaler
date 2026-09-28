@@ -477,6 +477,31 @@ application path leaves unchanged. Existing manifest inheritance is preserved. T
 candidate passes build, 1,216 unit/component, 73 mock integration, 10
 conformance/autopilot and 65 affected checks. This verifies contract admission,
 not the semantic quality or necessity of model-proposed work.
+PLAN-170 closes the smallest reproduced requirement-validity gap. A
+user-authorized statement, source or acceptance-criteria amendment now marks only
+that requirement's coverage `needs_replan` under the existing PRD lock while
+preserving task links, evidence references, notes, immutable history and unrelated
+coverage; amendments do not manufacture missing coverage rows. Title-only changes
+preserve coverage but not the separate revision-bound receipt freshness. The
+candidate passes build, 1,219 unit/component, 73 mock integration and 10
+conformance/autopilot checks.
+SC-06/12/27 remain Partial because this boundary neither selects affected tasks
+nor infers semantic necessity or corrective work.
+PLAN-171 connects that explicit invalidation to accepted replanning without a
+new task lifecycle. A preservation-valid proposal must retain any validated task
+explicitly linked to `needs_replan` coverage. Acceptance reopens only those task
+ids to `ready`, removes only their current validated/completed membership,
+retains unrelated validated work, advances the affected coverage to
+`in_progress`, and records the reopened ids. Acceptance uses the existing
+decision ledger as an `applying` journal so retries preserve the exact audit and
+plan version. Coverage is reread and affected-only merged under the PRD lock;
+captured requirement-revision drift fails closed without overwriting unrelated
+invalidations. The journal also fingerprints the normalized full requirement
+catalog and unaffected coverage rows; the final PRD-locked publication and an
+accepted retry fail closed if either basis has changed. The model cannot use
+this path to rewrite an exercised accepted contract. The candidate passes build, 1,223 unit/component, 73 mock integration,
+10 conformance/autopilot and 52 focused plan/PRD checks. SC-12/27 remain Partial because automatic replan triggering, task
+replacement/obsolescence and semantic affected-slice discovery are not provided.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
 unresolved in-scope findings. The primary exact-head gate passed build,

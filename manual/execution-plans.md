@@ -8,7 +8,7 @@ Implemented artifacts:
 - `.scaler/plans/versions/PLAN-vNNN.json` — versioned execution plan snapshots.
 - `.scaler/plans/replan-requests.json` — newest-first replan request records.
 - `.scaler/plans/proposed-plan.json` — staged replacement plan for a replan request.
-- `.scaler/plans/replan-decisions.json` — accepted/rejected proposal decisions.
+- `.scaler/plans/replan-decisions.json` — applying/accepted/rejected proposal decisions.
 - `.scaler/reports/planning-reports.json` — structured planner coverage synchronization reports.
 
 Current plan task fields:
@@ -74,7 +74,7 @@ Structured `scaler_planning_report` output synchronizes planner-provided runtime
 
 `/scaler-replan-proposal-status` validates `.scaler/plans/proposed-plan.json` against the current plan, runtime PRD requirements, and supervisor state.
 
-`/scaler-replan-accept` accepts `.scaler/plans/proposed-plan.json` only when preservation checks pass. Acceptance snapshots the previous current plan, saves the proposed plan as current, applies missing task records, resolves open replan requests, and records a decision.
+`/scaler-replan-accept` accepts `.scaler/plans/proposed-plan.json` only when preservation checks pass. Acceptance snapshots the previous current plan, journals an `applying` decision, saves or resumes the exact proposed plan version, applies missing task records, resolves the journaled replan requests, and finalizes the same decision as `accepted`. If current requirement coverage is explicitly `needs_replan`, validated tasks linked through that coverage or their `prdRefs` must remain in the proposed plan and are reopened to `ready`; unrelated validated tasks remain accepted. Their prior evidence stays historical, the coverage entry becomes `in_progress`, and the decision records the reopened task ids. The journal captures requirement revisions, the complete affected coverage rows and the previous active-plan fingerprint. The PRD lock covers verification, coverage transition and downstream active-plan/state/task publication even when no coverage row is affected, so a competing material amendment starts only after that transaction. Proposal and plan identity include every plan field except the persistence-normalized `updatedAt`, keeping timestamp-only retries idempotent. A changed same-version plan, newer same-row invalidation or requirement revision fails closed; duplicate coverage requirement ids are invalid and unrelated concurrent invalidations remain untouched. The immutable snapshot of the previous plan may precede this check and is not executable state. This does not authorize model-written replacement of an exercised task contract.
 
 ## Replan triggers and preservation checks
 
