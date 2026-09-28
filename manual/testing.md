@@ -303,6 +303,17 @@ and measurements without prompt or tool bytes. Run `node --test --import tsx
 test/provider-admission-host.test.ts`; strict child binding and compaction tests
 remain in the same file but use their separate environment-owned policy.
 
+PLAN-163 adds one bounded report-only repair after a successful conductor child
+returns a missing or invalid structured report. The repair uses the same attempt
+identity, has no tools, consumes a second spawned-agent budget decision and
+passes the normal prompt/provider admission. Focused regressions cover accepted,
+missing, malformed, stale, oversized, budget-refused and transport-failed
+repairs and prove that no third call occurs. The installed-host fixture also
+executes a 9 KB tool result, verifies externalization by the real hook and checks
+that the admitted continuation carries only the compact reference. Run
+`node --test --import tsx test/conductor.test.ts test/subagents.test.ts
+test/provider-admission.test.ts test/provider-admission-host.test.ts`.
+
 PLAN-121 replaces file `scope: "section"` prefix truncation with explicit,
 exact Markdown-heading selection. The conductor fixture puts the required
 section after a 72k-character unrelated prefix and proves that the actual worker

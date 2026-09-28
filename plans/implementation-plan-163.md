@@ -41,3 +41,27 @@ malformed repair, identity mismatch, no-tool invocation, one-call bound and
 repair-prompt overflow. Run focused conductor/subagent/provider-admission tests,
 then the TypeScript build, full unit/component, mock-integration and
 conformance/autopilot gates plus `git diff --check` before phase review.
+
+## Outcome
+
+Conductor now permits exactly one report-only repair after an otherwise
+successful task-agent process returns a missing or invalid report. The second
+child receives the same complete attempt binding, no tools, the exact bounded
+original output and the required schema. Its SCALER prompt is checked before
+spawn and its final installed-Pi provider payload remains subject to strict
+admission. A second spawned-agent budget decision is recorded; hard-limit,
+transport, stale-identity, malformed, missing and oversized-prompt failures all
+leave validation blocked without a third call.
+
+The original task run and repair run have separate durable records and usage
+accounting. Only the repair report is ingested when it passes the original
+attempt identity. The task implementation is never replayed.
+
+An installed-host scenario also exercises the preceding in-task boundary: a
+9 KB tool result is externalized by the real Pi hook, and the next admitted
+provider payload contains only the compact reference rather than the raw bytes.
+
+SC-05 remains `Partial`. These bounded scenarios do not yet compose the entire
+AC-05 oversized-source/split, real host envelope, post-tool continuation and
+report-repair sequence into one declared-window milestone, nor reconcile each
+admission estimate with observed provider usage.
