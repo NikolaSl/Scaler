@@ -439,6 +439,43 @@ test("advanceReplannedCoverageAndRun holds the requirement fence through publica
   });
 });
 
+test("advanceReplannedCoverageAndRun holds the requirement fence without affected rows", async () => {
+  await withTempDir(async (dir) => {
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    await upsertPrdRequirement(dir, { id: "REQ-A", statement: "A1", now });
+    let enterPublication!: () => void;
+    const publicationEntered = new Promise<void>((resolve) => { enterPublication = resolve; });
+    let releasePublication!: () => void;
+    const publicationRelease = new Promise<void>((resolve) => { releasePublication = resolve; });
+
+    const publication = advanceReplannedCoverageAndRun(dir, {
+      affectedRequirementRevisions: {},
+      expectedCoverageEntries: {},
+      taskIdsByRequirement: {},
+      updatedAt: "2026-01-01T00:01:00.000Z",
+    }, async () => {
+      enterPublication();
+      await publicationRelease;
+    });
+    await publicationEntered;
+    let amendmentFinished = false;
+    const amendment = amendPrdRequirement(dir, {
+      id: "REQ-A",
+      expectedRevision: 1,
+      reason: "Concurrent A2.",
+      changes: { statement: "A2" },
+      now: new Date("2026-01-01T00:02:00.000Z"),
+    }).then(() => { amendmentFinished = true; });
+    await delay(25);
+    assert.equal(amendmentFinished, false);
+
+    releasePublication();
+    await publication;
+    await amendment;
+    assert.equal((await loadPrdRequirements(dir)).requirements[0]?.revision, 2);
+  });
+});
+
 test("savePrdCoverage rejects duplicate requirement rows", async () => {
   await withTempDir(async (dir) => {
     const updatedAt = "2026-01-01T00:00:00.000Z";

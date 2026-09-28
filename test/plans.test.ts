@@ -769,6 +769,20 @@ test("acceptReplanProposal snapshots, saves proposed plan, applies tasks, resolv
     assert.equal((await loadReplanRequests(dir))[0]?.status, "resolved");
     assert.equal((await loadReplanDecisions(dir))[0]?.status, "accepted");
     assert.equal((await loadExecutionPlan(dir)).tasks.length, 2);
+
+    const proposedPlan = await loadProposedExecutionPlan(dir);
+    assert.ok(proposedPlan);
+    const timestampOnlyRetry = await saveProposedExecutionPlan(dir, proposedPlan, new Date("2026-01-01T00:00:02.000Z"));
+    const retried = await acceptReplanProposal(dir, result.state, {
+      version: 1,
+      requirements: [
+        { id: "REQ-001", statement: "One", createdAt: state.createdAt, updatedAt: state.createdAt },
+        { id: "REQ-002", statement: "Two", createdAt: state.createdAt, updatedAt: state.createdAt },
+      ],
+    }, { currentPlan: result.savedPlan, proposedPlan: timestampOnlyRetry, now: new Date("2026-01-01T00:00:03.000Z") });
+    assert.equal(retried.savedPlan?.planVersion, 2);
+    assert.equal(retried.decision.id, result.decision.id);
+    assert.equal((await loadReplanDecisions(dir)).length, 1);
   });
 });
 
@@ -902,7 +916,9 @@ test("acceptReplanProposal resumes an applying decision without losing audit or 
     };
     await saveExecutionPlan(dir, currentPlan, now);
     const proposedPlan: ExecutionPlanArtifact = { ...currentPlan, status: "draft" };
-    const proposalFingerprint = createHash("sha256").update(JSON.stringify(proposedPlan)).digest("hex");
+    const { updatedAt: _proposalUpdatedAt, ...proposalIdentity } = proposedPlan;
+    const proposalFingerprint = createHash("sha256").update(JSON.stringify(proposalIdentity)).digest("hex");
+    const { updatedAt: _currentUpdatedAt, ...currentPlanIdentity } = currentPlan;
     await saveReplanRequests(dir, [{
       id: "REPLAN-AFFECTED",
       status: "resolved",
@@ -923,7 +939,7 @@ test("acceptReplanProposal resumes an applying decision without losing audit or 
       snapshotPath: ".scaler/plans/versions/PLAN-v001.json",
       reopenedTaskIds: ["T-AFFECTED"],
       proposalFingerprint,
-      previousPlanFingerprint: createHash("sha256").update(JSON.stringify({ ...currentPlan, planVersion: 1 })).digest("hex"),
+      previousPlanFingerprint: createHash("sha256").update(JSON.stringify({ ...currentPlanIdentity, planVersion: 1 })).digest("hex"),
       affectedRequirementRevisions: { "REQ-AFFECTED": 2 },
       affectedCoverageEntries: {
         "REQ-AFFECTED": { requirementId: "REQ-AFFECTED", status: "needs_replan", taskIds: ["T-AFFECTED"], updatedAt: now.toISOString() },
@@ -968,7 +984,7 @@ test("acceptReplanProposal resumes an applying decision without losing audit or 
 
     const result = await acceptReplanProposal(dir, state, requirements, {
       currentPlan,
-      proposedPlan,
+      proposedPlan: { ...proposedPlan, updatedAt: "2026-01-01T00:00:45.000Z" },
       now: new Date("2026-01-01T00:01:00.000Z"),
     });
 
