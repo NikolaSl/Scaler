@@ -16,7 +16,7 @@ import {
   getReplanDecisionsPath,
   getReplanRequestsPath,
 } from "./paths.js";
-import { advanceReplannedCoverage, applyPrdRequirementUpserts, computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdAcceptanceCriterion, type RuntimePrdCoverageEntry, type RuntimePrdRequirementStatus, type RuntimePrdRequirementsFile } from "./prd.js";
+import { advanceReplannedCoverageAndRun, applyPrdRequirementUpserts, computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdAcceptanceCriterion, type RuntimePrdCoverageEntry, type RuntimePrdRequirementStatus, type RuntimePrdRequirementsFile } from "./prd.js";
 import { assertStateSnapshotCurrent, saveState } from "./state.js";
 import { assessTaskDefinitionQuality, normalizeTaskKind } from "./task-quality.js";
 import { createTask, reviewTaskAcceptancePolicyMutation, updateTask, type UpdateTaskInput } from "./tasks.js";
@@ -520,55 +520,57 @@ async function acceptReplanProposalLocked(
     throw new Error(`Replan decision ${journal.id} cannot resume from active plan version ${durablePlan.planVersion}.`);
   }
   const taskIdsByRequirement = buildPlanTaskIdsByRequirement(targetPlan);
-  await advanceReplannedCoverage(cwd, {
+  const published = await advanceReplannedCoverageAndRun(cwd, {
     affectedRequirementRevisions,
     expectedCoverageEntries: affectedCoverageEntries,
     taskIdsByRequirement: Object.fromEntries(taskIdsByRequirement),
     updatedAt: journal.createdAt,
-  });
-  const durablePlanAfterCoverage = await loadExecutionPlan(cwd);
-  let savedPlan: ExecutionPlanArtifact;
-  if (durablePlanAfterCoverage.planVersion === journal.proposedPlanVersion) {
-    if (!sameAcceptedReplanPlan(durablePlanAfterCoverage, targetPlan)) {
-      throw new Error(`Replan decision ${journal.id} target plan conflicts with active plan version ${durablePlanAfterCoverage.planVersion}.`);
+  }, async () => {
+    const durablePlanAfterCoverage = await loadExecutionPlan(cwd);
+    let savedPlan: ExecutionPlanArtifact;
+    if (durablePlanAfterCoverage.planVersion === journal.proposedPlanVersion) {
+      if (!sameAcceptedReplanPlan(durablePlanAfterCoverage, targetPlan)) {
+        throw new Error(`Replan decision ${journal.id} target plan conflicts with active plan version ${durablePlanAfterCoverage.planVersion}.`);
+      }
+      savedPlan = durablePlanAfterCoverage;
+    } else if (durablePlanAfterCoverage.planVersion === journal.previousPlanVersion) {
+      if (!journal.previousPlanFingerprint || fingerprintReplanProposal(durablePlanAfterCoverage) !== journal.previousPlanFingerprint) {
+        throw new Error(`Replan decision ${journal.id} previous plan conflicts with active plan version ${durablePlanAfterCoverage.planVersion}.`);
+      }
+      savedPlan = await saveExecutionPlan(cwd, targetPlan, now);
+    } else {
+      throw new Error(`Replan decision ${journal.id} cannot resume from active plan version ${durablePlanAfterCoverage.planVersion}.`);
     }
-    savedPlan = durablePlanAfterCoverage;
-  } else if (durablePlanAfterCoverage.planVersion === journal.previousPlanVersion) {
-    if (!journal.previousPlanFingerprint || fingerprintReplanProposal(durablePlanAfterCoverage) !== journal.previousPlanFingerprint) {
-      throw new Error(`Replan decision ${journal.id} previous plan conflicts with active plan version ${durablePlanAfterCoverage.planVersion}.`);
-    }
-    savedPlan = await saveExecutionPlan(cwd, targetPlan, now);
-  } else {
-    throw new Error(`Replan decision ${journal.id} cannot resume from active plan version ${durablePlanAfterCoverage.planVersion}.`);
-  }
-  if (reopenedState !== state) await saveState(cwd, reopenedState);
-  const applyResult = await applyExecutionPlanTasks(cwd, reopenedState, savedPlan);
-  const requests = await loadReplanRequests(cwd);
-  await saveReplanRequests(cwd, requests.map((request) =>
-    requestIds.includes(request.id)
-      ? { ...request, status: "resolved", planVersion: savedPlan.planVersion, updatedAt: timestamp }
-      : request,
-  ));
-  const decision = await appendReplanDecision(cwd, {
-    ...journal,
-    id: journal.id,
-    status: "accepted",
-    summary: `Accepted proposed execution plan version ${savedPlan.planVersion}.`,
-    createdTaskIds: journal.createdTaskIds ?? applyResult.createdTaskIds,
-    existingTaskIds: journal.existingTaskIds ?? applyResult.existingTaskIds,
-    rejectedTaskIds: applyResult.rejectedTaskIds,
+    if (reopenedState !== state) await saveState(cwd, reopenedState);
+    const applyResult = await applyExecutionPlanTasks(cwd, reopenedState, savedPlan);
+    const requests = await loadReplanRequests(cwd);
+    await saveReplanRequests(cwd, requests.map((request) =>
+      requestIds.includes(request.id)
+        ? { ...request, status: "resolved", planVersion: savedPlan.planVersion, updatedAt: timestamp }
+        : request,
+    ));
+    const decision = await appendReplanDecision(cwd, {
+      ...journal,
+      id: journal.id,
+      status: "accepted",
+      summary: `Accepted proposed execution plan version ${savedPlan.planVersion}.`,
+      createdTaskIds: journal.createdTaskIds ?? applyResult.createdTaskIds,
+      existingTaskIds: journal.existingTaskIds ?? applyResult.existingTaskIds,
+      rejectedTaskIds: applyResult.rejectedTaskIds,
+    });
+    return { savedPlan, applyResult, decision };
   });
 
   return {
     accepted: true,
-    message: decision.summary,
-    state: applyResult.state,
-    decision,
+    message: published.decision.summary,
+    state: published.applyResult.state,
+    decision: published.decision,
     currentPlan,
     proposedPlan,
-    savedPlan,
+    savedPlan: published.savedPlan,
     snapshotPath,
-    applyResult,
+    applyResult: published.applyResult,
   };
 }
 
@@ -858,10 +860,9 @@ function fingerprintReplanProposal(plan: ExecutionPlanArtifact): string {
 }
 
 function sameAcceptedReplanPlan(current: ExecutionPlanArtifact, target: ExecutionPlanArtifact): boolean {
-  return current.planVersion === target.planVersion
-    && current.status === "active"
-    && current.title === target.title
-    && JSON.stringify(current.tasks) === JSON.stringify(target.tasks);
+  const { updatedAt: _currentUpdatedAt, ...currentIdentity } = current;
+  const { updatedAt: _targetUpdatedAt, ...targetIdentity } = target;
+  return JSON.stringify(currentIdentity) === JSON.stringify(targetIdentity);
 }
 
 function assertExecutionPlanCoverage(

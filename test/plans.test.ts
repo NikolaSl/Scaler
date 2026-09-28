@@ -891,6 +891,7 @@ test("acceptReplanProposal resumes an applying decision without losing audit or 
       version: 1,
       planVersion: 2,
       status: "active",
+      source: "replan-proposal",
       tasks: [
         validPlanTask("T-AFFECTED", "Affected", { prdRefs: ["REQ-AFFECTED"] }),
         validPlanTask("T-KEEP", "Keep", { prdRefs: ["REQ-KEEP"] }),

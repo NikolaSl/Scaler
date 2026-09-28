@@ -240,8 +240,16 @@ export async function advanceReplannedCoverage(
   cwd: string,
   input: AdvanceReplannedCoverageInput,
 ): Promise<RuntimePrdCoverageFile> {
+  return advanceReplannedCoverageAndRun(cwd, input, async (coverage) => coverage);
+}
+
+export async function advanceReplannedCoverageAndRun<T>(
+  cwd: string,
+  input: AdvanceReplannedCoverageInput,
+  publish: (coverage: RuntimePrdCoverageFile) => Promise<T>,
+): Promise<T> {
   const affectedIds = Object.keys(input.affectedRequirementRevisions);
-  if (affectedIds.length === 0) return loadPrdCoverage(cwd);
+  if (affectedIds.length === 0) return publish(await loadPrdCoverage(cwd));
   return withPrdRequirementsLock(cwd, async () => {
     const requirements = await loadPrdRequirementsUnlocked(cwd);
     const coverage = await loadPrdCoverage(cwd);
@@ -288,7 +296,7 @@ export async function advanceReplannedCoverage(
         : entry),
     };
     await savePrdCoverageUnlocked(cwd, updated);
-    return updated;
+    return publish(updated);
   });
 }
 
@@ -823,10 +831,15 @@ function unique(values: string[]): string[] {
 }
 
 function validatePrdCoverage(coverage: RuntimePrdCoverageFile): void {
+  const requirementIds = new Set<string>();
   for (const entry of coverage.entries) {
     if (!isRuntimePrdRequirementStatus(entry.status)) {
       throw new Error(`Invalid runtime PRD requirement status: ${entry.status}`);
     }
+    if (requirementIds.has(entry.requirementId)) {
+      throw new Error(`Duplicate runtime PRD coverage requirement id: ${entry.requirementId}`);
+    }
+    requirementIds.add(entry.requirementId);
   }
 }
 
