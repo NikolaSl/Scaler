@@ -492,10 +492,13 @@ new task lifecycle. A preservation-valid proposal must retain any validated task
 explicitly linked to `needs_replan` coverage. Acceptance reopens only those task
 ids to `ready`, removes only their current validated/completed membership,
 retains unrelated validated work, advances the affected coverage to
-`in_progress`, and records the reopened ids. The model cannot use this path to
-rewrite an exercised accepted contract. The candidate passes build, 1,220
-unit/component, 73 mock integration, 10 conformance/autopilot and 32 focused plan
-checks. SC-12/27 remain Partial because automatic replan triggering, task
+`in_progress`, and records the reopened ids. Acceptance uses the existing
+decision ledger as an `applying` journal so retries preserve the exact audit and
+plan version. Coverage is reread and affected-only merged under the PRD lock;
+captured requirement-revision drift fails closed without overwriting unrelated
+invalidations. The model cannot use this path to rewrite an exercised accepted
+contract. The candidate passes build, 1,222 unit/component, 73 mock integration,
+10 conformance/autopilot and 51 focused plan/PRD checks. SC-12/27 remain Partial because automatic replan triggering, task
 replacement/obsolescence and semantic affected-slice discovery are not provided.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
