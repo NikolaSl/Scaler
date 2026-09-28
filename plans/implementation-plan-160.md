@@ -2,8 +2,8 @@
 
 ## Status
 
-Planned on `implementation/v2-p3-memory-context`; implementation and phase
-review remain pending.
+Implemented and validated on `implementation/v2-p3-memory-context`; accumulated
+phase review remains pending.
 
 ## Observed gap
 
@@ -61,3 +61,26 @@ This unit does not wire the isolated continuation-envelope supplier, add generic
 direct/MCP adapters, choose or benchmark a local model, infer tasks, broaden
 context, or prove quality/savings. It uses the already selected current model
 and existing request authority under a bounded host lifecycle.
+
+## Delivered evidence
+
+- `/scaler-tool-current [requestId]` prepares one eligible request in the
+  parent session and narrows the host to the exact allowed tools plus
+  `scaler_tool_result`.
+- The first provider call claims execution only after fresh current-agent route
+  admission over the actual payload, selected-tool profile, strict policy and
+  provider/model identity. Continuations revalidate that identity and profile;
+  more than four provider calls fail closed.
+- Runtime-owned result binding, existing result limits and durable execution
+  identity govern closure. Missing, duplicate, foreign, malformed and
+  oversized proposals block the transaction.
+- Active tools are restored on successful completion and refusal, including a
+  synchronous host message-delivery failure. Prompt or admission telemetry
+  failure cannot turn a refusal into provider traffic.
+
+Exact executable-tree validation passed the TypeScript build, 1,174/1,174
+unit/component tests, 72/72 mock integration tests, 10/10
+conformance/autopilot tests, 116/116 focused extension/tool/provider-host tests
+(including 15 installed-host checks) and `git diff --check`. This is
+deterministic host and ledger evidence, not a local-model quality result or a
+complete direct/current-agent/isolated production scenario.

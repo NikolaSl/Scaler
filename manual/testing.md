@@ -594,9 +594,19 @@ PLAN-147 adds one runtime-owned exact direct operation. Run
 test/tools.test.ts` to cover structured direct-operation persistence, fresh
 runtime route admission, zero-runner catalog lookup, execution/result identity,
 adapter and durable-argument drift, malformed operations and oversized result
-refusal. This does not execute arbitrary tools or MCP calls, wire current-agent
-or production isolated continuations, prove model quality, or establish savings;
-SC-08/AC-08 remains Partial.
+refusal. This does not execute arbitrary tools or MCP calls, wire production
+isolated continuations, prove model quality, or establish savings; SC-08/AC-08
+remains Partial.
+
+PLAN-160 adds the bounded current-agent route. Run `node --test --import tsx
+test/extension-shape.test.ts test/tool-requests.test.ts test/tool-routing.test.ts
+test/provider-host.test.ts` for exact tool focus, actual-payload route admission,
+provider/model and profile continuity, provider-call bounds, runtime-owned result
+binding, restoration and telemetry-independent refusal. The installed-host
+suite verifies the selected Pi prompt boundary. These tests do not configure or
+score a local model, wire the isolated continuation supplier, add generic
+direct/MCP adapters or complete the three-route production scenario; SC-08/AC-08
+remains Partial.
 
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx

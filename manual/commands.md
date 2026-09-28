@@ -535,6 +535,24 @@ Approvals are not auto-selected by `/scaler-tool-replay`; closed replay executio
 
 Prepares or executes an isolated tool-agent transaction for a prepared `scaler_tool_request`. Prepare mode rebuilds the stored request prompt/invocation and writes `.scaler/tool-requests/transactions.json`. With `execute`, SCALER first persists an active execution identity, passes only that runtime-owned id to the child, and runs the child with the request's allowed tools. `scaler_tool_result` records a proposal without closing the request. The parent accepts exactly one fresh proposal for that execution only after exit `0` without timeout/abort and unchanged ownership. Child prose, missing or duplicate proposals, runner failure, and late/foreign bindings block the execution and do not authorize a retry.
 
+## `/scaler-tool-current [requestId]`
+
+Starts one eligible prepared tool request in the current parent session. SCALER
+refuses direct operations, isolation-bound requests, unavailable tools, busy
+sessions and concurrent active executions. It temporarily selects exactly the
+request's allowed tools plus `scaler_tool_result` and sends a role-specific
+prompt that cannot advance or broaden the supervisor FSM.
+
+Before the first provider request, SCALER recomputes current-agent admission
+from the actual payload, strict provider policy, exact selected-tool profile and
+current provider/model identity. Execution is claimed only after that admission;
+later provider calls must preserve the identity/profile and the run is bounded
+to four provider calls. The result tool is bound to the runtime-owned execution
+without exposing an execution-id argument to the model. Exactly one fresh valid
+proposal closes the request at agent end. Refusal or completion restores the
+previous active tools; an interruption after a durable claim requires explicit
+reconciliation rather than automatic replay.
+
 ## `/scaler-tool-iteration-policy [max=N] [auto-replay=on|off]`
 
 Shows or updates `.scaler/tool-requests/iteration-policy.json`. `max` is clamped to 1..10 and defaults to 3. The persisted `auto-replay` setting is retained for compatibility with legacy open `missing_result` ledgers. New ambiguous executions become `blocked`, so this setting never automatically replays their possible effects.
