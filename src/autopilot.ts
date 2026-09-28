@@ -13,7 +13,14 @@ import {
 import { runDebugRetryPolicyWorkflow, type DebugRetryPolicyWorkflowResult } from "./debug-retry.js";
 import { commitWithExecutionLock, runValidationWithExecutionLock, type LockedOperationResult } from "./operations.js";
 import { appendLogEvent, createLogEvent } from "./logging.js";
+import {
+  dispatchMissingContextRequest,
+  loadMissingContextRequests,
+  refreshAndUnblockMissingContext,
+  type MissingContextDispatchResult,
+} from "./missing-context.js";
 import { loadState, saveState } from "./state.js";
+import { runResearchAgentStep, type ResearchAgentStepResult } from "./research-agent.js";
 import {
   runAutonomousStageWorkflow,
   type StageWorkflowResult,
@@ -25,7 +32,7 @@ import type { GitCommitTaskResult } from "./git.js";
 import type { ValidationRunRecord } from "./validation.js";
 import type { ProviderAdmissionModel } from "./provider-admission.js";
 
-export type ScalerAutomationAction = "stage_workflow" | "task_agent" | "validation" | "debug" | "debug_retry" | "commit" | "complete" | "blocked";
+export type ScalerAutomationAction = "stage_workflow" | "task_agent" | "missing_context" | "validation" | "debug" | "debug_retry" | "commit" | "complete" | "blocked";
 
 export type ScalerAutomationStopReason =
   | "completed"
@@ -71,6 +78,8 @@ export interface ScalerAutomationStep {
   taskId?: string;
   stageWorkflow?: StageWorkflowResult;
   taskAgent?: ConductorStepResult;
+  missingContext?: MissingContextDispatchResult;
+  researchAgent?: ResearchAgentStepResult;
   validation?: LockedOperationResult<ValidationRunRecord>;
   commit?: LockedOperationResult<GitCommitTaskResult>;
   debug?: DebugConductorLoopResult;
@@ -296,6 +305,26 @@ export async function runScalerAutomation(
 
     const blocked = firstBlockedTask(currentState);
     if (blocked) {
+      const continuation = blocked.status === "blocked"
+        ? await continueMissingContext(cwd, currentState, blocked.id, options, runners)
+        : undefined;
+      if (continuation) {
+        currentState = await loadState(cwd);
+        steps.push({
+          action: "missing_context",
+          accepted: continuation.accepted,
+          message: continuation.message,
+          stage: currentState.stage,
+          taskId: blocked.id,
+          missingContext: continuation.dispatch,
+          researchAgent: continuation.researchAgent,
+        });
+        if (!continuation.accepted) {
+          stopReason = "blocked";
+          break;
+        }
+        continue;
+      }
       stopReason = "blocked";
       steps.push(blockedStep(currentState, `Task ${blocked.id} is ${blocked.status}; automation stopped until the blocker is resolved.`, blocked.id));
       break;
@@ -335,6 +364,96 @@ export async function runScalerAutomation(
     details: { stopReason, steps: steps.map((step) => ({ action: step.action, accepted: step.accepted, taskId: step.taskId, message: firstLine(step.message) })) },
   }));
   return result;
+}
+
+interface MissingContextContinuationResult {
+  accepted: boolean;
+  message: string;
+  dispatch?: MissingContextDispatchResult;
+  researchAgent?: ResearchAgentStepResult;
+}
+
+async function continueMissingContext(
+  cwd: string,
+  state: ScalerState,
+  taskId: string,
+  options: ScalerAutomationOptions,
+  runners: ScalerAutomationRunners,
+): Promise<MissingContextContinuationResult | undefined> {
+  const request = (await loadMissingContextRequests(cwd)).find((candidate) => candidate.taskId === taskId
+    && (candidate.status === "open" || candidate.status === "in_progress"));
+  if (!request) return undefined;
+
+  let dispatch: MissingContextDispatchResult | undefined;
+  let currentRequest = request;
+  if ((request.kind === "local_research" || request.kind === "internet_research")
+    && request.evidenceRefs?.some((reference) => reference.startsWith("RESEARCH-"))) {
+    await refreshAndUnblockMissingContext(cwd, await loadState(cwd));
+    const refreshed = (await loadMissingContextRequests(cwd)).find((candidate) => candidate.id === request.id);
+    if (refreshed?.status === "resolved") {
+      return { accepted: true, message: `Research resolved missing-context request ${request.id}.` };
+    }
+    currentRequest = refreshed ?? request;
+  }
+  if (currentRequest.status === "open") {
+    dispatch = await dispatchMissingContextRequest(cwd, state, request.id, {
+      execute: true,
+      allowInternet: options.allowInternet,
+    });
+    currentRequest = dispatch.request ?? request;
+    if (!dispatch.accepted) return { accepted: false, message: dispatch.message, dispatch };
+  }
+
+  if (currentRequest.kind !== "local_research" && currentRequest.kind !== "internet_research") {
+    await refreshAndUnblockMissingContext(cwd, await loadState(cwd));
+    const resolved = (await loadMissingContextRequests(cwd)).find((candidate) => candidate.id === currentRequest.id);
+    return resolved?.status === "resolved"
+      ? { accepted: true, message: `Missing-context request resolved: ${currentRequest.id}`, dispatch }
+      : { accepted: false, message: `Missing-context request remains ${resolved?.status ?? "unavailable"}: ${currentRequest.id}`, dispatch };
+  }
+
+  if (currentRequest.kind === "internet_research" && !options.allowInternet) {
+    return { accepted: false, message: `Internet research requires an explicit internet grant: ${currentRequest.id}`, dispatch };
+  }
+  const researchRequestId = currentRequest.evidenceRefs?.find((reference) => reference.startsWith("RESEARCH-"));
+  if (!researchRequestId) {
+    return { accepted: false, message: `Missing-context research request has no durable research identity: ${currentRequest.id}`, dispatch };
+  }
+
+  const researchAgent = await runResearchAgentStep(cwd, await loadState(cwd), {
+    requestId: researchRequestId,
+    execute: true,
+    allowInternet: options.allowInternet,
+    tools: options.researchTools ?? Array.from(new Set(["read", "bash", ...(options.tools ?? []), "scaler_research_report"])),
+    timeoutMs: options.timeoutMs,
+    model: options.model,
+    providerAdmissionModel: options.providerAdmissionModel,
+  }, runners.research);
+  if (!researchAgent.accepted || researchAgent.runRecord?.status !== "passed" || researchAgent.ingestion?.ingested !== true) {
+    return {
+      accepted: false,
+      message: researchAgent.ingestion?.reason ?? researchAgent.message,
+      dispatch,
+      researchAgent,
+    };
+  }
+
+  await refreshAndUnblockMissingContext(cwd, await loadState(cwd));
+  const resolved = (await loadMissingContextRequests(cwd)).find((candidate) => candidate.id === currentRequest.id);
+  if (resolved?.status !== "resolved") {
+    return {
+      accepted: false,
+      message: `Research evidence did not resolve missing-context request ${currentRequest.id}.`,
+      dispatch,
+      researchAgent,
+    };
+  }
+  return {
+    accepted: true,
+    message: `Research resolved missing-context request ${currentRequest.id}.`,
+    dispatch,
+    researchAgent,
+  };
 }
 
 function isStageWorkflowStage(stage: ScalerState["stage"]): boolean {

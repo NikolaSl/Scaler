@@ -311,6 +311,25 @@ resolution and refuses summary-only resolution of exact file requests. Answer
 truth and source discovery are not established; SC-07/AC-07 stays Partial.
 The candidate passes build, 1,159 unit, 68 mock integration, 7 conformance
 and 56 focused tests.
+PLAN-157 reuses the PLAN-156 unknown-source FSM under declared synthetic
+32,768- and 131,072-token provider windows. A source larger than the smaller
+allowance is narrowed to its required exact heading, while both windows exclude
+the unrelated source bytes, admit every dispatched prompt and carry the full
+synthetic provider identity/policy binding. The injected runner does not execute
+the installed host/provider hook. This validates the model-independent process
+boundary, not a real local-model run, source truth, model quality or savings;
+SC-07/AC-07 stays Partial.
+PLAN-158 connects typed execution-time missing-context requests to the main
+automation loop. It resolves one request at a time through the existing
+memory/file/research boundary, grants local research only the normal project
+inspection/report tools, and resumes a task only after complete matched
+evidence is persisted in its manifest. Partial or malformed evidence stops the
+call without an internal retry; internet, user and tool boundaries remain
+explicit. The candidate passes build, 1,168 unit/component, 72 mock integration,
+10 conformance/autopilot and 29 focused checks plus `git diff --check`.
+This removes an operator step from the existing FSM but does not establish
+source truth, automatic task/context choice, local-model quality or full
+SC-07/AC-07 completion.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
 unresolved in-scope findings. The primary exact-head gate passed build,

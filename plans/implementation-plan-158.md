@@ -1,0 +1,64 @@
+# PLAN-158 — Autonomous missing-context FSM continuation
+
+## Requirement and observed gap
+
+When an execution worker reports `needs_data`, the supervisor already records a
+typed missing-context request and blocks the task. The explicit
+`/scaler-missing-context-run` command can dispatch that request, but
+`runScalerAutomation` stops at the blocked task without invoking the same
+validated FSM. This leaves an otherwise local-only autonomous run requiring an
+operator command between two existing supervisor transitions.
+
+## Minimal implementation
+
+Extend the automation loop to handle one unresolved missing-context request for
+the blocked task at a time:
+
+1. dispatch the existing typed request through `dispatchMissingContextRequest`;
+2. for a dispatched local research request, run the existing research agent;
+3. refresh accepted research evidence and unblock only when every request for
+   the task is resolved;
+4. continue normal task execution from a fresh state.
+
+Memory and exact-file requests keep their existing programmatic resolvers.
+Internet, user and tool requests keep their existing explicit permission or
+operator boundaries. A failed, malformed, partial or unresolved research result
+stops truthfully; it is not treated as context and is not retried inside the
+same automation run.
+
+No new retrieval subsystem, planner, routing policy or context format is added.
+The worker still proposes what is missing; the supervisor validates request
+type, authority, research evidence and the blocked-to-ready transition.
+
+## Acceptance and limits
+
+A deterministic integration regression must demonstrate:
+
+- a task worker reports an unknown local fact and transitions to `blocked`;
+- automation dispatches exactly one local research request and receives one
+  complete attributed report;
+- the supervisor resolves the request, returns the task to `ready`, and gives
+  the retry the bounded research claim through its context manifest;
+- the retry, validation and completion proceed through the existing FSM;
+- no internet grant or model-quality claim is involved.
+
+Run the focused regression, then the applicable build, unit/mock-integration,
+conformance and `git diff --check` gate once on the candidate tree.
+
+## Outcome
+
+`runScalerAutomation` now dispatches one existing unresolved request for its
+blocked task. Deterministic memory/file requests use their existing resolvers;
+local research uses one existing research-agent pass with the default project
+inspection/report tools. Complete matched evidence is refreshed into the task
+manifest before the task returns to `ready`. Failed, malformed, partial and
+unresolved research stops without another attempt in the same automation call.
+Internet, user and tool authority remains unchanged.
+
+The successful regression reaches task retry, validation and completion with
+the attributed bounded research answer in the retry prompt. The negative
+regression runs research once and leaves the task blocked. Candidate gate:
+TypeScript build, 1,168/1,168 unit/component, 72/72 mock integration, 10/10
+conformance/autopilot, 29/29 focused context/automation checks and
+`git diff --check` pass. These deterministic runners validate the FSM, not
+source truth, model quality or full SC-07/AC-07 completion.
