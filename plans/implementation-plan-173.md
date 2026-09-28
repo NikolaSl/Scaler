@@ -42,3 +42,12 @@ does not make its claim true.
 3. Document the bounded SC-11 improvement and keep SC-11/SC-15 Partial.
 4. Run focused debug tests, build and the applicable exact-head gate before
    review.
+
+## Independent-review closure
+
+The first exact-tree review found three valid admission gaps. The cycle-forming
+attempt can no longer clear its own gate: only a later persisted attempt may do
+so. Debug-attempt admission and publication are serialized under one bounded,
+non-stealing lock, so concurrent claims cannot both consume the same fresh
+reference or overwrite the audit ledger. Malformed non-string legacy references
+are ignored rather than granting admission or crashing the gate.

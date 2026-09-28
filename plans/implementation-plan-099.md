@@ -520,7 +520,10 @@ PLAN-173 closes one narrow SC-11 admission bypass: `newEvidence` prose alone no
 longer admits a repeated failed attempt or clears a fingerprint-cycle gate. The
 attempt must also introduce a normalized `evidence`, `validationRun` or `logRefs`
 identity not already recorded for the task. This remains structural admission;
-the owning evidence gate decides whether the referenced claim is true. SC-11
+the owning evidence gate decides whether the referenced claim is true. Review
+closure also requires a strictly later persisted attempt, serializes concurrent
+claims under a bounded non-stealing lock and rejects malformed legacy reference
+values without crashing. SC-11
 remains Partial because semantic rewording detection, aggregate tactic limits
 across replacement/resumption and the full AC-11 bounded fixture remain open.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
