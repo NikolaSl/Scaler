@@ -87,10 +87,12 @@ but cannot silently omit the required constraint. An unavailable or unauthorized
 source yields a truthful blocker. Record both context size and whether the
 worker obtained the information it needed; token savings alone do not pass.
 
-PLAN-151 covers only an explicit, scoped file request: the exact file becomes
-required context before resolution and the next prompt is admitted with it.
-Unknown-path candidate discovery, narrow section selection, and the full
-multi-window scenario remain open; SC-07 is Partial.
+PLAN-151 covers the original explicit scoped-file boundary. PLAN-155 through
+PLAN-159 add exact selectors, unknown-source research, declared 32K/128K process
+fixtures, main-loop continuation and bounded memory-summary delivery before
+resume. Natural-language selector inference, recursive/semantic graph traversal,
+automatic task/context choice and a representative configured local-provider
+run remain open; SC-07 is Partial.
 
 ## AC-08
 

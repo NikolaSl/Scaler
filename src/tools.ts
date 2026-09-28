@@ -180,6 +180,7 @@ const ToolRequestParams = Type.Object({
   riskLevel: Type.Optional(Type.String({ description: "low, medium, high, destructive, external, secret, or unknown." })),
   permissionRequirement: Type.Optional(Type.String({ description: "Approval or policy requirement known to the requester." })),
   safetyNotes: Type.Optional(Type.String({ description: "Safety constraints for the isolated tool agent." })),
+  isolationRequirement: Type.Optional(Type.String({ description: "capability, focus, or evidence-independence when isolation is mandatory." })),
   allowedTools: Type.Optional(Type.Array(Type.String(), { description: "Additional tools explicitly allowed for the isolated tool agent." })),
   directOperation: Type.Optional(Type.Object({
     adapterId: Type.Literal("builtin:tool-catalog-entry-v1"),
@@ -389,7 +390,12 @@ const DebugAttemptParams = Type.Object({
   details: Type.Optional(Type.Unknown()),
 });
 
-export function registerScalerTools(pi: ExtensionAPI): void {
+export interface ScalerToolRuntimeBindings {
+  resolveToolResultExecutionId?: (cwd: string, requestId: string) => string | undefined;
+  resolveMemoryRetrieveScope?: (cwd: string, requestedScope: string | undefined) => string | undefined;
+}
+
+export function registerScalerTools(pi: ExtensionAPI, runtimeBindings: ScalerToolRuntimeBindings = {}): void {
   pi.registerTool({
     name: "scaler_report",
     label: "Scaler Report",
@@ -436,9 +442,10 @@ export function registerScalerTools(pi: ExtensionAPI): void {
     description: "Retrieve external memory content by id/path and log the operation.",
     parameters: MemoryRetrieveParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const memory = await retrieveMemory(ctx.cwd, params.memoryIdOrPath, { scope: params.scope });
-      await logTool(ctx.cwd, "scaler_memory_retrieve", `Memory retrieved: ${memory.entry.id}`, { params, entry: memory.entry });
-      return textResult(memory.content, { status: "retrieved", entry: memory.entry, reason: params.reason, scope: params.scope });
+      const scope = runtimeBindings.resolveMemoryRetrieveScope?.(ctx.cwd, params.scope) ?? params.scope;
+      const memory = await retrieveMemory(ctx.cwd, params.memoryIdOrPath, { scope });
+      await logTool(ctx.cwd, "scaler_memory_retrieve", `Memory retrieved: ${memory.entry.id}`, { params, effectiveScope: scope, entry: memory.entry });
+      return textResult(memory.content, { status: "retrieved", entry: memory.entry, reason: params.reason, scope });
     },
   });
 
@@ -564,6 +571,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         riskLevel: params.riskLevel,
         permissionRequirement: params.permissionRequirement,
         safetyNotes: params.safetyNotes,
+        isolationRequirement: params.isolationRequirement as "capability" | "focus" | "evidence-independence" | undefined,
         allowedTools: params.allowedTools,
         directOperation: params.directOperation,
       });
@@ -612,7 +620,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         requestId: params.requestId,
         executionId: process.env.SCALER_CHILD_AGENT === "1"
           ? process.env.SCALER_TOOL_EXECUTION_ID
-          : undefined,
+          : runtimeBindings.resolveToolResultExecutionId?.(ctx.cwd, params.requestId),
         status: params.status,
         summary: params.summary,
         outputs: params.outputs,

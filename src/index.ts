@@ -115,7 +115,7 @@ import {
   validateStageArtifactReadiness,
 } from "./stages.js";
 import { formatStorageInventory, formatStorageMaintenanceReport, formatStorageMaintenanceSchedule, loadStorageMaintenanceSchedule, runScheduledStorageMaintenance, runStorageMaintenance, saveStorageInventory, scanScalerStorageInventory, updateStorageMaintenanceSchedule, type StorageMaintenancePolicy } from "./storage.js";
-import { buildRuntimeToolCatalog, buildRuntimeToolEnvelopeProfile, createToolReplayApproval, formatKnownToolCatalog, formatMcpEnumerationRuns, formatMcpServerRecords, formatRuntimeToolCatalog, formatToolIterationPolicy, formatToolIterationRuns, formatToolReplayApprovals, formatToolSchedules, formatToolSchemaDiscoveryRuns, formatToolTransactions, loadMcpEnumerationRuns, loadMcpServerRecords, loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolSchedules, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, replayToolTransaction, revokeToolReplayApproval, runMcpServerEnumeration, runToolIterationWorkflow, runToolRequestAgent, runToolSchedule, runToolSchemaDiscoveryAgent, saveToolIterationPolicy, selectParentRequesterActiveTools, shouldApplyParentToolFocus } from "./tool-requests.js";
+import { admitCurrentAgentToolProviderCall, buildRuntimeToolCatalog, buildRuntimeToolEnvelopeProfile, createToolReplayApproval, finalizeCurrentAgentToolExecution, formatKnownToolCatalog, formatMcpEnumerationRuns, formatMcpServerRecords, formatRuntimeToolCatalog, formatToolIterationPolicy, formatToolIterationRuns, formatToolReplayApprovals, formatToolSchedules, formatToolSchemaDiscoveryRuns, formatToolTransactions, loadMcpEnumerationRuns, loadMcpServerRecords, loadToolIterationPolicy, loadToolIterationRuns, loadToolReplayApprovals, loadToolSchedules, loadToolSchemaDiscoveryRuns, loadToolSchemaRecords, loadToolTransactions, prepareCurrentAgentToolExecution, replayToolTransaction, revokeToolReplayApproval, runMcpServerEnumeration, runToolIterationWorkflow, runToolRequestAgent, runToolSchedule, runToolSchemaDiscoveryAgent, saveToolIterationPolicy, selectParentRequesterActiveTools, shouldApplyParentToolFocus, type CurrentAgentToolPreparation, type ToolTransactionRecord } from "./tool-requests.js";
 import { registerScalerTools } from "./tools.js";
 import { formatValidationChecklist, recordValidationChecklist, upsertValidationManifestCommand } from "./validation.js";
 import { runValidationDebugLoopWorkflow, selectTaskForValidationDebugLoop } from "./validation-debug-loop.js";
@@ -215,8 +215,22 @@ function arraysEqual(left: string[], right: string[]): boolean {
 }
 
 export default function scalerExtension(pi: ExtensionAPI): void {
-  registerScalerTools(pi);
   const isChildAgent = process.env.SCALER_CHILD_AGENT === "1";
+  const activeToolFocusSnapshots = new Map<string, string[]>();
+  const blockedParentPromptCompositions = new Map<string, string>();
+  const currentAgentRuns = new Map<string, {
+    preparation: CurrentAgentToolPreparation;
+    transaction?: ToolTransactionRecord;
+    providerCalls: number;
+    blockedReason?: string;
+  }>();
+  registerScalerTools(pi, {
+    resolveToolResultExecutionId: (cwd, requestId) => {
+      const run = currentAgentRuns.get(cwd);
+      return run?.transaction?.requestId === requestId ? run.transaction.id : undefined;
+    },
+    resolveMemoryRetrieveScope: (cwd, requestedScope) => currentAgentRuns.has(cwd) ? "summary" : requestedScope,
+  });
 
   const originalRegisterCommand = pi.registerCommand.bind(pi);
   const auditedRegisterCommand: ExtensionAPI["registerCommand"] = (name, command) => originalRegisterCommand(name, {
@@ -240,8 +254,28 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   (pi as unknown as { registerCommand: ExtensionAPI["registerCommand"] }).registerCommand = auditedRegisterCommand;
 
   let lastAutoCompactKey: string | undefined;
-  const activeToolFocusSnapshots = new Map<string, string[]>();
-  const blockedParentPromptCompositions = new Map<string, string>();
+  const closeCurrentAgentRun = async (cwd: string, state: Awaited<ReturnType<typeof ensureState>>, aborted: boolean): Promise<void> => {
+    const run = currentAgentRuns.get(cwd);
+    if (!run) return;
+    try {
+      if (run.transaction) {
+        await finalizeCurrentAgentToolExecution(cwd, state, run.preparation, run.transaction, aborted || Boolean(run.blockedReason));
+      }
+    } finally {
+      currentAgentRuns.delete(cwd);
+      const restoredTools = restoreParentToolFocus(cwd, pi, activeToolFocusSnapshots);
+      if (restoredTools) {
+        try {
+          await logStateEvent(cwd, state, "SCALER current-agent tool focus restored", {
+            activeTools: restoredTools,
+            reason: run.blockedReason ?? (aborted ? "aborted" : "agent_end"),
+          });
+        } catch {
+          // Runtime tool restoration must not depend on telemetry storage.
+        }
+      }
+    }
+  };
 
   pi.on("turn_end", async (event, ctx) => {
     const usage = extractProviderUsage([event]);
@@ -270,7 +304,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         ctx.compact({ customInstructions: buildScalerCompactionInstructions(state, compactDecision) });
       }
     }
-    const restoredTools = restoreParentToolFocus(ctx.cwd, pi, activeToolFocusSnapshots);
+    const restoredTools = currentAgentRuns.has(ctx.cwd) ? undefined : restoreParentToolFocus(ctx.cwd, pi, activeToolFocusSnapshots);
     if (restoredTools) await logStateEvent(ctx.cwd, state, "SCALER parent tool focus restored", { activeTools: restoredTools });
     return undefined;
   });
@@ -288,7 +322,21 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   pi.on("before_agent_start", async (event, ctx) => {
     if (isChildAgent) return undefined;
     const state = await ensureState(ctx.cwd);
-    const focus = applyParentToolFocus(ctx.cwd, state, pi, activeToolFocusSnapshots);
+    const currentAgentRun = currentAgentRuns.get(ctx.cwd);
+    if (currentAgentRun && (!runtimeToolApisAvailable(pi)
+      || !arraysEqual(pi.getActiveTools(), currentAgentRun.preparation.activeToolNames))) {
+      const reason = "Pi active tools changed before current-agent prompt construction.";
+      blockedParentPromptCompositions.set(ctx.cwd, reason);
+      currentAgentRun.blockedReason = reason;
+      return undefined;
+    }
+    const focus = currentAgentRun
+      ? {
+          applied: false,
+          active: currentAgentRun.preparation.activeToolNames,
+          previous: activeToolFocusSnapshots.get(ctx.cwd) ?? currentAgentRun.preparation.activeToolNames,
+        }
+      : applyParentToolFocus(ctx.cwd, state, pi, activeToolFocusSnapshots);
     if (focus) {
       let systemPrompt: string;
       try {
@@ -314,7 +362,9 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       });
       blockedParentPromptCompositions.delete(ctx.cwd);
       try {
-        await logStateEvent(ctx.cwd, state, focus.applied ? "SCALER parent tool focus applied" : "SCALER parent tool focus verified", {
+        await logStateEvent(ctx.cwd, state, currentAgentRun
+          ? "SCALER current-agent tool focus verified"
+          : focus.applied ? "SCALER parent tool focus applied" : "SCALER parent tool focus verified", {
           taskId: state.currentTaskId,
           previousActiveTools: focus.previous,
           activeTools: focus.active,
@@ -335,8 +385,8 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     const reason = blockedParentPromptCompositions.get(ctx.cwd);
     if (reason) {
       ctx.abort();
+      const state = await ensureState(ctx.cwd);
       try {
-        const state = await ensureState(ctx.cwd);
         await logStateEvent(ctx.cwd, state, "SCALER parent provider request refused", {
           taskId: state.currentTaskId,
           reason,
@@ -346,6 +396,60 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       } catch {
         // The refusal remains latched across continuations even if telemetry fails.
       }
+      if (currentAgentRuns.has(ctx.cwd)) {
+        try {
+          await closeCurrentAgentRun(ctx.cwd, state, true);
+        } catch {
+          // Refusal and runtime tool restoration precede optional finalization telemetry.
+        }
+      }
+      return undefined;
+    }
+
+    const currentAgentRun = currentAgentRuns.get(ctx.cwd);
+    if (currentAgentRun) {
+      const state = await ensureState(ctx.cwd);
+      if (currentAgentRun.providerCalls >= 4) {
+        currentAgentRun.blockedReason = "current-agent provider-call limit exceeded";
+        ctx.abort();
+        await closeCurrentAgentRun(ctx.cwd, state, true);
+        return undefined;
+      }
+      const profile = buildRuntimeToolEnvelopeProfile(pi.getAllTools(), pi.getActiveTools(), {
+        requestedToolNames: currentAgentRun.preparation.activeToolNames,
+        selectionApisAvailable: runtimeToolApisAvailable(pi),
+      });
+      const contextWindow = typeof ctx.model?.contextWindow === "number" ? ctx.model.contextWindow : Number.NaN;
+      let admission: Awaited<ReturnType<typeof admitCurrentAgentToolProviderCall>>;
+      try {
+        admission = await admitCurrentAgentToolProviderCall(ctx.cwd, state, currentAgentRun.preparation, {
+          payload: event.payload,
+          model: snapshotHostModel(ctx.model) ?? {},
+          policy: createStrictProviderAdmissionPolicy(contextWindow),
+          profile,
+        }, currentAgentRun.transaction);
+      } catch {
+        currentAgentRun.blockedReason = "current-agent admission storage failed";
+        ctx.abort();
+        try {
+          await closeCurrentAgentRun(ctx.cwd, state, true);
+        } catch {
+          // Refusal precedes cleanup; orphaned durable ownership requires explicit reconciliation.
+        }
+        return undefined;
+      }
+      if (!admission.accepted || !admission.transaction) {
+        currentAgentRun.blockedReason = admission.message;
+        ctx.abort();
+        try {
+          await closeCurrentAgentRun(ctx.cwd, state, true);
+        } catch {
+          // Refusal precedes cleanup; orphaned durable ownership requires explicit reconciliation.
+        }
+        return undefined;
+      }
+      currentAgentRun.transaction = admission.transaction;
+      currentAgentRun.providerCalls += 1;
       return undefined;
     }
 
@@ -410,6 +514,9 @@ export default function scalerExtension(pi: ExtensionAPI): void {
 
   pi.on("agent_end", async (event, ctx) => {
     const state = await ensureState(ctx.cwd);
+    if (currentAgentRuns.has(ctx.cwd)) {
+      await closeCurrentAgentRun(ctx.cwd, state, false);
+    }
     const restoredTools = restoreParentToolFocus(ctx.cwd, pi, activeToolFocusSnapshots);
     if (restoredTools) await logStateEvent(ctx.cwd, state, "SCALER parent tool focus restored", { activeTools: restoredTools, reason: "agent_end" });
     await recordWatchdogHeartbeat(ctx.cwd, {
@@ -1562,6 +1669,57 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const message = `${result.message}${suffix}`;
       if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
       else console.log(message);
+    },
+  });
+
+  pi.registerCommand("scaler-tool-current", {
+    description: "Execute one prepared tool request in the current agent: /scaler-tool-current [requestId]",
+    handler: async (args, ctx) => {
+      const requestId = args?.trim() || undefined;
+      const state = await ensureState(ctx.cwd);
+      const notify = (message: string, accepted: boolean) => {
+        if (ctx.hasUI) ctx.ui.notify(message, accepted ? "info" : "warning");
+        else console.log(message);
+      };
+      if (isChildAgent) {
+        notify("Current-agent tool dispatch rejected: child agents cannot start a parent-session route.", false);
+        return;
+      }
+      if (!ctx.isIdle()) {
+        notify("Current-agent tool dispatch rejected: the current agent is busy.", false);
+        return;
+      }
+      if (!runtimeToolApisAvailable(pi)) {
+        notify("Current-agent tool dispatch rejected: runtime tool-selection APIs are unavailable.", false);
+        return;
+      }
+      if (currentAgentRuns.has(ctx.cwd) || activeToolFocusSnapshots.has(ctx.cwd)) {
+        notify("Current-agent tool dispatch rejected: another focused agent lifecycle is active.", false);
+        return;
+      }
+      const prepared = await prepareCurrentAgentToolExecution(ctx.cwd, state, requestId, pi.getAllTools().map((tool) => tool.name));
+      if (!prepared.accepted || !prepared.preparation) {
+        notify(prepared.message, false);
+        return;
+      }
+      const previous = pi.getActiveTools();
+      activeToolFocusSnapshots.set(ctx.cwd, previous);
+      pi.setActiveTools(prepared.preparation.activeToolNames);
+      if (!arraysEqual(pi.getActiveTools(), prepared.preparation.activeToolNames)) {
+        restoreParentToolFocus(ctx.cwd, pi, activeToolFocusSnapshots);
+        notify("Current-agent tool dispatch rejected: the host did not apply the exact selected tool set.", false);
+        return;
+      }
+      currentAgentRuns.set(ctx.cwd, { preparation: prepared.preparation, providerCalls: 0 });
+      try {
+        pi.sendUserMessage(prepared.preparation.prompt);
+      } catch {
+        currentAgentRuns.delete(ctx.cwd);
+        restoreParentToolFocus(ctx.cwd, pi, activeToolFocusSnapshots);
+        notify("Current-agent tool dispatch rejected: the host could not deliver the bounded request prompt.", false);
+        return;
+      }
+      notify(prepared.message, true);
     },
   });
 

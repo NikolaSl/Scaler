@@ -197,14 +197,100 @@ test("memory dispatch resolves from memory candidates and unblocks a task", asyn
   await withTempDir(async (dir) => {
     const state = createState();
     await saveState(dir, state);
-    await writeMemory(dir, { title: "Auth decision", content: "Use OAuth", summary: "OAuth decision", tags: ["auth"] });
+    const memory = await writeMemory(dir, {
+      title: "Auth decision",
+      content: "FULL_MEMORY_BODY_MUST_NOT_REACH_THE_FOCUSED_WORKER",
+      summary: "Use the accepted OAuth decision.",
+      tags: ["auth"],
+    });
     const created = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need memory auth decision"]));
 
     const result = await dispatchMissingContextRequest(dir, state, created.created[0]?.id, { execute: true });
     assert.equal(result.accepted, true, result.message);
+    const manifest = await loadTaskContextManifest(dir, "T-MISS");
+    const supplied = manifest?.items.find((item) => item.source === "memory" && item.memoryId === memory.id);
+    assert.equal(supplied?.priority, "required");
+    assert.equal(supplied?.scope, "summary");
+    assert.equal(supplied?.exactness, "summary-ok");
     const unblocked = await unblockTasksWithResolvedMissingContext(dir, await loadState(dir));
     assert.deepEqual(unblocked.unblockedTaskIds, ["T-MISS"]);
     assert.equal((await loadState(dir)).tasks[0]?.status, "ready");
+    const nextItems = await resolveTaskContextManifest(dir, unblocked.state, manifest!);
+    const nextPrompt = buildTaskAgentPrompt({ state: unblocked.state, task: unblocked.state.tasks[0]!, contextItems: nextItems }).prompt;
+    assert.match(nextPrompt, /Use the accepted OAuth decision/);
+    assert.match(nextPrompt, /validity=active/);
+    assert.doesNotMatch(nextPrompt, /FULL_MEMORY_BODY_MUST_NOT_REACH_THE_FOCUSED_WORKER/);
+  });
+});
+
+test("concurrent memory dispatch preserves every resolved request context", async () => {
+  await withTempDir(async (dir) => {
+    const state = createState();
+    await saveState(dir, state);
+    const alpha = await writeMemory(dir, {
+      title: "alphakey",
+      content: "alpha full body",
+      summary: "Required alpha summary.",
+      tags: ["alphakey"],
+      validity: "stale",
+    });
+    const beta = await writeMemory(dir, {
+      title: "betakey",
+      content: "beta full body",
+      summary: "Required beta summary.",
+      tags: ["betakey"],
+      validity: "stale",
+    });
+    const created = await createMissingContextRequestsFromTaskReport(
+      dir,
+      state,
+      report(["memory alphakey", "memory betakey"]),
+    );
+    assert.equal(created.created.length, 2);
+
+    const dispatched = await Promise.all(created.created.map((request) =>
+      dispatchMissingContextRequest(dir, state, request.id, { execute: true })));
+    assert.equal(dispatched.every((result) => result.request?.status === "resolved"), true);
+    const manifest = await loadTaskContextManifest(dir, "T-MISS");
+    assert.ok(manifest?.items.some((item) => item.memoryId === alpha.id));
+    assert.ok(manifest?.items.some((item) => item.memoryId === beta.id));
+    for (const request of created.created) {
+      assert.ok(manifest?.items.some((item) => item.reason.includes(request.id)), `missing required context for ${request.id}`);
+    }
+  });
+});
+
+test("memory dispatch blocks without candidates or on conflicting manifest scope", async () => {
+  await withTempDir(async (dir) => {
+    const state = createState();
+    await saveState(dir, state);
+    const absent = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need memory unavailable decision"]));
+    const noCandidate = await dispatchMissingContextRequest(dir, state, absent.created[0]?.id, { execute: true });
+    assert.equal(noCandidate.accepted, false);
+    assert.equal(noCandidate.request?.status, "blocked");
+    assert.match(noCandidate.message, /No memory candidates matched/);
+
+    const memory = await writeMemory(dir, {
+      title: "Scoped decision",
+      content: "Full memory body",
+      summary: "Bounded decision summary",
+      tags: ["scope"],
+    });
+    const manifest = await ensureTaskContextManifest(dir, state, "T-MISS");
+    await saveTaskContextManifest(dir, {
+      ...manifest,
+      items: manifest.items.map((item) => item.memoryId === memory.id
+        ? { ...item, scope: "full", exactness: "exact" }
+        : item),
+    });
+    const conflicting = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need memory scoped decision"]));
+    const refused = await dispatchMissingContextRequest(dir, state, conflicting.created[0]?.id, { execute: true });
+    assert.equal(refused.accepted, false);
+    assert.equal(refused.request?.status, "blocked");
+    assert.match(refused.message, /conflicts with the existing manifest/);
+    const unchanged = (await loadTaskContextManifest(dir, "T-MISS"))?.items.find((item) => item.memoryId === memory.id);
+    assert.equal(unchanged?.scope, "full");
+    assert.equal(unchanged?.exactness, "exact");
   });
 });
 

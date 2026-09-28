@@ -12,6 +12,8 @@ import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { getToolRequestsIndexPath, getToolResultsPath, getToolTransactionsPath } from "../src/paths.js";
 import * as toolRequestsModule from "../src/tool-requests.js";
 import {
+  admitCurrentAgentToolProviderCall,
+  buildRuntimeToolEnvelopeProfile,
   buildRuntimeToolCatalog,
   buildToolAgentPrompt,
   buildToolSchemaDiscoveryPrompt,
@@ -41,6 +43,8 @@ import {
   loadToolSchemaRecords,
   loadToolTransactions,
   normalizeToolRiskLevel,
+  finalizeCurrentAgentToolExecution,
+  prepareCurrentAgentToolExecution,
   prepareToolRequest,
   recordToolResult,
   recordToolSchema,
@@ -469,6 +473,124 @@ test("prepareToolRequest persists request and limited invocation with metadata",
     assert.ok(result.invocation?.args.includes("--tools"));
     assert.ok(result.invocation?.args.includes("docs_search,read"));
     assert.ok(!result.invocation?.args.includes("bash"));
+  });
+});
+
+test("current-agent tool dispatch binds exact provider identity and one structured result", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const request = await prepareToolRequest(dir, state, {
+      toolName: "read",
+      request: "Read one approved file.",
+      allowedTools: ["read"],
+    });
+    assert.ok(request.record);
+    const prepared = await prepareCurrentAgentToolExecution(
+      dir,
+      state,
+      request.record.id,
+      ["read", "scaler_tool_result"],
+    );
+    assert.ok(prepared.preparation);
+    assert.deepEqual(prepared.preparation.activeToolNames, ["read", "scaler_tool_result"]);
+    assert.match(prepared.preparation.prompt, /must not advance the supervisor FSM/i);
+
+    const definitions = prepared.preparation.activeToolNames.map((name) => ({
+      name,
+      description: name,
+      parameters: { type: "object" },
+      promptGuidelines: [`Use ${name}.`],
+      sourceInfo: { source: "test" },
+    }));
+    const profile = buildRuntimeToolEnvelopeProfile(definitions, prepared.preparation.activeToolNames, {
+      requestedToolNames: prepared.preparation.activeToolNames,
+      selectionApisAvailable: true,
+    });
+    const payload = { model: "local-32k", messages: [{ role: "user", content: prepared.preparation.prompt }], max_completion_tokens: 1024 };
+    const model = { api: "openai-completions", provider: "local", id: "local-32k", contextWindow: 32_000 };
+    const policy = { requestTokenAllowance: 32_000, outputReserveTokens: 1024, safetyMarginTokens: 1024 };
+    const admission = await admitCurrentAgentToolProviderCall(dir, state, prepared.preparation, { payload, model, policy, profile });
+    assert.equal(admission.accepted, true);
+    assert.equal(admission.transaction?.routeAdmission?.route, "current-agent");
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, admission.transaction?.id);
+
+    const changedModel = await admitCurrentAgentToolProviderCall(
+      dir,
+      state,
+      prepared.preparation,
+      { payload, model: { ...model, id: "other-local" }, policy, profile },
+      admission.transaction,
+    );
+    assert.equal(changedModel.accepted, false);
+    assert.match(changedModel.message, /identity changed/i);
+
+    const changedProvider = await admitCurrentAgentToolProviderCall(
+      dir,
+      state,
+      prepared.preparation,
+      { payload, model: { ...model, provider: "other-local" }, policy, profile },
+      admission.transaction,
+    );
+    assert.equal(changedProvider.accepted, false);
+    assert.match(changedProvider.message, /identity changed/i);
+
+    await recordToolResult(dir, state, {
+      requestId: request.record.id,
+      executionId: admission.transaction!.id,
+      status: "completed",
+      summary: "Read completed.",
+      outputs: { fact: "bounded" },
+    });
+    const finalized = await finalizeCurrentAgentToolExecution(dir, state, prepared.preparation, admission.transaction!);
+    assert.equal(finalized.accepted, true);
+    assert.equal(finalized.transaction?.status, "completed");
+    assert.equal(finalized.resultRecord?.acceptanceStatus, "accepted");
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
+  });
+});
+
+test("current-agent tool dispatch refuses unavailable, direct and isolation-bound requests", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const unavailable = await prepareToolRequest(dir, state, { toolName: "browser", request: "Inspect one page." });
+    assert.ok(unavailable.record);
+    const unavailableResult = await prepareCurrentAgentToolExecution(dir, state, unavailable.record.id, ["scaler_tool_result"]);
+    assert.equal(unavailableResult.accepted, false);
+    assert.match(unavailableResult.message, /unavailable/i);
+
+    const isolated = await prepareToolRequest(dir, state, {
+      toolName: "read",
+      request: "Read independently.",
+      isolationRequirement: "evidence-independence",
+    });
+    assert.ok(isolated.record);
+    const isolatedResult = await prepareCurrentAgentToolExecution(dir, state, isolated.record.id, ["read", "scaler_tool_result"]);
+    assert.equal(isolatedResult.accepted, false);
+    assert.match(isolatedResult.message, /requires evidence-independence isolation/i);
+
+    const direct = await prepareToolRequest(dir, state, {
+      toolName: "scaler_tool_catalog",
+      request: "Return read metadata.",
+      directOperation: { adapterId: "builtin:tool-catalog-entry-v1", arguments: { toolName: "read" } },
+    });
+    assert.ok(direct.record);
+    const directResult = await prepareCurrentAgentToolExecution(dir, state, direct.record.id, ["scaler_tool_catalog", "scaler_tool_result"]);
+    assert.equal(directResult.accepted, false);
+    assert.match(directResult.message, /exact direct operation/i);
+
+    const supervisorMutation = await prepareToolRequest(dir, state, {
+      toolName: "scaler_task_update",
+      request: "Advance the task state.",
+    });
+    assert.ok(supervisorMutation.record);
+    const supervisorResult = await prepareCurrentAgentToolExecution(
+      dir,
+      state,
+      supervisorMutation.record.id,
+      ["scaler_task_update", "scaler_tool_result"],
+    );
+    assert.equal(supervisorResult.accepted, false);
+    assert.match(supervisorResult.message, /supervisor/i);
   });
 });
 

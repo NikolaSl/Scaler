@@ -594,9 +594,21 @@ PLAN-147 adds one runtime-owned exact direct operation. Run
 test/tools.test.ts` to cover structured direct-operation persistence, fresh
 runtime route admission, zero-runner catalog lookup, execution/result identity,
 adapter and durable-argument drift, malformed operations and oversized result
-refusal. This does not execute arbitrary tools or MCP calls, wire current-agent
-or production isolated continuations, prove model quality, or establish savings;
-SC-08/AC-08 remains Partial.
+refusal. This does not execute arbitrary tools or MCP calls, wire production
+isolated continuations, prove model quality, or establish savings; SC-08/AC-08
+remains Partial.
+
+PLAN-160 adds the bounded current-agent route. Run `node --test --import tsx
+test/extension-shape.test.ts test/tool-requests.test.ts test/tool-routing.test.ts
+test/provider-admission-host.test.ts` for exact tool focus, actual-payload route admission,
+full provider/model and profile continuity, supervisor-mutating tool refusal,
+summary-only current-agent memory retrieval, provider-call bounds,
+runtime-owned result binding, restoration and
+telemetry-independent refusal/cleanup. The installed-host
+suite verifies the selected Pi prompt boundary. These tests do not configure or
+score a local model, wire the isolated continuation supplier, add generic
+direct/MCP adapters or complete the three-route production scenario; SC-08/AC-08
+remains Partial.
 
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx
@@ -916,3 +928,19 @@ call does not rerun unresolved research. Internet, user and tool authority is
 unchanged. Candidate results: build, 1,168/1,168 unit/component, 72/72 mock
 integration, 10/10 conformance/autopilot and 29/29 focused context/automation
 checks plus `git diff --check`.
+
+PLAN-159 verifies that a memory missing-context request cannot unblock a task
+with candidate identifiers alone:
+
+```bash
+node --test --import tsx test/missing-context.test.ts test/autopilot.test.ts
+```
+
+The focused cases require bounded candidate summaries in the next worker
+prompt, preserve visible validity metadata, exclude the full memory body and
+block no-match or conflicting-scope requests without changing the existing
+manifest. Concurrent resolutions for one task must retain both accepted items.
+Final accumulated phase results: build, 1,177/1,177 unit/component, 72/72 mock
+integration, 10/10 conformance/autopilot and 18/18 focused checks plus
+`git diff --check`. This is FSM/context-delivery evidence, not proof of memory
+truth, model quality, savings or full SC-07 acceptance.

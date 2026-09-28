@@ -330,6 +330,30 @@ explicit. The candidate passes build, 1,168 unit/component, 72 mock integration,
 This removes an operator step from the existing FSM but does not establish
 source truth, automatic task/context choice, local-model quality or full
 SC-07/AC-07 completion.
+PLAN-159 requires matched memory candidate summaries to enter the task manifest
+before a memory missing-context request resolves. The existing memory resolver
+keeps source and validity metadata visible, full bodies remain excluded, and
+missing, unavailable, conflicting or oversized candidates keep the task
+blocked. A bounded per-task critical section serializes manifest merge and
+request resolution so concurrent accepted requests retain both required items.
+The accumulated phase candidate passes build, 1,177 unit/component, 72 mock
+integration, 10 conformance/autopilot and 18 focused checks plus `git diff
+--check`. It adds no new ranking or approval subsystem and does not establish
+memory truth, automatic task/context choice, model quality, savings or full
+SC-07/AC-07.
+PLAN-160 adds one bounded current-agent tool route using the installed parent
+session. It narrows active tools to the request grant plus the result tool,
+recomputes route admission from each actual provider payload and exact selected
+profile, binds the first admitted call to the complete provider/model identity,
+and accepts only one runtime-bound structured result before restoring the prior
+tool set. Current-agent memory retrieval is summary-only. Supervisor-mutating SCALER tools, direct operations, isolation
+requirements, unavailable tools, identity or profile drift, excessive calls and
+malformed results fail closed. The candidate passes build, 1,177 unit/component,
+72 mock integration, 10 conformance/autopilot and 118 focused
+extension/tool/provider-host checks,
+including 15 installed-host checks, plus `git diff --check`. Production isolated continuation wiring,
+generic direct/MCP adapters and the complete three-route scenario remain open,
+so SC-08/AC-08 stays Partial; no model-quality or savings claim is made.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
 unresolved in-scope findings. The primary exact-head gate passed build,
