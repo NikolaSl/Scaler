@@ -274,14 +274,17 @@ scenario invokes research and missing-context dispatch explicitly; it does not
 establish autonomous research scheduling, real model discovery, or complete
 SC-07 coverage. It adds no new discovery subsystem.
 
-PLAN-157 repeats the successful process with exact synthetic provider bindings
-and task allowances of 32,768 and 131,072 tokens. The authorized source is
+PLAN-157 repeats the successful process with exact synthetic provider
+identity/policy propagation and task allowances of 32,768 and 131,072 tokens.
+The authorized source is
 larger than the smaller allowance, but only its requested heading reaches the
 final worker; the larger window does not cause unrelated bytes to be injected.
-Both final prompts pass the normal task-prompt and strict child provider-binding
-admission and advance only to validation. These deterministic runners establish
-the supervisor/FSM boundary, not real local-model execution, source truth,
-model quality or savings. SC-07 remains Partial.
+Every dispatched prompt passes normal task-prompt admission and carries the
+complete strict provider model/policy binding; final reports advance only to
+validation. The injected runners do not execute the installed host/provider
+hook. These deterministic runners establish the supervisor/FSM boundary, not
+real local-model execution, source truth, model quality or savings. SC-07
+remains Partial.
 
 PLAN-158 connects the same typed lifecycle to the main automation loop. A
 worker-proposed unknown local fact now causes one existing research request and

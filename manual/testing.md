@@ -893,8 +893,10 @@ The source fixture is larger than the smaller window under the conservative
 byte upper bound. Both cases must deliver the exact required heading, omit its
 large unrelated prefix/suffix, preserve distinct attempt identities and reach
 only `validating`. The runner also checks each dispatched task/research prompt
-against its declared allowance and exact provider binding. This is process
-evidence with deterministic runners, not a real local-model or quality result.
+against its declared allowance and verifies the complete synthetic provider
+model identity and strict policy carried by the request. The injected runner
+does not execute the installed host/provider hook. This is process evidence
+with deterministic runners, not a real local-model or quality result.
 Candidate results: build, 1,165/1,165 unit/component, 72/72 mock integration,
 7/7 conformance/autopilot and 2/2 focused varied-window scenarios.
 
@@ -911,6 +913,6 @@ persists a complete attributed answer, retries the task with that bounded claim
 and proceeds through validation and completion. The negative case accepts one
 partial report but keeps the task blocked and proves that the same automation
 call does not rerun unresolved research. Internet, user and tool authority is
-unchanged. Candidate results: build, 1,167/1,167 unit/component, 72/72 mock
-integration, 9/9 conformance/autopilot and 28/28 focused context/automation
+unchanged. Candidate results: build, 1,168/1,168 unit/component, 72/72 mock
+integration, 10/10 conformance/autopilot and 29/29 focused context/automation
 checks plus `git diff --check`.

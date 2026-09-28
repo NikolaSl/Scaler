@@ -58,7 +58,7 @@ Internet, user and tool authority remains unchanged.
 The successful regression reaches task retry, validation and completion with
 the attributed bounded research answer in the retry prompt. The negative
 regression runs research once and leaves the task blocked. Candidate gate:
-TypeScript build, 1,167/1,167 unit/component, 72/72 mock integration, 9/9
-conformance/autopilot, 28/28 focused context/automation checks and
+TypeScript build, 1,168/1,168 unit/component, 72/72 mock integration, 10/10
+conformance/autopilot, 29/29 focused context/automation checks and
 `git diff --check` pass. These deterministic runners validate the FSM, not
 source truth, model quality or full SC-07/AC-07 completion.

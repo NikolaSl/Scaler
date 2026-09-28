@@ -35,19 +35,21 @@ conductor and debug retry before report ingestion, validation or successful
 attempt publication. This closes one process gap without verifying all SC-05
 routes; candidate evidence: build, 1,163 unit, 68 mock integration,
 7 conformance, 69 focused tests.
-PLAN-157 composes unknown-source research, exact section delivery and final
-prompt/provider-binding admission under declared synthetic 32,768- and
-131,072-token windows. The necessary exact bytes reach both final attempts and
-large unrelated bytes remain absent. This is deterministic FSM evidence, not a
-real configured local-model run; SC-07/AC-07 remains Partial. Candidate
+PLAN-157 composes unknown-source research, exact section delivery, prompt
+admission and complete request-level provider identity/policy propagation under
+declared synthetic 32,768- and 131,072-token windows. The injected runners do
+not execute the installed host/provider hook. The necessary exact bytes reach
+both final attempts and large unrelated bytes remain absent. This is
+deterministic FSM evidence, not a real configured local-model run; SC-07/AC-07
+remains Partial. Candidate
 evidence: build, 1,165 unit, 72 mock integration, 7 conformance and 2 focused
 varied-window scenarios.
 PLAN-158 connects execution-time missing-context requests to the main
 automation loop one request at a time. Complete matched local research is
 persisted before retry; failed, malformed, partial or unresolved research stops
 without an internal rerun, and internet/user/tool authority remains explicit.
-Candidate evidence: build, 1,167 unit, 72 mock integration, 9 conformance and
-28 focused context/automation checks.
+Candidate evidence: build, 1,168 unit, 72 mock integration, 10 conformance and
+29 focused context/automation checks.
 
 Prior review ran the baseline TypeScript build successfully, 488/488 unit tests
 and 66/67 mock integration tests. The failed retention fixture uses fixed
