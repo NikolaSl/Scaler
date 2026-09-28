@@ -4,9 +4,9 @@
  */
 
 import { lstat, mkdir, readFile, rmdir, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { ensureTaskContextManifest, resolveTaskContextManifest, saveTaskContextManifest, trimMarkdownHeadingWhitespace, type FileContextSelector, type TaskContextManifestItem } from "./context.js";
+import { ensureTaskContextManifest, normalizeTaskScopedContextPath, resolveTaskContextManifest, saveTaskContextManifest, trimMarkdownHeadingWhitespace, type FileContextSelector, type TaskContextManifestItem } from "./context.js";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { searchMemory } from "./memory.js";
 import { getMissingContextRequestsPath, getTaskContextManifestPath } from "./paths.js";
@@ -309,7 +309,7 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
     if (request.kind === "local_research") {
       let invalidSource: string | undefined;
       for (const [index, source] of fileSources.entries()) {
-        const path = normalizeTaskScopedPath(cwd, source.path!, task);
+        const path = normalizeTaskScopedContextPath(cwd, source.path!, task);
         if (!path) {
           invalidSource = `Research source is outside the task's direct workspace scope: ${source.path}`;
           break;
@@ -389,24 +389,6 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
     }));
   }
   return { requests: sortMissingContextRequests(nextRequests), resolvedRequestIds };
-}
-
-function normalizeTaskScopedPath(
-  cwd: string,
-  source: string,
-  task: ScalerState["tasks"][number] | undefined,
-): string | undefined {
-  const path = relative(resolve(cwd), resolve(cwd, source)).split(sep).join("/");
-  const parts = path.split("/");
-  if (!task || isAbsolute(source) || source.includes("\\") || source.includes("\0")
-    || path === "." || parts.some((part) => !part || part === ".." || part === "."
-      || [".git", ".scaler", ".ssh", ".aws", ".env"].includes(part)
-      || /\.(?:pem|key|p12)$/i.test(part))
-    || (task.allowedPathPrefixes?.length && !task.allowedPathPrefixes.some((prefix) => {
-      const normalized = prefix.replace(/^\.\//, "").replace(/\/$/, "");
-      return path === normalized || path.startsWith(`${normalized}/`);
-    }))) return undefined;
-  return path;
 }
 
 export async function unblockTasksWithResolvedMissingContext(cwd: string, state: ScalerState, now = new Date()): Promise<MissingContextUnblockResult> {
@@ -521,7 +503,7 @@ async function dispatchFileRequest(cwd: string, request: MissingContextRequest, 
   if (!options.execute) return { accepted: true, action: "planned", request, message: `Missing-context file retrieval planned: ${request.id} source=${source}` };
   const state = await loadState(cwd);
   const currentTask = state.tasks.find((candidate) => candidate.id === request.taskId);
-  const path = normalizeTaskScopedPath(cwd, source, currentTask);
+  const path = normalizeTaskScopedContextPath(cwd, source, currentTask);
   if (!path) return await markMissingContextBlocked(cwd, request, "File source is outside the task's direct workspace scope.", now);
   const parts = path.split("/");
   try {

@@ -5,9 +5,11 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { snapshotFileContextSource } from "./context.js";
+import { normalizeTaskScopedContextPath, snapshotFileContextSource } from "./context.js";
 import { getResearchReportsPath, getResearchRequestsPath } from "./paths.js";
 import { writeMemory } from "./memory.js";
+import { loadState } from "./state.js";
+import type { ScalerTaskState } from "./types.js";
 
 export const researchRequestStatuses = ["open", "in_progress", "resolved", "blocked", "superseded"] as const;
 export type ResearchRequestStatus = (typeof researchRequestStatuses)[number];
@@ -232,6 +234,16 @@ export async function recordResearchReport(cwd: string, input: ResearchReportInp
   const timestamp = now.toISOString();
   const reports = await loadResearchReports(cwd);
   const existing = input.id ? reports.find((report) => report.id === input.id) : undefined;
+  const taskId = clean(input.taskId) ?? existing?.taskId;
+  let sourceTask: ScalerTaskState | undefined;
+  if (taskId) {
+    try {
+      sourceTask = (await loadState(cwd)).tasks.find((task) => task.id === taskId);
+    } catch {
+      // A report may exist independently of an active run. Without task scope,
+      // file-backed claims remain unbound and cannot unblock local work.
+    }
+  }
   const memoryRefs = [...(input.memoryRefs ?? existing?.memoryRefs ?? [])];
   for (const evidence of input.rawEvidence ?? []) {
     const memory = await writeMemory(cwd, {
@@ -250,9 +262,9 @@ export async function recordResearchReport(cwd: string, input: ResearchReportInp
     status: normalizeReportStatus(input.status ?? existing?.status ?? "partial"),
     question: cleanRequired(input.question, "Research report question is required."),
     requestId: clean(input.requestId) ?? existing?.requestId,
-    taskId: clean(input.taskId) ?? existing?.taskId,
+    taskId,
     requirementRefs: normalizeList(input.requirementRefs ?? existing?.requirementRefs),
-    sources: await normalizeSources(cwd, input.sources ?? existing?.sources ?? [], timestamp),
+    sources: await normalizeSources(cwd, input.sources ?? existing?.sources ?? [], timestamp, sourceTask),
     conclusions: normalizeConclusions(input.conclusions ?? existing?.conclusions ?? []),
     contradictions: normalizeContradictions(input.contradictions ?? existing?.contradictions),
     unresolvedUnknowns: normalizeList(input.unresolvedUnknowns ?? existing?.unresolvedUnknowns),
@@ -349,13 +361,19 @@ function validateResearchContradiction(contradiction: ResearchContradiction, sou
   }
 }
 
-async function normalizeSources(cwd: string, sources: ResearchSourceInput[], timestamp: string): Promise<ResearchSource[]> {
+async function normalizeSources(
+  cwd: string,
+  sources: ResearchSourceInput[],
+  timestamp: string,
+  task: ScalerTaskState | undefined,
+): Promise<ResearchSource[]> {
   const normalized = await Promise.all(sources.map(async (source): Promise<ResearchSource> => {
     const path = clean(source.path);
     let contentFingerprint: string | undefined;
-    if (path) {
+    const scopedPath = path ? normalizeTaskScopedContextPath(cwd, path, task) : undefined;
+    if (scopedPath) {
       try {
-        contentFingerprint = await snapshotFileContextSource(cwd, path);
+        contentFingerprint = await snapshotFileContextSource(cwd, scopedPath);
       } catch {
         // Preserve the report as evidence, but leave the source unbound so
         // admission can fail closed with task-specific context.

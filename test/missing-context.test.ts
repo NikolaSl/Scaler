@@ -342,11 +342,12 @@ test("local research refresh refuses file-backed sources outside task scope", as
     const created = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need local dependency version"]));
     const dispatched = await dispatchMissingContextRequest(dir, state, created.created[0]?.id, { execute: true });
 
-    await recordResearchReport(dir, {
+    const recorded = await recordResearchReport(dir, {
       requestId: dispatched.request!.evidenceRefs![0], question: "Need local dependency version", status: "complete", taskId: "T-MISS",
       sources: [{ id: "secret", title: "private source", quality: "project", path: "private/secret.md" }],
       conclusions: [{ summary: "Use the private value.", confidence: "high", sourceRefs: ["secret"] }],
     });
+    assert.equal(recorded.sources[0]?.contentFingerprint, undefined, "out-of-scope files must not be read for snapshotting");
 
     const refreshed = await refreshAndUnblockMissingContext(dir, await loadState(dir));
     assert.deepEqual(refreshed.unblockedTaskIds, []);
@@ -365,11 +366,12 @@ test("local research refresh refuses a file-backed claim whose source changed af
     const created = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need local dependency version"]));
     const dispatched = await dispatchMissingContextRequest(dir, state, created.created[0]?.id, { execute: true });
 
-    await recordResearchReport(dir, {
+    const recorded = await recordResearchReport(dir, {
       requestId: dispatched.request!.evidenceRefs![0], question: "Need local dependency version", status: "complete", taskId: "T-MISS",
       sources: [{ id: "dependency", title: "dependency metadata", quality: "project", path: "src/dependency.json" }],
       conclusions: [{ summary: "Dependency version is 1.0.0.", confidence: "high", sourceRefs: ["dependency"] }],
     });
+    assert.match(recorded.sources[0]?.contentFingerprint ?? "", /^sha256:[0-9a-f]{64}$/);
     await writeFile(join(dir, "src", "dependency.json"), "{\"version\":\"2.0.0\"}\n");
 
     const refreshed = await refreshAndUnblockMissingContext(dir, await loadState(dir));

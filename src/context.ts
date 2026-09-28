@@ -628,6 +628,10 @@ async function resolveFileContextSource(
 }
 
 export async function snapshotFileContextSource(cwd: string, path: string): Promise<string> {
+  const normalizedPath = normalizeContextSourcePath(cwd, path);
+  if (!await directProjectFileStat(cwd, normalizedPath)) {
+    throw new Error(`Context source is not a direct project file: ${path}`);
+  }
   const resolved = await resolveFileContextSource(cwd, {
     id: "research-source-snapshot",
     type: "file",
@@ -636,9 +640,28 @@ export async function snapshotFileContextSource(cwd: string, path: string): Prom
     scope: "reference-only",
     exactness: "reference-only",
     source: "file",
-    path,
+    path: normalizedPath,
   });
+  if (!resolved.binding.outputExemptible) throw new Error(`Context source identity changed: ${path}`);
   return resolved.binding.contentFingerprint;
+}
+
+export function normalizeTaskScopedContextPath(
+  cwd: string,
+  source: string,
+  task: ScalerTaskState | undefined,
+): string | undefined {
+  const path = relative(resolve(cwd), resolve(cwd, source)).split(sep).join("/");
+  const parts = path.split("/");
+  if (!task || isAbsolute(source) || source.includes("\\") || source.includes("\0")
+    || path === "." || parts.some((part) => !part || part === ".." || part === "."
+      || [".git", ".scaler", ".ssh", ".aws", ".env"].includes(part)
+      || /\.(?:pem|key|p12)$/i.test(part))
+    || (task.allowedPathPrefixes?.length && !task.allowedPathPrefixes.some((prefix) => {
+      const normalized = prefix.replace(/^\.\//, "").replace(/\/$/, "");
+      return path === normalized || path.startsWith(`${normalized}/`);
+    }))) return undefined;
+  return path;
 }
 
 function renderFileContextContent(
