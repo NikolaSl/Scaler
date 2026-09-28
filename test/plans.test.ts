@@ -1006,7 +1006,7 @@ test("acceptReplanProposal resumes an applying decision without losing audit or 
 });
 
 test("acceptReplanProposal rejects stale applying coverage before durable plan or task changes", async () => {
-  for (const drift of ["coverage", "revision"] as const) {
+  for (const drift of ["coverage", "coverage_same_timestamp", "revision", "plan"] as const) {
     await withTempDir(async (dir) => {
       const now = new Date("2026-01-01T00:00:00.000Z");
       const state = createDefaultState(now);
@@ -1045,6 +1045,8 @@ test("acceptReplanProposal rejects stale applying coverage before durable plan o
       }, now);
       const proposedPlan: ExecutionPlanArtifact = { ...currentPlan, planVersion: 2, status: "draft" };
       const proposalFingerprint = createHash("sha256").update(JSON.stringify(proposedPlan)).digest("hex");
+      const previousPlanFingerprint = createHash("sha256").update(JSON.stringify(currentPlan)).digest("hex");
+      const journaledCoverage = (await loadPrdCoverage(dir)).entries[0]!;
       await appendReplanDecision(dir, {
         id: `DECISION-${drift.toUpperCase()}`,
         status: "applying",
@@ -1055,8 +1057,10 @@ test("acceptReplanProposal rejects stale applying coverage before durable plan o
         snapshotPath: ".scaler/plans/versions/PLAN-v001.json",
         reopenedTaskIds: ["T-AFFECTED"],
         proposalFingerprint,
+        previousPlanFingerprint,
         affectedRequirementRevisions: { "REQ-AFFECTED": 2 },
         affectedCoverageUpdatedAts: { "REQ-AFFECTED": now.toISOString() },
+        affectedCoverageEntries: { "REQ-AFFECTED": journaledCoverage },
         preservation: {
           ok: true,
           preservedValidatedTaskIds: [],
@@ -1069,22 +1073,27 @@ test("acceptReplanProposal rejects stale applying coverage before durable plan o
         createdAt: now.toISOString(),
       } as never);
 
-      if (drift === "coverage") {
+      if (drift === "coverage" || drift === "coverage_same_timestamp") {
         await upsertPrdRequirement(dir, {
           id: "REQ-AFFECTED",
           statement: "Changed",
           status: "needs_replan",
           taskIds: ["T-AFFECTED"],
-          now: new Date("2026-01-01T00:00:30.000Z"),
+          notes: drift === "coverage_same_timestamp" ? "New invalidation at the same timestamp." : undefined,
+          now: drift === "coverage_same_timestamp" ? now : new Date("2026-01-01T00:00:30.000Z"),
         });
       } else {
-        await amendPrdRequirement(dir, {
-          id: "REQ-AFFECTED",
-          expectedRevision: 2,
-          reason: "Invalidate the applying decision.",
-          changes: { statement: "Changed again" },
-          now: new Date("2026-01-01T00:00:30.000Z"),
-        });
+        if (drift === "revision") {
+          await amendPrdRequirement(dir, {
+            id: "REQ-AFFECTED",
+            expectedRevision: 2,
+            reason: "Invalidate the applying decision.",
+            changes: { statement: "Changed again" },
+            now: new Date("2026-01-01T00:00:30.000Z"),
+          });
+        } else {
+          await saveExecutionPlan(dir, { ...currentPlan, title: "Concurrent replacement" }, now);
+        }
       }
 
       const requirements = await loadPrdRequirements(dir);
@@ -1092,9 +1101,10 @@ test("acceptReplanProposal rejects stale applying coverage before durable plan o
         currentPlan,
         proposedPlan,
         now: new Date("2026-01-01T00:01:00.000Z"),
-      }), /stale replan|replan coverage.*changed/i);
+      }), /stale replan|replan coverage.*changed|plan.*conflict/i);
 
       assert.equal((await loadExecutionPlan(dir)).planVersion, 1);
+      if (drift === "plan") assert.equal((await loadExecutionPlan(dir)).title, "Concurrent replacement");
       assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
       assert.deepEqual((await loadState(dir)).validatedTaskIds, ["T-AFFECTED"]);
       assert.equal((await loadPrdCoverage(dir)).entries[0]?.status, "needs_replan");
