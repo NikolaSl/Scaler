@@ -534,6 +534,10 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     if (restoredTools) await logStateEvent(ctx.cwd, state, "SCALER parent tool focus restored", { activeTools: restoredTools, reason: "agent_end" });
     const eventAgentId = (event as { agentId?: string }).agentId?.trim();
     const activeScopes = activeAgentHeartbeatScopes.get(ctx.cwd) ?? [];
+    if (eventAgentId) {
+      const matchingIndex = activeScopes.indexOf(eventAgentId);
+      if (matchingIndex >= 0) activeScopes.splice(matchingIndex, 1);
+    }
     const scopeId = eventAgentId || activeScopes.shift() || `${state.currentTaskId ?? state.runId}:agent:${process.pid}:${++heartbeatScopeSequence}`;
     await recordWatchdogHeartbeat(ctx.cwd, {
       scopeKind: "agent",
