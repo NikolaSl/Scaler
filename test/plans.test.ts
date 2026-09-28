@@ -35,7 +35,7 @@ import {
   validateExecutionPlan,
   validateReplanRequest,
 } from "../src/plans.js";
-import { computePrdCoverageSummary, loadPrdChanges, loadPrdCoverage, loadPrdRequirements, savePrdCoverage, upsertPrdRequirement } from "../src/prd.js";
+import { computePrdCoverageSummary, loadPrdChanges, loadPrdCoverage, loadPrdRequirements, savePrdCoverage, savePrdRequirements, upsertPrdRequirement } from "../src/prd.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { saveValidationManifest } from "../src/validation.js";
 
@@ -833,6 +833,7 @@ test("acceptReplanProposal reopens only validated tasks linked to needs_replan c
         { id: "REQ-KEEP", statement: "Stable", createdAt: state.createdAt, updatedAt: state.createdAt },
       ],
     };
+    await savePrdRequirements(dir, requirements);
 
     const result = await acceptReplanProposal(dir, state, requirements, {
       currentPlan,
@@ -941,6 +942,7 @@ test("acceptReplanProposal resumes an applying decision without losing audit or 
         { id: "REQ-CONCURRENT", statement: "Changed later", revision: 2, createdAt: state.createdAt, updatedAt: state.createdAt },
       ],
     };
+    await savePrdRequirements(dir, requirements);
 
     const result = await acceptReplanProposal(dir, state, requirements, {
       currentPlan,
