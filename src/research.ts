@@ -234,6 +234,9 @@ export async function recordResearchReport(cwd: string, input: ResearchReportInp
   const timestamp = now.toISOString();
   const reports = await loadResearchReports(cwd);
   const existing = input.id ? reports.find((report) => report.id === input.id) : undefined;
+  if (existing && input.sources !== undefined && input.conclusions === undefined) {
+    throw new Error(`Research report ${existing.id} source revisions require explicit conclusions.`);
+  }
   const taskId = clean(input.taskId) ?? existing?.taskId;
   let sourceTask: ScalerTaskState | undefined;
   if (taskId) {
@@ -264,7 +267,9 @@ export async function recordResearchReport(cwd: string, input: ResearchReportInp
     requestId: clean(input.requestId) ?? existing?.requestId,
     taskId,
     requirementRefs: normalizeList(input.requirementRefs ?? existing?.requirementRefs),
-    sources: await normalizeSources(cwd, input.sources ?? existing?.sources ?? [], timestamp, sourceTask),
+    sources: input.sources !== undefined
+      ? await normalizeSources(cwd, input.sources, timestamp, sourceTask)
+      : existing?.sources.map((source) => ({ ...source })) ?? [],
     conclusions: normalizeConclusions(input.conclusions ?? existing?.conclusions ?? []),
     contradictions: normalizeContradictions(input.contradictions ?? existing?.contradictions),
     unresolvedUnknowns: normalizeList(input.unresolvedUnknowns ?? existing?.unresolvedUnknowns),

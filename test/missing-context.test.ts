@@ -356,6 +356,31 @@ test("local research refresh refuses file-backed sources outside task scope", as
   });
 });
 
+test("local research refresh refuses a symlink-backed source inside task scope", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"), { recursive: true });
+    await mkdir(join(dir, "private"), { recursive: true });
+    await writeFile(join(dir, "private", "secret.md"), "not task context\n");
+    await symlink(join("..", "private", "secret.md"), join(dir, "src", "evidence.md"));
+    const state = createState();
+    state.tasks[0]!.allowedPathPrefixes = ["src"];
+    await saveState(dir, state);
+    const created = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need local dependency version"]));
+    const dispatched = await dispatchMissingContextRequest(dir, state, created.created[0]?.id, { execute: true });
+
+    const recorded = await recordResearchReport(dir, {
+      requestId: dispatched.request!.evidenceRefs![0], question: "Need local dependency version", status: "complete", taskId: "T-MISS",
+      sources: [{ id: "linked", title: "linked evidence", quality: "project", path: "src/evidence.md" }],
+      conclusions: [{ summary: "Use the linked value.", confidence: "high", sourceRefs: ["linked"] }],
+    });
+    assert.equal(recorded.sources[0]?.contentFingerprint, undefined);
+
+    const refreshed = await refreshAndUnblockMissingContext(dir, await loadState(dir));
+    assert.deepEqual(refreshed.unblockedTaskIds, []);
+    assert.equal((await loadMissingContextRequests(dir))[0]?.status, "blocked");
+  });
+});
+
 test("local research refresh refuses a file-backed claim whose source changed after research", async () => {
   await withTempDir(async (dir) => {
     await mkdir(join(dir, "src"), { recursive: true });
@@ -373,6 +398,13 @@ test("local research refresh refuses a file-backed claim whose source changed af
     });
     assert.match(recorded.sources[0]?.contentFingerprint ?? "", /^sha256:[0-9a-f]{64}$/);
     await writeFile(join(dir, "src", "dependency.json"), "{\"version\":\"2.0.0\"}\n");
+    const amended = await recordResearchReport(dir, {
+      id: recorded.id,
+      question: "Need local dependency version",
+      rawEvidence: [{ title: "Additional note", content: "The report needs revalidation." }],
+    });
+    assert.equal(amended.sources[0]?.contentFingerprint, recorded.sources[0]?.contentFingerprint,
+      "an unrelated report update must not rebaseline inherited sources");
 
     const refreshed = await refreshAndUnblockMissingContext(dir, await loadState(dir));
     assert.deepEqual(refreshed.unblockedTaskIds, []);
