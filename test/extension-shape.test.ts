@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -267,6 +267,59 @@ test("extension executes one prepared tool request through the admitted current 
     const transaction = (await loadToolTransactions(dir))[0];
     assert.equal(transaction?.routeAdmission?.route, "current-agent");
     assert.equal(transaction?.status, "completed");
+  });
+});
+
+test("current-agent provider refusal survives unavailable audit storage and restores tools", async () => {
+  await withTempDir(async (dir) => {
+    const handlers = new Map<string, (event: any, ctx: any) => Promise<unknown>>();
+    const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
+    let activeTools = ["bash", "read", "scaler_tool_result"];
+    let sentUserMessage = "";
+    const allTools = activeTools.map((name) => ({
+      name,
+      description: name,
+      parameters: { type: "object" },
+      promptGuidelines: [`Use ${name}.`],
+      sourceInfo: { source: "test" },
+    }));
+    const fakePi = {
+      on(name: string, handler: (event: any, ctx: any) => Promise<unknown>) { handlers.set(name, handler); },
+      registerTool() {},
+      registerCommand(name: string, definition: { handler: (args: string, ctx: any) => Promise<void> }) { commands.set(name, definition); },
+      getAllTools: () => allTools,
+      getActiveTools: () => [...activeTools],
+      setActiveTools: (names: string[]) => { activeTools = [...names]; },
+      sendUserMessage: (message: string) => { sentUserMessage = message; },
+    };
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    await saveState(dir, state);
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Read one file." });
+    assert.ok(prepared.record);
+    scalerExtension(fakePi as never);
+    const ctx = {
+      cwd: dir,
+      hasUI: false,
+      isIdle: () => true,
+      model: { api: "openai-completions", provider: "local", id: "local-8k", contextWindow: 8_000 },
+    };
+    await commands.get("scaler-tool-current")!.handler(prepared.record.id, ctx);
+    const systemPromptOptions = { cwd: dir, customPrompt: "system", selectedTools: [...activeTools] };
+    const systemPrompt = await buildHostSystemPrompt(systemPromptOptions);
+    await handlers.get("before_agent_start")?.({ type: "before_agent_start", prompt: sentUserMessage, systemPrompt, systemPromptOptions }, ctx);
+
+    const eventLog = join(dir, ".scaler", "logs", "events.jsonl");
+    await rm(eventLog, { force: true });
+    await mkdir(eventLog, { recursive: true });
+    let aborted = false;
+    await handlers.get("before_provider_request")?.({
+      type: "before_provider_request",
+      payload: { model: "local-8k", messages: [{ role: "user", content: "x".repeat(40_000) }], max_completion_tokens: 1024 },
+    }, { ...ctx, abort: () => { aborted = true; } });
+    assert.equal(aborted, true);
+    assert.deepEqual(activeTools, ["bash", "read", "scaler_tool_result"]);
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
   });
 });
 
