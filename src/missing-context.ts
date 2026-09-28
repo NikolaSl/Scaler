@@ -274,11 +274,24 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
   const requests = await loadMissingContextRequests(cwd);
   const reports = await loadResearchReports(cwd);
   const resolvedRequestIds: string[] = [];
+  const blockedRequestIds: string[] = [];
   let nextRequests = requests;
+
+  const blockRequest = (request: MissingContextRequest, reason: string): void => {
+    const blocked: MissingContextRequest = {
+      ...request,
+      status: "blocked",
+      resultSummary: reason,
+      updatedAt: now.toISOString(),
+    };
+    nextRequests = [...nextRequests.filter((candidate) => candidate.id !== request.id), blocked];
+    blockedRequestIds.push(request.id);
+  };
 
   for (const request of requests) {
     if ((request.kind !== "local_research" && request.kind !== "internet_research") || request.status === "resolved" || request.status === "superseded") continue;
-    if (!state.tasks.some((task) => task.id === request.taskId)) continue;
+    const task = state.tasks.find((candidate) => candidate.id === request.taskId);
+    if (!task) continue;
     const matchingReport = reports.find((report) => report.status === "complete"
       && report.taskId === request.taskId
       && report.question === request.query
@@ -287,21 +300,72 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
       && (report.unresolvedUnknowns ?? []).length === 0
       && !(report.contradictions ?? []).some((contradiction) => contradiction.status === "unresolved"));
     if (!matchingReport) continue;
+    const referencedSourceIds = new Set(matchingReport.conclusions.flatMap((conclusion) => conclusion.sourceRefs));
+    const fileSources = matchingReport.sources.filter((source) => referencedSourceIds.has(source.id) && source.path);
+    const manifest = await ensureTaskContextManifest(cwd, state, request.taskId);
+    const sourceItems: TaskContextManifestItem[] = [];
+    if (request.kind === "local_research") {
+      let invalidSource: string | undefined;
+      for (const [index, source] of fileSources.entries()) {
+        const path = normalizeTaskScopedPath(cwd, source.path!, task);
+        if (!path) {
+          invalidSource = `Research source is outside the task's direct workspace scope: ${source.path}`;
+          break;
+        }
+        if (!source.contentFingerprint) {
+          invalidSource = `Research source has no stable recorded content version: ${source.path}`;
+          break;
+        }
+        const item: TaskContextManifestItem = {
+          id: `missing-research-source-${request.id}-${index}`,
+          type: "file",
+          source: "file",
+          path,
+          sourceFingerprint: source.contentFingerprint,
+          priority: "required",
+          scope: "reference-only",
+          exactness: "reference-only",
+          reason: `Stable source binding for missing-context research request ${request.id}.`,
+        };
+        const existingSource = manifest.items.find((candidate) => candidate.id === item.id);
+        if (existingSource && (existingSource.source !== item.source || existingSource.path !== item.path
+          || existingSource.sourceFingerprint !== item.sourceFingerprint || existingSource.priority !== item.priority
+          || existingSource.scope !== item.scope)) {
+          invalidSource = `Research source conflicts with the existing manifest: ${item.id}`;
+          break;
+        }
+        sourceItems.push(existingSource ?? item);
+      }
+      if (invalidSource) {
+        blockRequest(request, invalidSource);
+        continue;
+      }
+    }
     const content = `Research answer (reported claim, not verified source bytes): ${JSON.stringify({
       reportId: matchingReport.id,
-      sources: matchingReport.sources.map((source) => ({ id: source.id, title: source.title, path: source.path, url: source.url, version: source.version, summary: source.summary })),
+      sources: matchingReport.sources.map((source) => ({ id: source.id, title: source.title, path: source.path, url: source.url, version: source.version, contentFingerprint: source.contentFingerprint, summary: source.summary })),
       conclusions: matchingReport.conclusions.map((conclusion) => ({ summary: conclusion.summary, confidence: conclusion.confidence, sourceRefs: conclusion.sourceRefs })),
     })}`;
     if (content.length > 16_384) continue;
-    const manifest = await ensureTaskContextManifest(cwd, state, request.taskId);
     const id = `missing-research-${request.id}`;
     const existing = manifest.items.find((item) => item.id === id);
     if (existing && (existing.source !== "inline" || existing.priority !== "required" || existing.content !== content)) continue;
-    if (!existing) await saveTaskContextManifest(cwd, { ...manifest, items: [...manifest.items, {
+    const answer: TaskContextManifestItem = existing ?? {
       id, type: "knowledge", source: "inline", priority: "required", scope: "full", exactness: "exact",
       reason: `Attributed research answer for missing-context request ${request.id}; source bytes may still need a separate request.`,
       content,
-    }] });
+    };
+    const additions = [...sourceItems.filter((item) => !manifest.items.some((candidate) => candidate.id === item.id)), ...(existing ? [] : [answer])];
+    const candidate = { ...manifest, items: [...manifest.items, ...additions] };
+    if (sourceItems.length > 0) {
+      const resolvedItems = await resolveTaskContextManifest(cwd, state, candidate);
+      const unavailable = sourceItems.find((item) => !resolvedItems.find((resolved) => resolved.id === item.id)?.available);
+      if (unavailable) {
+        blockRequest(request, `Research source changed or is unavailable: ${unavailable.path}`);
+        continue;
+      }
+    }
+    if (additions.length > 0) await saveTaskContextManifest(cwd, candidate);
     const resolved: MissingContextRequest = {
       ...request,
       status: "resolved",
@@ -314,15 +378,33 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
     resolvedRequestIds.push(request.id);
   }
 
-  if (resolvedRequestIds.length > 0) {
+  if (resolvedRequestIds.length > 0 || blockedRequestIds.length > 0) {
     await saveMissingContextRequests(cwd, nextRequests);
     await appendLogEvent(cwd, createLogEvent(state, {
       eventType: "system",
-      summary: `Missing-context research resolutions refreshed: ${resolvedRequestIds.join(", ")}`,
-      details: { resolvedRequestIds },
+      summary: `Missing-context research refresh completed: resolved=${resolvedRequestIds.join(", ") || "none"} blocked=${blockedRequestIds.join(", ") || "none"}`,
+      details: { resolvedRequestIds, blockedRequestIds },
     }));
   }
   return { requests: sortMissingContextRequests(nextRequests), resolvedRequestIds };
+}
+
+function normalizeTaskScopedPath(
+  cwd: string,
+  source: string,
+  task: ScalerState["tasks"][number] | undefined,
+): string | undefined {
+  const path = relative(resolve(cwd), resolve(cwd, source)).split(sep).join("/");
+  const parts = path.split("/");
+  if (!task || isAbsolute(source) || source.includes("\\") || source.includes("\0")
+    || path === "." || parts.some((part) => !part || part === ".." || part === "."
+      || [".git", ".scaler", ".ssh", ".aws", ".env"].includes(part)
+      || /\.(?:pem|key|p12)$/i.test(part))
+    || (task.allowedPathPrefixes?.length && !task.allowedPathPrefixes.some((prefix) => {
+      const normalized = prefix.replace(/^\.\//, "").replace(/\/$/, "");
+      return path === normalized || path.startsWith(`${normalized}/`);
+    }))) return undefined;
+  return path;
 }
 
 export async function unblockTasksWithResolvedMissingContext(cwd: string, state: ScalerState, now = new Date()): Promise<MissingContextUnblockResult> {
@@ -437,16 +519,9 @@ async function dispatchFileRequest(cwd: string, request: MissingContextRequest, 
   if (!options.execute) return { accepted: true, action: "planned", request, message: `Missing-context file retrieval planned: ${request.id} source=${source}` };
   const state = await loadState(cwd);
   const currentTask = state.tasks.find((candidate) => candidate.id === request.taskId);
-  const path = relative(resolve(cwd), resolve(cwd, source)).split(sep).join("/");
+  const path = normalizeTaskScopedPath(cwd, source, currentTask);
+  if (!path) return await markMissingContextBlocked(cwd, request, "File source is outside the task's direct workspace scope.", now);
   const parts = path.split("/");
-  if (!currentTask || isAbsolute(source) || source.includes("\\") || source.includes("\0")
-    || path === "." || parts.some((part) => !part || part === ".." || part === "."
-      || [".git", ".scaler", ".ssh", ".aws", ".env"].includes(part)
-      || /\.(?:pem|key|p12)$/i.test(part))
-    || (currentTask.allowedPathPrefixes?.length && !currentTask.allowedPathPrefixes.some((prefix) => {
-      const normalized = prefix.replace(/^\.\//, "").replace(/\/$/, "");
-      return path === normalized || path.startsWith(`${normalized}/`);
-    }))) return await markMissingContextBlocked(cwd, request, "File source is outside the task's direct workspace scope.", now);
   try {
     for (let depth = 1; depth <= parts.length; depth++) {
       const observed = await lstat(join(cwd, ...parts.slice(0, depth)));

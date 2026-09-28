@@ -5,6 +5,7 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { snapshotFileContextSource } from "./context.js";
 import { getResearchReportsPath, getResearchRequestsPath } from "./paths.js";
 import { writeMemory } from "./memory.js";
 
@@ -57,6 +58,7 @@ export interface ResearchSource {
   path?: string;
   version?: string;
   summary?: string;
+  contentFingerprint?: string;
 }
 
 export interface ResearchConclusion {
@@ -250,7 +252,7 @@ export async function recordResearchReport(cwd: string, input: ResearchReportInp
     requestId: clean(input.requestId) ?? existing?.requestId,
     taskId: clean(input.taskId) ?? existing?.taskId,
     requirementRefs: normalizeList(input.requirementRefs ?? existing?.requirementRefs),
-    sources: normalizeSources(input.sources ?? existing?.sources ?? [], timestamp),
+    sources: await normalizeSources(cwd, input.sources ?? existing?.sources ?? [], timestamp),
     conclusions: normalizeConclusions(input.conclusions ?? existing?.conclusions ?? []),
     contradictions: normalizeContradictions(input.contradictions ?? existing?.contradictions),
     unresolvedUnknowns: normalizeList(input.unresolvedUnknowns ?? existing?.unresolvedUnknowns),
@@ -323,6 +325,9 @@ function validateResearchSource(source: ResearchSource, sourceIds: Set<string>, 
   if (!researchSourceQualities.includes(source.quality)) throw new Error(`Invalid research source quality: ${String(source.quality)}`);
   if (!source.checkedAt.trim()) throw new Error(`Research source ${source.id} checkedAt is required.`);
   if (!source.url && !source.path && !source.summary) throw new Error(`Research source ${source.id} requires url, path, or summary.`);
+  if (source.contentFingerprint !== undefined && !/^sha256:[0-9a-f]{64}$/.test(source.contentFingerprint)) {
+    throw new Error(`Research source ${source.id} contentFingerprint is invalid.`);
+  }
 }
 
 function validateResearchConclusion(conclusion: ResearchConclusion, sourceIds: Set<string>, reportId: string): void {
@@ -344,17 +349,31 @@ function validateResearchContradiction(contradiction: ResearchContradiction, sou
   }
 }
 
-function normalizeSources(sources: ResearchSourceInput[], timestamp: string): ResearchSource[] {
-  return sources.map((source) => ({
-    id: cleanRequired(source.id, "Research source id is required."),
-    title: cleanRequired(source.title, "Research source title is required."),
-    quality: normalizeSourceQuality(source.quality),
-    checkedAt: clean(source.checkedAt) ?? timestamp,
-    url: clean(source.url),
-    path: clean(source.path),
-    version: clean(source.version),
-    summary: clean(source.summary),
-  })).sort((a, b) => rankResearchSourceQuality(a.quality) - rankResearchSourceQuality(b.quality) || a.id.localeCompare(b.id));
+async function normalizeSources(cwd: string, sources: ResearchSourceInput[], timestamp: string): Promise<ResearchSource[]> {
+  const normalized = await Promise.all(sources.map(async (source): Promise<ResearchSource> => {
+    const path = clean(source.path);
+    let contentFingerprint: string | undefined;
+    if (path) {
+      try {
+        contentFingerprint = await snapshotFileContextSource(cwd, path);
+      } catch {
+        // Preserve the report as evidence, but leave the source unbound so
+        // admission can fail closed with task-specific context.
+      }
+    }
+    return {
+      id: cleanRequired(source.id, "Research source id is required."),
+      title: cleanRequired(source.title, "Research source title is required."),
+      quality: normalizeSourceQuality(source.quality),
+      checkedAt: clean(source.checkedAt) ?? timestamp,
+      url: clean(source.url),
+      path,
+      version: clean(source.version),
+      summary: clean(source.summary),
+      contentFingerprint,
+    };
+  }));
+  return normalized.sort((a, b) => rankResearchSourceQuality(a.quality) - rankResearchSourceQuality(b.quality) || a.id.localeCompare(b.id));
 }
 
 function normalizeConclusions(conclusions: ResearchConclusionInput[]): ResearchConclusion[] {

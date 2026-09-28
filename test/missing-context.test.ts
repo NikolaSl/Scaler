@@ -379,8 +379,38 @@ test("local research refresh refuses a file-backed claim whose source changed af
   });
 });
 
+test("local research source binding becomes unavailable when the file changes before retry", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, "src"), { recursive: true });
+    await writeFile(join(dir, "src", "dependency.json"), "{\"version\":\"1.0.0\"}\n");
+    const state = createState();
+    state.tasks[0]!.allowedPathPrefixes = ["src"];
+    await saveState(dir, state);
+    const created = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need local dependency version"]));
+    const dispatched = await dispatchMissingContextRequest(dir, state, created.created[0]?.id, { execute: true });
+
+    await recordResearchReport(dir, {
+      requestId: dispatched.request!.evidenceRefs![0], question: "Need local dependency version", status: "complete", taskId: "T-MISS",
+      sources: [{ id: "dependency", title: "dependency metadata", quality: "project", path: "src/dependency.json" }],
+      conclusions: [{ summary: "Dependency version is 1.0.0.", confidence: "high", sourceRefs: ["dependency"] }],
+    });
+    const refreshed = await refreshAndUnblockMissingContext(dir, await loadState(dir));
+    assert.deepEqual(refreshed.unblockedTaskIds, ["T-MISS"]);
+    const manifest = await loadTaskContextManifest(dir, "T-MISS");
+    const sourceItem = manifest?.items.find((item) => item.id.startsWith("missing-research-source-"));
+    assert.match(sourceItem?.sourceFingerprint ?? "", /^sha256:[0-9a-f]{64}$/);
+
+    await writeFile(join(dir, "src", "dependency.json"), "{\"version\":\"2.0.0\"}\n");
+    const resolved = await resolveTaskContextManifest(dir, refreshed.state, manifest!);
+    const stale = resolved.find((item) => item.id === sourceItem?.id);
+    assert.equal(stale?.available, false);
+    assert.match(stale?.diagnostic ?? "", /fingerprint changed/);
+  });
+});
+
 test("research refresh does not overwrite an existing required answer identity", async () => {
   await withTempDir(async (dir) => {
+    await writeFile(join(dir, "package.json"), "{\"version\":\"1.0.0\"}\n");
     const state = createState();
     await saveState(dir, state);
     const created = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need local dependency version"]));
