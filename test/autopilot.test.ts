@@ -238,7 +238,10 @@ test("runScalerAutomation continues a blocked task through local missing-context
         assert.match(request.taskId, /^research-agent-RESEARCH-MCTX-T-AUTO-/);
         assert.match(request.prompt, /Determine the local canonical widget rule/);
         assert.ok(request.tools?.includes("read"));
-        assert.ok(request.tools?.includes("bash"));
+        assert.ok(request.tools?.includes("find"));
+        assert.ok(request.tools?.includes("grep"));
+        assert.ok(request.tools?.includes("ls"));
+        assert.equal(request.tools?.includes("bash"), false);
         assert.equal(request.tools?.includes("scaler_research_report"), false);
         const requestId = request.taskId.slice("research-agent-".length);
         return {

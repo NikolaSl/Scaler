@@ -197,7 +197,7 @@ interface SupplementalIngestionInput {
 }
 
 const executionPlanStatuses = new Set<ExecutionPlanStatus>(["draft", "active", "superseded", "completed"]);
-const localProjectInspectionTools = ["read", "bash"];
+const localProjectInspectionTools = ["read", "find", "grep", "ls"];
 
 export async function runAutonomousStageWorkflow(
   cwd: string,

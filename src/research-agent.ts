@@ -208,9 +208,14 @@ export function prepareResearchAgentInvocation(
 }
 
 export function resolveResearchAgentGrantedTools(request: ResearchRequest, options: ResearchAgentInvocationOptions = {}): string[] {
-  const tools = uniqueNonEmpty(options.tools ?? []).filter((tool) => tool !== "scaler_research_report");
-  if (request.scope === "local") return tools;
-  return options.allowInternet ? tools : [];
+  const localInspectionTools = new Set(["find", "grep", "ls", "read"]);
+  const readOnlyScalerTools = new Set(["scaler_memory_retrieve", "scaler_memory_search"]);
+  const tools = uniqueNonEmpty(options.tools ?? []).filter((tool) => {
+    if (request.scope === "local") return localInspectionTools.has(tool) || readOnlyScalerTools.has(tool);
+    if (tool === "bash" || tool === "edit" || tool === "write") return false;
+    return !tool.startsWith("scaler_") || readOnlyScalerTools.has(tool);
+  });
+  return request.scope === "local" || options.allowInternet ? tools : [];
 }
 
 export function formatResearchToolPolicy(request: ResearchRequest, grantedTools: string[] = [], allowInternet = false): string {
