@@ -64,7 +64,9 @@ requirement revision mismatch was detected only after downstream durable
 effects. The journal now also captures each affected coverage row and the exact
 previous active-plan fingerprint. The PRD lock covers verification, coverage
 advance and all downstream active-plan, reopened-state, task, request and decision
-writes, so a competing material amendment begins after that transaction. A
-changed same-version plan, newer coverage row, duplicate coverage id or requirement
-revision fails closed. The immutable pre-acceptance snapshot may already exist
-after a rejected recovery; it is not executable state.
+writes even when no coverage row is affected, so a competing material amendment
+begins after that transaction. Proposal and plan fingerprints omit only normalized
+`updatedAt`, preserving timestamp-only retry identity. A changed same-version plan,
+newer coverage row, duplicate coverage id or requirement revision fails closed.
+The immutable pre-acceptance snapshot may already exist after a rejected recovery;
+it is not executable state.
