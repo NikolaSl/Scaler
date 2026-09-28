@@ -78,7 +78,7 @@ the supported model-independent FSM and OpenAI Chat Completions adapter. It
 does not establish tokenizer-exact measurement, other provider adapters,
 configured local inference, model quality, savings or scale.
 
-Exact candidate validation: TypeScript build, 1,198/1,198 unit/component,
-73/73 mock integration, 10/10 conformance/autopilot and 133/133 focused
+Exact candidate validation: TypeScript build, 1,199/1,199 unit/component,
+73/73 mock integration, 10/10 conformance/autopilot and 134/134 focused
 context/conductor/provider/admission/accounting checks pass, together with
 `git diff --check`.
