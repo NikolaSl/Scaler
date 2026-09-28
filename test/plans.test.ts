@@ -1004,6 +1004,104 @@ test("acceptReplanProposal resumes an applying decision without losing audit or 
   });
 });
 
+test("acceptReplanProposal rejects stale applying coverage before durable plan or task changes", async () => {
+  for (const drift of ["coverage", "revision"] as const) {
+    await withTempDir(async (dir) => {
+      const now = new Date("2026-01-01T00:00:00.000Z");
+      const state = createDefaultState(now);
+      state.stage = "replanning";
+      state.tasks = [{
+        id: "T-AFFECTED",
+        title: "Affected",
+        status: "validated",
+        prdRefs: ["REQ-AFFECTED"],
+        updatedAt: state.createdAt,
+      }];
+      state.validatedTaskIds = ["T-AFFECTED"];
+      state.completedTaskIds = ["T-AFFECTED"];
+      await saveState(dir, state);
+      await upsertPrdRequirement(dir, {
+        id: "REQ-AFFECTED",
+        statement: "Original",
+        status: "needs_replan",
+        taskIds: ["T-AFFECTED"],
+        now,
+      });
+      await amendPrdRequirement(dir, {
+        id: "REQ-AFFECTED",
+        expectedRevision: 1,
+        reason: "Create the journaled revision.",
+        changes: { statement: "Changed" },
+        now,
+      });
+      const currentPlan = await saveExecutionPlan(dir, {
+        version: 1,
+        planVersion: 1,
+        status: "active",
+        tasks: [validPlanTask("T-AFFECTED", "Affected", { prdRefs: ["REQ-AFFECTED"] })],
+        createdAt: state.createdAt,
+        updatedAt: state.createdAt,
+      }, now);
+      const proposedPlan: ExecutionPlanArtifact = { ...currentPlan, planVersion: 2, status: "draft" };
+      const proposalFingerprint = createHash("sha256").update(JSON.stringify(proposedPlan)).digest("hex");
+      await appendReplanDecision(dir, {
+        id: `DECISION-${drift.toUpperCase()}`,
+        status: "applying",
+        summary: "Applying proposed execution plan version 2.",
+        requestIds: [],
+        previousPlanVersion: 1,
+        proposedPlanVersion: 2,
+        snapshotPath: ".scaler/plans/versions/PLAN-v001.json",
+        reopenedTaskIds: ["T-AFFECTED"],
+        proposalFingerprint,
+        affectedRequirementRevisions: { "REQ-AFFECTED": 2 },
+        affectedCoverageUpdatedAts: { "REQ-AFFECTED": now.toISOString() },
+        preservation: {
+          ok: true,
+          preservedValidatedTaskIds: [],
+          droppedValidatedTaskIds: [],
+          preservedValidatedRequirementIds: [],
+          droppedValidatedRequirementIds: [],
+          unlinkedRequirementIds: [],
+          planUnlinkedTaskIds: [],
+        },
+        createdAt: now.toISOString(),
+      } as never);
+
+      if (drift === "coverage") {
+        await upsertPrdRequirement(dir, {
+          id: "REQ-AFFECTED",
+          statement: "Changed",
+          status: "needs_replan",
+          taskIds: ["T-AFFECTED"],
+          now: new Date("2026-01-01T00:00:30.000Z"),
+        });
+      } else {
+        await amendPrdRequirement(dir, {
+          id: "REQ-AFFECTED",
+          expectedRevision: 2,
+          reason: "Invalidate the applying decision.",
+          changes: { statement: "Changed again" },
+          now: new Date("2026-01-01T00:00:30.000Z"),
+        });
+      }
+
+      const requirements = await loadPrdRequirements(dir);
+      await assert.rejects(() => acceptReplanProposal(dir, state, requirements, {
+        currentPlan,
+        proposedPlan,
+        now: new Date("2026-01-01T00:01:00.000Z"),
+      }), /stale replan|replan coverage.*changed/i);
+
+      assert.equal((await loadExecutionPlan(dir)).planVersion, 1);
+      assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
+      assert.deepEqual((await loadState(dir)).validatedTaskIds, ["T-AFFECTED"]);
+      assert.equal((await loadPrdCoverage(dir)).entries[0]?.status, "needs_replan");
+      assert.equal((await loadReplanDecisions(dir))[0]?.status, "applying");
+    });
+  }
+});
+
 test("acceptReplanProposal rejects unsafe proposals and records decision", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
