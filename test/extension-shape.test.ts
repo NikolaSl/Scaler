@@ -20,6 +20,7 @@ import { getLogToolsDir } from "../src/paths.js";
 import { loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { loadStorageInventory, loadStorageMaintenanceSchedule, updateStorageMaintenanceSchedule } from "../src/storage.js";
+import { loadToolRequests, loadToolTransactions, prepareToolRequest } from "../src/tool-requests.js";
 import { getValidationManifestForTask, saveValidationManifest } from "../src/validation.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -126,6 +127,7 @@ test("extension registers scaler commands", () => {
     "scaler-tool-schedule",
     "scaler-tool-schedules",
     "scaler-tool-run",
+    "scaler-tool-current",
     "scaler-tool-transactions",
     "scaler-research-run",
     "scaler-research-web",
@@ -170,6 +172,102 @@ test("extension registers scaler commands", () => {
     "scaler-budget-set",
     "scaler-status",
   ]);
+});
+
+test("extension executes one prepared tool request through the admitted current agent", async () => {
+  await withTempDir(async (dir) => {
+    const handlers = new Map<string, (event: any, ctx: any) => Promise<unknown>>();
+    const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
+    const tools = new Map<string, { execute: (...args: any[]) => Promise<any> }>();
+    let activeTools = ["bash", "read", "scaler_tool_request", "scaler_task_report", "scaler_tool_result"];
+    let sentUserMessage = "";
+    const allTools = activeTools.map((name) => ({
+      name,
+      description: `${name} description`,
+      parameters: { type: "object", properties: {} },
+      promptGuidelines: [`Use ${name} only for its named purpose.`],
+      sourceInfo: { source: "test", path: `<test:${name}>` },
+    }));
+    const fakePi = {
+      on(name: string, handler: (event: any, ctx: any) => Promise<unknown>) { handlers.set(name, handler); },
+      registerTool(definition: { name: string; execute: (...args: any[]) => Promise<any> }) { tools.set(definition.name, definition); },
+      registerCommand(name: string, definition: { handler: (args: string, ctx: any) => Promise<void> }) { commands.set(name, definition); },
+      getAllTools: () => allTools,
+      getActiveTools: () => [...activeTools],
+      setActiveTools: (names: string[]) => { activeTools = [...names]; },
+      sendUserMessage: (message: string) => { sentUserMessage = message; },
+    };
+
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    state.currentTaskId = "T-CURRENT";
+    state.tasks = [{ id: "T-CURRENT", status: "running", title: "Current route", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+    const prepared = await prepareToolRequest(dir, state, {
+      taskId: "T-CURRENT",
+      toolName: "read",
+      request: "Read the approved project file and return one bounded fact.",
+      expectedOutput: "One bounded fact with a file reference.",
+      allowedTools: ["read"],
+    });
+    assert.ok(prepared.record);
+
+    scalerExtension(fakePi as never);
+    const command = commands.get("scaler-tool-current");
+    assert.ok(command);
+    const commandCtx = {
+      cwd: dir,
+      hasUI: false,
+      isIdle: () => true,
+      model: { api: "openai-completions", provider: "local", id: "local-32k", contextWindow: 32_000 },
+    };
+    await command.handler(prepared.record.id, commandCtx);
+    assert.deepEqual(activeTools, ["read", "scaler_tool_result"]);
+    assert.match(sentUserMessage, /current SCALER parent agent/i);
+    assert.match(sentUserMessage, /must not advance the supervisor FSM/i);
+
+    const systemPromptOptions = { cwd: dir, customPrompt: "system", selectedTools: [...activeTools] };
+    const systemPrompt = await buildHostSystemPrompt(systemPromptOptions);
+    const beforeStart = await handlers.get("before_agent_start")?.({
+      type: "before_agent_start",
+      prompt: sentUserMessage,
+      systemPrompt,
+      systemPromptOptions,
+    }, commandCtx) as { systemPrompt?: string } | undefined;
+    assert.ok(beforeStart?.systemPrompt);
+
+    let aborted = false;
+    const payload = {
+      model: "local-32k",
+      messages: [{ role: "user", content: sentUserMessage }],
+      max_completion_tokens: 1024,
+    };
+    await handlers.get("before_provider_request")?.({ type: "before_provider_request", payload }, {
+      ...commandCtx,
+      abort: () => { aborted = true; },
+    });
+    assert.equal(aborted, false);
+    const activeRequest = (await loadToolRequests(dir))[0];
+    assert.ok(activeRequest.activeExecutionId);
+
+    const resultTool = tools.get("scaler_tool_result");
+    assert.ok(resultTool);
+    await resultTool.execute("call-result", {
+      requestId: prepared.record.id,
+      status: "completed",
+      summary: "Read completed.",
+      outputs: { fact: "bounded" },
+      evidenceRefs: ["src/example.ts"],
+      validationPerformed: ["exact file read"],
+    }, undefined, undefined, { cwd: dir });
+
+    await handlers.get("agent_end")?.({ type: "agent_end", messages: [] }, commandCtx);
+    assert.deepEqual(activeTools, ["bash", "read", "scaler_tool_request", "scaler_task_report", "scaler_tool_result"]);
+    assert.equal((await loadToolRequests(dir))[0]?.status, "completed");
+    const transaction = (await loadToolTransactions(dir))[0];
+    assert.equal(transaction?.routeAdmission?.route, "current-agent");
+    assert.equal(transaction?.status, "completed");
+  });
 });
 
 test("storage-status command persists inventory and storage budget usage", async () => {
