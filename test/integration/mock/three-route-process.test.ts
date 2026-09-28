@@ -8,6 +8,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { setBudgetLimits } from "../../../src/budgets.js";
 import { createDefaultState } from "../../../src/state.js";
 import {
   admitCurrentAgentToolProviderCall,
@@ -125,6 +126,42 @@ function isolatedSupplier(
   };
 }
 
+function directSupplier(authority: "allowed" | "denied"): ToolDispatchRouteEvidenceSupplier {
+  return (basis) => ({
+    version: 1,
+    requestId: basis.requestId,
+    executionId: basis.executionId,
+    evidence: {
+      profile: {
+        version: 1,
+        footprint: "selected",
+        toolNames: [...basis.toolNames],
+        byteSize: 64,
+        fingerprint: "d".repeat(64),
+      },
+      authority,
+      direct: {
+        exactArgumentsAvailable: true,
+        argumentsValidated: true,
+        adapterId: basis.directOperation?.adapterId,
+      },
+      currentAgent: { available: false, legs: [] },
+      isolated: { available: false, legs: [] },
+    },
+  });
+}
+
+function withAuthority(
+  supplier: ToolDispatchRouteEvidenceSupplier,
+  authority: "allowed" | "denied",
+): ToolDispatchRouteEvidenceSupplier {
+  return async (basis) => {
+    const snapshot = structuredClone(await supplier(basis));
+    snapshot.evidence.authority = authority;
+    return snapshot;
+  };
+}
+
 test("three-route milestone stays bounded across 32K and 128K windows", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
@@ -140,6 +177,20 @@ test("three-route milestone stays bounded across 32K and 128K windows", async ()
     });
     assert.ok(direct.record);
     let directModelCalls = 0;
+    const hardBudgetState = setBudgetLimits(state, { toolCalls: { hard: 0 } });
+    const deniedDirect = await runToolRequestAgent(dir, state, {
+      requestId: direct.record.id,
+      execute: true,
+      routeEvidenceSupplier: directSupplier("denied"),
+    });
+    assert.equal(deniedDirect.accepted, false);
+    assert.match(deniedDirect.message, /authority-denied/i);
+    const hardBudgetDirect = await runToolRequestAgent(dir, hardBudgetState, {
+      requestId: direct.record.id,
+      execute: true,
+    });
+    assert.equal(hardBudgetDirect.accepted, false);
+    assert.match(hardBudgetDirect.message, /budget hard limit.*toolCalls/i);
     const directResult = await runToolRequestAgent(dir, state, {
       requestId: direct.record.id,
       execute: true,
@@ -217,6 +268,24 @@ test("three-route milestone stays bounded across 32K and 128K windows", async ()
           })),
         max_completion_tokens: 1_024,
       };
+      const deniedCurrent = await admitCurrentAgentToolProviderCall(dir, state, preparedCurrent.preparation, {
+        authority: "denied",
+        payload,
+        model,
+        policy,
+        profile: selectedProfile,
+      });
+      assert.equal(deniedCurrent.accepted, false);
+      assert.equal(deniedCurrent.assessment.reasonCode, "authority-denied");
+      const hardBudgetCurrent = await admitCurrentAgentToolProviderCall(dir, hardBudgetState, preparedCurrent.preparation, {
+        authority: "allowed",
+        payload,
+        model,
+        policy,
+        profile: selectedProfile,
+      });
+      assert.equal(hardBudgetCurrent.accepted, false);
+      assert.match(hardBudgetCurrent.message, /budget hard limit.*toolCalls/i);
       const currentAdmission = await admitCurrentAgentToolProviderCall(dir, state, preparedCurrent.preparation, {
         authority: "allowed",
         payload,
@@ -272,6 +341,27 @@ test("three-route milestone stays bounded across 32K and 128K windows", async ()
         fingerprint: isolatedProfile.fingerprint,
       };
       let isolatedModelCalls = 0;
+      const deniedIsolated = await runToolRequestAgent(dir, state, {
+        requestId: isolated.record.id,
+        execute: true,
+        routeEvidenceSupplier: withAuthority(
+          isolatedSupplier(contextWindow, isolatedProfileEvidence, DEFAULT_TOOL_EXECUTION_LIMITS.resultBytes),
+          "denied",
+        ),
+      });
+      assert.equal(deniedIsolated.accepted, false);
+      assert.match(deniedIsolated.message, /authority-denied/i);
+      const hardBudgetIsolated = await runToolRequestAgent(dir, hardBudgetState, {
+        requestId: isolated.record.id,
+        execute: true,
+        routeEvidenceSupplier: isolatedSupplier(
+          contextWindow,
+          isolatedProfileEvidence,
+          DEFAULT_TOOL_EXECUTION_LIMITS.resultBytes,
+        ),
+      });
+      assert.equal(hardBudgetIsolated.accepted, false);
+      assert.match(hardBudgetIsolated.message, /budget hard limit.*toolCalls/i);
       const unknownOutput = await runToolRequestAgent(dir, state, {
         requestId: isolated.record.id,
         execute: true,
