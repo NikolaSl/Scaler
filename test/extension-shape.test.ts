@@ -323,6 +323,43 @@ test("current-agent provider refusal survives unavailable audit storage and rest
   });
 });
 
+test("current-agent message delivery failure restores the previous tool focus", async () => {
+  await withTempDir(async (dir) => {
+    const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
+    let activeTools = ["bash", "read", "scaler_tool_result"];
+    const allTools = activeTools.map((name) => ({
+      name,
+      description: name,
+      parameters: { type: "object" },
+      sourceInfo: { source: "test" },
+    }));
+    const fakePi = {
+      on() {},
+      registerTool() {},
+      registerCommand(name: string, definition: { handler: (args: string, ctx: any) => Promise<void> }) { commands.set(name, definition); },
+      getAllTools: () => allTools,
+      getActiveTools: () => [...activeTools],
+      setActiveTools: (names: string[]) => { activeTools = [...names]; },
+      sendUserMessage: () => { throw new Error("host message queue unavailable"); },
+    };
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    await saveState(dir, state);
+    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Read one file." });
+    assert.ok(prepared.record);
+    scalerExtension(fakePi as never);
+
+    await commands.get("scaler-tool-current")!.handler(prepared.record.id, {
+      cwd: dir,
+      hasUI: false,
+      isIdle: () => true,
+    });
+
+    assert.deepEqual(activeTools, ["bash", "read", "scaler_tool_result"]);
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
+  });
+});
+
 test("storage-status command persists inventory and storage budget usage", async () => {
   await withTempDir(async (dir) => {
     const commands = new Map<string, { handler: (args: string | undefined, ctx: { cwd: string; hasUI: boolean }) => Promise<void> }>();
