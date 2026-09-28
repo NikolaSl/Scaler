@@ -189,6 +189,7 @@ export interface ReplanDecisionRecord {
   rejectedTaskIds?: string[];
   proposalFingerprint?: string;
   affectedRequirementRevisions?: Record<string, number>;
+  affectedCoverageUpdatedAts?: Record<string, string>;
   preservation: ExecutionPlanPreservationCheck;
   createdAt: string;
 }
@@ -474,6 +475,12 @@ async function acceptReplanProposalLocked(
       if (!requirement) throw new Error(`Replan acceptance requires runtime PRD requirement ${id}.`);
       return [id, requirement.revision ?? 1];
     }));
+  const affectedCoverageUpdatedAts = applyingDecision?.affectedCoverageUpdatedAts
+    ?? Object.fromEntries([...affectedRequirementIds].map((id) => {
+      const entry = coverage.entries.find((candidate) => candidate.requirementId === id);
+      if (!entry) throw new Error(`Replan acceptance requires coverage entry ${id}.`);
+      return [id, entry.updatedAt];
+    }));
   const durablePlan = await loadExecutionPlan(cwd);
   if (!applyingDecision && !sameAcceptedReplanPlan(durablePlan, { ...currentPlan, status: "active" })) {
     throw new Error(`Replan acceptance has a stale current plan: expected version ${currentPlan.planVersion}, active version ${durablePlan.planVersion}.`);
@@ -493,8 +500,16 @@ async function acceptReplanProposalLocked(
     reopenedTaskIds,
     proposalFingerprint,
     affectedRequirementRevisions,
+    affectedCoverageUpdatedAts,
     preservation,
     createdAt: timestamp,
+  });
+  const taskIdsByRequirement = buildPlanTaskIdsByRequirement(targetPlan);
+  await advanceReplannedCoverage(cwd, {
+    affectedRequirementRevisions,
+    expectedCoverageUpdatedAts: affectedCoverageUpdatedAts,
+    taskIdsByRequirement: Object.fromEntries(taskIdsByRequirement),
+    updatedAt: journal.createdAt,
   });
   let savedPlan: ExecutionPlanArtifact;
   if (durablePlan.planVersion === journal.proposedPlanVersion) {
@@ -509,12 +524,6 @@ async function acceptReplanProposalLocked(
   }
   if (reopenedState !== state) await saveState(cwd, reopenedState);
   const applyResult = await applyExecutionPlanTasks(cwd, reopenedState, savedPlan);
-  const taskIdsByRequirement = buildPlanTaskIdsByRequirement(savedPlan);
-  await advanceReplannedCoverage(cwd, {
-    affectedRequirementRevisions,
-    taskIdsByRequirement: Object.fromEntries(taskIdsByRequirement),
-    updatedAt: timestamp,
-  });
   const requests = await loadReplanRequests(cwd);
   await saveReplanRequests(cwd, requests.map((request) =>
     requestIds.includes(request.id)

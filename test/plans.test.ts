@@ -923,6 +923,7 @@ test("acceptReplanProposal resumes an applying decision without losing audit or 
       reopenedTaskIds: ["T-AFFECTED"],
       proposalFingerprint,
       affectedRequirementRevisions: { "REQ-AFFECTED": 2 },
+      affectedCoverageUpdatedAts: { "REQ-AFFECTED": now.toISOString() },
       preservation: {
         ok: true,
         preservedValidatedTaskIds: ["T-KEEP"],

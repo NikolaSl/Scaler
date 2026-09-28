@@ -76,6 +76,7 @@ export interface RuntimePrdCoverageFile {
 
 export interface AdvanceReplannedCoverageInput {
   affectedRequirementRevisions: Record<string, number>;
+  expectedCoverageUpdatedAts: Record<string, string>;
   taskIdsByRequirement: Record<string, string[]>;
   updatedAt: string;
 }
@@ -255,14 +256,26 @@ export async function advanceReplannedCoverage(
       }
       const entry = coverage.entries.find((candidate) => candidate.requirementId === id);
       if (!entry) throw new Error(`Replan coverage update requires coverage entry ${id}.`);
-      if (entry.status !== "needs_replan" && entry.status !== "in_progress") {
-        throw new Error(`Replan coverage update for ${id} requires needs_replan or in_progress status; current status is ${entry.status}.`);
+      const expectedCoverageUpdatedAt = input.expectedCoverageUpdatedAts[id];
+      if (!expectedCoverageUpdatedAt) {
+        throw new Error(`Replan coverage update for ${id} lacks an expected coverage basis.`);
+      }
+      const targetTaskIds = input.taskIdsByRequirement[id] ?? entry.taskIds;
+      const matchesJournaledInvalidation = entry.status === "needs_replan"
+        && entry.updatedAt === expectedCoverageUpdatedAt;
+      const matchesCompletedTransition = entry.status === "in_progress"
+        && entry.updatedAt === input.updatedAt
+        && JSON.stringify(entry.taskIds ?? []) === JSON.stringify(targetTaskIds ?? []);
+      if (!matchesJournaledInvalidation && !matchesCompletedTransition) {
+        throw new Error(`Stale replan coverage update for ${id}: coverage changed after the acceptance journal.`);
       }
     }
     const updated: RuntimePrdCoverageFile = {
       version: 1,
       entries: coverage.entries.map((entry) => affected.has(entry.requirementId)
-        ? {
+        ? entry.status === "in_progress" && entry.updatedAt === input.updatedAt
+          ? entry
+          : {
             ...entry,
             status: "in_progress",
             taskIds: input.taskIdsByRequirement[entry.requirementId] ?? entry.taskIds,
