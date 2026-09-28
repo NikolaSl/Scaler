@@ -8,7 +8,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { amendPrdRequirement, upsertPrdRequirement } from "../src/prd.js";
+import { amendPrdRequirement, savePrdCoverage, upsertPrdRequirement } from "../src/prd.js";
 import { completeRunWithEvidence } from "../src/run-completion.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import type { ScalerState } from "../src/types.js";
@@ -80,6 +80,15 @@ async function fixture(
 
     assert.equal((await runTaskValidation(dir, await loadState(dir), "T-A")).acceptance?.accepted, true);
     assert.equal((await runTaskValidation(dir, await loadState(dir), "T-B")).acceptance?.accepted, true);
+    await savePrdCoverage(dir, {
+      version: 1,
+      entries: [{
+        requirementId: "REQ-JOINT",
+        status: "validated",
+        taskIds: ["T-A", "T-B"],
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }],
+    });
     await fn(dir, await loadState(dir));
   } finally {
     await rm(dir, { recursive: true, force: true });
