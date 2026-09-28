@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
+  advanceReplannedCoverage,
   amendPrdRequirement,
   applyPrdRequirementUpserts,
   appendPrdChange,
@@ -340,6 +341,46 @@ test("serialized unrelated upserts cannot roll back an authorized amendment", as
     assert.equal(amended?.revision, 2);
     assert.deepEqual(amended?.versionHistory?.map((version) => version.revision), [1, 2]);
     assert.equal(requirements.requirements.length, 13);
+  });
+});
+
+test("advanceReplannedCoverage merges only matching affected revisions", async () => {
+  await withTempDir(async (dir) => {
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    await upsertPrdRequirement(dir, { id: "REQ-A", statement: "A1", status: "needs_replan", now });
+    await upsertPrdRequirement(dir, { id: "REQ-B", statement: "B1", status: "needs_replan", now });
+    await amendPrdRequirement(dir, {
+      id: "REQ-A",
+      expectedRevision: 1,
+      reason: "Authorize A2.",
+      changes: { statement: "A2" },
+      now,
+    });
+
+    await advanceReplannedCoverage(dir, {
+      affectedRequirementRevisions: { "REQ-A": 2 },
+      taskIdsByRequirement: { "REQ-A": ["T-A"] },
+      updatedAt: "2026-01-01T00:01:00.000Z",
+    });
+    let coverage = await loadPrdCoverage(dir);
+    assert.equal(coverage.entries.find((entry) => entry.requirementId === "REQ-A")?.status, "in_progress");
+    assert.equal(coverage.entries.find((entry) => entry.requirementId === "REQ-B")?.status, "needs_replan");
+
+    await amendPrdRequirement(dir, {
+      id: "REQ-A",
+      expectedRevision: 2,
+      reason: "Authorize A3 before stale acceptance completes.",
+      changes: { statement: "A3" },
+      now: new Date("2026-01-01T00:02:00.000Z"),
+    });
+    await assert.rejects(() => advanceReplannedCoverage(dir, {
+      affectedRequirementRevisions: { "REQ-A": 2 },
+      taskIdsByRequirement: { "REQ-A": ["T-A"] },
+      updatedAt: "2026-01-01T00:03:00.000Z",
+    }), /stale replan coverage update.*expected revision 2.*current revision 3/i);
+    coverage = await loadPrdCoverage(dir);
+    assert.equal(coverage.entries.find((entry) => entry.requirementId === "REQ-A")?.status, "needs_replan");
+    assert.equal(coverage.entries.find((entry) => entry.requirementId === "REQ-B")?.status, "needs_replan");
   });
 });
 
