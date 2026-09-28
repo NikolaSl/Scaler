@@ -348,10 +348,34 @@ test("assessDebugRetryGate requires a fresh evidence reference to clear a cycle"
     assert.equal(blocked.allowed, false);
     assert.equal(cleared.allowed, true);
     assert.match(cleared.reason, /cleared by new evidence/);
+
+    await recordDebugAttempt(dir, state, {
+      taskId: "T-001",
+      failureId: "F-001",
+      hypothesis: "Try generated config fix",
+      actionSummary: "Change generated config",
+      result: "new_failure",
+      failureFingerprint: "failure-a",
+      resultingFailureFingerprint: "failure-c",
+    }, new Date("2026-01-01T00:00:05.000Z"));
+    const currentState = await loadState(dir);
+    await recordDebugAttempt(dir, currentState, {
+      taskId: "T-001",
+      failureId: "F-001",
+      hypothesis: "Undo generated config fix",
+      actionSummary: "Restore generated config",
+      result: "new_failure",
+      failureFingerprint: "failure-c",
+      resultingFailureFingerprint: "failure-a",
+    }, new Date("2026-01-01T00:00:06.000Z"));
+
+    const laterCycle = await assessDebugRetryGate(dir, "T-001");
+    assert.equal(laterCycle.allowed, false);
+    assert.match(laterCycle.reason, /requires new evidence/);
   });
 });
 
-test("assessDebugRetryGate rejects malformed persisted evidence references", async () => {
+test("assessDebugRetryGate rejects malformed persisted evidence values and containers", async () => {
   await withTempDir(async (dir) => {
     const debugDir = join(dir, ".scaler", "debug");
     await mkdir(debugDir, { recursive: true });
@@ -393,9 +417,23 @@ test("assessDebugRetryGate rejects malformed persisted evidence references", asy
           attemptSignature: "inspect logs read malformed record",
           failureFingerprint: "failure-a",
           resultingFailureFingerprint: "failure-a",
-          evidence: [null],
+          evidence: { id: "not-an-array" },
           newEvidence: "A malformed legacy reference must not grant admission.",
           timestamp: "2026-01-01T00:00:03.000Z",
+        },
+        {
+          id: "attempt-d",
+          taskId: "T-001",
+          failureId: "F-001",
+          hypothesis: "Inspect more logs",
+          actionSummary: "Read malformed string record",
+          result: "partial",
+          attemptSignature: "inspect more logs read malformed string record",
+          failureFingerprint: "failure-a",
+          resultingFailureFingerprint: "failure-a",
+          logRefs: "not-an-array",
+          newEvidence: "A string container must not be split into reference characters.",
+          timestamp: "2026-01-01T00:00:04.000Z",
         },
       ],
     }, null, 2)}\n`, "utf8");
