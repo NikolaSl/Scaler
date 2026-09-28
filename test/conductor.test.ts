@@ -30,6 +30,7 @@ import { acquireExecutionLock, loadExecutionLock, releaseExecutionLock } from ".
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import type { ScalerTaskStatus } from "../src/types.js";
 import { saveValidationManifest } from "../src/validation.js";
+import type { TaskAgentRequest } from "../src/subagents.js";
 import { testProviderAdmissionModel } from "./provider-model-fixture.js";
 
 const runConductorStep: typeof runConductorStepImpl = (cwd, state, options = {}, runner) =>
@@ -1184,6 +1185,78 @@ test("runConductorStep blocks validation when successful task-agent omits report
     assert.equal(handoffs[0]?.status, "task_agent_report_missing");
     assert.equal(runs[0]?.reportStatus, "missing");
     assert.match(runs[0]?.reportDiagnostics?.join(" ") ?? "", /Missing required scaler_task_report/);
+  });
+});
+
+test("runConductorStep repairs one malformed report without replaying task tools", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    const requests: TaskAgentRequest[] = [];
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
+      requests.push(request);
+      if (requests.length === 1) {
+        return {
+          taskId: request.taskId,
+          exitCode: 0,
+          stdoutEvents: [{ type: "scaler_task_report", taskId: request.taskId, status: "completed" }],
+          stderr: "",
+          timedOut: false,
+          aborted: false,
+        };
+      }
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [completedTaskReport(request, "Report repaired without replaying implementation.")],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
+
+    assert.equal(requests.length, 2);
+    assert.equal(requests[1]?.noTools, true);
+    assert.deepEqual(requests[1]?.tools, []);
+    assert.deepEqual(requests[1]?.attempt, requests[0]?.attempt);
+    assert.equal(requests[1]?.providerAdmissionModel, requests[0]?.providerAdmissionModel);
+    assert.equal(requests[1]?.providerAdmission, requests[0]?.providerAdmission);
+    assert.match(requests[1]?.prompt ?? "", /report repair/i);
+    assert.match(requests[1]?.prompt ?? "", /same admitted attempt/i);
+    assert.equal(result.validationHandoff?.status, "validation_required");
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validating");
+    assert.equal((await loadTaskAgentReports(dir))[0]?.summary, "Report repaired without replaying implementation.");
+    const runs = await loadTaskAgentRunRecords(dir);
+    assert.equal(runs.length, 2);
+    assert.ok(runs.some((run) => run.reportStatus === "invalid"));
+    assert.ok(runs.some((run) => run.reportStatus === "accepted"));
+    assert.equal((await loadTaskAttempts(dir))[0]?.outcome, "succeeded");
+    assert.equal(getBudgetState(result.state).usage.spawnedAgents, 2);
+  });
+});
+
+test("runConductorStep blocks oversized report repair before a second dispatch", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, { execute: true, tokenBudget: 2_000 }, async (request) => {
+      runnerCalls += 1;
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [{ type: "assistant", content: "x".repeat(40_000) }],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
+
+    assert.equal(runnerCalls, 1);
+    assert.equal(result.validationHandoff?.status, "task_agent_report_missing");
+    assert.match(result.validationHandoff?.diagnostics?.join(" ") ?? "", /report repair prompt.*allowance/i);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "blocked");
+    assert.equal(getBudgetState(result.state).usage.spawnedAgents, 1);
   });
 });
 
