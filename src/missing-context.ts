@@ -84,6 +84,7 @@ export interface MissingContextManualResolutionInput {
 export interface MissingContextRefreshResult {
   requests: MissingContextRequest[];
   resolvedRequestIds: string[];
+  state: ScalerState;
 }
 
 export interface MissingContextUnblockResult {
@@ -408,7 +409,7 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
     }));
   }
   if (nextState !== state) await saveState(cwd, nextState);
-  return { requests: sortMissingContextRequests(nextRequests), resolvedRequestIds };
+  return { requests: sortMissingContextRequests(nextRequests), resolvedRequestIds, state: nextState };
 }
 
 async function removeResearchContextItems(cwd: string, manifest: Awaited<ReturnType<typeof ensureTaskContextManifest>>, requestId: string): Promise<void> {
@@ -442,8 +443,8 @@ export async function unblockTasksWithResolvedMissingContext(cwd: string, state:
 }
 
 export async function refreshAndUnblockMissingContext(cwd: string, state: ScalerState): Promise<MissingContextUnblockResult> {
-  await refreshMissingContextResolutions(cwd, state);
-  return await unblockTasksWithResolvedMissingContext(cwd, await loadState(cwd));
+  const refreshed = await refreshMissingContextResolutions(cwd, state);
+  return await unblockTasksWithResolvedMissingContext(cwd, refreshed.state);
 }
 
 export function formatMissingContextRequests(requests: MissingContextRequest[], taskId?: string, limit = 20): string {
