@@ -460,6 +460,14 @@ mock integration, 10 conformance/autopilot and 25 focused plan checks. SC-03
 remains Partial because links and acyclicity do not establish task necessity,
 requested-scope completeness, progressive milestone readiness or the absence of
 design-induced prerequisites.
+PLAN-168 makes the existing two-way structural coverage diagnostics a true
+admission guard. Planning reports now combine the current catalog with proposed
+requirement IDs and reject uncovered requirements, unknown task refs and tasks
+without requirement refs before requirement, plan, report or task publication.
+A compact one-task/one-requirement plan remains valid. The candidate passes
+build, 1,212 unit/component, 73 mock integration, 10 conformance/autopilot and
+58 affected plan/policy checks. This still does not treat links as proof of
+semantic necessity or requested-scope completeness.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
 unresolved in-scope findings. The primary exact-head gate passed build,

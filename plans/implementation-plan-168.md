@@ -38,3 +38,20 @@ Baseline: PLAN-167 candidate tree
 
 This unit validates graph shape and explicit coverage links. It does not claim that
 a link proves necessity or that a model selected the correct requirements/tasks.
+
+## Implemented evidence
+
+Planning admission now loads the current requirement catalog and combines its IDs
+with the report's proposed IDs before any write. The existing diagnostics run over
+that prospective set and reject uncovered requirements, unknown task references and
+tasks without requirement references. The same diagnostic builder supplies the
+accepted report record, avoiding a second interpretation of structural coverage.
+Omitted catalog entries remain in the prospective set and therefore cannot be
+silently dropped by a model report.
+
+The focused plan and policy-authority suites pass 58/58 checks. The exact candidate
+also passes the TypeScript build, 1,212 unit/component tests, 73 mock integration
+tests, 10 conformance/autopilot checks and `git diff --check`. This establishes only
+pre-publication structural coverage. SC-03 remains Partial because explicit links do
+not prove necessity, completeness of interpreted user intent, justified
+prerequisites or progressive milestone readiness.
