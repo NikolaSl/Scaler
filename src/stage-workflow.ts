@@ -1123,7 +1123,7 @@ function resolveStageTools(stage: StageArtifactStage, options: StageWorkflowOpti
 
 function resolveResearchTools(options: StageWorkflowOptions): string[] | undefined {
   if (options.researchTools) return options.researchTools;
-  return uniqueTools([...localProjectInspectionTools, ...(options.tools ?? []), "scaler_research_report"]);
+  return uniqueTools([...localProjectInspectionTools, ...(options.tools ?? [])]);
 }
 
 function resolveReplanTools(options: StageWorkflowOptions): string[] | undefined {

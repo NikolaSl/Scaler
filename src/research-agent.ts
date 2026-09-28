@@ -208,7 +208,7 @@ export function prepareResearchAgentInvocation(
 }
 
 export function resolveResearchAgentGrantedTools(request: ResearchRequest, options: ResearchAgentInvocationOptions = {}): string[] {
-  const tools = uniqueNonEmpty(options.tools ?? []);
+  const tools = uniqueNonEmpty(options.tools ?? []).filter((tool) => tool !== "scaler_research_report");
   if (request.scope === "local") return tools;
   return options.allowInternet ? tools : [];
 }
