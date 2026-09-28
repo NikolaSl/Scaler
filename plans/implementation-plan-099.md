@@ -420,6 +420,13 @@ covers denied authority and hard-budget refusal for all three routes. SC-08/AC-0
 is Verified at the model-independent FSM boundary. Configured local inference
 remains SC-09 and the installed Pi continuation-envelope limitation remains
 SC-25; no model-quality or savings claim is made.
+The first independent Terra/high review found valid host-authority, stale-budget
+and durable-safeguard validation gaps. Test-first regressions now bind authority
+to host preparation, repeat the budget decision inside the serialized execution
+claim and fail closed on incomplete or mismatched safeguard evidence. The
+updated candidate passes build, 1,206 unit/component, 73 mock integration,
+10 conformance/autopilot and 9 focused safeguard checks; a fresh exact-head
+Terra/high review remains required before merge.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
 unresolved in-scope findings. The primary exact-head gate passed build,

@@ -85,8 +85,11 @@ authority and exact budget decision. The coherent 32K/128K scenario exercises
 denied authority and hard-budget refusal for every route alongside its existing
 profile, provider, ownership and bounded-result checks. This does not configure
 or assess a local model, create a permission service, or prove savings. Candidate
-evidence: build, 1,202 unit, 73 mock integration, 10 conformance and 4 focused
-route checks.
+evidence: build, 1,206 unit, 73 mock integration, 10 conformance and 9 focused
+safeguard checks. A fresh-context Terra/high review identified three valid
+authority, claim-time budget and durable-evidence gaps; test-first regressions
+and minimal fixes close them. Final exact-head independent review remains the
+merge gate.
 
 Prior review ran the baseline TypeScript build successfully, 488/488 unit tests
 and 66/67 mock integration tests. The failed retention fixture uses fixed
