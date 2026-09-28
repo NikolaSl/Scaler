@@ -298,6 +298,14 @@ test("assessDebugRetryGate requires a fresh evidence reference to clear a cycle"
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     await recordDebugAttempt(dir, state, {
       taskId: "T-001",
+      failureId: "F-000",
+      hypothesis: "Fix earlier failure",
+      actionSummary: "Capture earlier result",
+      result: "fixed",
+      evidence: ["debug-log:historical-fix"],
+    }, new Date("2026-01-01T00:00:00.500Z"));
+    await recordDebugAttempt(dir, state, {
+      taskId: "T-001",
       failureId: "F-001",
       hypothesis: "Fix A",
       actionSummary: "Change A",
@@ -334,6 +342,18 @@ test("assessDebugRetryGate requires a fresh evidence reference to clear a cycle"
     await recordDebugAttempt(dir, state, {
       taskId: "T-001",
       failureId: "F-001",
+      hypothesis: "Revisit old fix",
+      actionSummary: "Reuse historical trace",
+      result: "partial",
+      failureFingerprint: "failure-a",
+      resultingFailureFingerprint: "failure-a",
+      evidence: ["debug-log:historical-fix"],
+      newEvidence: "The prior fixed attempt already recorded this trace.",
+    }, new Date("2026-01-01T00:00:03.500Z"));
+    const historicalReuse = await assessDebugRetryGate(dir, "T-001");
+    await recordDebugAttempt(dir, state, {
+      taskId: "T-001",
+      failureId: "F-001",
       hypothesis: "Inspect generated config",
       actionSummary: "Captured generated config trace",
       result: "partial",
@@ -346,6 +366,7 @@ test("assessDebugRetryGate requires a fresh evidence reference to clear a cycle"
 
     assert.equal(selfCleared.allowed, false);
     assert.equal(blocked.allowed, false);
+    assert.equal(historicalReuse.allowed, false);
     assert.equal(cleared.allowed, true);
     assert.match(cleared.reason, /cleared by new evidence/);
 
