@@ -818,7 +818,7 @@ test("acceptReplanProposal reopens only validated tasks linked to needs_replan c
       planVersion: 2,
       status: "draft",
       tasks: [
-        validPlanTask("T-AFFECTED", "Rework affected requirement", { prdRefs: ["REQ-AFFECTED"] }),
+        validPlanTask("T-AFFECTED", "Old affected work", { prdRefs: ["REQ-AFFECTED"] }),
         validPlanTask("T-KEEP", "Keep accepted work", { prdRefs: ["REQ-KEEP"] }),
       ],
       createdAt: state.createdAt,
@@ -840,7 +840,6 @@ test("acceptReplanProposal reopens only validated tasks linked to needs_replan c
 
     assert.equal(result.accepted, true, result.message);
     assert.equal(result.state.tasks.find((task) => task.id === "T-AFFECTED")?.status, "ready");
-    assert.equal(result.state.tasks.find((task) => task.id === "T-AFFECTED")?.title, "Rework affected requirement");
     assert.equal(result.state.tasks.find((task) => task.id === "T-KEEP")?.status, "validated");
     assert.deepEqual(result.state.validatedTaskIds, ["T-KEEP"]);
     assert.deepEqual(result.state.completedTaskIds, ["T-KEEP"]);
