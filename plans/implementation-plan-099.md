@@ -471,9 +471,11 @@ semantic necessity or requested-scope completeness.
 PLAN-169 reuses the existing task-quality assessor as a read-only planning
 preflight. The exact prospective task overlay must satisfy DoD, path scope,
 atomicity and validation/test-first policy (or explicit waivers) before any
-planning publication. Existing manifest inheritance is preserved. The candidate
-passes build, 1,214 unit/component, 73 mock integration, 10
-conformance/autopilot and 63 affected checks. This verifies contract admission,
+planning publication. Accepted replans share the coverage and contract preflights
+before snapshot or active-plan writes, without rechecking existing tasks that their
+application path leaves unchanged. Existing manifest inheritance is preserved. The
+candidate passes build, 1,216 unit/component, 73 mock integration, 10
+conformance/autopilot and 65 affected checks. This verifies contract admission,
 not the semantic quality or necessity of model-proposed work.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
