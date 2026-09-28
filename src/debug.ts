@@ -342,25 +342,22 @@ export async function assessDebugRetryGate(cwd: string, taskId: string): Promise
     return { allowed: true, taskId, reason: `No debug retry gate for ${taskId}.`, replanRequestIds: [], acceptedReplanDecisionIds: [] };
   }
 
-  const blockingAttemptIndex = taskAttempts.findIndex((attempt, index) =>
-    isBlockingDebugAttempt(attempt, taskAttempts.slice(0, index + 1)));
+  const { blockingAttemptIndex, clearedBlockingAttemptIndex } = findUnresolvedBlockingAttempt(taskAttempts);
   const blockingAttempt = taskAttempts[blockingAttemptIndex];
   if (!blockingAttempt) {
+    const clearedBlockingAttempt = taskAttempts[clearedBlockingAttemptIndex];
+    if (clearedBlockingAttempt) {
+      return {
+        allowed: true,
+        taskId,
+        reason: `Debug retry gate cleared by new evidence for ${taskId}.`,
+        blockingAttemptId: clearedBlockingAttempt.id,
+        failureId: clearedBlockingAttempt.failureId,
+        replanRequestIds: [],
+        acceptedReplanDecisionIds: [],
+      };
+    }
     return { allowed: true, taskId, reason: `No repeated failed debug fingerprint for ${taskId}.`, replanRequestIds: [], acceptedReplanDecisionIds: [] };
-  }
-
-  if (taskAttempts.some((attempt, index) =>
-    index > blockingAttemptIndex
-    && hasFreshReferencedEvidence(attempt, taskAttempts.slice(0, index)))) {
-    return {
-      allowed: true,
-      taskId,
-      reason: `Debug retry gate cleared by new evidence for ${taskId}.`,
-      blockingAttemptId: blockingAttempt.id,
-      failureId: blockingAttempt.failureId,
-      replanRequestIds: [],
-      acceptedReplanDecisionIds: [],
-    };
   }
 
   const replanRequests = (await loadReplanRequests(cwd)).filter((request) =>
@@ -514,10 +511,12 @@ function hasFreshReferencedEvidence(
 function debugEvidenceReferences(
   attempt: Pick<DebugAttemptInput, "evidence" | "validationRun" | "logRefs">,
 ): string[] {
+  const evidence = Array.isArray(attempt.evidence) ? attempt.evidence : [];
+  const logRefs = Array.isArray(attempt.logRefs) ? attempt.logRefs : [];
   const references: unknown[] = [
-    ...(attempt.evidence ?? []),
-    ...(attempt.validationRun ? [attempt.validationRun] : []),
-    ...(attempt.logRefs ?? []),
+    ...evidence,
+    ...(typeof attempt.validationRun === "string" ? [attempt.validationRun] : []),
+    ...logRefs,
   ];
   return [...new Set(references
     .filter((reference): reference is string => typeof reference === "string")
@@ -525,10 +524,37 @@ function debugEvidenceReferences(
     .filter(Boolean))];
 }
 
-function isBlockingDebugAttempt(attempt: DebugAttemptRecord, attemptsThroughCandidate: DebugAttemptRecord[]): boolean {
-  if (attempt.result === "fixed") return false;
-  if (attempt.cycleDetected) return true;
-  if (attempt.result === "blocked") return true;
+function findUnresolvedBlockingAttempt(attempts: DebugAttemptRecord[]): {
+  blockingAttemptIndex: number;
+  clearedBlockingAttemptIndex: number;
+} {
+  let blockingIndex = -1;
+  let clearedBlockingAttemptIndex = -1;
+  let segmentStart = 0;
+
+  for (let index = 0; index < attempts.length; index += 1) {
+    const attempt = attempts[index]!;
+    const explicitlyBlocking = Boolean(attempt.cycleDetected) || attempt.result === "blocked";
+    if (blockingIndex >= 0) {
+      if (explicitlyBlocking) {
+        blockingIndex = index;
+      } else if (hasFreshReferencedEvidence(attempt, attempts.slice(0, index))) {
+        clearedBlockingAttemptIndex = blockingIndex;
+        blockingIndex = -1;
+        segmentStart = index + 1;
+      }
+      continue;
+    }
+
+    if (explicitlyBlocking || isRepeatedFailureBoundary(attempt, attempts.slice(segmentStart, index + 1))) {
+      blockingIndex = index;
+    }
+  }
+
+  return { blockingAttemptIndex: blockingIndex, clearedBlockingAttemptIndex };
+}
+
+function isRepeatedFailureBoundary(attempt: DebugAttemptRecord, attemptsThroughCandidate: DebugAttemptRecord[]): boolean {
   const failedResult = attempt.result === "same_failure" || attempt.result === "new_failure" || attempt.result === "partial" || attempt.result === "no_effect" || attempt.result === "worse";
   return failedResult && attemptsThroughCandidate.filter((candidate) =>
     candidate.taskId === attempt.taskId
