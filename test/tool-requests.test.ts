@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
+import { setBudgetLimits } from "../src/budgets.js";
 import { getToolRequestsIndexPath, getToolResultsPath, getToolTransactionsPath } from "../src/paths.js";
 import * as toolRequestsModule from "../src/tool-requests.js";
 import {
@@ -549,6 +550,50 @@ test("current-agent tool dispatch binds exact provider identity and one structur
   });
 });
 
+test("current-agent provider dispatch refuses explicit denied authority before claim", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const request = await prepareToolRequest(dir, state, {
+      toolName: "read",
+      request: "Read one approved file.",
+      allowedTools: ["read"],
+    });
+    assert.ok(request.record);
+    const prepared = await prepareCurrentAgentToolExecution(
+      dir,
+      state,
+      request.record.id,
+      ["read", "scaler_tool_result"],
+    );
+    assert.ok(prepared.preparation);
+    const active = prepared.preparation.activeToolNames;
+    const profile = buildRuntimeToolEnvelopeProfile(active.map((name) => ({
+      name,
+      description: name,
+      parameters: { type: "object" },
+    })), active, { requestedToolNames: active, selectionApisAvailable: true });
+    const model = { api: "openai-completions", provider: "local", id: "local-32k", contextWindow: 32_000 };
+    const evidence = {
+      authority: "denied",
+      payload: {
+        model: model.id,
+        messages: [{ role: "user", content: prepared.preparation.prompt }],
+        max_completion_tokens: 1_024,
+      },
+      model,
+      policy: { requestTokenAllowance: 32_000, outputReserveTokens: 1_024, safetyMarginTokens: 1_024 },
+      profile,
+    } as Parameters<typeof admitCurrentAgentToolProviderCall>[3];
+
+    const admission = await admitCurrentAgentToolProviderCall(dir, state, prepared.preparation, evidence);
+
+    assert.equal(admission.accepted, false);
+    assert.equal(admission.assessment.reasonCode, "authority-denied");
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
+    assert.equal((await loadToolTransactions(dir)).length, 0);
+  });
+});
+
 test("current-agent tool dispatch refuses unavailable, direct and isolation-bound requests", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
@@ -894,6 +939,40 @@ test("runToolRequestAgent executes an exact direct catalog lookup without a mode
       },
     });
     assert.equal((await loadToolRequests(dir))[0]?.status, "completed");
+  });
+});
+
+test("runToolRequestAgent refuses a hard budget limit before direct dispatch", async () => {
+  await withTempDir(async (dir) => {
+    const state = setBudgetLimits(
+      createDefaultState(new Date("2026-01-01T00:00:00.000Z")),
+      { toolCalls: { hard: 0 } },
+    );
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "scaler_tool_catalog",
+      request: "Return the exact compact catalog entry for read.",
+      directOperation: {
+        adapterId: "builtin:tool-catalog-entry-v1",
+        arguments: { toolName: "read" },
+      },
+    });
+    assert.ok(prepared.record);
+    let runnerCalled = false;
+
+    const result = await runToolRequestAgentRaw(dir, state, {
+      requestId: prepared.record.id,
+      execute: true,
+    }, async (request) => {
+      runnerCalled = true;
+      return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };
+    });
+
+    assert.equal(result.accepted, false);
+    assert.equal(runnerCalled, false);
+    assert.match(result.message, /budget hard limit.*toolCalls/i);
+    assert.equal(result.transaction?.status, "rejected");
+    assert.equal(result.transaction?.executed, false);
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
   });
 });
 
