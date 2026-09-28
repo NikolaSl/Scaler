@@ -379,6 +379,9 @@ export interface ToolDispatchAdmissionRecord {
   evidenceFingerprint: string;
   profileFingerprint: string;
   modelId?: string;
+  modelApi?: string;
+  modelProvider?: string;
+  modelContextWindow?: number;
   directAdapterId?: string;
   directArgumentsFingerprint?: string;
   selectedEstimatedOverheadUpperBound: number;
@@ -587,6 +590,11 @@ interface ToolScheduleIndex {
 
 const toolRiskLevels = new Set<ToolRiskLevel>(["low", "medium", "high", "destructive", "external", "secret", "unknown"]);
 const toolResultStatuses = new Set<ToolResultStatus>(["completed", "failed", "blocked"]);
+const CURRENT_AGENT_READ_ONLY_SCALER_TOOLS = new Set([
+  "scaler_memory_retrieve",
+  "scaler_memory_search",
+  "scaler_tool_result",
+]);
 const toolLedgerWriteQueues = new Map<string, Promise<void>>();
 
 export const parentRequesterToolNames = [
@@ -1475,6 +1483,11 @@ export async function prepareCurrentAgentToolExecution(
   if (request.activeExecutionId) return refuse(`request ${request.id} already has active execution ${request.activeExecutionId}`);
   const available = new Set(uniqueNonEmpty(availableToolNames));
   const activeToolNames = uniqueNonEmpty([...request.allowedTools, "scaler_tool_result"]);
+  const prohibitedScalerTool = activeToolNames.find((name) => name.startsWith("scaler_")
+    && !CURRENT_AGENT_READ_ONLY_SCALER_TOOLS.has(name));
+  if (prohibitedScalerTool) {
+    return refuse(`request ${request.id} grants supervisor-mutating tool ${prohibitedScalerTool}`);
+  }
   const unavailable = activeToolNames.filter((name) => !available.has(name));
   if (unavailable.length > 0) return refuse(`requested tools are unavailable: ${unavailable.join(", ")}`);
   const executionId = randomUUID();
@@ -1544,7 +1557,20 @@ export async function admitCurrentAgentToolProviderCall(
   const modelId = typeof evidence.model.id === "string" && evidence.model.id.trim().length > 0
     ? evidence.model.id.trim()
     : undefined;
-  if (!modelId) return refuse("live current-agent model identity is missing");
+  const modelApi = typeof evidence.model.api === "string" && evidence.model.api.trim().length > 0
+    ? evidence.model.api.trim()
+    : undefined;
+  const modelProvider = typeof evidence.model.provider === "string" && evidence.model.provider.trim().length > 0
+    ? evidence.model.provider.trim()
+    : undefined;
+  const modelContextWindow = typeof evidence.model.contextWindow === "number"
+    && Number.isSafeInteger(evidence.model.contextWindow)
+    && evidence.model.contextWindow > 0
+    ? evidence.model.contextWindow
+    : undefined;
+  if (!modelId || !modelApi || !modelProvider || modelContextWindow === undefined) {
+    return refuse("live current-agent model identity is missing");
+  }
 
   if (existingTransaction) {
     const currentRequest = (await loadToolRequests(cwd)).find((candidate) => candidate.id === preparation.request.id);
@@ -1554,6 +1580,9 @@ export async function admitCurrentAgentToolProviderCall(
       && currentTransaction?.status === "prepared"
       && currentTransaction.routeAdmission?.route === "current-agent"
       && currentTransaction.routeAdmission.modelId === modelId
+      && currentTransaction.routeAdmission.modelApi === modelApi
+      && currentTransaction.routeAdmission.modelProvider === modelProvider
+      && currentTransaction.routeAdmission.modelContextWindow === modelContextWindow
       && currentTransaction.routeAdmission.profileFingerprint === assessment.profileFingerprint
       && fingerprintToolRequest(currentRequest) === currentTransaction.routeAdmission.requestFingerprint
       && fingerprintInvocation(preparation.invocation) === currentTransaction.routeAdmission.invocationFingerprint;
@@ -1571,6 +1600,9 @@ export async function admitCurrentAgentToolProviderCall(
     evidenceFingerprint: assessment.evidenceFingerprint,
     profileFingerprint: assessment.profileFingerprint,
     modelId,
+    modelApi,
+    modelProvider,
+    modelContextWindow,
     selectedEstimatedOverheadUpperBound: assessment.selectedEstimatedOverheadUpperBound,
   };
   const claim = await beginToolExecution(
@@ -2752,8 +2784,13 @@ async function finalizeToolExecution(
       && runResult.outputLimitExceeded === undefined;
     const processSucceeded = runResult.exitCode === 0 && !runResult.timedOut && !runResult.aborted && measurementsValid;
     const requestUnchanged = currentRequest?.status === request.status && currentRequest.activeExecutionId === execution.id;
-    const routeIdentityUnchanged = execution.routeAdmission?.route === "isolated" || execution.routeAdmission?.route === "current-agent"
+    const routeIdentityUnchanged = execution.routeAdmission?.route === "current-agent"
       ? typeof execution.routeAdmission.modelId === "string" && execution.routeAdmission.modelId.length > 0
+        && typeof execution.routeAdmission.modelApi === "string" && execution.routeAdmission.modelApi.length > 0
+        && typeof execution.routeAdmission.modelProvider === "string" && execution.routeAdmission.modelProvider.length > 0
+        && typeof execution.routeAdmission.modelContextWindow === "number" && execution.routeAdmission.modelContextWindow > 0
+      : execution.routeAdmission?.route === "isolated"
+        ? typeof execution.routeAdmission.modelId === "string" && execution.routeAdmission.modelId.length > 0
       : execution.routeAdmission?.route === "direct"
         && execution.routeAdmission.directAdapterId === request.directOperation?.adapterId
         && execution.routeAdmission.directArgumentsFingerprint === (request.directOperation ? fingerprintDirectOperation(request.directOperation) : undefined);

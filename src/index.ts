@@ -384,17 +384,23 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     const reason = blockedParentPromptCompositions.get(ctx.cwd);
     if (reason) {
       ctx.abort();
+      const state = await ensureState(ctx.cwd);
       try {
-        const state = await ensureState(ctx.cwd);
         await logStateEvent(ctx.cwd, state, "SCALER parent provider request refused", {
           taskId: state.currentTaskId,
           reason,
           lifecycle: "before_provider_request",
           precedence: "prompt-composition",
         });
-        if (currentAgentRuns.has(ctx.cwd)) await closeCurrentAgentRun(ctx.cwd, state, true);
       } catch {
         // The refusal remains latched across continuations even if telemetry fails.
+      }
+      if (currentAgentRuns.has(ctx.cwd)) {
+        try {
+          await closeCurrentAgentRun(ctx.cwd, state, true);
+        } catch {
+          // Refusal and runtime tool restoration precede optional finalization telemetry.
+        }
       }
       return undefined;
     }
