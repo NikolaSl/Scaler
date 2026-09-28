@@ -191,7 +191,7 @@ export interface ToolExecutionLimits extends TaskAgentOutputLimits {
 export const DEFAULT_TOOL_EXECUTION_LIMITS: Readonly<ToolExecutionLimits> = Object.freeze({
   stdoutBytes: DEFAULT_TASK_AGENT_OUTPUT_LIMITS.stdoutBytes,
   stderrBytes: DEFAULT_TASK_AGENT_OUTPUT_LIMITS.stderrBytes,
-  resultBytes: 1024 * 1024,
+  resultBytes: 16 * 1024,
 });
 
 export interface ToolTransactionRecord {

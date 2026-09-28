@@ -365,6 +365,22 @@ now task-scope checked, bound to its report-time SHA-256 identity and rechecked
 through the normal manifest before retry. SC-07/AC-07 is Verified for this
 model-independent process boundary. Configured local-host execution remains
 SC-09/P7 work, and no source-truth, model-quality or savings claim is made.
+PLAN-162 exercises the three existing tool routes as one model-independent FSM
+scenario. Exact direct execution makes no model call; current-agent and isolated
+requests preserve route admission, provider/model identity,
+execution ownership and one bounded structured result under declared 32K and
+128K profiles. A small selected operation is measured independently of its
+large catalog, schema drift changes the profile identity, and unknown result
+size blocks before dispatch. The prior 1 MiB result reserve made isolated work
+infeasible at both acceptance windows, so the minimal runtime-owned cap is now
+16 KiB with the same byte and ledger checks. Phase review found that this does
+not yet complete SC-08/AC-08: current-agent route admission lacks a separately
+bound runtime permission decision, isolated admission trusts its host-owned
+supplier's authority evidence, and the scenario does not cover denied authority
+or budget refusal across every route. SC-08 therefore remains Partial instead
+of adding a speculative permission layer here. The unavailable final Pi
+continuation envelope remains an SC-25 host-adapter limit; configured local-only
+execution remains SC-09.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
 unresolved in-scope findings. The primary exact-head gate passed build,
