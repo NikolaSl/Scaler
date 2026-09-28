@@ -27,9 +27,11 @@ import { loadTaskAgentReports } from "../src/task-reports.js";
 import { admitTaskAttempt, loadTaskAttempts, markTaskAttemptDispatching, type TaskAttemptBinding } from "../src/task-attempts.js";
 import { fingerprintJson } from "../src/fingerprints.js";
 import { acquireExecutionLock, loadExecutionLock, releaseExecutionLock } from "../src/locks.js";
+import { readLogEvents } from "../src/logging.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import type { ScalerTaskStatus } from "../src/types.js";
 import { saveValidationManifest } from "../src/validation.js";
+import type { TaskAgentRequest } from "../src/subagents.js";
 import { testProviderAdmissionModel } from "./provider-model-fixture.js";
 
 const runConductorStep: typeof runConductorStepImpl = (cwd, state, options = {}, runner) =>
@@ -1093,15 +1095,20 @@ test("runConductorStep rejects a report from a different attempt", async () => {
   await withTempDir(async (dir) => {
     const state = stateWithTasks(["ready"]);
     state.stage = "execution";
-    const result = await runConductorStep(dir, state, { execute: true }, async (request) => ({
-      taskId: request.taskId,
-      exitCode: 0,
-      stdoutEvents: [{ ...completedTaskReport(request), attemptId: "stale-attempt" }],
-      stderr: "",
-      timedOut: false,
-      aborted: false,
-    }));
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
+      runnerCalls += 1;
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [{ ...completedTaskReport(request), attemptId: "stale-attempt" }],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
 
+    assert.equal(runnerCalls, 2, "one task call and one bounded report-only repair call");
     assert.equal(result.validationHandoff?.status, "task_agent_report_invalid");
     assert.match(result.validationHandoff?.diagnostics?.join(" ") ?? "", /stale-attempt.*does not match admitted/);
     assert.equal((await loadState(dir)).tasks[0]?.status, "blocked");
@@ -1166,19 +1173,24 @@ test("runConductorStep blocks validation when successful task-agent omits report
   await withTempDir(async (dir) => {
     const state = stateWithTasks(["ready"]);
     state.stage = "execution";
-    const result = await runConductorStep(dir, state, { execute: true }, async (request) => ({
-      taskId: request.taskId,
-      exitCode: 0,
-      stdoutEvents: [{ type: "done" }],
-      stderr: "",
-      timedOut: false,
-      aborted: false,
-    }));
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
+      runnerCalls += 1;
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [{ type: "done" }],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
 
     const persisted = await loadState(dir);
     const handoffs = await loadValidationHandoffs(dir);
     const runs = await loadTaskAgentRunRecords(dir);
 
+    assert.equal(runnerCalls, 2, "repair must not recurse after one missing repair report");
     assert.equal(result.validationHandoff?.status, "task_agent_report_missing");
     assert.equal(persisted.tasks[0]?.status, "blocked");
     assert.equal(handoffs[0]?.status, "task_agent_report_missing");
@@ -1187,23 +1199,161 @@ test("runConductorStep blocks validation when successful task-agent omits report
   });
 });
 
+test("runConductorStep repairs one malformed report without replaying task tools", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    const requests: TaskAgentRequest[] = [];
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
+      requests.push(request);
+      if (requests.length === 1) {
+        return {
+          taskId: request.taskId,
+          exitCode: 0,
+          stdoutEvents: [{ type: "scaler_task_report", taskId: request.taskId, status: "completed" }],
+          stderr: "",
+          timedOut: false,
+          aborted: false,
+        };
+      }
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [completedTaskReport(request, "Report repaired without replaying implementation.")],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
+
+    assert.equal(requests.length, 2);
+    assert.equal(requests[1]?.noTools, true);
+    assert.deepEqual(requests[1]?.tools, []);
+    assert.deepEqual(requests[1]?.attempt, requests[0]?.attempt);
+    assert.equal(requests[1]?.providerAdmissionModel, requests[0]?.providerAdmissionModel);
+    assert.equal(requests[1]?.providerAdmission, requests[0]?.providerAdmission);
+    assert.match(requests[1]?.prompt ?? "", /report repair/i);
+    assert.match(requests[1]?.prompt ?? "", /same admitted attempt/i);
+    assert.equal(result.validationHandoff?.status, "validation_required");
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validating");
+    assert.equal((await loadTaskAgentReports(dir))[0]?.summary, "Report repaired without replaying implementation.");
+    const runs = await loadTaskAgentRunRecords(dir);
+    assert.equal(runs.length, 2);
+    assert.ok(runs.some((run) => run.reportStatus === "invalid"));
+    assert.ok(runs.some((run) => run.reportStatus === "accepted"));
+    assert.equal((await loadTaskAttempts(dir))[0]?.outcome, "succeeded");
+    assert.equal(getBudgetState(result.state).usage.spawnedAgents, 2);
+    const agentEvent = (await readLogEvents(dir)).find((event) => event.summary === "Executed conductor task step: T-001");
+    const details = agentEvent?.details as { reportRepairBudgetDecision?: { status?: string; key?: string; usage?: number } } | undefined;
+    assert.deepEqual(details?.reportRepairBudgetDecision, {
+      status: "ok", key: "spawnedAgents", usage: 2,
+      reason: "spawnedAgents within budget (2).", recommendedAction: "continue",
+    });
+  });
+});
+
+test("runConductorStep blocks oversized report repair before a second dispatch", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, { execute: true, tokenBudget: 2_000 }, async (request) => {
+      runnerCalls += 1;
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [{ type: "assistant", content: "x".repeat(40_000) }],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
+
+    assert.equal(runnerCalls, 1);
+    assert.equal(result.validationHandoff?.status, "task_agent_report_missing");
+    assert.match(result.validationHandoff?.diagnostics?.join(" ") ?? "", /report repair prompt.*allowance/i);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "blocked");
+    assert.equal(getBudgetState(result.state).usage.spawnedAgents, 1);
+  });
+});
+
+test("runConductorStep refuses report repair when the second child exceeds budget", async () => {
+  await withTempDir(async (dir) => {
+    const state = setBudgetLimits(stateWithTasks(["ready"]), { spawnedAgents: { hard: 2 } });
+    state.stage = "execution";
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
+      runnerCalls += 1;
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [{ type: "scaler_task_report", taskId: request.taskId, status: "completed" }],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
+
+    assert.equal(runnerCalls, 1);
+    assert.equal(result.validationHandoff?.status, "task_agent_report_invalid");
+    assert.match(result.validationHandoff?.diagnostics?.join(" ") ?? "", /report repair refused by budget/i);
+    assert.equal(result.state.stage, "paused");
+    assert.equal(getBudgetState(result.state).usage.spawnedAgents, 1);
+  });
+});
+
+test("runConductorStep contains a report-only repair runner failure", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
+      runnerCalls += 1;
+      if (runnerCalls === 2) throw new Error("repair transport unavailable");
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [{ type: "done" }],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
+
+    assert.equal(runnerCalls, 2);
+    assert.equal(result.validationHandoff?.status, "task_agent_report_missing");
+    assert.match(result.validationHandoff?.diagnostics?.join(" ") ?? "", /report-only repair runner failed.*transport unavailable/i);
+    assert.equal((await loadTaskAttempts(dir))[0]?.outcome, "failed");
+    assert.equal(await loadExecutionLock(dir), undefined);
+    const runs = await loadTaskAgentRunRecords(dir);
+    assert.equal(runs.length, 2, "both the original run and failed repair dispatch need durable records");
+    assert.equal(runs[0]?.status, "failed");
+    assert.match(runs[0]?.stderrSummary ?? "", /repair runner failed.*transport unavailable/i);
+  });
+});
+
 test("runConductorStep blocks validation when task-agent report is invalid", async () => {
   await withTempDir(async (dir) => {
     const state = stateWithTasks(["ready"]);
     state.stage = "execution";
-    const result = await runConductorStep(dir, state, { execute: true }, async (request) => ({
-      taskId: request.taskId,
-      exitCode: 0,
-      stdoutEvents: [{ type: "scaler_task_report", taskId: "WRONG", status: "completed", summary: "Wrong task" }],
-      stderr: "",
-      timedOut: false,
-      aborted: false,
-    }));
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
+      runnerCalls += 1;
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [{ type: "scaler_task_report", taskId: "WRONG", status: "completed", summary: "Wrong task" }],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
 
     const persisted = await loadState(dir);
     const handoffs = await loadValidationHandoffs(dir);
     const runs = await loadTaskAgentRunRecords(dir);
 
+    assert.equal(runnerCalls, 2, "repair must not recurse after one invalid repair report");
     assert.equal(result.validationHandoff?.status, "task_agent_report_invalid");
     assert.equal(persisted.tasks[0]?.status, "blocked");
     assert.equal(handoffs[0]?.status, "task_agent_report_invalid");

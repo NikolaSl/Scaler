@@ -381,6 +381,17 @@ or budget refusal across every route. SC-08 therefore remains Partial instead
 of adding a speculative permission layer here. The unavailable final Pi
 continuation envelope remains an SC-25 host-adapter limit; configured local-only
 execution remains SC-09.
+PLAN-163 closes the next minimal SC-05 boundary: a successful task-agent process
+with a missing or malformed structured report may receive one separate
+report-only repair call. The repair keeps the same attempt identity, has no
+tools, passes the existing final-prompt and strict provider-envelope admission,
+and cannot replay task effects. Missing, malformed, identity-mismatched,
+budget-refused or oversized repair output remains blocked without a third call.
+An installed-host fixture also proves that a large tool result is externalized
+before the re-admitted continuation. This is not a general retry framework;
+SC-05 stays Partial until the entire AC-05 sequence is one declared-window
+scenario with estimate-versus-observed reconciliation, and broader attempt-
+contract work stays in P4.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
 unresolved in-scope findings. The primary exact-head gate passed build,

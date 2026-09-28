@@ -32,7 +32,7 @@ const policyEnv = {
 
 // All provider traffic is replaced before creating the SDK session. No live
 // credentials, endpoints, command providers or global resource discovery are used.
-async function runInstalledHost(systemCharacters: number, extensions: ExtensionFactory[] = [], options: { autoCompaction?: boolean; activeTask?: boolean; largeUnselectedTool?: boolean; reemitBeforeStartPrompt?: boolean; rewriteBeforeScaler?: boolean; defaultSystemPrompt?: boolean; failScalerAuditBeforeStart?: boolean; failScalerAuditBeforeProvider?: boolean; queueFollowUpAfterAbort?: boolean; wrongExpectedModel?: boolean; modelContextWindow?: number; modelMaxTokens?: number } = {}) {
+async function runInstalledHost(systemCharacters: number, extensions: ExtensionFactory[] = [], options: { autoCompaction?: boolean; activeTask?: boolean; largeUnselectedTool?: boolean; largeSelectedToolResult?: boolean; reemitBeforeStartPrompt?: boolean; rewriteBeforeScaler?: boolean; defaultSystemPrompt?: boolean; failScalerAuditBeforeStart?: boolean; failScalerAuditBeforeProvider?: boolean; queueFollowUpAfterAbort?: boolean; wrongExpectedModel?: boolean; modelContextWindow?: number; modelMaxTokens?: number } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "scaler-provider-host-test-"));
   const savedFetch = globalThis.fetch;
   const savedEnv = Object.fromEntries(Object.keys(policyEnv).map((key) => [key, process.env[key]]));
@@ -58,6 +58,21 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
       assert.equal(typeof init?.body, "string", "expected SDK JSON request body");
       payload = JSON.parse(init?.body as string) as Record<string, unknown>;
       payloads.push(payload);
+      if (options.largeSelectedToolResult) {
+        const common = { id: "synthetic", object: "chat.completion.chunk", created: 0, model: "synthetic-window" };
+        const chunks = fetchCalls === 1
+          ? [
+            { ...common, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "call-large", type: "function", function: { name: "large_selected", arguments: "{}" } }] }, finish_reason: null }] },
+            { ...common, choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }], usage: { prompt_tokens: 100, completion_tokens: 5, total_tokens: 105 } },
+          ]
+          : [
+            { ...common, choices: [{ index: 0, delta: { role: "assistant", content: "Inspected referenced result." }, finish_reason: null }] },
+            { ...common, choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 150, completion_tokens: 4, total_tokens: 154 } },
+          ];
+        return new Response(`${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`, {
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
       if (options.autoCompaction) {
         // A successful answer is needed to trigger Pi's threshold compaction.
         const common = { id: "synthetic", object: "chat.completion.chunk", created: 0, model: "synthetic-window" };
@@ -131,6 +146,17 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
             async execute() { return { content: [{ type: "text", text: "unused" }], details: {} }; },
           });
         }) satisfies ExtensionFactory] : []),
+        ...(options.largeSelectedToolResult ? [((pi) => {
+          pi.registerTool({
+            name: "large_selected",
+            label: "Large Selected",
+            description: "Return one large deterministic result.",
+            parameters: Type.Object({}),
+            async execute() {
+              return { content: [{ type: "text", text: `LARGE_TOOL_RESULT_RAW_${"x".repeat(9_000)}` }], details: {} };
+            },
+          });
+        }) satisfies ExtensionFactory] : []),
         ...(options.reemitBeforeStartPrompt ? [((pi) => {
           pi.on("before_agent_start", (event) => ({ systemPrompt: `${event.systemPrompt}\nCOMPANION_BEFORE_START_PROMPT` }));
         }) satisfies ExtensionFactory] : []),
@@ -144,6 +170,8 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
       sessionManager: SessionManager.inMemory(dir), resourceLoader: loader,
       tools: options.autoCompaction
         ? []
+        : options.largeSelectedToolResult
+          ? ["large_selected"]
         : options.activeTask
           ? ["read", ...(options.largeUnselectedTool ? ["large_unselected"] : []), "scaler_tool_request", "scaler_task_report"]
           : ["read"],
@@ -203,6 +231,15 @@ test("installed Scaler parent admission audit stores measurements without prompt
   assert.match(details, /\"payloadBytes\":\d+/);
   assert.doesNotMatch(details, /Inspect the exact source/);
   assert.doesNotMatch(details, /HOST_SYSTEM_START/);
+});
+
+test("installed Scaler externalizes a large tool result before admitting the continuation", async () => {
+  const result = await runInstalledHost(40, [], { largeSelectedToolResult: true, modelContextWindow: 128_000 });
+  assert.equal(result.fetchCalls, 2);
+  const continuation = JSON.stringify(result.payloads[1]);
+  assert.doesNotMatch(continuation, /LARGE_TOOL_RESULT_RAW/);
+  assert.match(continuation, /stored large tool result by reference/);
+  assert.ok(result.events.some((event) => event.summary === "Tool result externalized: large_selected"));
 });
 
 test("provider admission aborts oversized installed Pi requests before transport", async () => {

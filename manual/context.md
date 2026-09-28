@@ -143,6 +143,18 @@ paths. Policy transport contains validated numeric limits only. A refusal calls
 enforcement. The strict profile also cancels Pi's provider-backed compaction,
 whose summary request bypasses `before_provider_request` in Pi 0.80.3.
 
+If an otherwise successful conductor child omits or malforms its final
+`scaler_task_report`, SCALER may launch one separate report-only repair child.
+It has no tools, retains the same admitted attempt fingerprints and passes both
+the early prompt allowance and the strict final provider-envelope check. It
+cannot replay implementation effects. A missing, invalid, stale, oversized or
+budget-refused repair blocks validation without another attempt.
+
+Large Pi tool results are externalized before the continuation request. The
+next provider envelope therefore contains a compact reference to the redacted
+payload and is measured again; externalization is not permission to skip the
+next-call admission check.
+
 Every strict child also receives one runtime-owned API/provider/model/context-
 window identity captured from the host (or, for isolated tool dispatch, its
 fresh trusted worker supplier). SCALER renders explicit `--provider` and
