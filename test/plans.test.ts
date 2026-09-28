@@ -249,10 +249,11 @@ test("applyPlanningReport syncs requirements plan tasks prd refs and coverage di
   });
 });
 
-test("applyPlanningReport reports coverage warnings for unlinked and unknown refs", async () => {
+test("applyPlanningReport rejects structural coverage gaps before publication", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const result = await applyPlanningReport(dir, state, {
+
+    await assert.rejects(() => applyPlanningReport(dir, state, {
       requirements: [{ id: "REQ-KNOWN", statement: "Known" }],
       plan: {
         planVersion: 1,
@@ -262,12 +263,57 @@ test("applyPlanningReport reports coverage warnings for unlinked and unknown ref
           validPlanTask("T-NOREF", "No ref"),
         ],
       },
+    }), /coverage preflight.*unlinked=REQ-KNOWN.*unknown=REQ-UNKNOWN.*tasksWithoutPrdRefs=T-NOREF/i);
+
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    assert.deepEqual((await loadPrdCoverage(dir)).entries, []);
+    assert.deepEqual(await loadPrdChanges(dir), []);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual(await loadPlanningReports(dir), []);
+    assert.deepEqual(state.tasks, []);
+  });
+});
+
+test("applyPlanningReport preserves an uncovered persisted requirement without partial publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await upsertPrdRequirement(dir, { id: "REQ-PERSISTED", statement: "Persisted scope" });
+    const beforeRequirements = await loadPrdRequirements(dir);
+    const beforeCoverage = await loadPrdCoverage(dir);
+    const beforeChanges = await loadPrdChanges(dir);
+
+    await assert.rejects(() => applyPlanningReport(dir, state, {
+      requirements: [{ id: "REQ-NEW", statement: "New scope" }],
+      plan: {
+        planVersion: 1,
+        status: "active",
+        tasks: [validPlanTask("T-NEW", "New task", { prdRefs: ["REQ-NEW"] })],
+      },
+    }), /coverage preflight.*unlinked=REQ-PERSISTED/i);
+
+    assert.deepEqual(await loadPrdRequirements(dir), beforeRequirements);
+    assert.deepEqual(await loadPrdCoverage(dir), beforeCoverage);
+    assert.deepEqual(await loadPrdChanges(dir), beforeChanges);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual(await loadPlanningReports(dir), []);
+    assert.deepEqual(state.tasks, []);
+  });
+});
+
+test("applyPlanningReport accepts a compact one-task one-requirement plan", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const result = await applyPlanningReport(dir, state, {
+      requirements: [{ id: "REQ-COMPACT", statement: "One bounded outcome" }],
+      plan: {
+        planVersion: 1,
+        status: "active",
+        tasks: [validPlanTask("T-COMPACT", "One bounded task", { prdRefs: ["REQ-COMPACT"] })],
+      },
     });
 
-    assert.equal(result.accepted, false);
-    assert.deepEqual(result.report.diagnostics.unlinkedRequirementIds, ["REQ-KNOWN"]);
-    assert.deepEqual(result.report.diagnostics.unknownPlanRequirementIds, ["REQ-UNKNOWN"]);
-    assert.deepEqual(result.report.diagnostics.planUnlinkedTaskIds, ["T-NOREF"]);
+    assert.equal(result.accepted, true);
+    assert.deepEqual(result.state.tasks.map((task) => task.id), ["T-COMPACT"]);
   });
 });
 
