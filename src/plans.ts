@@ -424,6 +424,10 @@ async function acceptReplanProposalLocked(
       if (!requirement) throw new Error(`Replan acceptance requires runtime PRD requirement ${id}.`);
       return [id, requirement.revision ?? 1];
     }));
+  const durablePlan = await loadExecutionPlan(cwd);
+  if (!applyingDecision && !sameAcceptedReplanPlan(durablePlan, { ...currentPlan, status: "active" })) {
+    throw new Error(`Replan acceptance has a stale current plan: expected version ${currentPlan.planVersion}, active version ${durablePlan.planVersion}.`);
+  }
   const snapshotPath = applyingDecision?.snapshotPath
     ?? await createExecutionPlanSnapshot(cwd, { plan: currentPlan, now });
   const journal = applyingDecision ?? await appendReplanDecision(cwd, {
@@ -442,7 +446,6 @@ async function acceptReplanProposalLocked(
     preservation,
     createdAt: timestamp,
   });
-  const durablePlan = await loadExecutionPlan(cwd);
   let savedPlan: ExecutionPlanArtifact;
   if (durablePlan.planVersion === journal.proposedPlanVersion) {
     if (!sameAcceptedReplanPlan(durablePlan, targetPlan)) {
