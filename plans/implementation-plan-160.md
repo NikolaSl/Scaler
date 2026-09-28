@@ -2,8 +2,9 @@
 
 ## Status
 
-Implemented and validated on `implementation/v2-p3-memory-context`; accumulated
-phase review remains pending.
+Implemented and validated on `implementation/v2-p3-memory-context`; the initial
+independent phase findings are fixed and a fresh exact-tree follow-up remains
+pending.
 
 ## Observed gap
 
@@ -66,21 +67,24 @@ and existing request authority under a bounded host lifecycle.
 
 - `/scaler-tool-current [requestId]` prepares one eligible request in the
   parent session and narrows the host to the exact allowed tools plus
-  `scaler_tool_result`.
+  `scaler_tool_result`. Supervisor-mutating SCALER tools are refused; only the
+  memory search/retrieve helpers and result tool may accompany the granted
+  non-SCALER tools.
 - The first provider call claims execution only after fresh current-agent route
   admission over the actual payload, selected-tool profile, strict policy and
-  provider/model identity. Continuations revalidate that identity and profile;
-  more than four provider calls fail closed.
+  full provider/model identity. Continuations revalidate the provider API,
+  provider, model id, context window and profile; more than four provider calls
+  fail closed.
 - Runtime-owned result binding, existing result limits and durable execution
   identity govern closure. Missing, duplicate, foreign, malformed and
   oversized proposals block the transaction.
 - Active tools are restored on successful completion and refusal, including a
   synchronous host message-delivery failure. Prompt or admission telemetry
-  failure cannot turn a refusal into provider traffic.
+  failure cannot turn a refusal into provider traffic or skip cleanup.
 
-Exact executable-tree validation passed the TypeScript build, 1,174/1,174
+Exact executable-tree validation passed the TypeScript build, 1,176/1,176
 unit/component tests, 72/72 mock integration tests, 10/10
-conformance/autopilot tests, 116/116 focused extension/tool/provider-host tests
+conformance/autopilot tests, 117/117 focused extension/tool/provider-host tests
 (including 15 installed-host checks) and `git diff --check`. This is
 deterministic host and ledger evidence, not a local-model quality result or a
 complete direct/current-agent/isolated production scenario.

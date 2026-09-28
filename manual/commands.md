@@ -541,13 +541,16 @@ Starts one eligible prepared tool request in the current parent session. SCALER
 refuses direct operations, isolation-bound requests, unavailable tools, busy
 sessions and concurrent active executions. It temporarily selects exactly the
 request's allowed tools plus `scaler_tool_result` and sends a role-specific
-prompt that cannot advance or broaden the supervisor FSM.
+prompt that cannot advance or broaden the supervisor FSM. The request cannot
+grant supervisor-mutating `scaler_*` tools; only `scaler_memory_search`,
+`scaler_memory_retrieve` and the runtime-owned result tool are eligible.
 
 Before the first provider request, SCALER recomputes current-agent admission
 from the actual payload, strict provider policy, exact selected-tool profile and
-current provider/model identity. Execution is claimed only after that admission;
-later provider calls must preserve the identity/profile and the run is bounded
-to four provider calls. The result tool is bound to the runtime-owned execution
+current provider API/provider/model/context-window identity. Execution is
+claimed only after that admission; later provider calls must preserve the full
+identity/profile and the run is bounded to four provider calls. The result tool
+is bound to the runtime-owned execution
 without exposing an execution-id argument to the model. Exactly one fresh valid
 proposal closes the request at agent end. Refusal or completion restores the
 previous active tools; an interruption after a durable claim requires explicit

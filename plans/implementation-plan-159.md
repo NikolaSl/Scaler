@@ -13,8 +13,10 @@ context manifest, so the task can resume without the information it requested.
 Before resolving a memory request, add the bounded search results to that task's
 manifest as required `memory` items with `summary` scope. Preserve each durable
 memory identity and expose its validity/source metadata through the existing
-memory resolver. Refuse a conflicting manifest identity. Save the manifest once,
-then resolve the request; do not add a new retrieval, ranking or approval layer.
+memory resolver. Refuse a conflicting manifest identity. Serialize the manifest
+read/merge/save and request resolution for that task so concurrent requests do
+not lose already accepted context. Save the manifest once, then resolve the
+request; do not add a new retrieval, ranking or approval layer.
 
 Search results remain candidates, not established facts. The worker may request
 more exact material or investigation on a later turn. Existing prompt admission
@@ -37,8 +39,10 @@ The memory dispatcher now promotes matched entries to required bounded summary
 context and validates their availability and aggregate size before persisting
 the manifest and resolving the request. The resumed task prompt receives the
 summary plus source/validity metadata and not the full memory body. No-match and
-conflicting-scope regressions remain blocked without manifest mutation.
+conflicting-scope regressions remain blocked without manifest mutation. A
+bounded per-task lock preserves both required items when two memory requests
+resolve concurrently.
 
-Candidate validation: TypeScript build, 1,169/1,169 unit/component, 72/72 mock
-integration, 10/10 conformance/autopilot, 17/17 focused missing-context/autopilot
-checks and `git diff --check`.
+Final accumulated phase validation: TypeScript build, 1,176/1,176
+unit/component, 72/72 mock integration, 10/10 conformance/autopilot, 18/18
+focused missing-context/autopilot checks and `git diff --check`.

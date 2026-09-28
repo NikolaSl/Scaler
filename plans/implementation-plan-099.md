@@ -334,19 +334,23 @@ PLAN-159 requires matched memory candidate summaries to enter the task manifest
 before a memory missing-context request resolves. The existing memory resolver
 keeps source and validity metadata visible, full bodies remain excluded, and
 missing, unavailable, conflicting or oversized candidates keep the task
-blocked. The candidate passes build, 1,169 unit/component, 72 mock integration,
-10 conformance/autopilot and 17 focused checks plus `git diff --check`. It adds
-no new ranking or approval subsystem and does not establish memory truth,
-automatic task/context choice, model quality, savings or full SC-07/AC-07.
+blocked. A bounded per-task critical section serializes manifest merge and
+request resolution so concurrent accepted requests retain both required items.
+The accumulated phase candidate passes build, 1,176 unit/component, 72 mock
+integration, 10 conformance/autopilot and 18 focused checks plus `git diff
+--check`. It adds no new ranking or approval subsystem and does not establish
+memory truth, automatic task/context choice, model quality, savings or full
+SC-07/AC-07.
 PLAN-160 adds one bounded current-agent tool route using the installed parent
 session. It narrows active tools to the request grant plus the result tool,
 recomputes route admission from each actual provider payload and exact selected
-profile, binds the first admitted call to the current provider/model identity,
+profile, binds the first admitted call to the complete provider/model identity,
 and accepts only one runtime-bound structured result before restoring the prior
-tool set. Direct operations, isolation requirements, unavailable tools, identity
-or profile drift, excessive calls and malformed results fail closed. The
-candidate passes build, 1,174 unit/component, 72 mock integration, 10
-conformance/autopilot and 116 focused extension/tool/provider-host checks,
+tool set. Supervisor-mutating SCALER tools, direct operations, isolation
+requirements, unavailable tools, identity or profile drift, excessive calls and
+malformed results fail closed. The candidate passes build, 1,176 unit/component,
+72 mock integration, 10 conformance/autopilot and 117 focused
+extension/tool/provider-host checks,
 including 15 installed-host checks, plus `git diff --check`. Production isolated continuation wiring,
 generic direct/MCP adapters and the complete three-route scenario remain open,
 so SC-08/AC-08 stays Partial; no model-quality or savings claim is made.
