@@ -139,6 +139,17 @@ test("recordResearchReport cannot retarget an existing report identity", async (
       requestId: "RESEARCH-B",
       taskId: "TASK-B",
       question: "Which local API is supported?",
+      sources: [{ id: "source", title: "Foreign evidence", quality: "project", summary: "Task B evidence" }],
+      conclusions: [{ summary: "Task B conclusion", confidence: "high", sourceRefs: ["source"] }],
+    }), /identity|request|task/i);
+    await assert.rejects(recordResearchReport(dir, {
+      id: " REPORT-A ",
+      status: "complete",
+      requestId: "RESEARCH-B",
+      taskId: "TASK-B",
+      question: "Which local API is supported?",
+      sources: [{ id: "source", title: "Foreign evidence", quality: "project", summary: "Task B evidence" }],
+      conclusions: [{ summary: "Task B conclusion", confidence: "high", sourceRefs: ["source"] }],
     }), /identity|request|task/i);
     const [stored] = await loadResearchReports(dir);
     assert.equal(stored?.requestId, "RESEARCH-A");
