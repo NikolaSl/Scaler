@@ -70,3 +70,10 @@ begins after that transaction. Proposal and plan fingerprints omit only normaliz
 newer coverage row, duplicate coverage id or requirement revision fails closed.
 The immutable pre-acceptance snapshot may already exist after a rejected recovery;
 it is not executable state.
+
+The final publication fence also journals the normalized requirements catalog
+and all coverage rows outside the affected set. Immediately before publication,
+the PRD lock verifies those exact fingerprints as well as each affected row and
+revision. New requirements or unrelated coverage changes therefore reject a
+stale acceptance instead of being silently omitted; accepted retries apply the
+same basis check.
