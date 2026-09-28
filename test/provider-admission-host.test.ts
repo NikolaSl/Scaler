@@ -206,6 +206,7 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
     return {
       fetchCalls, payload, payloads, model, compactionCancelled, events,
       usage: extractProviderUsage(session.messages),
+      lastMessage,
       activeToolNames: session.getActiveToolNames(),
       stopReason: lastMessage?.role === "assistant" ? lastMessage.stopReason : undefined,
     };
@@ -344,9 +345,11 @@ test("installed Pi composes the complete AC-05 envelope process under one declar
       assert.equal(host.fetchCalls, 1);
       assert.deepEqual(host.activeToolNames, []);
       assert.ok(host.usage?.totalTokens);
+      assert.equal(host.lastMessage?.role, "assistant");
       observedTotals.push(host.usage.totalTokens);
       return {
-        taskId: request.taskId, exitCode: 0, stdoutEvents: [report], stderr: "",
+        taskId: request.taskId, exitCode: 0,
+        stdoutEvents: [{ type: "message_end", message: host.lastMessage }], stderr: "",
         timedOut: false, aborted: false, usage: host.usage,
       };
     });
