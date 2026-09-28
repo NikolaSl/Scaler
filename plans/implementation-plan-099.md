@@ -392,17 +392,20 @@ before the re-admitted continuation. This is not a general retry framework;
 SC-05 stays Partial until the entire AC-05 sequence is one declared-window
 scenario with estimate-versus-observed reconciliation, and broader attempt-
 contract work stays in P4.
-PLAN-164 composes that complete AC-05 sequence in an installed-host fixture using
-the production strict-child environment builder and equivalent extension order.
-Separate subprocess tests exercise the actual runner UUID/correlation/parser
-path. One declared 32,768-token scenario externalizes
+PLAN-164 composes that complete AC-05 sequence in an in-process installed-host
+fixture using the production strict-child environment builder and equivalent
+extension order; it is not one end-to-end Pi subprocess test. Separate
+subprocess tests exercise the actual runner UUID/correlation/parser path. One
+declared 32,768-token scenario externalizes
 an oversized exact source into a resolvable split, admits the compact request,
 uses the actually granted `read` tool, externalizes its large result before the
 continuation, and admits one admission-only, tool-less, same-attempt report repair
 before validation. A runtime-owned dispatch ID on Pi's isolated JSON stdout
-channel correlates every final-payload byte-bound estimate with provider-observed
-input in the durable task-run record; missing, refused, stale or nested
-model-authored evidence fails the strict run;
+channel binds every strict dispatch to its final-payload byte-bound estimate.
+The durable task-run record retains observed input and delta when the provider
+reports them, or an explicit telemetry-unavailable limitation while preserving
+the verified conservative bound. Missing, malformed, conflicting, refused,
+stale or nested model-authored admission evidence fails the strict run;
 the budget ledger separately retains ordinary provider usage accounting. SC-05/AC-05
 is Verified for the supported model-independent FSM and OpenAI Chat Completions
 adapter. This does not claim exact tokenization, alternate-provider coverage,

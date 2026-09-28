@@ -49,15 +49,18 @@ usage to the budget without retaining a dispatch-correlated estimate/observation
 pair. The accepted review fix is intentionally small. Strict launches now assign
 one runtime-owned dispatch ID; the final provider hook emits its admitted
 serialized-payload byte bound through Pi's isolated JSON stdout channel before
-transport; the runner accepts only top-level matching records and fails closed
-when evidence is missing or refused; and each durable task-run record stores the
-aggregate estimated input upper bound, observed provider input and their delta.
-No mutable shared report directory is scanned or trusted.
+transport; the runner accepts only schema-valid top-level matching records and
+fails closed when evidence is missing, malformed, conflicting or refused. Each
+durable strict task-run record stores the aggregate estimated input upper bound
+and either observed provider input plus its delta or an explicit
+telemetry-unavailable limitation. No mutable shared report directory is scanned
+or trusted.
 
 The corrected in-process installed-host scenario uses the production environment
-builder and equivalent extension ordering. Separate subprocess tests execute the
-actual `runTaskAgent` UUID/correlation/parser path and reject missing, stale or
-nested model-authored evidence. Under one declared 32,768-token model window,
+builder and equivalent extension ordering; it is not a single end-to-end Pi
+subprocess test. Separate subprocess tests execute the actual `runTaskAgent`
+UUID/correlation/parser path and reject missing, malformed, conflicting, stale
+or nested model-authored evidence. Under one declared 32,768-token model window,
 conductor externalizes an oversized
 exact source, dispatches only a fitting prompt with a resolvable memory path,
 and the real strict child keeps its granted `read` tool available. Reading the
@@ -75,7 +78,7 @@ the supported model-independent FSM and OpenAI Chat Completions adapter. It
 does not establish tokenizer-exact measurement, other provider adapters,
 configured local inference, model quality, savings or scale.
 
-Exact candidate validation: TypeScript build, 1,193/1,193 unit/component,
-73/73 mock integration, 10/10 conformance/autopilot and 134/134 focused
+Exact candidate validation: TypeScript build, 1,198/1,198 unit/component,
+73/73 mock integration, 10/10 conformance/autopilot and 133/133 focused
 context/conductor/provider/admission/accounting checks pass, together with
 `git diff --check`.
