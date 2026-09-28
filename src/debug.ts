@@ -503,7 +503,7 @@ function hasFreshReferencedEvidence(
   candidate: Pick<DebugAttemptInput, "newEvidence" | "evidence" | "validationRun" | "logRefs">,
   priorAttempts: Array<Pick<DebugAttemptRecord, "evidence" | "validationRun" | "logRefs">>,
 ): boolean {
-  if (!candidate.newEvidence?.trim()) return false;
+  if (typeof candidate.newEvidence !== "string" || !candidate.newEvidence.trim()) return false;
   const priorReferences = new Set(priorAttempts.flatMap(debugEvidenceReferences));
   return debugEvidenceReferences(candidate).some((reference) => !priorReferences.has(reference));
 }
