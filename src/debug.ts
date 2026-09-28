@@ -4,8 +4,9 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rmdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { getDebugAttemptsPath, getDebugFailuresPath, getDebugReportsPath, getDebugRetriesPath } from "./paths.js";
 import { loadReplanDecisions, loadReplanRequests } from "./plans.js";
@@ -337,20 +338,19 @@ export async function recordDebugReport(
 export async function assessDebugRetryGate(cwd: string, taskId: string): Promise<DebugRetryGateResult> {
   const taskAttempts = (await loadDebugAttempts(cwd))
     .filter((attempt) => attempt.taskId === taskId && attempt.result !== "fixed");
-  const attempts = [...taskAttempts]
-    .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-  if (attempts.length === 0) {
+  if (taskAttempts.length === 0) {
     return { allowed: true, taskId, reason: `No debug retry gate for ${taskId}.`, replanRequestIds: [], acceptedReplanDecisionIds: [] };
   }
 
-  const failures = await loadDebugFailures(cwd);
-  const blockingAttempt = attempts.find((attempt) => isBlockingDebugAttempt(attempt, failures));
+  const blockingAttemptIndex = taskAttempts.findIndex((attempt, index) =>
+    isBlockingDebugAttempt(attempt, taskAttempts.slice(0, index + 1)));
+  const blockingAttempt = taskAttempts[blockingAttemptIndex];
   if (!blockingAttempt) {
     return { allowed: true, taskId, reason: `No repeated failed debug fingerprint for ${taskId}.`, replanRequestIds: [], acceptedReplanDecisionIds: [] };
   }
 
   if (taskAttempts.some((attempt, index) =>
-    attempt.timestamp >= blockingAttempt.timestamp
+    index > blockingAttemptIndex
     && hasFreshReferencedEvidence(attempt, taskAttempts.slice(0, index)))) {
     return {
       allowed: true,
@@ -410,6 +410,8 @@ export async function recordDebugAttempt(
     return { accepted: false, message };
   }
 
+  const result = input.result;
+  return withDebugAttemptLock(cwd, async () => {
   const attempts = await loadDebugAttempts(cwd);
   const attemptSignature = normalizeSignature(input.attemptSignature ?? `${input.hypothesis} ${input.actionSummary}`);
   const failureFingerprint = normalizeFingerprint(input.failureFingerprint);
@@ -442,7 +444,7 @@ export async function recordDebugAttempt(
     failureId: input.failureId,
     hypothesis: input.hypothesis,
     actionSummary: input.actionSummary,
-    result: input.result,
+    result,
     attemptSignature,
     failureFingerprint: failureFingerprint || undefined,
     resultingFailureFingerprint: resultingFailureFingerprint || undefined,
@@ -464,7 +466,7 @@ export async function recordDebugAttempt(
 
   let finalState = state;
   let replanRequestId: string | undefined;
-  if (cycleDetected || input.result === "blocked") {
+  if (cycleDetected || result === "blocked") {
     const task = state.tasks.find((candidate) => candidate.id === input.taskId);
     if (task?.status === "debugging") {
       finalState = transitionTask(state, input.taskId, "needs_replan", {
@@ -496,7 +498,8 @@ export async function recordDebugAttempt(
     }),
   );
 
-  return { accepted: true, message, attempt, cycleDetected, replanRequestId };
+    return { accepted: true, message, attempt, cycleDetected, replanRequestId };
+  });
 }
 
 function hasFreshReferencedEvidence(
@@ -511,20 +514,26 @@ function hasFreshReferencedEvidence(
 function debugEvidenceReferences(
   attempt: Pick<DebugAttemptInput, "evidence" | "validationRun" | "logRefs">,
 ): string[] {
-  return [...new Set([
+  const references: unknown[] = [
     ...(attempt.evidence ?? []),
     ...(attempt.validationRun ? [attempt.validationRun] : []),
     ...(attempt.logRefs ?? []),
-  ].map((reference) => reference.trim()).filter(Boolean))];
+  ];
+  return [...new Set(references
+    .filter((reference): reference is string => typeof reference === "string")
+    .map((reference) => reference.trim())
+    .filter(Boolean))];
 }
 
-function isBlockingDebugAttempt(attempt: DebugAttemptRecord, failures: DebugFailureRecord[]): boolean {
+function isBlockingDebugAttempt(attempt: DebugAttemptRecord, attemptsThroughCandidate: DebugAttemptRecord[]): boolean {
   if (attempt.result === "fixed") return false;
   if (attempt.cycleDetected) return true;
   if (attempt.result === "blocked") return true;
-  const failure = failures.find((candidate) => candidate.taskId === attempt.taskId && candidate.id === attempt.failureId);
   const failedResult = attempt.result === "same_failure" || attempt.result === "new_failure" || attempt.result === "partial" || attempt.result === "no_effect" || attempt.result === "worse";
-  return failedResult && (failure?.attemptCount ?? 0) >= 2;
+  return failedResult && attemptsThroughCandidate.filter((candidate) =>
+    candidate.taskId === attempt.taskId
+    && candidate.failureId === attempt.failureId
+    && candidate.result !== "fixed").length >= 2;
 }
 
 function findDuplicateAttempt(
@@ -728,4 +737,32 @@ async function readJsonFile<T>(path: string, fallback: T): Promise<T> {
 async function writeJsonFile(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+async function withDebugAttemptLock<T>(cwd: string, operation: () => Promise<T>): Promise<T> {
+  const lockPath = `${getDebugAttemptsPath(cwd)}.lock`;
+  await mkdir(dirname(lockPath), { recursive: true });
+  const deadline = Date.now() + 2_000;
+  while (true) {
+    try {
+      await mkdir(lockPath);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST" || Date.now() >= deadline) {
+        throw new Error(`Debug attempt publication lock is busy: ${lockPath}. Reconcile the owner before removing it.`, { cause: error });
+      }
+      await delay(10);
+    }
+  }
+  try {
+    return await operation();
+  } finally {
+    try {
+      await rmdir(lockPath);
+    } catch (error) {
+      process.emitWarning(`Debug attempt publication lock could not be released: ${lockPath}. Reconcile it before recording another attempt. ${String(error)}`, {
+        code: "SCALER_DEBUG_LOCK_RELEASE_FAILED",
+      });
+    }
+  }
 }
