@@ -335,10 +335,11 @@ test("installed Pi composes the complete AC-05 envelope process under one declar
           selectedReadPath,
           memorySourceDir: dir,
           modelContextWindow: 32_768,
+          modelMaxTokens: 1_024,
           prompt: request.prompt,
           childEnvironment,
         });
-        assert.equal(host.fetchCalls, 2);
+        assert.equal(host.fetchCalls, 2, JSON.stringify(host.providerAdmissions));
         assert.deepEqual(host.activeToolNames, ["read"]);
         assert.ok(host.usage?.totalTokens);
         observedTotals.push(host.usage.totalTokens);
@@ -365,6 +366,7 @@ test("installed Pi composes the complete AC-05 envelope process under one declar
       assert.equal(extensionPaths.length, 1, "strict tool-less repair must load admission only");
       const host = await runInstalledHost(40, [await admissionExtension()], {
         modelContextWindow: 32_768,
+        modelMaxTokens: 1_024,
         noTools: true,
         prompt: request.prompt,
         responseText: JSON.stringify(report),

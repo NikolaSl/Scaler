@@ -27,7 +27,11 @@ import { appendLogEvent, createLogEvent, logAgentPromptAudit } from "./logging.j
 import { createMissingContextRequestsFromTaskReport, refreshAndUnblockMissingContext } from "./missing-context.js";
 import { getTaskAgentRunsPath, getValidationHandoffsPath } from "./paths.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
-import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
+import {
+  createStrictProviderAdmissionPolicy,
+  type ProviderAdmissionModel,
+  type ProviderUsageReconciliation,
+} from "./provider-admission.js";
 import { assessTaskPromptAdmission, createPromptSizingAttemptBinding, resolveTaskPromptTokenBudget, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
 import { saveState } from "./state.js";
 import { buildTaskAgentInvocation, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRunResult } from "./subagents.js";
@@ -97,6 +101,7 @@ export interface TaskAgentRunRecord {
   aborted: boolean;
   createdAt: string;
   usage?: ProviderUsage;
+  providerUsageReconciliation?: ProviderUsageReconciliation;
   reportStatus?: TaskAgentRunReportStatus;
   reportId?: string;
   reportDiagnostics?: string[];
@@ -768,6 +773,7 @@ export async function recordTaskAgentRun(
     aborted: runResult.aborted,
     createdAt: now.toISOString(),
     usage: runResult.usage,
+    providerUsageReconciliation: reconcileProviderUsage(runResult),
     reportStatus: report?.reportStatus,
     reportId: report?.reportId,
     reportDiagnostics: report?.reportDiagnostics,
@@ -776,6 +782,29 @@ export async function recordTaskAgentRun(
   };
   await writeTaskAgentRuns(cwd, [record, ...(await loadTaskAgentRunRecords(cwd))]);
   return record;
+}
+
+function reconcileProviderUsage(runResult: TaskAgentRunResult): ProviderUsageReconciliation | undefined {
+  const observedInputTokens = runResult.usage?.inputTokens;
+  const admitted = (runResult.providerAdmissions ?? []).filter((record) => record.accepted
+    && record.estimator === "serialized_utf8_bytes_upper_bound"
+    && typeof record.dispatchId === "string"
+    && typeof record.payloadBytes === "number"
+    && Number.isSafeInteger(record.payloadBytes)
+    && record.payloadBytes >= 0);
+  const dispatchIds = Array.from(new Set(admitted.map((record) => record.dispatchId!)));
+  if (observedInputTokens === undefined || !Number.isSafeInteger(observedInputTokens) || observedInputTokens < 0
+    || admitted.length === 0 || dispatchIds.length !== 1) return undefined;
+  const estimatedInputTokensUpperBound = admitted.reduce((sum, record) => sum + record.payloadBytes!, 0);
+  if (!Number.isSafeInteger(estimatedInputTokensUpperBound)) return undefined;
+  return {
+    dispatchId: dispatchIds[0]!,
+    estimator: "serialized_utf8_bytes_upper_bound",
+    admittedRequestCount: admitted.length,
+    estimatedInputTokensUpperBound,
+    observedInputTokens,
+    inputDeltaTokens: observedInputTokens - estimatedInputTokensUpperBound,
+  };
 }
 
 export async function loadValidationHandoffs(cwd: string): Promise<ValidationHandoffRecord[]> {

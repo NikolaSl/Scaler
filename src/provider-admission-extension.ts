@@ -14,6 +14,7 @@ import {
   readProviderAdmissionPolicyFromEnvironment,
   type ProviderAdmissionDecision,
   type ProviderAdmissionModel,
+  type ProviderAdmissionRecord,
 } from "./provider-admission.js";
 
 export default function providerAdmissionExtension(pi: ExtensionAPI): void {
@@ -23,7 +24,7 @@ export default function providerAdmissionExtension(pi: ExtensionAPI): void {
   // before_provider_request. The strict profile must cancel that alternate
   // transport route rather than certify only the ordinary request path.
   pi.on("session_before_compact", () => ({ cancel: true }));
-  pi.on("before_provider_request", (event, ctx) => {
+  pi.on("before_provider_request", async (event, ctx) => {
     const decision = !configured.policy
       ? invalidConfigurationDecision(configured.message)
       : !expectedModel.accepted
@@ -32,7 +33,11 @@ export default function providerAdmissionExtension(pi: ExtensionAPI): void {
           ? invalidModelDecision(expectedModel.model, ctx.model)
           : assessProviderRequestAdmission({ payload: event.payload, model: ctx.model, policy: configured.policy });
     if (!decision.accepted) ctx.abort();
-    void recordProviderAdmissionDecision(ctx.cwd, decision).catch(() => undefined);
+    await recordProviderAdmissionDecision(
+      ctx.cwd,
+      decision,
+      process.env.SCALER_PROVIDER_ADMISSION_DISPATCH_ID,
+    ).catch(() => undefined);
   });
 }
 
@@ -54,13 +59,18 @@ function invalidConfigurationDecision(message: string): ProviderAdmissionDecisio
   };
 }
 
-async function recordProviderAdmissionDecision(cwd: string, decision: ProviderAdmissionDecision): Promise<void> {
+async function recordProviderAdmissionDecision(
+  cwd: string,
+  decision: ProviderAdmissionDecision,
+  dispatchId: string | undefined,
+): Promise<void> {
   const directory = join(cwd, ".scaler", "reports", "provider-admission");
   await mkdir(directory, { recursive: true });
   const timestamp = new Date().toISOString();
-  const record = {
+  const record: ProviderAdmissionRecord = {
     version: 1,
     timestamp,
+    dispatchId,
     ...decision,
   };
   const filename = `${timestamp.replaceAll(":", "-")}-${process.pid}-${randomUUID()}.json`;

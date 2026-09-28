@@ -4,7 +4,9 @@
  */
 
 import { spawn } from "node:child_process";
-import { extname } from "node:path";
+import { randomUUID } from "node:crypto";
+import { readdir, readFile } from "node:fs/promises";
+import { extname, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import { extractProviderUsage, type ProviderUsage } from "./provider-usage.js";
@@ -13,6 +15,7 @@ import {
   validateProviderAdmissionPolicy,
   type ProviderAdmissionModel,
   type ProviderAdmissionPolicy,
+  type ProviderAdmissionRecord,
 } from "./provider-admission.js";
 import { recordWatchdogCleanup } from "./watchdogs.js";
 import type { TaskAttemptBinding } from "./task-attempts.js";
@@ -52,6 +55,7 @@ export interface TaskAgentRunResult {
   stderrBytes?: number;
   outputLimitExceeded?: "stdout" | "stderr";
   usage?: ProviderUsage;
+  providerAdmissions?: ProviderAdmissionRecord[];
 }
 
 export interface TaskAgentOutputLimits {
@@ -207,6 +211,31 @@ export function resolveChildAgentExtensionPaths(request: TaskAgentRequest, tools
   return [getDefaultScalerChildExtensionPath()];
 }
 
+export function buildTaskAgentEnvironment(
+  request: TaskAgentRequest,
+  baseEnvironment: NodeJS.ProcessEnv = process.env,
+  dispatchId?: string,
+): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = { ...baseEnvironment, SCALER_CHILD_AGENT: "1" };
+  delete environment.SCALER_TOOL_EXECUTION_ID;
+  for (const key of providerAdmissionEnvironmentKeys) delete environment[key];
+  if (request.providerAdmission) {
+    environment.SCALER_PROVIDER_ADMISSION = "strict";
+    environment.SCALER_REQUEST_TOKEN_ALLOWANCE = String(request.providerAdmission.requestTokenAllowance);
+    environment.SCALER_OUTPUT_RESERVE_TOKENS = String(request.providerAdmission.outputReserveTokens);
+    environment.SCALER_REQUEST_MARGIN_TOKENS = String(request.providerAdmission.safetyMarginTokens);
+    if (dispatchId) environment.SCALER_PROVIDER_ADMISSION_DISPATCH_ID = dispatchId;
+    if (request.providerAdmissionModel) {
+      environment.SCALER_EXPECTED_PROVIDER_API = String(request.providerAdmissionModel.api);
+      environment.SCALER_EXPECTED_PROVIDER = String(request.providerAdmissionModel.provider);
+      environment.SCALER_EXPECTED_MODEL_ID = String(request.providerAdmissionModel.id);
+      environment.SCALER_EXPECTED_CONTEXT_WINDOW = String(request.providerAdmissionModel.contextWindow);
+    }
+  }
+  if (request.executionId) environment.SCALER_TOOL_EXECUTION_ID = request.executionId;
+  return environment;
+}
+
 export function extractStructuredReportPayloads(stdoutEvents: unknown[], reportType: string): Record<string, unknown>[] {
   const payloads: Record<string, unknown>[] = [];
   for (const event of stdoutEvents) {
@@ -239,22 +268,8 @@ export async function runTaskAgent(
     };
   }
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");
-  const environment: NodeJS.ProcessEnv = { ...process.env, SCALER_CHILD_AGENT: "1" };
-  delete environment.SCALER_TOOL_EXECUTION_ID;
-  for (const key of providerAdmissionEnvironmentKeys) delete environment[key];
-  if (request.providerAdmission) {
-    environment.SCALER_PROVIDER_ADMISSION = "strict";
-    environment.SCALER_REQUEST_TOKEN_ALLOWANCE = String(request.providerAdmission.requestTokenAllowance);
-    environment.SCALER_OUTPUT_RESERVE_TOKENS = String(request.providerAdmission.outputReserveTokens);
-    environment.SCALER_REQUEST_MARGIN_TOKENS = String(request.providerAdmission.safetyMarginTokens);
-    if (request.providerAdmissionModel) {
-      environment.SCALER_EXPECTED_PROVIDER_API = String(request.providerAdmissionModel.api);
-      environment.SCALER_EXPECTED_PROVIDER = String(request.providerAdmissionModel.provider);
-      environment.SCALER_EXPECTED_MODEL_ID = String(request.providerAdmissionModel.id);
-      environment.SCALER_EXPECTED_CONTEXT_WINDOW = String(request.providerAdmissionModel.contextWindow);
-    }
-  }
-  if (request.executionId) environment.SCALER_TOOL_EXECUTION_ID = request.executionId;
+  const dispatchId = request.providerAdmission ? randomUUID() : undefined;
+  const environment = buildTaskAgentEnvironment(request, process.env, dispatchId);
 
   return await new Promise<TaskAgentRunResult>((resolve, reject) => {
     const child = spawn(invocation.command, invocation.args, {
@@ -357,6 +372,9 @@ export async function runTaskAgent(
             message: `Owned task-agent process exited after ${timedOut ? "timeout" : aborted ? "abort" : `${outputLimitExceeded} limit`}: code=${code ?? "null"} signal=${signal ?? "none"}.`,
           });
         }
+        const providerAdmissions = request.cwd && dispatchId
+          ? await loadProviderAdmissionRecords(request.cwd, dispatchId)
+          : undefined;
         resolve({
           taskId: request.taskId,
           exitCode: timedOut ? 124 : aborted ? 130 : outputLimitExceeded ? 125 : code ?? 1,
@@ -368,6 +386,7 @@ export async function runTaskAgent(
           stderrBytes,
           outputLimitExceeded,
           usage: extractProviderUsage(stdoutEvents),
+          providerAdmissions,
         });
       } catch (error) {
         reject(error);
@@ -401,6 +420,22 @@ export async function runTaskAgent(
       }, options.timeoutMs);
     }
   });
+}
+
+async function loadProviderAdmissionRecords(cwd: string, dispatchId: string): Promise<ProviderAdmissionRecord[]> {
+  const directory = join(cwd, ".scaler", "reports", "provider-admission");
+  const records: ProviderAdmissionRecord[] = [];
+  for (const filename of await readdir(directory).catch(() => [])) {
+    try {
+      const parsed = JSON.parse(await readFile(join(directory, filename), "utf8")) as ProviderAdmissionRecord;
+      if (parsed.version === 1 && parsed.dispatchId === dispatchId && typeof parsed.timestamp === "string") {
+        records.push(parsed);
+      }
+    } catch {
+      // A malformed or concurrently unrelated admission record is not evidence for this dispatch.
+    }
+  }
+  return records.sort((left, right) => left.timestamp.localeCompare(right.timestamp));
 }
 
 function validateProviderAdmissionModelBinding(model: ProviderAdmissionModel): void {
