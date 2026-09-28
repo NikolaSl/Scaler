@@ -8,7 +8,7 @@ Implemented artifacts:
 - `.scaler/plans/versions/PLAN-vNNN.json` — versioned execution plan snapshots.
 - `.scaler/plans/replan-requests.json` — newest-first replan request records.
 - `.scaler/plans/proposed-plan.json` — staged replacement plan for a replan request.
-- `.scaler/plans/replan-decisions.json` — accepted/rejected proposal decisions.
+- `.scaler/plans/replan-decisions.json` — applying/accepted/rejected proposal decisions.
 - `.scaler/reports/planning-reports.json` — structured planner coverage synchronization reports.
 
 Current plan task fields:
@@ -74,7 +74,7 @@ Structured `scaler_planning_report` output synchronizes planner-provided runtime
 
 `/scaler-replan-proposal-status` validates `.scaler/plans/proposed-plan.json` against the current plan, runtime PRD requirements, and supervisor state.
 
-`/scaler-replan-accept` accepts `.scaler/plans/proposed-plan.json` only when preservation checks pass. Acceptance snapshots the previous current plan, saves the proposed plan as current, applies missing task records, resolves open replan requests, and records a decision. If current requirement coverage is explicitly `needs_replan`, validated tasks linked through that coverage or their `prdRefs` must remain in the proposed plan and are reopened to `ready`; unrelated validated tasks remain accepted. Their prior evidence stays historical, the coverage entry becomes `in_progress`, and the decision records the reopened task ids. This does not authorize model-written replacement of an exercised task contract.
+`/scaler-replan-accept` accepts `.scaler/plans/proposed-plan.json` only when preservation checks pass. Acceptance snapshots the previous current plan, journals an `applying` decision, saves or resumes the exact proposed plan version, applies missing task records, resolves the journaled replan requests, and finalizes the same decision as `accepted`. If current requirement coverage is explicitly `needs_replan`, validated tasks linked through that coverage or their `prdRefs` must remain in the proposed plan and are reopened to `ready`; unrelated validated tasks remain accepted. Their prior evidence stays historical, the coverage entry becomes `in_progress`, and the decision records the reopened task ids. The coverage transition rereads under the PRD lock, updates only journaled requirements, and fails closed if a captured requirement revision changed; unrelated concurrent invalidations remain untouched. This does not authorize model-written replacement of an exercised task contract.
 
 ## Replan triggers and preservation checks
 
