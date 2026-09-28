@@ -55,8 +55,10 @@ No production change was necessary. The existing worker-proposed exact-source,
 exact-selector and pathless-question paths pass their positive and negative
 controls. Required context reaches the retried task through the normal manifest
 and complete provider-admission boundary; unavailable, malformed and
-out-of-scope proposals remain blocked. SC-07/AC-07 is therefore Verified for
-the model-independent process contract, while SC-09 and real local-host
+out-of-scope direct proposals remain blocked. Independent review identified a
+remaining exception: file-backed sources embedded in a pathless local-research
+answer are not yet task-scope and version validated before retry. SC-07/AC-07
+therefore remains Partial pending that bounded fix; SC-09 and real local-host
 evidence remain separate.
 
 Exact-tree validation passes the TypeScript build, 1,177/1,177 unit/component

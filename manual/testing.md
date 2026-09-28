@@ -956,7 +956,8 @@ node --test --import tsx test/integration/mock/unknown-source-context-flow.test.
 
 The focused result is 167/167 component tests and 4/4 integration scenarios.
 The complete candidate gate is build, 1,177/1,177 unit/component, 72/72 mock
-integration, 10/10 conformance/autopilot and `git diff --check`. This verifies
-the deterministic SC-07 FSM boundary, including truthful refusal and 32K/128K
-admission. It does not verify source truth, model quality, token savings or a
-configured local host; those remain separate evidence domains.
+integration, 10/10 conformance/autopilot and `git diff --check`. Independent
+review found that file-backed sources inside pathless local-research answers
+still need task-scope and version validation before retry, so SC-07 remains
+Partial. The gate does not verify source truth, model quality, token savings or
+a configured local host; those remain separate evidence domains.
