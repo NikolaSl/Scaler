@@ -345,7 +345,57 @@ async function acceptReplanProposalLocked(
   }
 
   const proposalFingerprint = fingerprintReplanProposal(proposedPlan);
-  const applyingDecision = (await loadReplanDecisions(cwd)).find((decision) =>
+  const decisions = await loadReplanDecisions(cwd);
+  const acceptedDecision = decisions.find((decision) =>
+    decision.status === "accepted" && decision.proposalFingerprint === proposalFingerprint,
+  );
+  if (acceptedDecision) {
+    const durablePlan = await loadExecutionPlan(cwd);
+    const targetPlan: ExecutionPlanArtifact = {
+      ...proposedPlan,
+      status: "active",
+      planVersion: acceptedDecision.proposedPlanVersion,
+      source: proposedPlan.source ?? "replan-proposal",
+    };
+    if (!sameAcceptedReplanPlan(durablePlan, targetPlan)) {
+      throw new Error(`Accepted replan decision ${acceptedDecision.id} conflicts with active plan version ${durablePlan.planVersion}.`);
+    }
+    const durableRequirements = await loadPrdRequirements(cwd);
+    for (const [id, expectedRevision] of Object.entries(acceptedDecision.affectedRequirementRevisions ?? {})) {
+      const requirement = durableRequirements.requirements.find((candidate) => candidate.id === id);
+      const currentRevision = requirement?.revision ?? 1;
+      if (!requirement || currentRevision !== expectedRevision) {
+        throw new Error(`Accepted replan decision ${acceptedDecision.id} is stale for ${id}: expected revision ${expectedRevision}, current revision ${requirement ? currentRevision : "missing"}.`);
+      }
+    }
+    const acceptedCoverage = await loadPrdCoverage(cwd);
+    const reInvalidated = Object.keys(acceptedDecision.affectedRequirementRevisions ?? {}).filter((id) => {
+      const entry = acceptedCoverage.entries.find((candidate) => candidate.requirementId === id);
+      return !entry || entry.status === "needs_replan";
+    });
+    if (reInvalidated.length > 0) {
+      throw new Error(`Accepted replan decision ${acceptedDecision.id} no longer covers: ${reInvalidated.join(", ")}.`);
+    }
+    return {
+      accepted: true,
+      message: acceptedDecision.summary,
+      state,
+      decision: acceptedDecision,
+      currentPlan,
+      proposedPlan,
+      savedPlan: durablePlan,
+      snapshotPath: acceptedDecision.snapshotPath,
+      applyResult: {
+        state,
+        createdTaskIds: acceptedDecision.createdTaskIds ?? [],
+        existingTaskIds: acceptedDecision.existingTaskIds ?? [],
+        updatedTaskIds: [],
+        rejectedTaskIds: acceptedDecision.rejectedTaskIds ?? [],
+        message: `Plan apply already finalized by ${acceptedDecision.id}.`,
+      },
+    };
+  }
+  const applyingDecision = decisions.find((decision) =>
     decision.status === "applying" && decision.proposalFingerprint === proposalFingerprint,
   );
   const coverage = await loadPrdCoverage(cwd);
