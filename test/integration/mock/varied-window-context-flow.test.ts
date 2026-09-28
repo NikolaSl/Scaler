@@ -68,8 +68,12 @@ for (const contextWindow of windows) {
       const attempts: string[] = [];
       const conductorOptions = { execute: true, tokenBudget: contextWindow, providerAdmissionModel } as const;
       const first = await runConductorStep(dir, state, conductorOptions, async (request) => {
-        assert.equal(request.providerAdmissionModel?.contextWindow, contextWindow);
-        assert.equal(request.providerAdmission?.requestTokenAllowance, contextWindow);
+        assert.deepEqual(request.providerAdmissionModel, providerAdmissionModel);
+        assert.deepEqual(request.providerAdmission, {
+          requestTokenAllowance: contextWindow,
+          outputReserveTokens: 1_024,
+          safetyMarginTokens: 1_024,
+        });
         assert.equal(assessTaskPromptAdmission(request.prompt, contextWindow).accepted, true);
         assert.doesNotMatch(request.prompt, /docs\/guide\.md|accepted ledger revision/);
         attempts.push(request.attempt!.attemptId);
@@ -86,7 +90,12 @@ for (const contextWindow of windows) {
         execute: true, requestId: research!.id, tools: ["read", "find"],
         tokenBudget: contextWindow, providerAdmissionModel,
       }, async (request) => {
-        assert.equal(request.providerAdmissionModel?.contextWindow, contextWindow);
+        assert.deepEqual(request.providerAdmissionModel, providerAdmissionModel);
+        assert.deepEqual(request.providerAdmission, {
+          requestTokenAllowance: contextWindow,
+          outputReserveTokens: 1_024,
+          safetyMarginTokens: 1_024,
+        });
         assert.equal(assessTaskPromptAdmission(request.prompt, contextWindow).accepted, true);
         return result(request, {
           type: "scaler_research_report", id: `R-WINDOW-${contextWindow}`, requestId: research!.id,
@@ -111,8 +120,12 @@ for (const contextWindow of windows) {
       assert.equal(retrieved.accepted, true, retrieved.message);
 
       const final = await runConductorStep(dir, await loadState(dir), conductorOptions, async (request) => {
-        assert.equal(request.providerAdmissionModel?.contextWindow, contextWindow);
-        assert.equal(request.providerAdmission?.requestTokenAllowance, contextWindow);
+        assert.deepEqual(request.providerAdmissionModel, providerAdmissionModel);
+        assert.deepEqual(request.providerAdmission, {
+          requestTokenAllowance: contextWindow,
+          outputReserveTokens: 1_024,
+          safetyMarginTokens: 1_024,
+        });
         assert.equal(assessTaskPromptAdmission(request.prompt, contextWindow).accepted, true);
         assert.match(request.prompt, new RegExp(requiredLine));
         assert.doesNotMatch(request.prompt, /UNRELATED_PREFIX_MUST_NOT_REACH_WORKER|UNRELATED_SUFFIX_MUST_NOT_REACH_WORKER/);
