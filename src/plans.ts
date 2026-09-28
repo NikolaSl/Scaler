@@ -15,8 +15,8 @@ import {
   getReplanDecisionsPath,
   getReplanRequestsPath,
 } from "./paths.js";
-import { applyPrdRequirementUpserts, computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdAcceptanceCriterion, type RuntimePrdRequirementStatus, type RuntimePrdRequirementsFile } from "./prd.js";
-import { assertStateSnapshotCurrent } from "./state.js";
+import { applyPrdRequirementUpserts, computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, savePrdCoverage, type RuntimePrdAcceptanceCriterion, type RuntimePrdRequirementStatus, type RuntimePrdRequirementsFile } from "./prd.js";
+import { assertStateSnapshotCurrent, saveState } from "./state.js";
 import { assessTaskDefinitionQuality, normalizeTaskKind } from "./task-quality.js";
 import { createTask, reviewTaskAcceptancePolicyMutation, updateTask, type UpdateTaskInput } from "./tasks.js";
 import type { ScalerState, ScalerTaskKind, ScalerTaskQualityWaiver } from "./types.js";
@@ -184,6 +184,7 @@ export interface ReplanDecisionRecord {
   snapshotPath?: string;
   createdTaskIds?: string[];
   existingTaskIds?: string[];
+  reopenedTaskIds?: string[];
   rejectedTaskIds?: string[];
   preservation: ExecutionPlanPreservationCheck;
   createdAt: string;
@@ -340,7 +341,30 @@ async function acceptReplanProposalLocked(
     return { accepted: false, message: decision.summary, state, decision, currentPlan };
   }
 
-  const preservation = checkExecutionPlanPreservation(currentPlan, proposedPlan, requirements, state);
+  const coverage = await loadPrdCoverage(cwd);
+  const affectedRequirementIds = new Set(
+    coverage.entries.filter((entry) => entry.status === "needs_replan").map((entry) => entry.requirementId),
+  );
+  const coverageAffectedTaskIds = new Set(
+    coverage.entries
+      .filter((entry) => affectedRequirementIds.has(entry.requirementId))
+      .flatMap((entry) => entry.taskIds ?? []),
+  );
+  const affectedTaskIds = state.tasks
+    .filter((task) => (task.status === "validated" || task.status === "ready")
+      && (coverageAffectedTaskIds.has(task.id) || task.prdRefs?.some((id) => affectedRequirementIds.has(id))))
+    .map((task) => task.id);
+  const reopenedTaskIds = affectedTaskIds.filter((id) => state.tasks.find((task) => task.id === id)?.status === "validated");
+  const proposedTaskIds = new Set(proposedPlan.tasks.map((task) => task.id));
+  const missingAffectedTaskIds = affectedTaskIds.filter((id) => !proposedTaskIds.has(id));
+  const initialPreservation = checkExecutionPlanPreservation(currentPlan, proposedPlan, requirements, state);
+  const preservation = missingAffectedTaskIds.length === 0
+    ? initialPreservation
+    : {
+        ...initialPreservation,
+        ok: false,
+        droppedValidatedTaskIds: [...new Set([...initialPreservation.droppedValidatedTaskIds, ...missingAffectedTaskIds])],
+      };
   const openRequests = (await loadReplanRequests(cwd)).filter((request) => request.status === "open");
   const requestIds = input?.requestIds ?? openRequests.map((request) => request.id);
   if (!preservation.ok) {
@@ -361,8 +385,9 @@ async function acceptReplanProposalLocked(
     proposedPlan,
     new Set(requirements.requirements.map((requirement) => requirement.id)),
   );
-  await preflightExecutionPlanTaskQuality(cwd, state, proposedPlan, { updateExisting: false });
-  const policyRejections = await preflightExecutionPlanPolicyChanges(cwd, state, proposedPlan, "model");
+  const reopenedState = reopenAffectedValidatedTasks(state, reopenedTaskIds, timestamp);
+  await preflightExecutionPlanTaskQuality(cwd, reopenedState, proposedPlan, { updateExisting: false });
+  const policyRejections = await preflightExecutionPlanPolicyChanges(cwd, reopenedState, proposedPlan, "model");
   if (policyRejections.length > 0) {
     const decision = await appendReplanDecision(cwd, {
       id: `DECISION-${now.getTime()}`,
@@ -386,7 +411,20 @@ async function acceptReplanProposalLocked(
     planVersion: Math.max(currentPlan.planVersion + 1, proposedPlan.planVersion),
     source: proposedPlan.source ?? "replan-proposal",
   }, now);
-  const applyResult = await applyExecutionPlanTasks(cwd, state, savedPlan);
+  if (reopenedTaskIds.length > 0) await saveState(cwd, reopenedState);
+  const applyResult = await applyExecutionPlanTasks(cwd, reopenedState, savedPlan);
+  const taskIdsByRequirement = buildPlanTaskIdsByRequirement(savedPlan);
+  await savePrdCoverage(cwd, {
+    version: 1,
+    entries: coverage.entries.map((entry) => entry.status === "needs_replan"
+      ? {
+          ...entry,
+          status: "in_progress",
+          taskIds: taskIdsByRequirement.get(entry.requirementId) ?? entry.taskIds,
+          updatedAt: timestamp,
+        }
+      : entry),
+  });
   const requests = await loadReplanRequests(cwd);
   await saveReplanRequests(cwd, requests.map((request) =>
     requestIds.includes(request.id)
@@ -403,6 +441,7 @@ async function acceptReplanProposalLocked(
     snapshotPath,
     createdTaskIds: applyResult.createdTaskIds,
     existingTaskIds: applyResult.existingTaskIds,
+    reopenedTaskIds,
     rejectedTaskIds: applyResult.rejectedTaskIds,
     preservation,
     createdAt: timestamp,
@@ -677,6 +716,22 @@ async function preflightExecutionPlanTaskQuality(
   if (blocked.length > 0) {
     throw new Error(`Planning report task contract preflight rejected before publication: ${blocked.join(" ")}.`);
   }
+}
+
+function reopenAffectedValidatedTasks(state: ScalerState, taskIds: string[], timestamp: string): ScalerState {
+  if (taskIds.length === 0) return state;
+  const affected = new Set(taskIds);
+  return {
+    ...state,
+    tasks: state.tasks.map((task) => affected.has(task.id)
+      ? { ...task, status: "ready", updatedAt: timestamp }
+      : task),
+    completedTaskIds: state.completedTaskIds.filter((id) => !affected.has(id)),
+    validatedTaskIds: state.validatedTaskIds.filter((id) => !affected.has(id)),
+    currentTaskId: state.currentTaskId && affected.has(state.currentTaskId) ? null : state.currentTaskId,
+    orchestrationReason: `Accepted replan reopened affected tasks: ${taskIds.join(", ")}`,
+    updatedAt: timestamp,
+  };
 }
 
 function assertExecutionPlanCoverage(
