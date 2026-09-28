@@ -228,21 +228,23 @@ test("concurrent memory dispatch preserves every resolved request context", asyn
     const state = createState();
     await saveState(dir, state);
     const alpha = await writeMemory(dir, {
-      title: "alphakey decision",
+      title: "alphakey",
       content: "alpha full body",
       summary: "Required alpha summary.",
       tags: ["alphakey"],
+      validity: "stale",
     });
     const beta = await writeMemory(dir, {
-      title: "betakey decision",
+      title: "betakey",
       content: "beta full body",
       summary: "Required beta summary.",
       tags: ["betakey"],
+      validity: "stale",
     });
     const created = await createMissingContextRequestsFromTaskReport(
       dir,
       state,
-      report(["Need memory alphakey decision", "Need memory betakey decision"]),
+      report(["memory alphakey", "memory betakey"]),
     );
     assert.equal(created.created.length, 2);
 
