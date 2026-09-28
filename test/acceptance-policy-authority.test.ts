@@ -509,13 +509,14 @@ test("model task update cannot remove exercised requirement links", async () => 
 test("planning rejects an exercised policy replacement before plan or task publication", async () => {
   await withFailedPolicy(async (dir) => {
     await assert.rejects(applyPlanningReport(dir, await loadState(dir), {
-      requirements: [],
+      requirements: [{ id: "REQ-POLICY", statement: "Preserve the accepted task policy." }],
       plan: {
         planVersion: 2,
         status: "active",
         tasks: [{
           id: "T-POLICY", title: "Preserve acceptance policy", taskKind: "software",
           atomicityRationale: "One independently testable result.", allowedPathPrefixes: ["result.txt"],
+          prdRefs: ["REQ-POLICY"],
           definitionOfDone: ["Any result is acceptable"], validationRefs: ["unit"], outputPaths: ["result.txt"],
           validationCommands: [
             { id: "test-first", command: "node -e \"process.exit(0)\"", gate: "test_first", required: true },
@@ -602,13 +603,14 @@ test("planning can create a task that inherits a preconfigured policy without re
     });
 
     const result = await applyPlanningReport(dir, await loadState(dir), {
-      requirements: [],
+      requirements: [{ id: "REQ-INHERIT", statement: "Use the preconfigured validation policy." }],
       plan: {
         planVersion: 2,
         status: "active",
         tasks: [{
           id: "T-INHERIT", title: "Inherit preconfigured policy", taskKind: "non_software",
           atomicityRationale: "One independently testable result.", allowedPathPrefixes: ["result.txt"],
+          prdRefs: ["REQ-INHERIT"],
           definitionOfDone: ["Task-level criterion without a manifest rewrite"], validationRefs: ["unit"],
         }],
       },
@@ -737,12 +739,13 @@ test("planning preflight uses the same task DoD overlay as manifest persistence"
     const manifest = await getValidationManifestForTask(dir, "T-POLICY");
     await saveValidationManifest(dir, { ...manifest, definitionOfDone: ["manifest-only historical DoD"] });
     await assert.rejects(applyPlanningReport(dir, await loadState(dir), {
-      requirements: [],
+      requirements: [{ id: "REQ-POLICY", statement: "Preserve the accepted task policy." }],
       plan: {
         planVersion: 2, status: "active",
         tasks: [{
           id: "T-POLICY", title: "Preserve acceptance policy", taskKind: "software",
           atomicityRationale: "One independently testable result.", allowedPathPrefixes: ["result.txt"],
+          prdRefs: ["REQ-POLICY"],
           definitionOfDone: ["result.txt contains fixed"], validationRefs: ["unit"], outputPaths: ["result.txt"],
           validationCommands: manifest.commands,
         }],

@@ -577,6 +577,20 @@ async function applyPlanningReportLocked(
   const timestamp = now.toISOString();
   const plan: ExecutionPlanArtifact = normalizePlanningReportPlan(input.plan, timestamp);
   validateExecutionPlan(plan);
+  const currentRequirements = await loadPrdRequirements(cwd);
+  const prospectiveRequirementIds = new Set([
+    ...currentRequirements.requirements.map((requirement) => requirement.id),
+    ...input.requirements.map((requirement) => requirement.id),
+  ]);
+  const coveragePreflight = buildPlanningCoverageDiagnostics(plan, prospectiveRequirementIds);
+  const coverageFailures = [
+    coveragePreflight.unlinkedRequirementIds.length > 0 ? `unlinked=${coveragePreflight.unlinkedRequirementIds.join(",")}` : undefined,
+    coveragePreflight.unknownPlanRequirementIds.length > 0 ? `unknown=${coveragePreflight.unknownPlanRequirementIds.join(",")}` : undefined,
+    coveragePreflight.planUnlinkedTaskIds.length > 0 ? `tasksWithoutPrdRefs=${coveragePreflight.planUnlinkedTaskIds.join(",")}` : undefined,
+  ].filter((value): value is string => Boolean(value));
+  if (coverageFailures.length > 0) {
+    throw new Error(`Planning report coverage preflight rejected before publication: ${coverageFailures.join(" ")}.`);
+  }
   await preflightExecutionPlanValidationInputs(cwd, plan);
   const policyRejections = await preflightExecutionPlanPolicyChanges(cwd, state, plan, "model");
   if (policyRejections.length > 0) throw new Error(`Planning report rejected before publication: ${policyRejections.join(" ")}`);
@@ -592,15 +606,12 @@ async function applyPlanningReportLocked(
 
   const requirements = await loadPrdRequirements(cwd);
   const coverage = await loadPrdCoverage(cwd);
-  const requirementIds = new Set(requirements.requirements.map((requirement) => requirement.id));
-  const planRequirementIds = new Set(savedPlan.tasks.flatMap((task) => task.prdRefs ?? []));
   const coverageSummary = computePrdCoverageSummary(requirements, coverage, applyResult.state);
-  const diagnostics: PlanningCoverageDiagnostics = {
-    linkedRequirementIds: [...planRequirementIds].filter((id) => requirementIds.has(id)).sort((a, b) => a.localeCompare(b)),
-    unlinkedRequirementIds: coverageSummary.unlinkedRequirementIds.sort((a, b) => a.localeCompare(b)),
-    unknownPlanRequirementIds: [...planRequirementIds].filter((id) => !requirementIds.has(id)).sort((a, b) => a.localeCompare(b)),
-    planUnlinkedTaskIds: savedPlan.tasks.filter((task) => !task.prdRefs || task.prdRefs.length === 0).map((task) => task.id),
-  };
+  const diagnostics = buildPlanningCoverageDiagnostics(
+    savedPlan,
+    new Set(requirements.requirements.map((requirement) => requirement.id)),
+    coverageSummary.unlinkedRequirementIds,
+  );
 
   const report: PlanningReportRecord = {
     id: input.id?.trim() || `planning-${now.getTime()}`,
@@ -624,6 +635,22 @@ async function applyPlanningReportLocked(
     state: applyResult.state,
     plan: savedPlan,
     report,
+  };
+}
+
+function buildPlanningCoverageDiagnostics(
+  plan: ExecutionPlanArtifact,
+  requirementIds: ReadonlySet<string>,
+  unlinkedRequirementIds?: string[],
+): PlanningCoverageDiagnostics {
+  const planRequirementIds = new Set(plan.tasks.flatMap((task) => task.prdRefs ?? []));
+  const coveredRequirementIds = new Set([...planRequirementIds].filter((id) => requirementIds.has(id)));
+  return {
+    linkedRequirementIds: [...coveredRequirementIds].sort((a, b) => a.localeCompare(b)),
+    unlinkedRequirementIds: (unlinkedRequirementIds ?? [...requirementIds].filter((id) => !coveredRequirementIds.has(id)))
+      .sort((a, b) => a.localeCompare(b)),
+    unknownPlanRequirementIds: [...planRequirementIds].filter((id) => !requirementIds.has(id)).sort((a, b) => a.localeCompare(b)),
+    planUnlinkedTaskIds: plan.tasks.filter((task) => !task.prdRefs || task.prdRefs.length === 0).map((task) => task.id),
   };
 }
 
