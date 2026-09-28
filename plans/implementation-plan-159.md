@@ -43,6 +43,6 @@ conflicting-scope regressions remain blocked without manifest mutation. A
 bounded per-task lock preserves both required items when two memory requests
 resolve concurrently.
 
-Final accumulated phase validation: TypeScript build, 1,176/1,176
+Final accumulated phase validation: TypeScript build, 1,177/1,177
 unit/component, 72/72 mock integration, 10/10 conformance/autopilot, 18/18
 focused missing-context/autopilot checks and `git diff --check`.

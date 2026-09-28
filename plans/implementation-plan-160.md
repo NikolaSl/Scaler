@@ -81,10 +81,12 @@ and existing request authority under a bounded host lifecycle.
 - Active tools are restored on successful completion and refusal, including a
   synchronous host message-delivery failure. Prompt or admission telemetry
   failure cannot turn a refusal into provider traffic or skip cleanup.
+- Current-agent memory retrieval is forced to the bounded summary form; a model
+  request for `full` or a section cannot broaden the admitted context.
 
-Exact executable-tree validation passed the TypeScript build, 1,176/1,176
+Exact executable-tree validation passed the TypeScript build, 1,177/1,177
 unit/component tests, 72/72 mock integration tests, 10/10
-conformance/autopilot tests, 117/117 focused extension/tool/provider-host tests
+conformance/autopilot tests, 118/118 focused extension/tool/provider-host tests
 (including 15 installed-host checks) and `git diff --check`. This is
 deterministic host and ledger evidence, not a local-model quality result or a
 complete direct/current-agent/isolated production scenario.

@@ -543,7 +543,9 @@ sessions and concurrent active executions. It temporarily selects exactly the
 request's allowed tools plus `scaler_tool_result` and sends a role-specific
 prompt that cannot advance or broaden the supervisor FSM. The request cannot
 grant supervisor-mutating `scaler_*` tools; only `scaler_memory_search`,
-`scaler_memory_retrieve` and the runtime-owned result tool are eligible.
+`scaler_memory_retrieve` and the runtime-owned result tool are eligible. During
+this route, memory retrieval is forced to its bounded summary form even when the
+model requests a broader scope.
 
 Before the first provider request, SCALER recomputes current-agent admission
 from the actual payload, strict provider policy, exact selected-tool profile and

@@ -602,7 +602,8 @@ PLAN-160 adds the bounded current-agent route. Run `node --test --import tsx
 test/extension-shape.test.ts test/tool-requests.test.ts test/tool-routing.test.ts
 test/provider-admission-host.test.ts` for exact tool focus, actual-payload route admission,
 full provider/model and profile continuity, supervisor-mutating tool refusal,
-provider-call bounds, runtime-owned result binding, restoration and
+summary-only current-agent memory retrieval, provider-call bounds,
+runtime-owned result binding, restoration and
 telemetry-independent refusal/cleanup. The installed-host
 suite verifies the selected Pi prompt boundary. These tests do not configure or
 score a local model, wire the isolated continuation supplier, add generic
@@ -939,7 +940,7 @@ The focused cases require bounded candidate summaries in the next worker
 prompt, preserve visible validity metadata, exclude the full memory body and
 block no-match or conflicting-scope requests without changing the existing
 manifest. Concurrent resolutions for one task must retain both accepted items.
-Final accumulated phase results: build, 1,176/1,176 unit/component, 72/72 mock
+Final accumulated phase results: build, 1,177/1,177 unit/component, 72/72 mock
 integration, 10/10 conformance/autopilot and 18/18 focused checks plus
 `git diff --check`. This is FSM/context-delivery evidence, not proof of memory
 truth, model quality, savings or full SC-07 acceptance.
