@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
+  type ExecutionPlanArtifact,
   appendReplanRequest,
   acceptReplanProposal,
   appendReplanDecision,
@@ -80,6 +81,10 @@ test("saveExecutionPlan and loadExecutionPlan round trip normalized tasks", asyn
       title: "Plan",
       tasks: [
         {
+          id: "T-000",
+          title: "Prepare work",
+        },
+        {
           id: "T-001",
           title: "Do work",
           prdRefs: ["REQ-001", "REQ-001"],
@@ -93,8 +98,9 @@ test("saveExecutionPlan and loadExecutionPlan round trip normalized tasks", asyn
 
     const loaded = await loadExecutionPlan(dir);
     assert.equal(loaded.status, "active");
-    assert.deepEqual(loaded.tasks[0]?.prdRefs, ["REQ-001"]);
-    assert.deepEqual(loaded.tasks[0]?.allowedPathPrefixes, ["src"]);
+    const task = loaded.tasks.find((candidate) => candidate.id === "T-001");
+    assert.deepEqual(task?.prdRefs, ["REQ-001"]);
+    assert.deepEqual(task?.allowedPathPrefixes, ["src"]);
   });
 });
 
@@ -143,6 +149,39 @@ test("validateExecutionPlan rejects duplicate task ids and invalid status", () =
     }),
     /Invalid execution plan status/,
   );
+});
+
+test("validateExecutionPlan rejects unknown dependencies and dependency cycles", () => {
+  const plan = (tasks: ExecutionPlanArtifact["tasks"]): ExecutionPlanArtifact => ({
+    version: 1,
+    planVersion: 1,
+    status: "draft",
+    tasks,
+    createdAt: "now",
+    updatedAt: "now",
+  });
+
+  assert.throws(
+    () => validateExecutionPlan(plan([{ id: "T-001", title: "One", dependsOn: ["T-MISSING"] }])),
+    /unknown dependency T-MISSING.*T-001/i,
+  );
+  assert.throws(
+    () => validateExecutionPlan(plan([{ id: "T-SELF", title: "Self", dependsOn: ["T-SELF"] }])),
+    /dependency cycle.*T-SELF.*T-SELF/i,
+  );
+  assert.throws(
+    () => validateExecutionPlan(plan([
+      { id: "T-A", title: "A", dependsOn: ["T-B"] },
+      { id: "T-B", title: "B", dependsOn: ["T-C"] },
+      { id: "T-C", title: "C", dependsOn: ["T-A"] },
+    ])),
+    /dependency cycle.*T-A.*T-B.*T-C.*T-A/i,
+  );
+
+  assert.doesNotThrow(() => validateExecutionPlan(plan([
+    { id: "T-A", title: "A", dependsOn: ["T-B"] },
+    { id: "T-B", title: "B" },
+  ])));
 });
 
 test("applyExecutionPlanTasks creates missing tasks and preserves existing tasks", async () => {
@@ -273,6 +312,32 @@ test("planning report rejects an invalid plan before requirement ledger writes",
     assert.deepEqual((await loadPrdCoverage(dir)).entries, []);
     assert.deepEqual(await loadPrdChanges(dir), []);
     assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual(state.tasks, []);
+  });
+});
+
+test("planning report rejects an unknown dependency before any publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+
+    await assert.rejects(() => applyPlanningReport(dir, state, {
+      id: "PLAN-UNKNOWN-DEPENDENCY",
+      requirements: [{ id: "REQ-NOT-WRITTEN", statement: "Must remain absent", status: "pending" }],
+      plan: {
+        planVersion: 1,
+        status: "active",
+        tasks: [validPlanTask("T-BLOCKED", "Blocked task", {
+          prdRefs: ["REQ-NOT-WRITTEN"],
+          dependsOn: ["T-MISSING"],
+        })],
+      },
+    }), /unknown dependency T-MISSING.*T-BLOCKED/i);
+
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    assert.deepEqual((await loadPrdCoverage(dir)).entries, []);
+    assert.deepEqual(await loadPrdChanges(dir), []);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual(await loadPlanningReports(dir), []);
     assert.deepEqual(state.tasks, []);
   });
 });
