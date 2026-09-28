@@ -180,6 +180,11 @@ const ToolRequestParams = Type.Object({
   riskLevel: Type.Optional(Type.String({ description: "low, medium, high, destructive, external, secret, or unknown." })),
   permissionRequirement: Type.Optional(Type.String({ description: "Approval or policy requirement known to the requester." })),
   safetyNotes: Type.Optional(Type.String({ description: "Safety constraints for the isolated tool agent." })),
+  isolationRequirement: Type.Optional(Type.Union([
+    Type.Literal("capability"),
+    Type.Literal("focus"),
+    Type.Literal("evidence-independence"),
+  ], { description: "Why this request must use an isolated agent instead of the current agent." })),
   allowedTools: Type.Optional(Type.Array(Type.String(), { description: "Additional tools explicitly allowed for the isolated tool agent." })),
   directOperation: Type.Optional(Type.Object({
     adapterId: Type.Literal("builtin:tool-catalog-entry-v1"),
@@ -389,7 +394,11 @@ const DebugAttemptParams = Type.Object({
   details: Type.Optional(Type.Unknown()),
 });
 
-export function registerScalerTools(pi: ExtensionAPI): void {
+export interface ScalerToolRuntimeBindings {
+  resolveToolResultExecutionId?: (cwd: string, requestId: string) => string | undefined;
+}
+
+export function registerScalerTools(pi: ExtensionAPI, runtimeBindings: ScalerToolRuntimeBindings = {}): void {
   pi.registerTool({
     name: "scaler_report",
     label: "Scaler Report",
@@ -564,6 +573,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         riskLevel: params.riskLevel,
         permissionRequirement: params.permissionRequirement,
         safetyNotes: params.safetyNotes,
+        isolationRequirement: params.isolationRequirement,
         allowedTools: params.allowedTools,
         directOperation: params.directOperation,
       });
@@ -612,7 +622,7 @@ export function registerScalerTools(pi: ExtensionAPI): void {
         requestId: params.requestId,
         executionId: process.env.SCALER_CHILD_AGENT === "1"
           ? process.env.SCALER_TOOL_EXECUTION_ID
-          : undefined,
+          : runtimeBindings.resolveToolResultExecutionId?.(ctx.cwd, params.requestId),
         status: params.status,
         summary: params.summary,
         outputs: params.outputs,

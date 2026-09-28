@@ -14,7 +14,7 @@ import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { loadState } from "./state.js";
 import { DEFAULT_TASK_AGENT_OUTPUT_LIMITS, buildTaskAgentInvocation, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type RunTaskAgentOptions, type TaskAgentInvocation, type TaskAgentOutputLimits, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
-import { assessToolRoute, type ToolRouteAssessment, type ToolRouteAssessmentInput } from "./tool-routing.js";
+import { assessToolRoute, type ToolIsolationRequirement, type ToolRouteAssessment, type ToolRouteAssessmentInput } from "./tool-routing.js";
 import type { ScalerState } from "./types.js";
 
 export type ToolRiskLevel = "low" | "medium" | "high" | "destructive" | "external" | "secret" | "unknown";
@@ -85,6 +85,7 @@ export interface ToolRequestInput {
   riskLevel?: ToolRiskLevel | string;
   permissionRequirement?: string;
   safetyNotes?: string;
+  isolationRequirement?: ToolIsolationRequirement;
   allowedTools?: string[];
   directOperation?: ToolDirectOperationInput;
 }
@@ -129,6 +130,7 @@ export interface ToolRequestRecord {
   riskLevel: ToolRiskLevel;
   permissionRequirement?: string;
   safetyNotes?: string;
+  isolationRequirement?: ToolIsolationRequirement;
   allowedTools: string[];
   directOperation?: ToolDirectOperation;
   status: ToolRequestStatus;
@@ -370,7 +372,7 @@ export type ToolDispatchRouteEvidenceSupplier = (
 
 export interface ToolDispatchAdmissionRecord {
   version: 1;
-  route: "direct" | "isolated";
+  route: "direct" | "current-agent" | "isolated";
   authorized: true;
   requestFingerprint: string;
   invocationFingerprint: string;
@@ -395,6 +397,37 @@ export interface ToolRequestRunOptions {
   command?: string;
   /** Host-owned live envelope supplier. Model/request payloads cannot set it. */
   routeEvidenceSupplier?: ToolDispatchRouteEvidenceSupplier;
+}
+
+export interface CurrentAgentToolPreparation {
+  version: 1;
+  executionId: string;
+  request: ToolRequestRecord;
+  prompt: string;
+  activeToolNames: string[];
+  invocation: TaskAgentInvocation;
+  limits: ToolExecutionLimits;
+  beforeResultIds: string[];
+}
+
+export interface CurrentAgentToolPrepareResult {
+  accepted: boolean;
+  message: string;
+  preparation?: CurrentAgentToolPreparation;
+}
+
+export interface CurrentAgentProviderEvidence {
+  payload: unknown;
+  model: ProviderAdmissionModel;
+  policy: ReturnType<typeof createStrictProviderAdmissionPolicy>;
+  profile: RuntimeToolEnvelopeProfile;
+}
+
+export interface CurrentAgentToolAdmissionResult {
+  accepted: boolean;
+  message: string;
+  assessment: ToolRouteAssessment;
+  transaction?: ToolTransactionRecord;
 }
 
 export interface ToolIterationWorkflowOptions {
@@ -845,6 +878,7 @@ export async function recordToolRouteAssessment(
         riskLevel: request.riskLevel,
         permissionRequirement: request.permissionRequirement,
         safetyNotes: request.safetyNotes,
+        isolationRequirement: request.isolationRequirement,
       },
     },
   });
@@ -1419,6 +1453,181 @@ export async function runToolRequestAgent(
   };
 }
 
+export async function prepareCurrentAgentToolExecution(
+  cwd: string,
+  state: ScalerState,
+  requestId: string | undefined,
+  availableToolNames: string[],
+): Promise<CurrentAgentToolPrepareResult> {
+  const request = await selectRunnableToolRequest(cwd, requestId);
+  const refuse = async (reason: string): Promise<CurrentAgentToolPrepareResult> => {
+    const message = `Current-agent tool dispatch rejected: ${reason}.`;
+    await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: message, details: { requestId } }));
+    return { accepted: false, message };
+  };
+  if (!request) return refuse(requestId ? `request ${requestId} is not prepared` : "no prepared tool request");
+  if (request.directOperation) return refuse(`request ${request.id} has an exact direct operation`);
+  if (request.isolationRequirement) return refuse(`request ${request.id} requires ${request.isolationRequirement} isolation`);
+  if (request.activeExecutionId) return refuse(`request ${request.id} already has active execution ${request.activeExecutionId}`);
+  const available = new Set(uniqueNonEmpty(availableToolNames));
+  const activeToolNames = uniqueNonEmpty([...request.allowedTools, "scaler_tool_result"]);
+  const unavailable = activeToolNames.filter((name) => !available.has(name));
+  if (unavailable.length > 0) return refuse(`requested tools are unavailable: ${unavailable.join(", ")}`);
+  const executionId = randomUUID();
+  const prompt = buildCurrentAgentToolPrompt(request, await loadToolSchemaRecords(cwd));
+  const invocation: TaskAgentInvocation = { command: "<current-agent>", args: ["--tool-request", request.id], cwd };
+  return {
+    accepted: true,
+    message: `Current-agent tool dispatch prepared: ${request.id}`,
+    preparation: {
+      version: 1,
+      executionId,
+      request,
+      prompt,
+      activeToolNames,
+      invocation,
+      limits: copyToolExecutionLimits(DEFAULT_TOOL_EXECUTION_LIMITS),
+      beforeResultIds: (await loadToolResults(cwd)).map((record) => record.id),
+    },
+  };
+}
+
+export async function admitCurrentAgentToolProviderCall(
+  cwd: string,
+  state: ScalerState,
+  preparation: CurrentAgentToolPreparation,
+  evidence: CurrentAgentProviderEvidence,
+  existingTransaction?: ToolTransactionRecord,
+): Promise<CurrentAgentToolAdmissionResult> {
+  const assessment = assessToolRoute({
+    request: buildToolRouteRequestBasis(preparation.request, preparation.executionId),
+    profile: evidence.profile,
+    authority: "allowed",
+    direct: { exactArgumentsAvailable: false, argumentsValidated: false },
+    currentAgent: {
+      available: true,
+      legs: [{
+        id: `current-agent-${existingTransaction ? "continuation" : "initial"}`,
+        role: "request",
+        payload: evidence.payload,
+        model: evidence.model,
+        policy: evidence.policy,
+        additionalContextBytes: 0,
+        repeatCount: 1,
+      }],
+    },
+    isolated: { available: false, legs: [] },
+    isolationRequirement: preparation.request.isolationRequirement,
+  });
+  const refuse = async (reason: string): Promise<CurrentAgentToolAdmissionResult> => {
+    const message = `Current-agent provider dispatch rejected: ${reason}.`;
+    await appendLogEvent(cwd, createLogEvent(state, {
+      eventType: "tool",
+      summary: message,
+      taskId: preparation.request.taskId,
+      details: { executionId: preparation.executionId, assessment },
+    }));
+    return { accepted: false, message, assessment };
+  };
+  if (assessment.route !== "current-agent") return refuse(`live route recomputation recommended ${assessment.route} (${assessment.reasonCode})`);
+  if (!assessment.evidenceFingerprint || !assessment.profileFingerprint || assessment.selectedEstimatedOverheadUpperBound === null) {
+    return refuse("live route recomputation did not produce complete compact identity");
+  }
+  const modelId = typeof evidence.model.id === "string" && evidence.model.id.trim().length > 0
+    ? evidence.model.id.trim()
+    : undefined;
+  if (!modelId) return refuse("live current-agent model identity is missing");
+
+  if (existingTransaction) {
+    const currentRequest = (await loadToolRequests(cwd)).find((candidate) => candidate.id === preparation.request.id);
+    const currentTransaction = (await loadToolTransactions(cwd)).find((candidate) => candidate.id === existingTransaction.id);
+    const unchanged = currentRequest?.activeExecutionId === existingTransaction.id
+      && currentRequest.status === preparation.request.status
+      && currentTransaction?.status === "prepared"
+      && currentTransaction.routeAdmission?.route === "current-agent"
+      && currentTransaction.routeAdmission.modelId === modelId
+      && currentTransaction.routeAdmission.profileFingerprint === assessment.profileFingerprint
+      && fingerprintToolRequest(currentRequest) === currentTransaction.routeAdmission.requestFingerprint
+      && fingerprintInvocation(preparation.invocation) === currentTransaction.routeAdmission.invocationFingerprint;
+    return unchanged
+      ? { accepted: true, message: `Current-agent provider continuation admitted: ${preparation.request.id}`, assessment, transaction: currentTransaction }
+      : refuse("current-agent execution identity changed before continuation");
+  }
+
+  const routeAdmission: ToolDispatchAdmissionRecord = {
+    version: 1,
+    route: "current-agent",
+    authorized: true,
+    requestFingerprint: fingerprintToolRequest(preparation.request),
+    invocationFingerprint: fingerprintInvocation(preparation.invocation),
+    evidenceFingerprint: assessment.evidenceFingerprint,
+    profileFingerprint: assessment.profileFingerprint,
+    modelId,
+    selectedEstimatedOverheadUpperBound: assessment.selectedEstimatedOverheadUpperBound,
+  };
+  const claim = await beginToolExecution(
+    cwd,
+    preparation.request,
+    preparation.invocation,
+    preparation.limits,
+    undefined,
+    undefined,
+    preparation.executionId,
+    routeAdmission,
+  );
+  if (!claim.accepted) return { accepted: false, message: claim.transaction.message, assessment, transaction: claim.transaction };
+  await appendLogEvent(cwd, createLogEvent(state, {
+    eventType: "tool",
+    summary: `Current-agent provider dispatch admitted: ${preparation.request.id}`,
+    taskId: preparation.request.taskId,
+    details: { transaction: claim.transaction, assessment },
+  }));
+  return { accepted: true, message: claim.transaction.message, assessment, transaction: claim.transaction };
+}
+
+export async function finalizeCurrentAgentToolExecution(
+  cwd: string,
+  state: ScalerState,
+  preparation: CurrentAgentToolPreparation,
+  transaction: ToolTransactionRecord,
+  aborted = false,
+): Promise<ToolRequestRunResult> {
+  const runResult: TaskAgentRunResult = {
+    taskId: `tool-${preparation.request.id}`,
+    exitCode: aborted ? 1 : 0,
+    stdoutEvents: [],
+    stderr: aborted ? "current-agent provider lifecycle aborted" : "",
+    timedOut: false,
+    aborted,
+    stdoutBytes: 0,
+    stderrBytes: 0,
+  };
+  const finalized = await finalizeToolExecution(
+    cwd,
+    preparation.request,
+    transaction,
+    runResult,
+    new Set(preparation.beforeResultIds),
+    false,
+  );
+  await appendToolExecutionAudit(cwd, state, {
+    eventType: "tool",
+    summary: finalized.transaction.message,
+    taskId: preparation.request.taskId,
+    details: { transaction: finalized.transaction, runResult, resultRecord: finalized.resultRecord },
+  });
+  return {
+    accepted: finalized.accepted,
+    message: finalized.transaction.message,
+    request: finalized.request,
+    prompt: preparation.prompt,
+    invocation: preparation.invocation,
+    runResult,
+    transaction: finalized.transaction,
+    resultRecord: finalized.resultRecord,
+  };
+}
+
 export function formatToolTransactions(records: ToolTransactionRecord[], requestId?: string, limit = 10): string {
   const filtered = requestId ? records.filter((record) => record.requestId === requestId) : records;
   if (filtered.length === 0) return requestId ? `No tool transactions for ${requestId}.` : "No tool transactions.";
@@ -1748,6 +1957,12 @@ export async function prepareToolRequest(
   if (!input.request.trim()) {
     return rejectToolRequest(cwd, state, input, "Tool request rejected: request is required");
   }
+  if (input.isolationRequirement !== undefined
+    && input.isolationRequirement !== "capability"
+    && input.isolationRequirement !== "focus"
+    && input.isolationRequirement !== "evidence-independence") {
+    return rejectToolRequest(cwd, state, input, "Tool request rejected: isolation requirement is invalid");
+  }
   const directOperation = normalizeDirectOperation(input.directOperation);
   if (input.directOperation !== undefined && !directOperation) {
     return rejectToolRequest(cwd, state, input, "Tool request rejected: direct operation is malformed or unsupported");
@@ -1768,6 +1983,7 @@ export async function prepareToolRequest(
     riskLevel: normalizeToolRiskLevel(input.riskLevel),
     permissionRequirement: input.permissionRequirement?.trim() || undefined,
     safetyNotes: input.safetyNotes?.trim() || undefined,
+    isolationRequirement: input.isolationRequirement,
     allowedTools: uniqueNonEmpty([input.toolName, ...(input.allowedTools ?? [])]),
     directOperation,
     status: "prepared",
@@ -1848,6 +2064,16 @@ export function buildToolAgentPrompt(record: ToolRequestRecord, discoveredRecord
   ]
     .filter((part) => part.length > 0)
     .join("\n\n");
+}
+
+export function buildCurrentAgentToolPrompt(record: ToolRequestRecord, discoveredRecords: ToolSchemaRecord[] = []): string {
+  const base = buildToolAgentPrompt(record, discoveredRecords)
+    .replace("You are an isolated SCALER tool agent.", "You are the current SCALER parent agent executing one admitted tool request in this session.")
+    .replace("Do not assume access to unrelated tools or MCP servers.", "Only the listed request tools and scaler_tool_result are active; do not seek or assume unrelated capabilities.");
+  return [
+    base,
+    "This bounded tool result is a proposal to the SCALER supervisor. You must not advance the supervisor FSM, change task acceptance criteria, broaden authority, or close the parent task.",
+  ].join("\n\n");
 }
 
 async function rejectToolRequest(
@@ -2320,6 +2546,7 @@ function buildToolRouteRequestBasis(request: ToolRequestRecord, executionId?: st
       riskLevel: request.riskLevel,
       permissionRequirement: request.permissionRequirement,
       safetyNotes: request.safetyNotes,
+      isolationRequirement: request.isolationRequirement,
       directOperation: request.directOperation,
     },
   };
@@ -2338,6 +2565,7 @@ function fingerprintToolRequest(request: ToolRequestRecord): string {
     riskLevel: request.riskLevel,
     permissionRequirement: request.permissionRequirement,
     safetyNotes: request.safetyNotes,
+    isolationRequirement: request.isolationRequirement,
     allowedTools: request.allowedTools,
     directOperation: request.directOperation,
     status: request.status,
@@ -2512,7 +2740,7 @@ async function finalizeToolExecution(
       && runResult.outputLimitExceeded === undefined;
     const processSucceeded = runResult.exitCode === 0 && !runResult.timedOut && !runResult.aborted && measurementsValid;
     const requestUnchanged = currentRequest?.status === request.status && currentRequest.activeExecutionId === execution.id;
-    const routeIdentityUnchanged = execution.routeAdmission?.route === "isolated"
+    const routeIdentityUnchanged = execution.routeAdmission?.route === "isolated" || execution.routeAdmission?.route === "current-agent"
       ? typeof execution.routeAdmission.modelId === "string" && execution.routeAdmission.modelId.length > 0
       : execution.routeAdmission?.route === "direct"
         && execution.routeAdmission.directAdapterId === request.directOperation?.adapterId
