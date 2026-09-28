@@ -191,6 +191,92 @@ test("explicit user amendment records immutable versions and rejects stale bases
   });
 });
 
+test("material requirement amendment invalidates only its current coverage", async () => {
+  await withTempDir(async (dir) => {
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    await upsertPrdRequirement(dir, { id: "REQ-A", statement: "Original A", now });
+    await upsertPrdRequirement(dir, { id: "REQ-B", statement: "Original B", now });
+    await savePrdCoverage(dir, {
+      version: 1,
+      entries: [
+        {
+          requirementId: "REQ-A",
+          status: "validated",
+          taskIds: ["T-A"],
+          evidenceRefs: ["validation:A:v1"],
+          notes: "Accepted against revision 1.",
+          updatedAt: now.toISOString(),
+        },
+        {
+          requirementId: "REQ-B",
+          status: "validated",
+          taskIds: ["T-B"],
+          evidenceRefs: ["validation:B:v1"],
+          updatedAt: now.toISOString(),
+        },
+      ],
+    });
+
+    await amendPrdRequirement(dir, {
+      id: "REQ-A",
+      expectedRevision: 1,
+      reason: "User changed the required behavior.",
+      changes: { statement: "Revised A" },
+      now: new Date("2026-01-01T00:01:00.000Z"),
+    });
+
+    const coverage = await loadPrdCoverage(dir);
+    assert.deepEqual(coverage.entries.find((entry) => entry.requirementId === "REQ-A"), {
+      requirementId: "REQ-A",
+      status: "needs_replan",
+      taskIds: ["T-A"],
+      evidenceRefs: ["validation:A:v1"],
+      notes: "Accepted against revision 1.",
+      updatedAt: "2026-01-01T00:01:00.000Z",
+    });
+    assert.deepEqual(coverage.entries.find((entry) => entry.requirementId === "REQ-B"), {
+      requirementId: "REQ-B",
+      status: "validated",
+      taskIds: ["T-B"],
+      evidenceRefs: ["validation:B:v1"],
+      updatedAt: now.toISOString(),
+    });
+  });
+});
+
+test("title-only requirement amendment preserves current coverage", async () => {
+  await withTempDir(async (dir) => {
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    await upsertPrdRequirement(dir, { id: "REQ-TITLE", statement: "Stable behavior", title: "Old title", now });
+    await savePrdCoverage(dir, {
+      version: 1,
+      entries: [{
+        requirementId: "REQ-TITLE",
+        status: "validated",
+        taskIds: ["T-TITLE"],
+        evidenceRefs: ["validation:title:v1"],
+        updatedAt: now.toISOString(),
+      }],
+    });
+
+    await amendPrdRequirement(dir, {
+      id: "REQ-TITLE",
+      expectedRevision: 1,
+      reason: "User clarified only the display title.",
+      changes: { title: "New title" },
+      now: new Date("2026-01-01T00:01:00.000Z"),
+    });
+
+    assert.deepEqual((await loadPrdCoverage(dir)).entries[0], {
+      requirementId: "REQ-TITLE",
+      status: "validated",
+      taskIds: ["T-TITLE"],
+      evidenceRefs: ["validation:title:v1"],
+      updatedAt: now.toISOString(),
+    });
+  });
+});
+
 test("acceptance criteria reject exact duplicate ids hidden by Unicode collation", async () => {
   await withTempDir(async (dir) => {
     await upsertPrdRequirement(dir, { id: "REQ-UNICODE", statement: "Original requirement." });
