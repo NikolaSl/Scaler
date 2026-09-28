@@ -1270,6 +1270,57 @@ test("runConductorStep blocks oversized report repair before a second dispatch",
   });
 });
 
+test("runConductorStep refuses report repair when the second child exceeds budget", async () => {
+  await withTempDir(async (dir) => {
+    const state = setBudgetLimits(stateWithTasks(["ready"]), { spawnedAgents: { hard: 2 } });
+    state.stage = "execution";
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
+      runnerCalls += 1;
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [{ type: "scaler_task_report", taskId: request.taskId, status: "completed" }],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
+
+    assert.equal(runnerCalls, 1);
+    assert.equal(result.validationHandoff?.status, "task_agent_report_invalid");
+    assert.match(result.validationHandoff?.diagnostics?.join(" ") ?? "", /report repair refused by budget/i);
+    assert.equal(result.state.stage, "paused");
+    assert.equal(getBudgetState(result.state).usage.spawnedAgents, 1);
+  });
+});
+
+test("runConductorStep contains a report-only repair runner failure", async () => {
+  await withTempDir(async (dir) => {
+    const state = stateWithTasks(["ready"]);
+    state.stage = "execution";
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
+      runnerCalls += 1;
+      if (runnerCalls === 2) throw new Error("repair transport unavailable");
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [{ type: "done" }],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
+
+    assert.equal(runnerCalls, 2);
+    assert.equal(result.validationHandoff?.status, "task_agent_report_missing");
+    assert.match(result.validationHandoff?.diagnostics?.join(" ") ?? "", /report-only repair runner failed.*transport unavailable/i);
+    assert.equal((await loadTaskAttempts(dir))[0]?.outcome, "failed");
+    assert.equal(await loadExecutionLock(dir), undefined);
+  });
+});
+
 test("runConductorStep blocks validation when task-agent report is invalid", async () => {
   await withTempDir(async (dir) => {
     const state = stateWithTasks(["ready"]);
