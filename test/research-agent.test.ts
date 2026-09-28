@@ -153,6 +153,8 @@ test("research children receive inspection-only tools", () => {
       "edit",
       "write",
       "scaler_research_report",
+      "scaler_memory_retrieve",
+      "scaler_memory_search",
       "scaler_task_update",
     ],
   }), ["read", "grep", "find", "ls"]);
