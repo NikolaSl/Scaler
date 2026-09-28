@@ -432,7 +432,7 @@ test("assessDebugRetryGate rejects malformed persisted evidence values and conta
           failureFingerprint: "failure-a",
           resultingFailureFingerprint: "failure-a",
           logRefs: "not-an-array",
-          newEvidence: "A string container must not be split into reference characters.",
+          newEvidence: { claim: "Malformed prose must not reach string operations." },
           timestamp: "2026-01-01T00:00:04.000Z",
         },
       ],
