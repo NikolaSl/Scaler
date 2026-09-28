@@ -71,6 +71,79 @@ test("watchdog heartbeats persist and stale progress pauses execution", async ()
   });
 });
 
+test("running heartbeats preserve the evidenced-progress clock", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    await saveState(dir, state);
+    await recordWatchdogHeartbeat(dir, {
+      scopeKind: "agent",
+      scopeId: "agent-live",
+      action: "started",
+      status: "running",
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    await recordWatchdogHeartbeat(dir, {
+      scopeKind: "agent",
+      scopeId: "agent-live",
+      action: "still alive",
+      status: "running",
+      now: new Date("2026-01-01T00:00:00.750Z"),
+    });
+    const latest = await recordWatchdogHeartbeat(dir, {
+      scopeKind: "agent",
+      scopeId: "agent-live",
+      action: "still alive",
+      status: "running",
+      now: new Date("2026-01-01T00:00:01.500Z"),
+    });
+
+    const result = await runWatchdogAssessment(dir, state, {
+      policy: { noProgressTimeoutMs: 1_000 },
+      now: new Date("2026-01-01T00:00:02.000Z"),
+    });
+
+    assert.equal(latest.lastProgressAt, "2026-01-01T00:00:00.000Z");
+    assert.equal(result.events[0]?.kind, "no_progress");
+  });
+});
+
+test("only structured evidence can advance the progress clock", async () => {
+  await withTempDir(async (dir) => {
+    await assert.rejects(recordWatchdogHeartbeat(dir, {
+      scopeKind: "task",
+      scopeId: "T-progress",
+      action: "claimed progress",
+      status: "progress",
+      now: new Date("2026-01-01T00:00:00.500Z"),
+    }), /progress evidence/i);
+
+    const progress = await recordWatchdogHeartbeat(dir, {
+      scopeKind: "task",
+      scopeId: "T-progress",
+      action: "accept artifact",
+      status: "progress",
+      progress: {
+        kind: "accepted_artifact",
+        summary: "Accepted the bounded implementation artifact.",
+        evidenceRefs: ["artifact://T-progress/output"],
+      },
+      now: new Date("2026-01-01T00:00:00.750Z"),
+    });
+    const liveness = await recordWatchdogHeartbeat(dir, {
+      scopeKind: "task",
+      scopeId: "T-progress",
+      action: "still alive",
+      status: "running",
+      now: new Date("2026-01-01T00:00:01.250Z"),
+    });
+
+    assert.equal(progress.lastProgressAt, "2026-01-01T00:00:00.750Z");
+    assert.equal(liveness.lastProgressAt, progress.lastProgressAt);
+    assert.deepEqual(progress.progress?.evidenceRefs, ["artifact://T-progress/output"]);
+  });
+});
+
 test("watchdog detects repeated replanning without validated progress", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));

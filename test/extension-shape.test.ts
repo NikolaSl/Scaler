@@ -719,7 +719,9 @@ test("extension turn_end hook records provider usage budgets and triggers compac
     assert.equal(budgets.usage.contextTokens, 62);
     assert.equal(budgets.usage.estimatedCostMicros, 62);
     assert.match(compactInstructions, /SCALER-aware compaction/);
-    assert.equal((await loadWatchdogHeartbeats(dir))[0]?.action, "turn_end");
+    const heartbeat = (await loadWatchdogHeartbeats(dir))[0];
+    assert.equal(heartbeat?.action, "turn_end");
+    assert.equal(heartbeat?.status, "running");
     const events = await readLogEvents(dir);
     assert.ok(events.some((event) => event.eventType === "budget" && event.summary.includes("Provider usage recorded")));
     assert.ok(events.some((event) => event.eventType === "state" && event.summary === "SCALER automatic compaction requested"));
