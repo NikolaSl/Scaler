@@ -268,8 +268,15 @@ test("three-route milestone stays bounded across 32K and 128K windows", async ()
           })),
         max_completion_tokens: 1_024,
       };
-      const deniedCurrent = await admitCurrentAgentToolProviderCall(dir, state, preparedCurrent.preparation, {
-        authority: "denied",
+      const deniedPreparation = await prepareCurrentAgentToolExecution(
+        dir,
+        state,
+        current.record.id,
+        activeToolNames,
+        "denied",
+      );
+      assert.ok(deniedPreparation.preparation);
+      const deniedCurrent = await admitCurrentAgentToolProviderCall(dir, state, deniedPreparation.preparation, {
         payload,
         model,
         policy,
@@ -278,7 +285,6 @@ test("three-route milestone stays bounded across 32K and 128K windows", async ()
       assert.equal(deniedCurrent.accepted, false);
       assert.equal(deniedCurrent.assessment.reasonCode, "authority-denied");
       const hardBudgetCurrent = await admitCurrentAgentToolProviderCall(dir, hardBudgetState, preparedCurrent.preparation, {
-        authority: "allowed",
         payload,
         model,
         policy,
@@ -287,7 +293,6 @@ test("three-route milestone stays bounded across 32K and 128K windows", async ()
       assert.equal(hardBudgetCurrent.accepted, false);
       assert.match(hardBudgetCurrent.message, /budget hard limit.*toolCalls/i);
       const currentAdmission = await admitCurrentAgentToolProviderCall(dir, state, preparedCurrent.preparation, {
-        authority: "allowed",
         payload,
         model,
         policy,

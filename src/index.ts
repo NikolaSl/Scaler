@@ -423,7 +423,6 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       let admission: Awaited<ReturnType<typeof admitCurrentAgentToolProviderCall>>;
       try {
         admission = await admitCurrentAgentToolProviderCall(ctx.cwd, state, currentAgentRun.preparation, {
-          authority: "allowed",
           payload: event.payload,
           model: snapshotHostModel(ctx.model) ?? {},
           policy: createStrictProviderAdmissionPolicy(contextWindow),
@@ -1674,9 +1673,21 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("scaler-tool-current", {
-    description: "Execute one prepared tool request in the current agent: /scaler-tool-current [requestId]",
+    description: "Execute one prepared tool request in the current agent: /scaler-tool-current [requestId] [authority=allowed|denied|unknown]",
     handler: async (args, ctx) => {
-      const requestId = args?.trim() || undefined;
+      const parts = (args ?? "").trim().split(/\s+/).filter(Boolean);
+      const authorityPart = parts.find((part) => part.startsWith("authority="));
+      const authorityValue = authorityPart?.slice("authority=".length);
+      if (authorityValue !== undefined
+        && authorityValue !== "allowed"
+        && authorityValue !== "denied"
+        && authorityValue !== "unknown") {
+        const message = "Current-agent tool dispatch rejected: authority must be allowed, denied or unknown.";
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+        else console.log(message);
+        return;
+      }
+      const requestId = parts.find((part) => !part.startsWith("authority="));
       const state = await ensureState(ctx.cwd);
       const notify = (message: string, accepted: boolean) => {
         if (ctx.hasUI) ctx.ui.notify(message, accepted ? "info" : "warning");
@@ -1698,7 +1709,13 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         notify("Current-agent tool dispatch rejected: another focused agent lifecycle is active.", false);
         return;
       }
-      const prepared = await prepareCurrentAgentToolExecution(ctx.cwd, state, requestId, pi.getAllTools().map((tool) => tool.name));
+      const prepared = await prepareCurrentAgentToolExecution(
+        ctx.cwd,
+        state,
+        requestId,
+        pi.getAllTools().map((tool) => tool.name),
+        authorityValue,
+      );
       if (!prepared.accepted || !prepared.preparation) {
         notify(prepared.message, false);
         return;

@@ -510,7 +510,7 @@ test("current-agent tool dispatch binds exact provider identity and one structur
     const payload = { model: "local-32k", messages: [{ role: "user", content: prepared.preparation.prompt }], max_completion_tokens: 1024 };
     const model = { api: "openai-completions", provider: "local", id: "local-32k", contextWindow: 32_000 };
     const policy = { requestTokenAllowance: 32_000, outputReserveTokens: 1024, safetyMarginTokens: 1024 };
-    const admission = await admitCurrentAgentToolProviderCall(dir, state, prepared.preparation, { authority: "allowed", payload, model, policy, profile });
+    const admission = await admitCurrentAgentToolProviderCall(dir, state, prepared.preparation, { payload, model, policy, profile });
     assert.equal(admission.accepted, true);
     assert.equal(admission.transaction?.routeAdmission?.route, "current-agent");
     assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, admission.transaction?.id);
@@ -519,7 +519,7 @@ test("current-agent tool dispatch binds exact provider identity and one structur
       dir,
       state,
       prepared.preparation,
-      { authority: "allowed", payload, model: { ...model, id: "other-local" }, policy, profile },
+      { payload, model: { ...model, id: "other-local" }, policy, profile },
       admission.transaction,
     );
     assert.equal(changedModel.accepted, false);
@@ -529,7 +529,7 @@ test("current-agent tool dispatch binds exact provider identity and one structur
       dir,
       state,
       prepared.preparation,
-      { authority: "allowed", payload, model: { ...model, provider: "other-local" }, policy, profile },
+      { payload, model: { ...model, provider: "other-local" }, policy, profile },
       admission.transaction,
     );
     assert.equal(changedProvider.accepted, false);
@@ -574,7 +574,6 @@ test("current-agent continuation and finalization reject incomplete safeguard ev
     })), active, { requestedToolNames: active, selectionApisAvailable: true });
     const model = { api: "openai-completions", provider: "local", id: "local-32k", contextWindow: 32_000 };
     const evidence = {
-      authority: "allowed" as const,
       payload: {
         model: model.id,
         messages: [{ role: "user", content: prepared.preparation.prompt }],
@@ -586,7 +585,7 @@ test("current-agent continuation and finalization reject incomplete safeguard ev
     };
     const admission = await admitCurrentAgentToolProviderCall(dir, state, prepared.preparation, evidence);
     assert.ok(admission.transaction?.routeAdmission);
-    delete (admission.transaction.routeAdmission as Partial<typeof admission.transaction.routeAdmission>).budgetDecision;
+    delete (admission.transaction!.routeAdmission as { budgetDecision?: unknown }).budgetDecision;
     const transactions = await loadToolTransactions(dir);
     delete (transactions[0]!.routeAdmission as Partial<NonNullable<typeof transactions[0]["routeAdmission"]>>).budgetDecision;
     await writeFile(getToolTransactionsPath(dir), `${JSON.stringify({ version: 1, transactions }, null, 2)}\n`, "utf8");
@@ -633,6 +632,7 @@ test("current-agent provider dispatch refuses explicit denied authority before c
       state,
       request.record.id,
       ["read", "scaler_tool_result"],
+      "denied",
     );
     assert.ok(prepared.preparation);
     const active = prepared.preparation.activeToolNames;
@@ -643,7 +643,6 @@ test("current-agent provider dispatch refuses explicit denied authority before c
     })), active, { requestedToolNames: active, selectionApisAvailable: true });
     const model = { api: "openai-completions", provider: "local", id: "local-32k", contextWindow: 32_000 };
     const evidence = {
-      authority: "denied",
       payload: {
         model: model.id,
         messages: [{ role: "user", content: prepared.preparation.prompt }],
@@ -661,12 +660,20 @@ test("current-agent provider dispatch refuses explicit denied authority before c
     assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
     assert.equal((await loadToolTransactions(dir)).length, 0);
 
+    const allowedPreparation = await prepareCurrentAgentToolExecution(
+      dir,
+      state,
+      request.record.id,
+      ["read", "scaler_tool_result"],
+      "allowed",
+    );
+    assert.ok(allowedPreparation.preparation);
     const hardBudgetState = setBudgetLimits(state, { toolCalls: { hard: 0 } });
     const hardBudgetAdmission = await admitCurrentAgentToolProviderCall(
       dir,
       hardBudgetState,
-      prepared.preparation,
-      { ...evidence, authority: "allowed" } as Parameters<typeof admitCurrentAgentToolProviderCall>[3],
+      allowedPreparation.preparation,
+      evidence,
     );
     assert.equal(hardBudgetAdmission.accepted, false);
     assert.match(hardBudgetAdmission.message, /budget hard limit.*toolCalls/i);

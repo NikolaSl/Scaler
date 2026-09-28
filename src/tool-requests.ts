@@ -403,11 +403,14 @@ export interface ToolRequestRunOptions {
   command?: string;
   /** Host-owned live envelope supplier. Model/request payloads cannot set it. */
   routeEvidenceSupplier?: ToolDispatchRouteEvidenceSupplier;
+  /** Host-owned permission decision for the builtin direct adapter. */
+  authority?: ToolRouteAuthority;
 }
 
 export interface CurrentAgentToolPreparation {
   version: 1;
   executionId: string;
+  authority: ToolRouteAuthority;
   request: ToolRequestRecord;
   prompt: string;
   activeToolNames: string[];
@@ -423,8 +426,6 @@ export interface CurrentAgentToolPrepareResult {
 }
 
 export interface CurrentAgentProviderEvidence {
-  /** Host-owned live permission decision; request/model content cannot set it. */
-  authority: ToolRouteAuthority;
   payload: unknown;
   model: ProviderAdmissionModel;
   policy: ReturnType<typeof createStrictProviderAdmissionPolicy>;
@@ -1405,7 +1406,12 @@ export async function runToolRequestAgent(
 
   const limits = copyToolExecutionLimits(DEFAULT_TOOL_EXECUTION_LIMITS);
   const routeEvidenceSupplier = options.routeEvidenceSupplier
-    ?? (request.directOperation ? createBuiltinDirectRouteSnapshot : undefined);
+    ?? (request.directOperation
+      ? (basis: Readonly<ToolDispatchRouteBasis>) => createBuiltinDirectRouteSnapshot(
+          basis,
+          options.authority ?? (request.permissionRequirement ? "unknown" : "allowed"),
+        )
+      : undefined);
   const admission = await prepareToolDispatchAdmission(
     state,
     request,
@@ -1429,7 +1435,7 @@ export async function runToolRequestAgent(
   }
   agentRequest = admission.agentRequest;
   invocation = admission.invocation;
-  const claim = await beginToolExecution(cwd, request, invocation, limits, undefined, undefined, admission.executionId, admission.routeAdmission);
+  const claim = await beginToolExecution(cwd, request, invocation, limits, undefined, undefined, admission.executionId, admission.routeAdmission, state);
   if (!claim.accepted) {
     await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: claim.transaction.message, taskId: request.taskId, details: { transaction: claim.transaction } }));
     return { accepted: false, message: claim.transaction.message, request: claim.request, prompt, invocation, transaction: claim.transaction };
@@ -1472,6 +1478,7 @@ export async function prepareCurrentAgentToolExecution(
   state: ScalerState,
   requestId: string | undefined,
   availableToolNames: string[],
+  authority?: ToolRouteAuthority,
 ): Promise<CurrentAgentToolPrepareResult> {
   const request = await selectRunnableToolRequest(cwd, requestId);
   const refuse = async (reason: string): Promise<CurrentAgentToolPrepareResult> => {
@@ -1497,6 +1504,7 @@ export async function prepareCurrentAgentToolExecution(
   const unavailable = activeToolNames.filter((name) => !available.has(name));
   if (unavailable.length > 0) return refuse(`requested tools are unavailable: ${unavailable.join(", ")}`);
   const executionId = randomUUID();
+  const resolvedAuthority = authority ?? (request.permissionRequirement ? "unknown" : "allowed");
   const prompt = buildCurrentAgentToolPrompt(request, await loadToolSchemaRecords(cwd));
   const invocation: TaskAgentInvocation = { command: "<current-agent>", args: ["--tool-request", request.id], cwd };
   return {
@@ -1505,6 +1513,7 @@ export async function prepareCurrentAgentToolExecution(
     preparation: {
       version: 1,
       executionId,
+      authority: resolvedAuthority,
       request,
       prompt,
       activeToolNames,
@@ -1525,7 +1534,7 @@ export async function admitCurrentAgentToolProviderCall(
   const assessment = assessToolRoute({
     request: buildToolRouteRequestBasis(preparation.request, preparation.executionId),
     profile: evidence.profile,
-    authority: evidence.authority,
+    authority: preparation.authority,
     direct: { exactArgumentsAvailable: false, argumentsValidated: false },
     currentAgent: {
       available: true,
@@ -1556,7 +1565,7 @@ export async function admitCurrentAgentToolProviderCall(
     }
     return { accepted: false, message, assessment };
   };
-  const budgetDecision = assessToolDispatchBudget(state);
+  const budgetDecision = await assessLiveToolDispatchBudget(cwd, state);
   if (budgetDecision.status === "hard_limit") {
     return refuse(`budget hard limit (${budgetDecision.key}): ${budgetDecision.reason}`);
   }
@@ -1589,6 +1598,8 @@ export async function admitCurrentAgentToolProviderCall(
       && currentRequest.status === preparation.request.status
       && currentTransaction?.status === "prepared"
       && currentTransaction.routeAdmission?.route === "current-agent"
+      && validToolDispatchSafeguards(currentTransaction.routeAdmission)
+      && currentTransaction.routeAdmission.authority === preparation.authority
       && currentTransaction.routeAdmission.modelId === modelId
       && currentTransaction.routeAdmission.modelApi === modelApi
       && currentTransaction.routeAdmission.modelProvider === modelProvider
@@ -1626,6 +1637,7 @@ export async function admitCurrentAgentToolProviderCall(
     undefined,
     preparation.executionId,
     routeAdmission,
+    state,
   );
   if (!claim.accepted) return { accepted: false, message: claim.transaction.message, assessment, transaction: claim.transaction };
   try {
@@ -1893,7 +1905,7 @@ export async function replayToolTransaction(
   }
   replayRequest = admission.agentRequest;
   invocation = admission.invocation;
-  const claim = await beginToolExecution(cwd, request, invocation, limits, original.id, options.approvalId, admission.executionId, admission.routeAdmission);
+  const claim = await beginToolExecution(cwd, request, invocation, limits, original.id, options.approvalId, admission.executionId, admission.routeAdmission, state);
   if (!claim.accepted) {
     await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: claim.transaction.message, taskId: request.taskId, details: { transaction: claim.transaction, original } }));
     return { accepted: false, message: claim.transaction.message, original, request: claim.request, prompt: replayRequest.prompt, invocation, transaction: claim.transaction };
@@ -2602,6 +2614,27 @@ function assessToolDispatchBudget(state: ScalerState): BudgetDecision {
     evaluateBudgetUsage(key, budget.usage[key] ?? 0, budget.limits[key])));
 }
 
+async function assessLiveToolDispatchBudget(cwd: string, fallback?: ScalerState): Promise<BudgetDecision> {
+  const stored = await loadState(cwd);
+  return assessToolDispatchBudget(stored.revision === 0 && fallback ? fallback : stored);
+}
+
+function validToolDispatchSafeguards(admission: ToolDispatchAdmissionRecord | undefined): boolean {
+  if (!admission || admission.authorized !== true || admission.authority !== "allowed") return false;
+  const decision = admission.budgetDecision as unknown;
+  if (!isPlainObject(decision)
+    || (decision.status !== "ok" && decision.status !== "soft_limit")
+    || typeof decision.key !== "string"
+    || !budgetUsageKeys.includes(decision.key as typeof budgetUsageKeys[number])
+    || !isNonNegativeSafeInteger(decision.usage)
+    || typeof decision.reason !== "string"
+    || decision.reason.length === 0
+    || (decision.recommendedAction !== "continue" && decision.recommendedAction !== "reduce_scope")) {
+    return false;
+  }
+  return true;
+}
+
 function buildToolRouteRequestBasis(request: ToolRequestRecord, executionId?: string): ToolRouteAssessmentInput["request"] {
   return {
     requestId: request.id,
@@ -2657,7 +2690,10 @@ function fingerprintDirectOperation(operation: ToolDirectOperation): string {
   return createHash("sha256").update(JSON.stringify(operation), "utf8").digest("hex");
 }
 
-function createBuiltinDirectRouteSnapshot(basis: Readonly<ToolDispatchRouteBasis>): ToolDispatchRouteSnapshot {
+function createBuiltinDirectRouteSnapshot(
+  basis: Readonly<ToolDispatchRouteBasis>,
+  authority: ToolRouteAuthority,
+): ToolDispatchRouteSnapshot {
   const operation = basis.directOperation;
   const profileBasis = JSON.stringify({
     adapterId: operation?.adapterId,
@@ -2676,7 +2712,7 @@ function createBuiltinDirectRouteSnapshot(basis: Readonly<ToolDispatchRouteBasis
         byteSize: Buffer.byteLength(profileBasis, "utf8"),
         fingerprint: createHash("sha256").update(profileBasis, "utf8").digest("hex"),
       },
-      authority: operation ? "allowed" : "unknown",
+      authority: operation ? authority : "unknown",
       direct: {
         exactArgumentsAvailable: Boolean(operation),
         argumentsValidated: Boolean(operation),
@@ -2697,6 +2733,7 @@ async function beginToolExecution(
   approvalId?: string,
   executionId: string = randomUUID(),
   routeAdmission?: ToolDispatchAdmissionRecord,
+  budgetState?: ScalerState,
 ): Promise<{ accepted: boolean; request: ToolRequestRecord; transaction: ToolTransactionRecord; approval?: ToolReplayApprovalRecord }> {
   return withToolLedgerWriteQueue(cwd, async () => {
     const requests = await loadToolRequests(cwd);
@@ -2720,15 +2757,23 @@ async function beginToolExecution(
         : `request ${request.id} is ${currentRequest!.status}; no approval supplied`
       : undefined;
     const currentRequestFingerprint = currentRequest ? fingerprintToolRequest(currentRequest) : undefined;
+    const liveBudgetDecision = await assessLiveToolDispatchBudget(cwd, budgetState);
+    const admittedRoute = routeAdmission && validToolDispatchSafeguards(routeAdmission)
+      ? { ...routeAdmission, budgetDecision: liveBudgetDecision }
+      : routeAdmission;
     const refusal = limitDiagnostics.length > 0
       ? `invalid runtime execution limits: ${limitDiagnostics.join("; ")}`
+      : liveBudgetDecision.status === "hard_limit"
+        ? `budget hard limit (${liveBudgetDecision.key}): ${liveBudgetDecision.reason}`
       : !routeAdmission
         ? "live route admission is missing"
+        : !validToolDispatchSafeguards(routeAdmission)
+          ? "live route safeguard evidence is missing or invalid"
         : !currentRequest
           ? `request ${request.id} disappeared before dispatch`
-          : currentRequestFingerprint !== routeAdmission.requestFingerprint
+          : currentRequestFingerprint !== admittedRoute!.requestFingerprint
             ? `request ${request.id} changed while live route admission was evaluated`
-            : fingerprintInvocation(invocation) !== routeAdmission.invocationFingerprint
+            : fingerprintInvocation(invocation) !== admittedRoute!.invocationFingerprint
               ? `invocation for request ${request.id} changed after live route admission`
               : currentRequest.status !== request.status
                 ? `request status changed from ${request.status} to ${currentRequest.status} before dispatch`
@@ -2744,7 +2789,7 @@ async function beginToolExecution(
       executed: !refusal,
       invocation,
       limits: copyToolExecutionLimits(limits),
-      routeAdmission,
+      routeAdmission: admittedRoute,
       replayOfTransactionId,
       message: refusal
         ? `Tool transaction ${replayOfTransactionId ? "replay " : ""}dispatch rejected: ${refusal}.`
@@ -2812,7 +2857,8 @@ async function finalizeToolExecution(
       && runResult.outputLimitExceeded === undefined;
     const processSucceeded = runResult.exitCode === 0 && !runResult.timedOut && !runResult.aborted && measurementsValid;
     const requestUnchanged = currentRequest?.status === request.status && currentRequest.activeExecutionId === execution.id;
-    const routeIdentityUnchanged = execution.routeAdmission?.route === "current-agent"
+    const routeIdentityUnchanged = validToolDispatchSafeguards(execution.routeAdmission)
+      && (execution.routeAdmission?.route === "current-agent"
       ? typeof execution.routeAdmission.modelId === "string" && execution.routeAdmission.modelId.length > 0
         && typeof execution.routeAdmission.modelApi === "string" && execution.routeAdmission.modelApi.length > 0
         && typeof execution.routeAdmission.modelProvider === "string" && execution.routeAdmission.modelProvider.length > 0
@@ -2821,7 +2867,7 @@ async function finalizeToolExecution(
         ? typeof execution.routeAdmission.modelId === "string" && execution.routeAdmission.modelId.length > 0
       : execution.routeAdmission?.route === "direct"
         && execution.routeAdmission.directAdapterId === request.directOperation?.adapterId
-        && execution.routeAdmission.directArgumentsFingerprint === (request.directOperation ? fingerprintDirectOperation(request.directOperation) : undefined);
+        && execution.routeAdmission.directArgumentsFingerprint === (request.directOperation ? fingerprintDirectOperation(request.directOperation) : undefined));
     const executionUnchanged = currentExecution?.status === "prepared"
       && currentExecution.requestId === execution.requestId
       && currentExecution.toolName === execution.toolName

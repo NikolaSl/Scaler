@@ -209,6 +209,7 @@ test("extension executes one prepared tool request through the admitted current 
       toolName: "read",
       request: "Read the approved project file and return one bounded fact.",
       expectedOutput: "One bounded fact with a file reference.",
+      permissionRequirement: "operator approval",
       allowedTools: ["read"],
     });
     assert.ok(prepared.record);
@@ -222,7 +223,7 @@ test("extension executes one prepared tool request through the admitted current 
       isIdle: () => true,
       model: { api: "openai-completions", provider: "local", id: "local-32k", contextWindow: 32_000 },
     };
-    await command.handler(prepared.record.id, commandCtx);
+    await command.handler(`${prepared.record.id} authority=allowed`, commandCtx);
     assert.deepEqual(activeTools, ["read", "scaler_tool_result"]);
     assert.match(sentUserMessage, /current SCALER parent agent/i);
     assert.match(sentUserMessage, /must not advance the supervisor FSM/i);
@@ -354,7 +355,11 @@ test("current-agent provider refusal survives unavailable audit storage and rest
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     state.stage = "execution";
     await saveState(dir, state);
-    const prepared = await prepareToolRequest(dir, state, { toolName: "read", request: "Read one file." });
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "read",
+      request: "Read one file.",
+      permissionRequirement: "operator approval",
+    });
     assert.ok(prepared.record);
     scalerExtension(fakePi as never);
     const ctx = {
@@ -363,7 +368,7 @@ test("current-agent provider refusal survives unavailable audit storage and rest
       isIdle: () => true,
       model: { api: "openai-completions", provider: "local", id: "local-8k", contextWindow: 8_000 },
     };
-    await commands.get("scaler-tool-current")!.handler(prepared.record.id, ctx);
+    await commands.get("scaler-tool-current")!.handler(`${prepared.record.id} authority=denied`, ctx);
     const systemPromptOptions = { cwd: dir, customPrompt: "system", selectedTools: [...activeTools] };
     const systemPrompt = await buildHostSystemPrompt(systemPromptOptions);
     await handlers.get("before_agent_start")?.({ type: "before_agent_start", prompt: sentUserMessage, systemPrompt, systemPromptOptions }, ctx);
@@ -374,7 +379,7 @@ test("current-agent provider refusal survives unavailable audit storage and rest
     let aborted = false;
     await handlers.get("before_provider_request")?.({
       type: "before_provider_request",
-      payload: { model: "local-8k", messages: [{ role: "user", content: "x".repeat(40_000) }], max_completion_tokens: 1024 },
+      payload: { model: "local-8k", messages: [{ role: "user", content: "bounded" }], max_completion_tokens: 1024 },
     }, { ...ctx, abort: () => { aborted = true; } });
     assert.equal(aborted, true);
     assert.deepEqual(activeTools, ["bash", "read", "scaler_tool_result"]);
