@@ -12,6 +12,7 @@ import { createDefaultState } from "../../../src/state.js";
 import {
   admitCurrentAgentToolProviderCall,
   buildRuntimeToolEnvelopeProfile,
+  DEFAULT_TOOL_EXECUTION_LIMITS,
   finalizeCurrentAgentToolExecution,
   loadToolRequests,
   prepareCurrentAgentToolExecution,
@@ -74,6 +75,14 @@ function isolatedSupplier(
     const payload = {
       model: model.id,
       messages: [{ role: "user", content: "Inspect one approved file and return one bounded result." }],
+      tools: [{
+        type: "function",
+        function: {
+          name: "read",
+          description: "Read one approved project file.",
+          parameters: { type: "object", properties: { path: { type: "string" } } },
+        },
+      }],
       max_completion_tokens: 1_024,
     };
     return {
@@ -101,7 +110,7 @@ function isolatedSupplier(
               payload,
               model,
               policy,
-              additionalContextBytes: continuationBytes === null ? null : Math.max(continuationBytes, basis.resultBytesReserve),
+              additionalContextBytes: continuationBytes,
               repeatCount: 1,
             },
           ],
@@ -115,6 +124,7 @@ function isolatedSupplier(
 test("AC-08 process: direct, current-agent and isolated routes stay bounded across 32K and 128K windows", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    assert.equal(DEFAULT_TOOL_EXECUTION_LIMITS.resultBytes, 16 * 1024);
 
     const direct = await prepareToolRequest(dir, state, {
       toolName: "scaler_tool_catalog",
@@ -193,6 +203,12 @@ test("AC-08 process: direct, current-agent and isolated routes stay bounded acro
       const payload = {
         model: model.id,
         messages: [{ role: "user", content: preparedCurrent.preparation.prompt }],
+        tools: definitions
+          .filter((tool) => activeToolNames.includes(tool.name))
+          .map((tool) => ({
+            type: "function",
+            function: { name: tool.name, description: tool.description, parameters: tool.parameters },
+          })),
         max_completion_tokens: 1_024,
       };
       const currentAdmission = await admitCurrentAgentToolProviderCall(dir, state, preparedCurrent.preparation, {
@@ -204,6 +220,9 @@ test("AC-08 process: direct, current-agent and isolated routes stay bounded acro
       assert.equal(currentAdmission.accepted, true);
       assert.equal(currentAdmission.transaction?.routeAdmission?.route, "current-agent");
       assert.equal(currentAdmission.transaction?.routeAdmission?.profileFingerprint, selectedProfile.fingerprint);
+      assert.equal(currentAdmission.assessment.currentAgent.legs[0]?.provider.payloadBytes, Buffer.byteLength(JSON.stringify(payload), "utf8"));
+      assert.deepEqual(payload.tools.map((tool) => tool.function.name).sort(), activeToolNames.slice().sort());
+      assert.doesNotMatch(JSON.stringify(payload), /large_docs_operation_/);
       await recordToolResult(dir, state, {
         requestId: current.record.id,
         executionId: currentAdmission.transaction!.id,
@@ -228,11 +247,22 @@ test("AC-08 process: direct, current-agent and isolated routes stay bounded acro
         allowedTools: ["read"],
       });
       assert.ok(isolated.record);
+      const isolatedDefinition = [{
+        name: "read",
+        description: "Read one approved project file.",
+        parameters: { type: "object", properties: { path: { type: "string" } } },
+        sourceInfo: { type: "builtin", name: "read" },
+      }];
+      const isolatedProfile = buildRuntimeToolEnvelopeProfile(isolatedDefinition, ["read"], {
+        requestedToolNames: ["read"],
+        selectionApisAvailable: true,
+      });
+      assert.ok(isolatedProfile.fingerprint);
       let isolatedModelCalls = 0;
       const unknownOutput = await runToolRequestAgent(dir, state, {
         requestId: isolated.record.id,
         execute: true,
-        routeEvidenceSupplier: isolatedSupplier(contextWindow, selectedProfile.fingerprint!, null),
+        routeEvidenceSupplier: isolatedSupplier(contextWindow, isolatedProfile.fingerprint!, null),
       }, async (request) => {
         isolatedModelCalls += 1;
         return {
@@ -251,10 +281,39 @@ test("AC-08 process: direct, current-agent and isolated routes stay bounded acro
       assert.match(unknownOutput.message, /recommended blocked/i);
       assert.equal((await loadToolRequests(dir)).find((request) => request.id === isolated.record!.id)?.activeExecutionId, undefined);
 
+      const insufficientReserve = await runToolRequestAgent(dir, state, {
+        requestId: isolated.record.id,
+        execute: true,
+        routeEvidenceSupplier: isolatedSupplier(
+          contextWindow,
+          isolatedProfile.fingerprint!,
+          DEFAULT_TOOL_EXECUTION_LIMITS.resultBytes - 1,
+        ),
+      }, async (request) => {
+        isolatedModelCalls += 1;
+        return {
+          taskId: request.taskId,
+          exitCode: 0,
+          stdoutEvents: [],
+          stderr: "",
+          timedOut: false,
+          aborted: false,
+          stdoutBytes: 0,
+          stderrBytes: 0,
+        };
+      });
+      assert.equal(insufficientReserve.accepted, false);
+      assert.equal(isolatedModelCalls, 0);
+      assert.match(insufficientReserve.message, /caller continuation.*result reserve/i);
+
       const isolatedResult = await runToolRequestAgent(dir, state, {
         requestId: isolated.record.id,
         execute: true,
-        routeEvidenceSupplier: isolatedSupplier(contextWindow, selectedProfile.fingerprint!, 0),
+        routeEvidenceSupplier: isolatedSupplier(
+          contextWindow,
+          isolatedProfile.fingerprint!,
+          DEFAULT_TOOL_EXECUTION_LIMITS.resultBytes,
+        ),
       }, async (request) => {
         isolatedModelCalls += 1;
         assert.equal(request.providerAdmissionModel?.contextWindow, contextWindow);
@@ -280,7 +339,7 @@ test("AC-08 process: direct, current-agent and isolated routes stay bounded acro
       assert.equal(isolatedResult.accepted, true, isolatedResult.message);
       assert.equal(isolatedModelCalls, 1);
       assert.equal(isolatedResult.transaction?.routeAdmission?.route, "isolated");
-      assert.equal(isolatedResult.transaction?.routeAdmission?.profileFingerprint, selectedProfile.fingerprint);
+      assert.equal(isolatedResult.transaction?.routeAdmission?.profileFingerprint, isolatedProfile.fingerprint);
       assert.equal(isolatedResult.resultRecord?.acceptanceStatus, "accepted");
     }
   });

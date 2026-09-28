@@ -64,3 +64,9 @@ diff --check`. This establishes SC-08/AC-08 at the model-independent core
 routing boundary. The installed Pi command still refuses isolated execution
 without a trustworthy final caller-continuation envelope; that adapter-specific
 limitation remains SC-25, while configured local-only execution remains SC-09.
+
+Independent review identified three evidence defects rather than production
+authorization defects. The scenario now binds the isolated request to its own
+`read` profile, includes only the selected definitions in each actual provider
+payload and checks the measured payload bytes, and locks the exact 16 KiB
+continuation boundary with unknown, one-byte-short and exact-reserve controls.
