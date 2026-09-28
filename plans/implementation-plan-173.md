@@ -51,3 +51,10 @@ so. Debug-attempt admission and publication are serialized under one bounded,
 non-stealing lock, so concurrent claims cannot both consume the same fresh
 reference or overwrite the audit ledger. Malformed non-string legacy references
 are ignored rather than granting admission or crashing the gate.
+
+The second exact-tree review found that a cleared historical blocker could mask
+a later cycle and that malformed reference containers could still throw or be
+split into characters. The gate now tracks the latest unresolved blocker after
+each evidence clearance, and only arrays are accepted for persisted `evidence`
+and `logRefs` containers. A later cycle therefore re-closes admission, while
+malformed containers fail closed.

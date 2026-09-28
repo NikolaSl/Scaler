@@ -523,7 +523,9 @@ identity not already recorded for the task. This remains structural admission;
 the owning evidence gate decides whether the referenced claim is true. Review
 closure also requires a strictly later persisted attempt, serializes concurrent
 claims under a bounded non-stealing lock and rejects malformed legacy reference
-values without crashing. SC-11
+values and containers without crashing. The gate tracks the latest unresolved
+blocker, so evidence that cleared an earlier cycle cannot mask a later cycle.
+SC-11
 remains Partial because semantic rewording detection, aggregate tactic limits
 across replacement/resumption and the full AC-11 bounded fixture remain open.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
