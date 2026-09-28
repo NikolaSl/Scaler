@@ -44,3 +44,14 @@ gate and is not made true by the watchdog record.
 2. Implement the smallest heartbeat contract and lifecycle-hook change.
 3. Run focused watchdog/extension tests, build and the applicable exact-head
    gate; document SC-15 as still Partial.
+
+## Independent-review closure
+
+The first exact-head review identified four valid boundary gaps. The minimal
+closure serializes and atomically publishes heartbeat updates without stealing
+an orphaned lock, downgrades legacy evidence-free `progress` records to
+`running`, and keys agent/tool liveness by invocation rather than shared task or
+tool names. Supervisor-accepted task validation is the first automatic progress
+publisher and references its persisted validation run. Other allowed progress
+kinds still require an explicit evidence-bearing publisher; aggregate tactic and
+review limits remain outside this unit.

@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -170,6 +170,51 @@ test("a terminal heartbeat closes the active scope", async () => {
     });
 
     assert.equal(result.events.some((event) => event.kind === "no_progress"), false);
+  });
+});
+
+test("legacy progress records are downgraded to liveness", async () => {
+  await withTempDir(async (dir) => {
+    const watchdogDir = join(dir, ".scaler", "watchdogs");
+    await mkdir(watchdogDir, { recursive: true });
+    await writeFile(join(watchdogDir, "heartbeats.json"), `${JSON.stringify({
+      version: 1,
+      heartbeats: [{
+        id: "legacy-progress",
+        scopeKind: "run",
+        scopeId: "legacy-run",
+        status: "progress",
+        action: "turn_end",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        lastProgressAt: "2026-01-01T00:00:00.000Z",
+      }],
+    })}\n`, "utf8");
+
+    const [record] = await loadWatchdogHeartbeats(dir);
+
+    assert.equal(record?.status, "running");
+    assert.equal(record?.progress, undefined);
+  });
+});
+
+test("concurrent heartbeat writers retain every record and evidenced progress", async () => {
+  await withTempDir(async (dir) => {
+    await Promise.all(Array.from({ length: 24 }, (_, index) => recordWatchdogHeartbeat(dir, {
+      scopeKind: "run",
+      scopeId: "concurrent-run",
+      action: `event-${index}`,
+      status: index === 12 ? "progress" : "running",
+      progress: index === 12 ? {
+        kind: "acceptance_check",
+        summary: "Accepted concurrent validation evidence.",
+        evidenceRefs: ["validation:concurrent"],
+      } : undefined,
+      now: new Date(1_767_225_600_000 + index),
+    })));
+
+    const records = await loadWatchdogHeartbeats(dir);
+    assert.equal(records.length, 24);
+    assert.equal(records.filter((record) => record.status === "progress").length, 1);
   });
 });
 

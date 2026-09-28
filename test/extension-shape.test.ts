@@ -728,6 +728,41 @@ test("extension turn_end hook records provider usage budgets and triggers compac
   });
 });
 
+test("extension heartbeat scopes keep concurrent agent and tool invocations distinct", async () => {
+  await withTempDir(async (dir) => {
+    const handlers = new Map<string, (event: unknown, ctx: { cwd: string; hasUI: boolean }) => Promise<void>>();
+    const fakePi = {
+      on(name: string, handler: (event: unknown, ctx: { cwd: string; hasUI: boolean }) => Promise<void>) { handlers.set(name, handler); },
+      registerTool() {},
+      registerCommand() {},
+    };
+    const state = createDefaultState();
+    state.stage = "execution";
+    state.currentTaskId = "T-concurrent";
+    state.tasks = [{ id: "T-concurrent", status: "running", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+    scalerExtension(fakePi as never);
+    const ctx = { cwd: dir, hasUI: false };
+
+    await handlers.get("agent_start")?.({ type: "agent_start" }, ctx);
+    await handlers.get("agent_start")?.({ type: "agent_start" }, ctx);
+    await handlers.get("agent_end")?.({ type: "agent_end" }, ctx);
+    await handlers.get("tool_execution_start")?.({ type: "tool_execution_start", toolName: "read" }, ctx);
+    await handlers.get("tool_execution_start")?.({ type: "tool_execution_start", toolName: "read" }, ctx);
+    await handlers.get("tool_execution_end")?.({ type: "tool_execution_end", toolName: "read" }, ctx);
+
+    const records = await loadWatchdogHeartbeats(dir);
+    const agents = records.filter((record) => record.scopeKind === "agent");
+    assert.equal(new Set(agents.map((record) => record.scopeId)).size, 2);
+    assert.equal(agents.filter((record) => record.status === "running").length, 2);
+    assert.equal(agents.filter((record) => record.status === "completed").length, 1);
+    const tools = records.filter((record) => record.scopeKind === "tool");
+    assert.equal(new Set(tools.map((record) => record.scopeId)).size, 2);
+    assert.equal(tools.filter((record) => record.status === "running").length, 2);
+    assert.equal(tools.filter((record) => record.status === "completed").length, 1);
+  });
+});
+
 test("extension tool_result hook externalizes large outputs and redacts secrets", async () => {
   await withTempDir(async (dir) => {
     const handlers = new Map<string, (event: unknown, ctx: { cwd: string; hasUI: boolean }) => Promise<unknown>>();

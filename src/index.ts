@@ -219,6 +219,9 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   const isChildAgent = process.env.SCALER_CHILD_AGENT === "1";
   const activeToolFocusSnapshots = new Map<string, string[]>();
   const blockedParentPromptCompositions = new Map<string, string>();
+  const activeAgentHeartbeatScopes = new Map<string, string[]>();
+  const activeToolHeartbeatScopes = new Map<string, string[]>();
+  let heartbeatScopeSequence = 0;
   const currentAgentRuns = new Map<string, {
     preparation: CurrentAgentToolPreparation;
     authority: CurrentAgentToolPreparation["authority"];
@@ -507,12 +510,16 @@ export default function scalerExtension(pi: ExtensionAPI): void {
 
   pi.on("agent_start", async (event, ctx) => {
     const state = await ensureState(ctx.cwd);
+    const eventAgentId = (event as { agentId?: string }).agentId?.trim();
+    const scopeId = eventAgentId || `${state.currentTaskId ?? state.runId}:agent:${process.pid}:${++heartbeatScopeSequence}`;
+    activeAgentHeartbeatScopes.set(ctx.cwd, [...(activeAgentHeartbeatScopes.get(ctx.cwd) ?? []), scopeId]);
     await recordWatchdogHeartbeat(ctx.cwd, {
       scopeKind: "agent",
-      scopeId: state.currentTaskId ?? state.runId,
+      scopeId,
       status: "running",
       action: "agent_start",
       taskId: state.currentTaskId ?? undefined,
+      agentId: eventAgentId || scopeId,
       details: event,
     });
     return undefined;
@@ -525,22 +532,33 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     }
     const restoredTools = restoreParentToolFocus(ctx.cwd, pi, activeToolFocusSnapshots);
     if (restoredTools) await logStateEvent(ctx.cwd, state, "SCALER parent tool focus restored", { activeTools: restoredTools, reason: "agent_end" });
+    const eventAgentId = (event as { agentId?: string }).agentId?.trim();
+    const activeScopes = activeAgentHeartbeatScopes.get(ctx.cwd) ?? [];
+    const scopeId = eventAgentId || activeScopes.shift() || `${state.currentTaskId ?? state.runId}:agent:${process.pid}:${++heartbeatScopeSequence}`;
     await recordWatchdogHeartbeat(ctx.cwd, {
       scopeKind: "agent",
-      scopeId: state.currentTaskId ?? state.runId,
+      scopeId,
       status: "completed",
       action: "agent_end",
       taskId: state.currentTaskId ?? undefined,
+      agentId: eventAgentId || scopeId,
       details: event,
     });
+    if (activeScopes.length === 0) activeAgentHeartbeatScopes.delete(ctx.cwd);
+    else activeAgentHeartbeatScopes.set(ctx.cwd, activeScopes);
     return undefined;
   });
 
   pi.on("tool_execution_start", async (event, ctx) => {
     const state = await ensureState(ctx.cwd);
+    const toolEvent = event as { toolCallId?: string; toolName?: string };
+    const toolName = toolEvent.toolName || "tool";
+    const fallbackKey = `${ctx.cwd}\0${toolName}`;
+    const scopeId = toolEvent.toolCallId?.trim() || `${toolName}:tool:${process.pid}:${++heartbeatScopeSequence}`;
+    if (!toolEvent.toolCallId?.trim()) activeToolHeartbeatScopes.set(fallbackKey, [...(activeToolHeartbeatScopes.get(fallbackKey) ?? []), scopeId]);
     await recordWatchdogHeartbeat(ctx.cwd, {
       scopeKind: "tool",
-      scopeId: (event as { toolName?: string }).toolName ?? "tool",
+      scopeId,
       status: "running",
       action: "tool_execution_start",
       taskId: state.currentTaskId ?? undefined,
@@ -551,14 +569,23 @@ export default function scalerExtension(pi: ExtensionAPI): void {
 
   pi.on("tool_execution_end", async (event, ctx) => {
     const state = await ensureState(ctx.cwd);
+    const toolEvent = event as { toolCallId?: string; toolName?: string };
+    const toolName = toolEvent.toolName || "tool";
+    const fallbackKey = `${ctx.cwd}\0${toolName}`;
+    const fallbackScopes = activeToolHeartbeatScopes.get(fallbackKey) ?? [];
+    const scopeId = toolEvent.toolCallId?.trim() || fallbackScopes.shift() || `${toolName}:tool:${process.pid}:${++heartbeatScopeSequence}`;
     await recordWatchdogHeartbeat(ctx.cwd, {
       scopeKind: "tool",
-      scopeId: (event as { toolName?: string }).toolName ?? "tool",
+      scopeId,
       status: "completed",
       action: "tool_execution_end",
       taskId: state.currentTaskId ?? undefined,
       details: event,
     });
+    if (!toolEvent.toolCallId?.trim()) {
+      if (fallbackScopes.length === 0) activeToolHeartbeatScopes.delete(fallbackKey);
+      else activeToolHeartbeatScopes.set(fallbackKey, fallbackScopes);
+    }
     return undefined;
   });
 

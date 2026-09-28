@@ -3,8 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, readdir, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { getBudgetState, setBudgetLimits, setScopedBudgetPolicy, type BudgetLimit, type BudgetScopeKind, type BudgetUsageKey, type ScopedBudgetPolicy } from "./budgets.js";
 import { assessGitStatusSafety, type GitStatusSafetyDecision } from "./git.js";
 import { appendLogEvent, createLogEvent } from "./logging.js";
@@ -162,25 +164,31 @@ export async function recordWatchdogHeartbeat(cwd: string, input: WatchdogHeartb
   const timestamp = now.toISOString();
   const scopeKind = input.scopeKind ?? "run";
   const status = input.status ?? "running";
-  const records = await loadWatchdogHeartbeats(cwd);
-  const previous = records.find((record) => record.scopeKind === scopeKind && record.scopeId === input.scopeId);
   const progress = status === "progress" ? validateProgressEvidence(input.progress) : undefined;
-  const id = `${scopeKind}-${input.scopeId}-${now.getTime()}`.replace(/[^a-zA-Z0-9._-]/g, "-");
-  const record: WatchdogHeartbeatRecord = {
-    id,
-    scopeKind,
-    scopeId: input.scopeId,
-    status,
-    action: input.action,
-    taskId: input.taskId,
-    agentId: input.agentId,
-    details: input.details,
-    progress,
-    timestamp,
-    lastProgressAt: status === "progress" ? timestamp : previous?.lastProgressAt ?? timestamp,
-  };
-  await writeWatchdogHeartbeats(cwd, [record, ...records].slice(0, 500));
-  return record;
+  return withWatchdogHeartbeatLock(cwd, async () => {
+    const records = await loadWatchdogHeartbeats(cwd);
+    const previous = records.find((record) => record.scopeKind === scopeKind && record.scopeId === input.scopeId);
+    const previousProgressAt = previous?.lastProgressAt;
+    const lastProgressAt = status === "progress" && previousProgressAt && previousProgressAt > timestamp
+      ? previousProgressAt
+      : status === "progress" ? timestamp : previousProgressAt ?? timestamp;
+    const id = `${scopeKind}-${input.scopeId}-${now.getTime()}-${randomUUID()}`.replace(/[^a-zA-Z0-9._-]/g, "-");
+    const record: WatchdogHeartbeatRecord = {
+      id,
+      scopeKind,
+      scopeId: input.scopeId,
+      status,
+      action: input.action,
+      taskId: input.taskId,
+      agentId: input.agentId,
+      details: input.details,
+      progress,
+      timestamp,
+      lastProgressAt,
+    };
+    await writeWatchdogHeartbeats(cwd, [record, ...records].slice(0, 500));
+    return record;
+  });
 }
 
 function validateProgressEvidence(progress: WatchdogProgressEvidence | undefined): WatchdogProgressEvidence {
@@ -203,10 +211,22 @@ function validateProgressEvidence(progress: WatchdogProgressEvidence | undefined
 export async function loadWatchdogHeartbeats(cwd: string): Promise<WatchdogHeartbeatRecord[]> {
   try {
     const raw = await readFile(getWatchdogHeartbeatsPath(cwd), "utf8");
-    return (JSON.parse(raw) as WatchdogHeartbeatIndex).heartbeats ?? [];
+    return ((JSON.parse(raw) as WatchdogHeartbeatIndex).heartbeats ?? []).map((record) => {
+      if (record.status !== "progress" || hasValidProgressEvidence(record.progress)) return record;
+      return { ...record, status: "running", progress: undefined };
+    });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
+  }
+}
+
+function hasValidProgressEvidence(progress: WatchdogProgressEvidence | undefined): boolean {
+  try {
+    validateProgressEvidence(progress);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -559,7 +579,41 @@ function mergePolicyLimits(policies: ScopedBudgetPolicy[]): Partial<Record<Budge
 async function writeWatchdogHeartbeats(cwd: string, heartbeats: WatchdogHeartbeatRecord[]): Promise<void> {
   const path = getWatchdogHeartbeatsPath(cwd);
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify({ version: 1, heartbeats } satisfies WatchdogHeartbeatIndex, null, 2)}\n`, "utf8");
+  const temporaryPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporaryPath, `${JSON.stringify({ version: 1, heartbeats } satisfies WatchdogHeartbeatIndex, null, 2)}\n`, "utf8");
+    await rename(temporaryPath, path);
+  } finally {
+    await rm(temporaryPath, { force: true });
+  }
+}
+
+async function withWatchdogHeartbeatLock<T>(cwd: string, operation: () => Promise<T>): Promise<T> {
+  const lockPath = `${getWatchdogHeartbeatsPath(cwd)}.lock`;
+  await mkdir(dirname(lockPath), { recursive: true });
+  const deadline = Date.now() + 2_000;
+  while (true) {
+    try {
+      await mkdir(lockPath);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST" || Date.now() >= deadline) {
+        throw new Error(`Watchdog heartbeat publication lock is busy: ${lockPath}. Reconcile the owner before removing it.`, { cause: error });
+      }
+      await delay(10);
+    }
+  }
+  try {
+    return await operation();
+  } finally {
+    try {
+      await rmdir(lockPath);
+    } catch (error) {
+      process.emitWarning(`Watchdog heartbeat publication lock could not be released: ${lockPath}. Reconcile it before another heartbeat write. ${String(error)}`, {
+        code: "SCALER_WATCHDOG_LOCK_RELEASE_FAILED",
+      });
+    }
+  }
 }
 
 async function writeWatchdogEvents(cwd: string, events: WatchdogEventRecord[]): Promise<void> {

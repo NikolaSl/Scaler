@@ -509,7 +509,11 @@ only with one allowed progress kind, a bounded non-empty evidence-reference set
 and a concise summary; this structural record does not make the referenced claim
 true outside its owning acceptance gate. Focused watchdog and extension
 regressions cover repeated liveness, unsupported progress claims and valid
-evidenced progress. SC-15 remains Partial: aggregate tactic/review limits,
+evidenced progress. Independent review then required invocation-specific scopes,
+serialized atomic heartbeat publication, legacy evidence-free progress downgrade
+and a trusted automatic publisher; supervisor-accepted task validation now emits
+the first persisted `acceptance_check` progress record. SC-15 remains Partial:
+other automatic progress publishers, aggregate tactic/review limits,
 enclosing-run history across worker replacement/resumption and declared
 long-running-operation allowances are not implemented by this unit.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
