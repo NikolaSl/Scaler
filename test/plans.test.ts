@@ -987,6 +987,20 @@ test("acceptReplanProposal resumes an applying decision without losing audit or 
     assert.equal(retried.savedPlan?.planVersion, 2);
     assert.equal(retried.decision.id, "DECISION-APPLYING");
     assert.equal((await loadReplanDecisions(dir)).length, 1);
+
+    await amendPrdRequirement(dir, {
+      id: "REQ-AFFECTED",
+      expectedRevision: 2,
+      reason: "Invalidate the completed acceptance.",
+      changes: { statement: "Changed again" },
+      now: new Date("2026-01-01T00:03:00.000Z"),
+    });
+    const amendedRequirements = await loadPrdRequirements(dir);
+    await assert.rejects(() => acceptReplanProposal(dir, retried.state, amendedRequirements, {
+      currentPlan: retried.savedPlan,
+      proposedPlan,
+      now: new Date("2026-01-01T00:04:00.000Z"),
+    }), /accepted replan decision.*stale.*expected revision 2.*current revision 3/i);
   });
 });
 
