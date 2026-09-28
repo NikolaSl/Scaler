@@ -404,6 +404,8 @@ test("installed Pi composes the complete AC-05 envelope process under one declar
     assert.equal(runs.length, 2);
     for (const run of runs) {
       assert.ok(run.providerUsageReconciliation, "each strict dispatch must durably reconcile estimate and observation");
+      assert.equal(run.providerUsageReconciliation.status, "observed");
+      if (run.providerUsageReconciliation.status !== "observed") throw new Error("expected observed provider usage");
       assert.equal(run.providerUsageReconciliation.dispatchId.startsWith("plan164-"), true);
       assert.equal(run.providerUsageReconciliation.observedInputTokens, run.usage?.inputTokens);
       assert.equal(

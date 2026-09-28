@@ -372,11 +372,13 @@ export async function runTaskAgent(
           });
         }
         const usage = extractProviderUsage(stdoutEvents);
-        const providerAdmissions = dispatchId
+        const admissionEvidence = dispatchId
           ? extractProviderAdmissionRecords(stdoutEvents, dispatchId)
           : undefined;
+        const providerAdmissions = admissionEvidence?.records;
         const strictEvidenceError = request.providerAdmission !== undefined
-          && (!providerAdmissions?.some((record) => record.accepted)
+          && (admissionEvidence?.malformed === true
+            || !providerAdmissions?.some((record) => record.accepted)
             || providerAdmissions.some((record) => !record.accepted));
         if (strictEvidenceError) {
           stderr += "\nStrict provider admission evidence was missing, malformed, mismatched, or refused.";
@@ -428,21 +430,63 @@ export async function runTaskAgent(
   });
 }
 
-function extractProviderAdmissionRecords(events: unknown[], dispatchId: string): ProviderAdmissionRecord[] {
+const providerAdmissionCodes = new Set([
+  "accepted",
+  "invalid_policy",
+  "invalid_model",
+  "unsupported_api",
+  "invalid_payload",
+  "unsupported_content",
+  "invalid_output_limit",
+  "conflicting_output_limits",
+  "insufficient_output_reserve",
+  "envelope_exceeds_limit",
+]);
+
+function extractProviderAdmissionRecords(
+  events: unknown[],
+  dispatchId: string,
+): { records: ProviderAdmissionRecord[]; malformed: boolean } {
   const records: ProviderAdmissionRecord[] = [];
+  let malformed = false;
   for (const event of events) {
-    if (!isRecord(event)
-      || event.type !== "scaler_provider_admission"
-      || event.version !== 1
-      || event.dispatchId !== dispatchId
-      || typeof event.timestamp !== "string"
-      || typeof event.accepted !== "boolean"
-      || typeof event.code !== "string"
-      || event.estimator !== "serialized_utf8_bytes_upper_bound") continue;
-    if (event.accepted && (!Number.isSafeInteger(event.payloadBytes) || (event.payloadBytes as number) < 0)) continue;
+    if (!isRecord(event) || event.type !== "scaler_provider_admission") continue;
+    if (typeof event.dispatchId === "string" && event.dispatchId !== dispatchId) continue;
+    const timestamp = typeof event.timestamp === "string" ? event.timestamp : "";
+    const numericFields = [
+      "payloadBytes", "outputLimitTokens", "outputReserveTokens", "safetyMarginTokens",
+      "requiredEnvelopeTokensUpperBound", "taskAllowanceTokens", "modelContextWindowTokens",
+      "effectiveLimitTokens",
+    ];
+    const optionalNumbersValid = numericFields.every((field) => event[field] === undefined
+      || (Number.isSafeInteger(event[field]) && (event[field] as number) >= 0));
+    const optionalStringsValid = ["modelId", "provider", "api"].every((field) => event[field] === undefined
+      || (typeof event[field] === "string" && (event[field] as string).trim().length > 0));
+    const codeValid = typeof event.code === "string" && providerAdmissionCodes.has(event.code);
+    const shapeValid = event.version === 1
+      && event.dispatchId === dispatchId
+      && timestamp.length > 0
+      && !Number.isNaN(Date.parse(timestamp))
+      && new Date(timestamp).toISOString() === timestamp
+      && typeof event.accepted === "boolean"
+      && codeValid
+      && typeof event.message === "string"
+      && event.message.trim().length > 0
+      && event.estimator === "serialized_utf8_bytes_upper_bound"
+      && optionalNumbersValid
+      && optionalStringsValid
+      && (event.accepted ? event.code === "accepted" : event.code !== "accepted")
+      && (!event.accepted || (Number.isSafeInteger(event.payloadBytes) && (event.payloadBytes as number) >= 0));
+    if (!shapeValid) {
+      malformed = true;
+      continue;
+    }
     records.push(event as unknown as ProviderAdmissionRecord);
   }
-  return records.sort((left, right) => left.timestamp.localeCompare(right.timestamp));
+  return {
+    records: records.sort((left, right) => left.timestamp.localeCompare(right.timestamp)),
+    malformed,
+  };
 }
 
 function validateProviderAdmissionModelBinding(model: ProviderAdmissionModel): void {

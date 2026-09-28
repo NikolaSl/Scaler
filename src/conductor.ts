@@ -793,15 +793,25 @@ function reconcileProviderUsage(runResult: TaskAgentRunResult): ProviderUsageRec
     && Number.isSafeInteger(record.payloadBytes)
     && record.payloadBytes >= 0);
   const dispatchIds = Array.from(new Set(admitted.map((record) => record.dispatchId!)));
-  if (observedInputTokens === undefined || !Number.isSafeInteger(observedInputTokens) || observedInputTokens < 0
-    || admitted.length === 0 || dispatchIds.length !== 1) return undefined;
+  if (admitted.length === 0 || dispatchIds.length !== 1) return undefined;
   const estimatedInputTokensUpperBound = admitted.reduce((sum, record) => sum + record.payloadBytes!, 0);
   if (!Number.isSafeInteger(estimatedInputTokensUpperBound)) return undefined;
-  return {
+  const base = {
     dispatchId: dispatchIds[0]!,
-    estimator: "serialized_utf8_bytes_upper_bound",
+    estimator: "serialized_utf8_bytes_upper_bound" as const,
     admittedRequestCount: admitted.length,
     estimatedInputTokensUpperBound,
+  };
+  if (observedInputTokens === undefined || !Number.isSafeInteger(observedInputTokens) || observedInputTokens < 0) {
+    return {
+      ...base,
+      status: "unavailable",
+      limitation: "provider_input_usage_unavailable",
+    };
+  }
+  return {
+    ...base,
+    status: "observed",
     observedInputTokens,
     inputDeltaTokens: observedInputTokens - estimatedInputTokensUpperBound,
   };

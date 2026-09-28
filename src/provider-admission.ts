@@ -76,14 +76,21 @@ export interface ProviderAdmissionRecord extends ProviderAdmissionDecision {
   dispatchId?: string;
 }
 
-export interface ProviderUsageReconciliation {
+interface ProviderUsageReconciliationBase {
   dispatchId: string;
   estimator: "serialized_utf8_bytes_upper_bound";
   admittedRequestCount: number;
   estimatedInputTokensUpperBound: number;
+}
+
+export type ProviderUsageReconciliation = ProviderUsageReconciliationBase & ({
+  status: "observed";
   observedInputTokens: number;
   inputDeltaTokens: number;
-}
+} | {
+  status: "unavailable";
+  limitation: "provider_input_usage_unavailable";
+});
 
 export interface ProviderAdmissionInput {
   payload: unknown;
