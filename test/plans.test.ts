@@ -1009,7 +1009,7 @@ test("acceptReplanProposal resumes an applying decision without losing audit or 
 });
 
 test("acceptReplanProposal rejects stale applying coverage before durable plan or task changes", async () => {
-  for (const drift of ["coverage", "coverage_same_timestamp", "revision", "plan"] as const) {
+  for (const drift of ["coverage", "coverage_same_timestamp", "revision", "plan", "plan_metadata"] as const) {
     await withTempDir(async (dir) => {
       const now = new Date("2026-01-01T00:00:00.000Z");
       const state = createDefaultState(now);
@@ -1093,8 +1093,10 @@ test("acceptReplanProposal rejects stale applying coverage before durable plan o
             changes: { statement: "Changed again" },
             now: new Date("2026-01-01T00:00:30.000Z"),
           });
-        } else {
+        } else if (drift === "plan") {
           await saveExecutionPlan(dir, { ...currentPlan, title: "Concurrent replacement" }, now);
+        } else {
+          await saveExecutionPlan(dir, { ...currentPlan, source: "concurrent-replacement" }, now);
         }
       }
 
@@ -1107,6 +1109,7 @@ test("acceptReplanProposal rejects stale applying coverage before durable plan o
 
       assert.equal((await loadExecutionPlan(dir)).planVersion, 1);
       if (drift === "plan") assert.equal((await loadExecutionPlan(dir)).title, "Concurrent replacement");
+      if (drift === "plan_metadata") assert.equal((await loadExecutionPlan(dir)).source, "concurrent-replacement");
       assert.equal((await loadState(dir)).tasks[0]?.status, "validated");
       assert.deepEqual((await loadState(dir)).validatedTaskIds, ["T-AFFECTED"]);
       assert.equal((await loadPrdCoverage(dir)).entries[0]?.status, "needs_replan");

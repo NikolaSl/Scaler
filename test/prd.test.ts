@@ -8,8 +8,10 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import {
   advanceReplannedCoverage,
+  advanceReplannedCoverageAndRun,
   amendPrdRequirement,
   applyPrdRequirementUpserts,
   appendPrdChange,
@@ -387,6 +389,66 @@ test("advanceReplannedCoverage merges only matching affected revisions", async (
     coverage = await loadPrdCoverage(dir);
     assert.equal(coverage.entries.find((entry) => entry.requirementId === "REQ-A")?.status, "needs_replan");
     assert.equal(coverage.entries.find((entry) => entry.requirementId === "REQ-B")?.status, "needs_replan");
+  });
+});
+
+test("advanceReplannedCoverageAndRun holds the requirement fence through publication", async () => {
+  await withTempDir(async (dir) => {
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    await upsertPrdRequirement(dir, { id: "REQ-A", statement: "A1", status: "needs_replan", now });
+    await amendPrdRequirement(dir, {
+      id: "REQ-A",
+      expectedRevision: 1,
+      reason: "Authorize A2.",
+      changes: { statement: "A2" },
+      now,
+    });
+    const expectedCoverageEntry = (await loadPrdCoverage(dir)).entries[0]!;
+    let enterPublication!: () => void;
+    const publicationEntered = new Promise<void>((resolve) => { enterPublication = resolve; });
+    let releasePublication!: () => void;
+    const publicationRelease = new Promise<void>((resolve) => { releasePublication = resolve; });
+
+    const publication = advanceReplannedCoverageAndRun(dir, {
+      affectedRequirementRevisions: { "REQ-A": 2 },
+      expectedCoverageEntries: { "REQ-A": expectedCoverageEntry },
+      taskIdsByRequirement: { "REQ-A": ["T-A"] },
+      updatedAt: "2026-01-01T00:01:00.000Z",
+    }, async () => {
+      enterPublication();
+      await publicationRelease;
+      return "published";
+    });
+    await publicationEntered;
+    let amendmentFinished = false;
+    const amendment = amendPrdRequirement(dir, {
+      id: "REQ-A",
+      expectedRevision: 2,
+      reason: "Concurrent A3.",
+      changes: { statement: "A3" },
+      now: new Date("2026-01-01T00:02:00.000Z"),
+    }).then(() => { amendmentFinished = true; });
+    await delay(25);
+    assert.equal(amendmentFinished, false);
+
+    releasePublication();
+    assert.equal(await publication, "published");
+    await amendment;
+    assert.equal((await loadPrdRequirements(dir)).requirements[0]?.revision, 3);
+    assert.equal((await loadPrdCoverage(dir)).entries[0]?.status, "needs_replan");
+  });
+});
+
+test("savePrdCoverage rejects duplicate requirement rows", async () => {
+  await withTempDir(async (dir) => {
+    const updatedAt = "2026-01-01T00:00:00.000Z";
+    await assert.rejects(() => savePrdCoverage(dir, {
+      version: 1,
+      entries: [
+        { requirementId: "REQ-A", status: "needs_replan", updatedAt },
+        { requirementId: "REQ-A", status: "in_progress", updatedAt },
+      ],
+    }), /duplicate runtime PRD coverage requirement id: REQ-A/i);
   });
 });
 
