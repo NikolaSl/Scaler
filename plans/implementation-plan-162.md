@@ -40,3 +40,27 @@ generic direct operations, select or score a model, or claim quality, savings
 or a real local-host outcome. It validates the programmatic route-selection and
 execution process using deterministic fixtures; SC-09 and SC-25 retain their
 separate live-host obligations.
+
+## Outcome
+
+The coherent scenario now executes the exact direct adapter without a model
+call, admits and completes a current-agent request, and admits and completes an
+isolated request through the same runtime-owned result boundary. It repeats the
+model-backed routes with declared 32,768- and 131,072-token profiles, measures
+one selected tool from a 130-definition catalog, observes a changed schema
+fingerprint, and verifies that an unknown caller-result bound blocks before the
+runner.
+
+The test-first scenario exposed one proportionality defect: the prior 1 MiB
+serialized-result reserve made every isolated candidate infeasible at both
+acceptance windows. The runtime-owned cap is now 16 KiB. Oversized results still
+fail closed, and publication, durable-byte identity, ownership and concurrency
+checks use the same bound.
+
+The exact executable tree passes the TypeScript build, 1,187/1,187
+unit/component tests, 73/73 mock integration tests, 10/10
+conformance/autopilot tests, 89/89 focused route/tool/ledger checks and `git
+diff --check`. This establishes SC-08/AC-08 at the model-independent core
+routing boundary. The installed Pi command still refuses isolated execution
+without a trustworthy final caller-continuation envelope; that adapter-specific
+limitation remains SC-25, while configured local-only execution remains SC-09.

@@ -610,6 +610,19 @@ score a local model, wire the isolated continuation supplier, add generic
 direct/MCP adapters or complete the three-route production scenario; SC-08/AC-08
 remains Partial.
 
+PLAN-162 composes the three existing route boundaries in
+`test/integration/mock/three-route-process.test.ts`. The scenario executes one
+exact direct operation without a model call, completes current-agent and
+isolated requests under declared 32K and 128K profiles, measures one selected
+tool independently of a 130-definition catalog, changes the selected schema
+fingerprint, and refuses an unknown caller-result bound before dispatch. The
+test-first fixture exposed that the former 1 MiB result reserve could not fit
+either acceptance window; the runtime-owned structured result cap is now 16
+KiB and retains the existing byte, ownership and atomic-publication checks.
+This validates SC-08/AC-08's model-independent route FSM, not a configured
+local-model run or model quality. Installed Pi isolated execution continues to
+refuse without a trustworthy final continuation envelope under SC-25.
+
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx
 test/stage-artifact-outcome.test.ts test/stage-agents.test.ts
