@@ -373,7 +373,12 @@ export async function runTaskAgent(
         }
         const usage = extractProviderUsage(stdoutEvents);
         const admissionEvidence = dispatchId
-          ? extractProviderAdmissionRecords(stdoutEvents, dispatchId)
+          ? extractProviderAdmissionRecords(
+              stdoutEvents,
+              dispatchId,
+              request.providerAdmission,
+              request.providerAdmissionModel,
+            )
           : undefined;
         const providerAdmissions = admissionEvidence?.records;
         const strictEvidenceError = request.providerAdmission !== undefined
@@ -446,12 +451,17 @@ const providerAdmissionCodes = new Set([
 function extractProviderAdmissionRecords(
   events: unknown[],
   dispatchId: string,
+  expectedPolicy: ProviderAdmissionPolicy | undefined,
+  expectedModel: ProviderAdmissionModel | undefined,
 ): { records: ProviderAdmissionRecord[]; malformed: boolean } {
   const records: ProviderAdmissionRecord[] = [];
   let malformed = false;
   for (const event of events) {
     if (!isRecord(event) || event.type !== "scaler_provider_admission") continue;
-    if (typeof event.dispatchId === "string" && event.dispatchId !== dispatchId) continue;
+    if (event.dispatchId !== dispatchId) {
+      malformed = true;
+      continue;
+    }
     const timestamp = typeof event.timestamp === "string" ? event.timestamp : "";
     const numericFields = [
       "payloadBytes", "outputLimitTokens", "outputReserveTokens", "safetyMarginTokens",
@@ -476,7 +486,7 @@ function extractProviderAdmissionRecords(
       && optionalNumbersValid
       && optionalStringsValid
       && (event.accepted ? event.code === "accepted" : event.code !== "accepted")
-      && (!event.accepted || (Number.isSafeInteger(event.payloadBytes) && (event.payloadBytes as number) >= 0));
+      && (!event.accepted || acceptedProviderAdmissionMatches(event, expectedPolicy, expectedModel));
     if (!shapeValid) {
       malformed = true;
       continue;
@@ -487,6 +497,31 @@ function extractProviderAdmissionRecords(
     records: records.sort((left, right) => left.timestamp.localeCompare(right.timestamp)),
     malformed,
   };
+}
+
+function acceptedProviderAdmissionMatches(
+  event: Record<string, unknown>,
+  expectedPolicy: ProviderAdmissionPolicy | undefined,
+  expectedModel: ProviderAdmissionModel | undefined,
+): boolean {
+  if (!expectedPolicy || !expectedModel) return false;
+  const payloadBytes = event.payloadBytes;
+  const outputLimitTokens = event.outputLimitTokens;
+  if (!Number.isSafeInteger(payloadBytes) || (payloadBytes as number) < 0
+    || !Number.isSafeInteger(outputLimitTokens) || (outputLimitTokens as number) <= 0) return false;
+  const requiredEnvelopeTokensUpperBound = (payloadBytes as number)
+    + (outputLimitTokens as number)
+    + expectedPolicy.safetyMarginTokens;
+  if (!Number.isSafeInteger(requiredEnvelopeTokensUpperBound)) return false;
+  return event.outputReserveTokens === expectedPolicy.outputReserveTokens
+    && event.safetyMarginTokens === expectedPolicy.safetyMarginTokens
+    && event.requiredEnvelopeTokensUpperBound === requiredEnvelopeTokensUpperBound
+    && event.taskAllowanceTokens === expectedPolicy.requestTokenAllowance
+    && event.modelContextWindowTokens === expectedModel.contextWindow
+    && event.effectiveLimitTokens === Math.min(expectedPolicy.requestTokenAllowance, expectedModel.contextWindow as number)
+    && event.modelId === expectedModel.id
+    && event.provider === expectedModel.provider
+    && event.api === expectedModel.api;
 }
 
 function validateProviderAdmissionModelBinding(model: ProviderAdmissionModel): void {
