@@ -62,9 +62,9 @@ A final independent recovery review found that an `applying` retry could still
 erase a newer same-revision invalidation of the same coverage row, while a
 requirement revision mismatch was detected only after downstream durable
 effects. The journal now also captures each affected coverage row and the exact
-previous active-plan fingerprint. Under the PRD lock, acceptance first verifies
-that complete invalidation row or its own already-completed transition, then
-advances coverage before publishing the active plan, reopened state or task
-effects. A changed same-version plan, newer coverage row or requirement revision
-fails closed without those downstream mutations. The immutable pre-acceptance
-snapshot may already exist after a rejected recovery; it is not executable state.
+previous active-plan fingerprint. The PRD lock covers verification, coverage
+advance and all downstream active-plan, reopened-state, task, request and decision
+writes, so a competing material amendment begins after that transaction. A
+changed same-version plan, newer coverage row, duplicate coverage id or requirement
+revision fails closed. The immutable pre-acceptance snapshot may already exist
+after a rejected recovery; it is not executable state.
