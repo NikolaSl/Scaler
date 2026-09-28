@@ -223,6 +223,40 @@ test("memory dispatch resolves from memory candidates and unblocks a task", asyn
   });
 });
 
+test("memory dispatch blocks without candidates or on conflicting manifest scope", async () => {
+  await withTempDir(async (dir) => {
+    const state = createState();
+    await saveState(dir, state);
+    const absent = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need memory unavailable decision"]));
+    const noCandidate = await dispatchMissingContextRequest(dir, state, absent.created[0]?.id, { execute: true });
+    assert.equal(noCandidate.accepted, false);
+    assert.equal(noCandidate.request?.status, "blocked");
+    assert.match(noCandidate.message, /No memory candidates matched/);
+
+    const memory = await writeMemory(dir, {
+      title: "Scoped decision",
+      content: "Full memory body",
+      summary: "Bounded decision summary",
+      tags: ["scope"],
+    });
+    const manifest = await ensureTaskContextManifest(dir, state, "T-MISS");
+    await saveTaskContextManifest(dir, {
+      ...manifest,
+      items: manifest.items.map((item) => item.memoryId === memory.id
+        ? { ...item, scope: "full", exactness: "exact" }
+        : item),
+    });
+    const conflicting = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need memory scoped decision"]));
+    const refused = await dispatchMissingContextRequest(dir, state, conflicting.created[0]?.id, { execute: true });
+    assert.equal(refused.accepted, false);
+    assert.equal(refused.request?.status, "blocked");
+    assert.match(refused.message, /conflicts with the existing manifest/);
+    const unchanged = (await loadTaskContextManifest(dir, "T-MISS"))?.items.find((item) => item.memoryId === memory.id);
+    assert.equal(unchanged?.scope, "full");
+    assert.equal(unchanged?.exactness, "exact");
+  });
+});
+
 test("research dispatch creates a research request and refresh resolves from report", async () => {
   await withTempDir(async (dir) => {
     const state = createState();
