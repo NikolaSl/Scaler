@@ -75,3 +75,12 @@ paths. The host commands now pass an explicit decision, omitted authority is
 always `unknown`, and continuation compares the durable safeguards with the
 trusted execution record before adopting them. The full gate above covers the
 updated candidate; another fresh exact-head review remains mandatory.
+
+The next exact-head review found one remaining valid lifecycle gap: an allowed
+current-agent decision was cached across later provider requests. The installed
+host regression now admits the first request, changes the host-owned decision
+to denied for the same active request, and proves that the continuation aborts.
+The minimal fix keeps one mutable decision on the active host lifecycle and
+reads it immediately before every provider admission; it adds no permission
+service or approval workflow. The full gate remains green and a new independent
+exact-head review is still required before merge.

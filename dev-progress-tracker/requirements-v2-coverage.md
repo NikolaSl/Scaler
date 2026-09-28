@@ -90,7 +90,10 @@ safeguard checks. A fresh-context Terra/high review identified three valid
 authority, claim-time budget and durable-evidence gaps; test-first regressions
 and minimal fixes close them. Its follow-up identified and test-first closed
 two additional implicit-authority and valid-looking durable-evidence gaps.
-Final exact-head independent review remains the merge gate.
+The next review identified one valid cached-authority continuation gap; an
+installed-host allowed-to-denied regression and a live lifecycle decision close
+it without a permission subsystem. Final exact-head independent review remains
+the merge gate.
 
 Prior review ran the baseline TypeScript build successfully, 488/488 unit tests
 and 66/67 mock integration tests. The failed retention fixture uses fixed
