@@ -4,6 +4,7 @@
  */
 
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -473,6 +474,24 @@ test("advanceReplannedCoverageAndRun holds the requirement fence without affecte
     await publication;
     await amendment;
     assert.equal((await loadPrdRequirements(dir)).requirements[0]?.revision, 2);
+  });
+});
+
+test("advanceReplannedCoverageAndRun rejects stale full PRD basis without affected rows", async () => {
+  await withTempDir(async (dir) => {
+    await upsertPrdRequirement(dir, { id: "REQ-A", statement: "A1" });
+    const requirements = await loadPrdRequirements(dir);
+    const coverage = await loadPrdCoverage(dir);
+    await upsertPrdRequirement(dir, { id: "REQ-B", statement: "B1" });
+
+    await assert.rejects(() => advanceReplannedCoverageAndRun(dir, {
+      affectedRequirementRevisions: {},
+      expectedCoverageEntries: {},
+      taskIdsByRequirement: {},
+      updatedAt: "2026-01-01T00:01:00.000Z",
+      expectedRequirementsFingerprint: createHash("sha256").update(JSON.stringify(requirements)).digest("hex"),
+      expectedUnaffectedCoverageFingerprint: createHash("sha256").update(JSON.stringify(coverage.entries)).digest("hex"),
+    }, async () => undefined), /stale replan.*requirements changed/i);
   });
 });
 

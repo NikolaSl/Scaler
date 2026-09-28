@@ -731,6 +731,9 @@ test("acceptReplanProposal snapshots, saves proposed plan, applies tasks, resolv
     const state = createDefaultState(now);
     state.tasks = [{ id: "T-001", status: "validated", prdRefs: ["REQ-001"], updatedAt: state.createdAt }];
     state.validatedTaskIds = ["T-001"];
+    await upsertPrdRequirement(dir, { id: "REQ-001", statement: "One", now });
+    await upsertPrdRequirement(dir, { id: "REQ-002", statement: "Two", now });
+    const requirements = await loadPrdRequirements(dir);
     const currentPlan = await saveExecutionPlan(dir, {
       version: 1,
       planVersion: 1,
@@ -752,13 +755,10 @@ test("acceptReplanProposal snapshots, saves proposed plan, applies tasks, resolv
     }, now);
     await appendReplanRequest(dir, { id: "REPLAN-001", trigger: "manual", reason: "Need new task" }, now);
 
-    const result = await acceptReplanProposal(dir, state, {
-      version: 1,
-      requirements: [
-        { id: "REQ-001", statement: "One", createdAt: state.createdAt, updatedAt: state.createdAt },
-        { id: "REQ-002", statement: "Two", createdAt: state.createdAt, updatedAt: state.createdAt },
-      ],
-    }, { currentPlan, now: new Date("2026-01-01T00:00:01.000Z") });
+    const result = await acceptReplanProposal(dir, state, requirements, {
+      currentPlan,
+      now: new Date("2026-01-01T00:00:01.000Z"),
+    });
 
     assert.equal(result.accepted, true);
     assert.equal(result.savedPlan?.status, "active");
@@ -773,16 +773,22 @@ test("acceptReplanProposal snapshots, saves proposed plan, applies tasks, resolv
     const proposedPlan = await loadProposedExecutionPlan(dir);
     assert.ok(proposedPlan);
     const timestampOnlyRetry = await saveProposedExecutionPlan(dir, proposedPlan, new Date("2026-01-01T00:00:02.000Z"));
-    const retried = await acceptReplanProposal(dir, result.state, {
-      version: 1,
-      requirements: [
-        { id: "REQ-001", statement: "One", createdAt: state.createdAt, updatedAt: state.createdAt },
-        { id: "REQ-002", statement: "Two", createdAt: state.createdAt, updatedAt: state.createdAt },
-      ],
-    }, { currentPlan: result.savedPlan, proposedPlan: timestampOnlyRetry, now: new Date("2026-01-01T00:00:03.000Z") });
+    const retried = await acceptReplanProposal(dir, result.state, requirements, {
+      currentPlan: result.savedPlan,
+      proposedPlan: timestampOnlyRetry,
+      now: new Date("2026-01-01T00:00:03.000Z"),
+    });
     assert.equal(retried.savedPlan?.planVersion, 2);
     assert.equal(retried.decision.id, result.decision.id);
     assert.equal((await loadReplanDecisions(dir)).length, 1);
+
+    await upsertPrdRequirement(dir, { id: "REQ-003", statement: "Concurrent new requirement" });
+    const driftedRequirements = await loadPrdRequirements(dir);
+    await assert.rejects(() => acceptReplanProposal(dir, retried.state, driftedRequirements, {
+      currentPlan: retried.savedPlan,
+      proposedPlan: timestampOnlyRetry,
+      now: new Date("2026-01-01T00:00:04.000Z"),
+    }), /accepted replan decision.*stale.*PRD basis/i);
   });
 });
 
