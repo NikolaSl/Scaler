@@ -9,7 +9,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { runScalerAutomation as runScalerAutomationImpl } from "../src/autopilot.js";
-import { loadMissingContextRequests } from "../src/missing-context.js";
+import { dispatchMissingContextRequest, loadMissingContextRequests } from "../src/missing-context.js";
+import { recordResearchReport } from "../src/research.js";
 import { loadState, saveState, createDefaultState } from "../src/state.js";
 import { getValidationManifestForTask, saveValidationManifest, upsertValidationManifestCommand } from "../src/validation.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../src/subagents.js";
@@ -335,5 +336,64 @@ test("runScalerAutomation stops after one unresolved missing-context research re
     assert.equal(researchCalls, 1, "automation must not rerun incomplete research within the same call");
     assert.notEqual((await loadMissingContextRequests(dir))[0]?.status, "resolved");
     assert.equal((await loadState(dir)).tasks.find((task) => task.id === "T-AUTO")?.status, "blocked");
+  });
+});
+
+test("runScalerAutomation refreshes completed explicit research before attempting another run", async () => {
+  await withTempDir(async (dir) => {
+    const state = createState("planning");
+    await saveState(dir, state);
+    const question = "Determine the already researched local widget rule.";
+    let taskCalls = 0;
+    let researchCalls = 0;
+    const task = async (request: TaskAgentRequest): Promise<TaskAgentRunResult> => {
+      taskCalls += 1;
+      if (taskCalls === 1) {
+        return {
+          taskId: request.taskId,
+          exitCode: 0,
+          stdoutEvents: [{
+            type: "scaler_task_report", taskId: request.taskId, ...request.attempt,
+            status: "needs_data", summary: "Need a focused local fact.", changedFiles: [], blockers: [], missingData: [question],
+          }],
+          stderr: "", timedOut: false, aborted: false,
+        };
+      }
+      assert.match(request.prompt, /Explicit research already established the widget rule/);
+      return taskRunner(request);
+    };
+
+    await runScalerAutomation(dir, state, { maxSteps: 2, maxStageSteps: 5 }, { stage: stageRunner, task });
+    const [missing] = await loadMissingContextRequests(dir);
+    const dispatched = await dispatchMissingContextRequest(dir, await loadState(dir), missing!.id, { execute: true });
+    const researchRequestId = dispatched.request?.evidenceRefs?.find((reference) => reference.startsWith("RESEARCH-"));
+    assert.ok(researchRequestId);
+    await recordResearchReport(dir, {
+      id: "R-AUTO-EXPLICIT",
+      requestId: researchRequestId,
+      taskId: "T-AUTO",
+      question,
+      status: "complete",
+      sources: [{ id: "explicit-local", title: "Explicit local evidence", quality: "project", path: "docs/local-ledger.md" }],
+      conclusions: [{
+        summary: "Explicit research already established the widget rule.",
+        confidence: "high",
+        sourceRefs: ["explicit-local"],
+      }],
+      unresolvedUnknowns: [],
+    });
+
+    const result = await runScalerAutomation(dir, await loadState(dir), { maxSteps: 8 }, {
+      task,
+      research: async () => {
+        researchCalls += 1;
+        throw new Error("completed research must be refreshed instead of rerun");
+      },
+    });
+
+    assert.equal(result.completed, true, result.message);
+    assert.equal(taskCalls, 2);
+    assert.equal(researchCalls, 0);
+    assert.equal((await loadMissingContextRequests(dir))[0]?.status, "resolved");
   });
 });
