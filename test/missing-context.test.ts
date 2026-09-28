@@ -381,6 +381,36 @@ test("local research refresh refuses a symlink-backed source inside task scope",
   });
 });
 
+test("local research refresh refuses summary-only and mixed unbound cited sources", async () => {
+  for (const sources of [
+    [{ id: "claim", title: "model claim", quality: "project" as const, summary: "unbound assertion" }],
+    [
+      { id: "file", title: "file evidence", quality: "project" as const, path: "src/evidence.md" },
+      { id: "claim", title: "model claim", quality: "project" as const, summary: "unbound assertion" },
+    ],
+  ]) {
+    await withTempDir(async (dir) => {
+      await mkdir(join(dir, "src"), { recursive: true });
+      await writeFile(join(dir, "src", "evidence.md"), "bounded evidence\n");
+      const state = createState();
+      state.tasks[0]!.allowedPathPrefixes = ["src"];
+      await saveState(dir, state);
+      const created = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need local dependency version"]));
+      const dispatched = await dispatchMissingContextRequest(dir, state, created.created[0]?.id, { execute: true });
+      await recordResearchReport(dir, {
+        requestId: dispatched.request!.evidenceRefs![0], question: "Need local dependency version", status: "complete", taskId: "T-MISS",
+        sources,
+        conclusions: [{ summary: "Use the unbound value.", confidence: "high", sourceRefs: sources.map((source) => source.id) }],
+      });
+
+      const refreshed = await refreshAndUnblockMissingContext(dir, await loadState(dir));
+      assert.deepEqual(refreshed.unblockedTaskIds, []);
+      assert.equal((await loadMissingContextRequests(dir))[0]?.status, "blocked");
+      assert.equal((await loadTaskContextManifest(dir, "T-MISS"))?.items.some((item) => item.id.startsWith("missing-research-")), false);
+    });
+  }
+});
+
 test("local research refresh refuses a file-backed claim whose source changed after research", async () => {
   await withTempDir(async (dir) => {
     await mkdir(join(dir, "src"), { recursive: true });
@@ -439,6 +469,12 @@ test("local research source binding becomes unavailable when the file changes be
     const stale = resolved.find((item) => item.id === sourceItem?.id);
     assert.equal(stale?.available, false);
     assert.match(stale?.diagnostic ?? "", /fingerprint changed/);
+    const rechecked = await refreshAndUnblockMissingContext(dir, await loadState(dir));
+    assert.deepEqual(rechecked.unblockedTaskIds, []);
+    assert.equal(rechecked.state.tasks[0]?.status, "blocked");
+    assert.equal((await loadMissingContextRequests(dir))[0]?.status, "blocked");
+    const quarantined = await loadTaskContextManifest(dir, "T-MISS");
+    assert.equal(quarantined?.items.some((item) => item.id.startsWith("missing-research-")), false);
   });
 });
 
@@ -461,8 +497,9 @@ test("research refresh does not overwrite an existing required answer identity",
     });
     const refreshed = await refreshAndUnblockMissingContext(dir, await loadState(dir));
     assert.deepEqual(refreshed.unblockedTaskIds, []);
-    assert.equal((await loadMissingContextRequests(dir))[0]?.status, "in_progress");
-    assert.equal((await loadTaskContextManifest(dir, "T-MISS"))?.items.find((item) => item.id.startsWith("missing-research-"))?.content, "Conflicting earlier answer");
+    assert.equal(refreshed.state.tasks[0]?.status, "blocked");
+    assert.equal((await loadMissingContextRequests(dir))[0]?.status, "blocked");
+    assert.equal((await loadTaskContextManifest(dir, "T-MISS"))?.items.some((item) => item.id.startsWith("missing-research-")), false);
   });
 });
 

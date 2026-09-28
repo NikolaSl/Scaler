@@ -276,8 +276,13 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
   const resolvedRequestIds: string[] = [];
   const blockedRequestIds: string[] = [];
   let nextRequests = requests;
+  let nextState = state;
 
   const blockRequest = (request: MissingContextRequest, reason: string): void => {
+    const task = nextState.tasks.find((candidate) => candidate.id === request.taskId);
+    if (task && ["ready", "running", "validating", "debugging"].includes(task.status)) {
+      nextState = transitionTask(nextState, task.id, "blocked", { reason, now });
+    }
     if (request.status === "blocked" && request.resultSummary === reason) return;
     const blocked: MissingContextRequest = {
       ...request,
@@ -290,7 +295,8 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
   };
 
   for (const request of requests) {
-    if ((request.kind !== "local_research" && request.kind !== "internet_research") || request.status === "resolved" || request.status === "superseded") continue;
+    if ((request.kind !== "local_research" && request.kind !== "internet_research") || request.status === "superseded") continue;
+    if (request.status === "resolved" && request.kind !== "local_research") continue;
     const task = state.tasks.find((candidate) => candidate.id === request.taskId);
     if (!task) continue;
     const matchingReport = reports.find((report) => report.status === "complete"
@@ -308,7 +314,11 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
     const sourceItems: TaskContextManifestItem[] = [];
     if (request.kind === "local_research") {
       let invalidSource: string | undefined;
+      if (referencedSources.length === 0 || referencedSources.some((source) => !source.path)) {
+        invalidSource = "Local research conclusions require cited task-scoped file sources.";
+      }
       for (const [index, source] of fileSources.entries()) {
+        if (invalidSource) break;
         const path = normalizeTaskScopedContextPath(cwd, source.path!, task);
         if (!path) {
           invalidSource = `Research source is outside the task's direct workspace scope: ${source.path}`;
@@ -339,6 +349,7 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
         sourceItems.push(existingSource ?? item);
       }
       if (invalidSource) {
+        await removeResearchContextItems(cwd, manifest, request.id);
         blockRequest(request, invalidSource);
         continue;
       }
@@ -351,7 +362,13 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
     if (content.length > 16_384) continue;
     const id = `missing-research-${request.id}`;
     const existing = manifest.items.find((item) => item.id === id);
-    if (existing && (existing.source !== "inline" || existing.priority !== "required" || existing.content !== content)) continue;
+    if (existing && (existing.source !== "inline" || existing.priority !== "required" || existing.content !== content)) {
+      if (request.kind === "local_research") {
+        await removeResearchContextItems(cwd, manifest, request.id);
+        blockRequest(request, `Research answer conflicts with the existing manifest: ${id}`);
+      }
+      continue;
+    }
     const answer: TaskContextManifestItem = existing ?? {
       id, type: "knowledge", source: "inline", priority: "required", scope: "full", exactness: "exact",
       reason: `Attributed research answer for missing-context request ${request.id}; source bytes may still need a separate request.`,
@@ -363,11 +380,13 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
       const resolvedItems = await resolveTaskContextManifest(cwd, state, candidate);
       const unavailable = sourceItems.find((item) => !resolvedItems.find((resolved) => resolved.id === item.id)?.available);
       if (unavailable) {
+        await removeResearchContextItems(cwd, manifest, request.id);
         blockRequest(request, `Research source changed or is unavailable: ${unavailable.path}`);
         continue;
       }
     }
     if (additions.length > 0) await saveTaskContextManifest(cwd, candidate);
+    if (request.status === "resolved") continue;
     const resolved: MissingContextRequest = {
       ...request,
       status: "resolved",
@@ -388,7 +407,15 @@ export async function refreshMissingContextResolutions(cwd: string, state: Scale
       details: { resolvedRequestIds, blockedRequestIds },
     }));
   }
+  if (nextState !== state) await saveState(cwd, nextState);
   return { requests: sortMissingContextRequests(nextRequests), resolvedRequestIds };
+}
+
+async function removeResearchContextItems(cwd: string, manifest: Awaited<ReturnType<typeof ensureTaskContextManifest>>, requestId: string): Promise<void> {
+  const answerId = `missing-research-${requestId}`;
+  const sourcePrefix = `missing-research-source-${requestId}-`;
+  const items = manifest.items.filter((item) => item.id !== answerId && !item.id.startsWith(sourcePrefix));
+  if (items.length !== manifest.items.length) await saveTaskContextManifest(cwd, { ...manifest, items });
 }
 
 export async function unblockTasksWithResolvedMissingContext(cwd: string, state: ScalerState, now = new Date()): Promise<MissingContextUnblockResult> {
@@ -416,7 +443,7 @@ export async function unblockTasksWithResolvedMissingContext(cwd: string, state:
 
 export async function refreshAndUnblockMissingContext(cwd: string, state: ScalerState): Promise<MissingContextUnblockResult> {
   await refreshMissingContextResolutions(cwd, state);
-  return await unblockTasksWithResolvedMissingContext(cwd, state);
+  return await unblockTasksWithResolvedMissingContext(cwd, await loadState(cwd));
 }
 
 export function formatMissingContextRequests(requests: MissingContextRequest[], taskId?: string, limit = 20): string {
