@@ -473,9 +473,14 @@ async function assessWatchdogEvents(cwd: string, state: ScalerState, policy: Wat
 }
 
 function findStaleHeartbeat(records: WatchdogHeartbeatRecord[], timeoutMs: number, now: Date): WatchdogHeartbeatRecord | undefined {
-  const active = records
+  const latestByScope = new Map<string, WatchdogHeartbeatRecord>();
+  for (const record of [...records].sort((a, b) => b.timestamp.localeCompare(a.timestamp))) {
+    const key = `${record.scopeKind}\0${record.scopeId}`;
+    if (!latestByScope.has(key)) latestByScope.set(key, record);
+  }
+  const active = [...latestByScope.values()]
     .filter((record) => record.status === "running" || record.status === "progress")
-    .sort((a, b) => b.lastProgressAt.localeCompare(a.lastProgressAt))[0];
+    .sort((a, b) => a.lastProgressAt.localeCompare(b.lastProgressAt))[0];
   if (!active) return undefined;
   return now.getTime() - Date.parse(active.lastProgressAt) > timeoutMs ? active : undefined;
 }

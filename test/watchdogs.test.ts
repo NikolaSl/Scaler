@@ -144,6 +144,35 @@ test("only structured evidence can advance the progress clock", async () => {
   });
 });
 
+test("a terminal heartbeat closes the active scope", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    state.stage = "execution";
+    await saveState(dir, state);
+    await recordWatchdogHeartbeat(dir, {
+      scopeKind: "agent",
+      scopeId: "agent-done",
+      action: "started",
+      status: "running",
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    await recordWatchdogHeartbeat(dir, {
+      scopeKind: "agent",
+      scopeId: "agent-done",
+      action: "finished",
+      status: "completed",
+      now: new Date("2026-01-01T00:00:00.500Z"),
+    });
+
+    const result = await runWatchdogAssessment(dir, state, {
+      policy: { noProgressTimeoutMs: 1_000 },
+      now: new Date("2026-01-01T00:00:02.000Z"),
+    });
+
+    assert.equal(result.events.some((event) => event.kind === "no_progress"), false);
+  });
+});
+
 test("watchdog detects repeated replanning without validated progress", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
