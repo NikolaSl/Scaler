@@ -512,6 +512,37 @@ test("resolved local research is reblocked when its report becomes incomplete or
   }
 });
 
+test("resolved internet research is reblocked when its report becomes incomplete", async () => {
+  await withTempDir(async (dir) => {
+    const state = createState();
+    await saveState(dir, state);
+    const question = "Need official docs from the internet";
+    const created = await createMissingContextRequestsFromTaskReport(dir, state, report([question]));
+    const dispatched = await dispatchMissingContextRequest(dir, state, created.created[0]?.id, {
+      execute: true,
+      allowInternet: true,
+    });
+    const recorded = await recordResearchReport(dir, {
+      id: "RPT-INTERNET-DRIFT",
+      requestId: dispatched.request!.evidenceRefs![0],
+      question,
+      status: "complete",
+      taskId: "T-MISS",
+      sources: [{ id: "official", title: "Official docs", quality: "official", url: "https://example.invalid/docs" }],
+      conclusions: [{ summary: "The documented API is v1.", confidence: "high", sourceRefs: ["official"] }],
+    });
+    const resolved = await refreshAndUnblockMissingContext(dir, await loadState(dir));
+    assert.deepEqual(resolved.unblockedTaskIds, ["T-MISS"]);
+
+    await recordResearchReport(dir, { id: recorded.id, question: recorded.question, status: "partial" });
+    const rechecked = await refreshAndUnblockMissingContext(dir, await loadState(dir));
+    assert.deepEqual(rechecked.unblockedTaskIds, []);
+    assert.equal(rechecked.state.tasks[0]?.status, "blocked");
+    assert.equal((await loadMissingContextRequests(dir))[0]?.status, "blocked");
+    assert.equal((await loadTaskContextManifest(dir, "T-MISS"))?.items.some((item) => item.id.startsWith("missing-research-")), false);
+  });
+});
+
 test("research refresh does not overwrite an existing required answer identity", async () => {
   await withTempDir(async (dir) => {
     await writeFile(join(dir, "package.json"), "{\"version\":\"1.0.0\"}\n");
