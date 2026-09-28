@@ -563,6 +563,26 @@ console.log(JSON.stringify({type:"message_end",message:{role:"assistant",content
   });
 });
 
+test("runTaskAgent fails closed on matching malformed admission evidence", async () => {
+  for (const includeValidRecord of [false, true]) {
+    const script = `#!/usr/bin/env node
+const dispatchId = process.env.SCALER_PROVIDER_ADMISSION_DISPATCH_ID;
+${includeValidRecord ? 'console.log(JSON.stringify({type:"scaler_provider_admission",version:1,timestamp:new Date().toISOString(),dispatchId,accepted:true,code:"accepted",message:"valid",estimator:"serialized_utf8_bytes_upper_bound",payloadBytes:1}));' : ""}
+console.log(JSON.stringify({type:"scaler_provider_admission",version:1,timestamp:new Date().toISOString(),dispatchId,accepted:true,code:"not-a-code",message:"malformed",estimator:"serialized_utf8_bytes_upper_bound"}));
+`;
+    await withScript(script, async (command, dir) => {
+      const result = await runTaskAgent({
+        taskId: includeValidRecord ? "T-valid-plus-malformed-evidence" : "T-malformed-evidence",
+        prompt: "Inspect.", cwd: dir,
+        providerAdmission: strictProviderPolicy, providerAdmissionModel: strictProviderModel,
+      }, { command });
+      assert.equal(result.exitCode, 126);
+      assert.equal(taskAgentRunSucceeded(result), false);
+      assert.match(result.stderr, /admission evidence was missing, malformed, mismatched, or refused/i);
+    });
+  }
+});
+
 test("exact provider model identity requires strict admission and complete fields", () => {
   assert.throws(() => buildTaskAgentInvocation({
     taskId: "T-model-without-policy", prompt: "Inspect.",
