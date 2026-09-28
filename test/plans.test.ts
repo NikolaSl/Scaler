@@ -35,7 +35,7 @@ import {
   validateExecutionPlan,
   validateReplanRequest,
 } from "../src/plans.js";
-import { computePrdCoverageSummary, loadPrdChanges, loadPrdCoverage, loadPrdRequirements, savePrdCoverage, savePrdRequirements, upsertPrdRequirement } from "../src/prd.js";
+import { amendPrdRequirement, computePrdCoverageSummary, loadPrdChanges, loadPrdCoverage, loadPrdRequirements, savePrdCoverage, savePrdRequirements, upsertPrdRequirement } from "../src/prd.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { saveValidationManifest } from "../src/validation.js";
 
@@ -934,15 +934,32 @@ test("acceptReplanProposal resumes an applying decision without losing audit or 
       },
       createdAt: now.toISOString(),
     } as never);
-    const requirements = {
-      version: 1 as const,
-      requirements: [
-        { id: "REQ-AFFECTED", statement: "Changed", revision: 2, createdAt: state.createdAt, updatedAt: state.createdAt },
-        { id: "REQ-KEEP", statement: "Stable", revision: 1, createdAt: state.createdAt, updatedAt: state.createdAt },
-        { id: "REQ-CONCURRENT", statement: "Changed later", revision: 2, createdAt: state.createdAt, updatedAt: state.createdAt },
+    await upsertPrdRequirement(dir, { id: "REQ-AFFECTED", statement: "Original", now });
+    await upsertPrdRequirement(dir, { id: "REQ-KEEP", statement: "Stable", now });
+    await upsertPrdRequirement(dir, { id: "REQ-CONCURRENT", statement: "Original later", now });
+    await amendPrdRequirement(dir, {
+      id: "REQ-AFFECTED",
+      expectedRevision: 1,
+      reason: "Changed for recovery scenario.",
+      changes: { statement: "Changed" },
+      now,
+    });
+    await amendPrdRequirement(dir, {
+      id: "REQ-CONCURRENT",
+      expectedRevision: 1,
+      reason: "Changed concurrently.",
+      changes: { statement: "Changed later" },
+      now,
+    });
+    const requirements = await loadPrdRequirements(dir);
+    await savePrdCoverage(dir, {
+      version: 1,
+      entries: [
+        { requirementId: "REQ-AFFECTED", status: "in_progress", taskIds: ["T-AFFECTED"], updatedAt: now.toISOString() },
+        { requirementId: "REQ-KEEP", status: "validated", taskIds: ["T-KEEP"], updatedAt: now.toISOString() },
+        { requirementId: "REQ-CONCURRENT", status: "needs_replan", updatedAt: "2026-01-01T00:00:30.000Z" },
       ],
-    };
-    await savePrdRequirements(dir, requirements);
+    });
 
     const result = await acceptReplanProposal(dir, state, requirements, {
       currentPlan,
