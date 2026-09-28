@@ -955,7 +955,7 @@ node --test --import tsx test/integration/mock/unknown-source-context-flow.test.
 ```
 
 The focused result is 173/173 component tests and 4/4 integration scenarios.
-The complete candidate gate is build, 1,183/1,183 unit/component, 72/72 mock
+The complete candidate gate is build, 1,185/1,185 unit/component, 72/72 mock
 integration, 10/10 conformance/autopilot and `git diff --check`. Independent
 review found that file-backed sources inside pathless local-research answers
 needed task-scope and version validation. The follow-up regressions prove
@@ -963,7 +963,9 @@ out-of-scope and symlink refusal, report-time staleness refusal, immutable
 inherited fingerprints, refusal of summary-only/mixed unbound citations,
 revalidation and quarantine of resolved stale bindings, reblocking after a
 resolved report becomes incomplete, unresolved or oversized, required
-freshness binding before retry, and pre-read leaf/ancestor symlink refusal. The gate
+freshness binding before retry, exact agent-output binding to its selected
+research request/task/question, immutable report identity, and pre-read
+leaf/ancestor symlink refusal. The gate
 does not verify source truth, model quality,
 token savings or a configured local host; those remain separate evidence
 domains.

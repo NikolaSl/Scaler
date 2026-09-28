@@ -314,6 +314,8 @@ manifest bindings before retry. Every cited local source must be file-backed;
 summary-only or mixed unbound citations block. Resolved bindings and their
 reports are checked again on refresh, and stale, conflicting, incomplete,
 unresolved or oversized items are removed before the task is blocked again.
+Agent output must retain the selected research request, task and question
+identity; an existing report ID cannot be retargeted while inheriting evidence.
 File descriptors are matched to a fresh direct-path identity
 before reading, so leaf and ancestor symlink swaps do not expose source bytes.
 SC-07 is therefore verified at the model-independent

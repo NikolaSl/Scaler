@@ -60,12 +60,14 @@ freshness revalidation before retry. Every cited local source must be file-backe
 summary-only or mixed unbound claims block. Resolved bindings and their
 admissible reports are revalidated, and stale, conflicting, incomplete,
 unresolved or oversized context is removed before the task is blocked again.
+The selected research request, task and question identity is checked at agent
+ingestion and cannot be retargeted through an existing report ID.
 Out-of-scope, absent and changed sources block without injecting the claim.
 Leaf and ancestor symlinks are refused before source bytes are read by matching
 the opened descriptor to a fresh direct-path identity. Unrelated report updates
 cannot rebaseline inherited source fingerprints. Uncited metadata is omitted.
 
-The exact-tree candidate passes the TypeScript build, 1,183/1,183
+The exact-tree candidate passes the TypeScript build, 1,185/1,185
 unit/component tests, 72/72 mock integration tests, 10/10
 conformance/autopilot tests, 173/173 focused
 context/missing-context/conductor/automation tests, 4/4 focused unknown-source
