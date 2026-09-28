@@ -58,3 +58,7 @@ split into characters. The gate now tracks the latest unresolved blocker after
 each evidence clearance, and only arrays are accepted for persisted `evidence`
 and `logRefs` containers. A later cycle therefore re-closes admission, while
 malformed containers fail closed.
+
+The final exact-tree review also found that malformed persisted `newEvidence`
+could reach a string operation. Non-string explanations are now ignored, so
+legacy corruption cannot crash retry admission or grant clearance.

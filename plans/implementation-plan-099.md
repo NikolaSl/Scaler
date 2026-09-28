@@ -525,6 +525,7 @@ closure also requires a strictly later persisted attempt, serializes concurrent
 claims under a bounded non-stealing lock and rejects malformed legacy reference
 values and containers without crashing. The gate tracks the latest unresolved
 blocker, so evidence that cleared an earlier cycle cannot mask a later cycle.
+Malformed non-string `newEvidence` explanations also fail closed.
 SC-11
 remains Partial because semantic rewording detection, aggregate tactic limits
 across replacement/resumption and the full AC-11 bounded fixture remain open.
