@@ -1462,7 +1462,11 @@ export async function prepareCurrentAgentToolExecution(
   const request = await selectRunnableToolRequest(cwd, requestId);
   const refuse = async (reason: string): Promise<CurrentAgentToolPrepareResult> => {
     const message = `Current-agent tool dispatch rejected: ${reason}.`;
-    await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: message, details: { requestId } }));
+    try {
+      await appendLogEvent(cwd, createLogEvent(state, { eventType: "tool", summary: message, details: { requestId } }));
+    } catch {
+      // Preparation refusal must not depend on telemetry storage.
+    }
     return { accepted: false, message };
   };
   if (!request) return refuse(requestId ? `request ${requestId} is not prepared` : "no prepared tool request");
@@ -1521,12 +1525,16 @@ export async function admitCurrentAgentToolProviderCall(
   });
   const refuse = async (reason: string): Promise<CurrentAgentToolAdmissionResult> => {
     const message = `Current-agent provider dispatch rejected: ${reason}.`;
-    await appendLogEvent(cwd, createLogEvent(state, {
-      eventType: "tool",
-      summary: message,
-      taskId: preparation.request.taskId,
-      details: { executionId: preparation.executionId, assessment },
-    }));
+    try {
+      await appendLogEvent(cwd, createLogEvent(state, {
+        eventType: "tool",
+        summary: message,
+        taskId: preparation.request.taskId,
+        details: { executionId: preparation.executionId, assessment },
+      }));
+    } catch {
+      // Provider refusal must remain authoritative when telemetry is unavailable.
+    }
     return { accepted: false, message, assessment };
   };
   if (assessment.route !== "current-agent") return refuse(`live route recomputation recommended ${assessment.route} (${assessment.reasonCode})`);
@@ -1576,12 +1584,16 @@ export async function admitCurrentAgentToolProviderCall(
     routeAdmission,
   );
   if (!claim.accepted) return { accepted: false, message: claim.transaction.message, assessment, transaction: claim.transaction };
-  await appendLogEvent(cwd, createLogEvent(state, {
-    eventType: "tool",
-    summary: `Current-agent provider dispatch admitted: ${preparation.request.id}`,
-    taskId: preparation.request.taskId,
-    details: { transaction: claim.transaction, assessment },
-  }));
+  try {
+    await appendLogEvent(cwd, createLogEvent(state, {
+      eventType: "tool",
+      summary: `Current-agent provider dispatch admitted: ${preparation.request.id}`,
+      taskId: preparation.request.taskId,
+      details: { transaction: claim.transaction, assessment },
+    }));
+  } catch {
+    // A durable claim and provider admission do not depend on telemetry storage.
+  }
   return { accepted: true, message: claim.transaction.message, assessment, transaction: claim.transaction };
 }
 

@@ -256,16 +256,23 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   const closeCurrentAgentRun = async (cwd: string, state: Awaited<ReturnType<typeof ensureState>>, aborted: boolean): Promise<void> => {
     const run = currentAgentRuns.get(cwd);
     if (!run) return;
-    if (run.transaction) {
-      await finalizeCurrentAgentToolExecution(cwd, state, run.preparation, run.transaction, aborted || Boolean(run.blockedReason));
-    }
-    currentAgentRuns.delete(cwd);
-    const restoredTools = restoreParentToolFocus(cwd, pi, activeToolFocusSnapshots);
-    if (restoredTools) {
-      await logStateEvent(cwd, state, "SCALER current-agent tool focus restored", {
-        activeTools: restoredTools,
-        reason: run.blockedReason ?? (aborted ? "aborted" : "agent_end"),
-      });
+    try {
+      if (run.transaction) {
+        await finalizeCurrentAgentToolExecution(cwd, state, run.preparation, run.transaction, aborted || Boolean(run.blockedReason));
+      }
+    } finally {
+      currentAgentRuns.delete(cwd);
+      const restoredTools = restoreParentToolFocus(cwd, pi, activeToolFocusSnapshots);
+      if (restoredTools) {
+        try {
+          await logStateEvent(cwd, state, "SCALER current-agent tool focus restored", {
+            activeTools: restoredTools,
+            reason: run.blockedReason ?? (aborted ? "aborted" : "agent_end"),
+          });
+        } catch {
+          // Runtime tool restoration must not depend on telemetry storage.
+        }
+      }
     }
   };
 
@@ -406,16 +413,32 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         selectionApisAvailable: runtimeToolApisAvailable(pi),
       });
       const contextWindow = typeof ctx.model?.contextWindow === "number" ? ctx.model.contextWindow : Number.NaN;
-      const admission = await admitCurrentAgentToolProviderCall(ctx.cwd, state, currentAgentRun.preparation, {
-        payload: event.payload,
-        model: snapshotHostModel(ctx.model) ?? {},
-        policy: createStrictProviderAdmissionPolicy(contextWindow),
-        profile,
-      }, currentAgentRun.transaction);
+      let admission: Awaited<ReturnType<typeof admitCurrentAgentToolProviderCall>>;
+      try {
+        admission = await admitCurrentAgentToolProviderCall(ctx.cwd, state, currentAgentRun.preparation, {
+          payload: event.payload,
+          model: snapshotHostModel(ctx.model) ?? {},
+          policy: createStrictProviderAdmissionPolicy(contextWindow),
+          profile,
+        }, currentAgentRun.transaction);
+      } catch {
+        currentAgentRun.blockedReason = "current-agent admission storage failed";
+        ctx.abort();
+        try {
+          await closeCurrentAgentRun(ctx.cwd, state, true);
+        } catch {
+          // Refusal precedes cleanup; orphaned durable ownership requires explicit reconciliation.
+        }
+        return undefined;
+      }
       if (!admission.accepted || !admission.transaction) {
         currentAgentRun.blockedReason = admission.message;
         ctx.abort();
-        await closeCurrentAgentRun(ctx.cwd, state, true);
+        try {
+          await closeCurrentAgentRun(ctx.cwd, state, true);
+        } catch {
+          // Refusal precedes cleanup; orphaned durable ownership requires explicit reconciliation.
+        }
         return undefined;
       }
       currentAgentRun.transaction = admission.transaction;
