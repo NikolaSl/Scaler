@@ -220,6 +220,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   const blockedParentPromptCompositions = new Map<string, string>();
   const currentAgentRuns = new Map<string, {
     preparation: CurrentAgentToolPreparation;
+    authority: CurrentAgentToolPreparation["authority"];
     transaction?: ToolTransactionRecord;
     providerCalls: number;
     blockedReason?: string;
@@ -422,7 +423,11 @@ export default function scalerExtension(pi: ExtensionAPI): void {
       const contextWindow = typeof ctx.model?.contextWindow === "number" ? ctx.model.contextWindow : Number.NaN;
       let admission: Awaited<ReturnType<typeof admitCurrentAgentToolProviderCall>>;
       try {
-        admission = await admitCurrentAgentToolProviderCall(ctx.cwd, state, currentAgentRun.preparation, {
+        const livePreparation = {
+          ...currentAgentRun.preparation,
+          authority: currentAgentRun.authority,
+        };
+        admission = await admitCurrentAgentToolProviderCall(ctx.cwd, state, livePreparation, {
           payload: event.payload,
           model: snapshotHostModel(ctx.model) ?? {},
           policy: createStrictProviderAdmissionPolicy(contextWindow),
@@ -1701,6 +1706,20 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         notify("Current-agent tool dispatch rejected: child agents cannot start a parent-session route.", false);
         return;
       }
+      const existingRun = currentAgentRuns.get(ctx.cwd);
+      if (existingRun) {
+        if (!authorityValue) {
+          notify("Current-agent authority update rejected: an explicit authority decision is required.", false);
+          return;
+        }
+        if (requestId && requestId !== existingRun.preparation.request.id) {
+          notify(`Current-agent authority update rejected: active request is ${existingRun.preparation.request.id}.`, false);
+          return;
+        }
+        existingRun.authority = authorityValue;
+        notify(`Current-agent authority updated: ${authorityValue}.`, true);
+        return;
+      }
       if (!ctx.isIdle()) {
         notify("Current-agent tool dispatch rejected: the current agent is busy.", false);
         return;
@@ -1732,7 +1751,11 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         notify("Current-agent tool dispatch rejected: the host did not apply the exact selected tool set.", false);
         return;
       }
-      currentAgentRuns.set(ctx.cwd, { preparation: prepared.preparation, providerCalls: 0 });
+      currentAgentRuns.set(ctx.cwd, {
+        preparation: prepared.preparation,
+        authority: prepared.preparation.authority,
+        providerCalls: 0,
+      });
       try {
         pi.sendUserMessage(prepared.preparation.prompt);
       } catch {
