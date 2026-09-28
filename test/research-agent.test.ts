@@ -131,6 +131,33 @@ test("prepareResearchAgentInvocation builds isolated Pi invocation", async () =>
   assert.match(preparation.prompt, /local-scope request/);
 });
 
+test("research children receive inspection-only tools", () => {
+  const createdAt = "2026-01-01T00:00:00.000Z";
+  const request = {
+    id: "RESEARCH-READ-ONLY",
+    status: "open" as const,
+    question: "Which project evidence answers this task?",
+    reason: "Need bounded local inspection.",
+    scope: "local" as const,
+    createdAt,
+    updatedAt: createdAt,
+  };
+
+  assert.deepEqual(resolveResearchAgentGrantedTools(request, {
+    tools: [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "bash",
+      "edit",
+      "write",
+      "scaler_research_report",
+      "scaler_task_update",
+    ],
+  }), ["read", "grep", "find", "ls"]);
+});
+
 test("research internet grant policy withholds tools until explicitly allowed", () => {
   const createdAt = "2026-01-01T00:00:00.000Z";
   const request = {
