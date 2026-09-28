@@ -269,6 +269,39 @@ test("extension executes one prepared tool request through the admitted current 
     const transaction = (await loadToolTransactions(dir))[0];
     assert.equal(transaction?.routeAdmission?.route, "current-agent");
     assert.equal(transaction?.status, "completed");
+
+    const second = await prepareToolRequest(dir, state, {
+      taskId: "T-CURRENT",
+      toolName: "read",
+      request: "Read a second approved project file.",
+      expectedOutput: "One bounded fact.",
+      permissionRequirement: "operator approval",
+      allowedTools: ["read"],
+    });
+    assert.ok(second.record);
+    await command.handler(`${second.record.id} authority=allowed`, commandCtx);
+    const secondPayload = {
+      model: "local-32k",
+      messages: [{ role: "user", content: sentUserMessage }],
+      max_completion_tokens: 1024,
+    };
+    aborted = false;
+    await handlers.get("before_provider_request")?.({ type: "before_provider_request", payload: secondPayload }, {
+      ...commandCtx,
+      abort: () => { aborted = true; },
+    });
+    assert.equal(aborted, false);
+
+    await command.handler(`${second.record.id} authority=denied`, {
+      ...commandCtx,
+      isIdle: () => false,
+    });
+    await handlers.get("before_provider_request")?.({ type: "before_provider_request", payload: secondPayload }, {
+      ...commandCtx,
+      abort: () => { aborted = true; },
+    });
+    assert.equal(aborted, true);
+    assert.deepEqual(activeTools, ["bash", "read", "scaler_tool_request", "scaler_task_report", "scaler_tool_result"]);
   });
 });
 
