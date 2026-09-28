@@ -54,7 +54,7 @@ coverage write could erase an unrelated invalidation. The existing decision
 ledger now journals `applying` before core mutations and resumes that exact
 proposal idempotently; the PRD lock rereads and merges only the journaled
 requirements when their captured revisions still match. The candidate passes
-build, 1,222 unit/component, 73 mock integration, 10 conformance/autopilot and
+build, 1,223 unit/component, 73 mock integration, 10 conformance/autopilot and
 52 focused plan/PRD checks. SC-12 and SC-27 remain Partial for the deliberately
 excluded trigger, replacement/obsolescence and semantic impact boundaries.
 
