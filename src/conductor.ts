@@ -5,7 +5,7 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
+import { applyBudgetUsageUpdates, persistBudgetDecision, type BudgetDecision } from "./budgets.js";
 import { captureValidationContext } from "./attempt-evidence.js";
 import { verifyTaskDependenciesAccepted } from "./accepted-evidence.js";
 import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult, interruptTaskExecution, reconcileInterruptedTaskAttempt, TaskContextAdmissionError, TaskContractAdmissionError, TaskDependencyAdmissionError, verifyTaskExecutionContract } from "./attempt-execution.js";
@@ -491,6 +491,7 @@ export async function runConductorStep(
     let reportRepairInvocation: TaskAgentInvocation | undefined;
     let reportRepairRunResult: TaskAgentRunResult | undefined;
     let reportRepairRunRecord: TaskAgentRunRecord | undefined;
+    let reportRepairBudgetDecision: BudgetDecision | undefined;
 
     if (runResult && taskAgentRunSucceeded(runResult) && reportIngestion && !reportIngestion.accepted) {
       reportRepairPrompt = buildTaskReportRepairPrompt(runningTask, attemptBinding!, reportIngestion, runResult);
@@ -504,6 +505,7 @@ export async function runConductorStep(
         const repairBudgetResult = applyBudgetUsageUpdates(nextState, [
           { key: "spawnedAgents", amount: 1, mode: "increment" },
         ]);
+        reportRepairBudgetDecision = repairBudgetResult.decision;
         if (repairBudgetResult.decision.status === "hard_limit") {
           nextState = await persistBudgetDecision(cwd, nextState, repairBudgetResult.decision);
           reportIngestion = appendReportRepairDiagnostic(
@@ -535,10 +537,21 @@ export async function runConductorStep(
           try {
             reportRepairRunResult = await runner(repairRequest, { timeoutMs: options.timeoutMs });
           } catch (error) {
+            const message = `Report-only repair runner failed: ${error instanceof Error ? error.message : String(error)}`;
             reportIngestion = appendReportRepairDiagnostic(
               reportIngestion,
-              `Report-only repair runner failed: ${error instanceof Error ? error.message : String(error)}`,
+              message,
             );
+            reportRepairRunResult = {
+              taskId: runningTask.id,
+              exitCode: 1,
+              stdoutEvents: [],
+              stderr: message,
+              timedOut: false,
+              aborted: false,
+              stdoutBytes: 0,
+              stderrBytes: Buffer.byteLength(message, "utf8"),
+            };
           }
           if (reportRepairRunResult) {
             const repairChecked = await checkTaskExecutionResult(cwd, activeAttempt!, reportRepairRunResult.taskId);
@@ -553,7 +566,10 @@ export async function runConductorStep(
                 { reportStatus: "invalid", reportDiagnostics: repairChecked.diagnostics },
                 { attempt: attemptBinding },
               );
-              await appendLogEvent(cwd, createLogEvent(durableState, { eventType: "rejected_transition", summary: message, taskId: runningTask.id }));
+              await appendLogEvent(cwd, createLogEvent(durableState, {
+                eventType: "rejected_transition", summary: message, taskId: runningTask.id,
+                details: { reportRepairBudgetDecision },
+              }));
               return {
                 accepted: false, message, state: durableState, task: repairChecked.task,
                 runResult, prompt, invocation, contextSplit,
@@ -616,7 +632,7 @@ export async function runConductorStep(
         taskId: runningTask.id,
         details: {
           selection, invocation, runResult, taskAgentRunRecord: runRecord,
-          reportRepairInvocation, reportRepairRunResult, reportRepairRunRecord,
+          reportRepairInvocation, reportRepairRunResult, reportRepairRunRecord, reportRepairBudgetDecision,
           taskAgentReportIngestion: reportIngestion, validationHandoff: handoff?.record, contextSplit,
         },
       }),

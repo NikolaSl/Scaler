@@ -1243,11 +1243,10 @@ test("runConductorStep repairs one malformed report without replaying task tools
     assert.ok(runs.some((run) => run.reportStatus === "accepted"));
     assert.equal((await loadTaskAttempts(dir))[0]?.outcome, "succeeded");
     assert.equal(getBudgetState(result.state).usage.spawnedAgents, 2);
-    const agentEvent = (await readLogEvents(dir)).find((event) => event.eventType === "agent" && event.taskId === "T-001");
+    const agentEvent = (await readLogEvents(dir)).find((event) => event.summary === "Executed conductor task step: T-001");
     const details = agentEvent?.details as { reportRepairBudgetDecision?: { status?: string; key?: string; usage?: number } } | undefined;
     assert.deepEqual(details?.reportRepairBudgetDecision, {
       status: "ok", key: "spawnedAgents", usage: 2,
-      softLimit: undefined, hardLimit: undefined,
       reason: "spawnedAgents within budget (2).", recommendedAction: "continue",
     });
   });
