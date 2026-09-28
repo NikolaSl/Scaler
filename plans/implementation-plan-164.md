@@ -41,3 +41,22 @@ unit/component, mock-integration and conformance/autopilot gates plus
 `git diff --check`. Obtain a fresh-context GPT-5.6 Terra/high exact-head review
 before merging the coherent P3 phase PR.
 
+## Outcome
+
+The composed installed-host scenario passes without production changes. Under
+one declared 32,768-token model window, conductor externalizes an oversized
+exact source, dispatches only a fitting prompt with a resolvable memory path,
+and the real Pi host keeps both `read` and the selected test tool available. A
+9 KB result is externalized before the second provider request. The otherwise
+successful process omits its task report, so conductor performs exactly one
+tool-less repair with the same attempt identity; that repair is independently
+admitted by the installed host and reaches `validating` only after a valid
+structured report.
+
+The fixture extracts usage from the actual synthetic provider messages for
+both the original run and repair. Separate durable run records retain those
+observations, while the budget ledger equals the conservative pre-dispatch
+context estimate plus both observed provider totals. This satisfies AC-05 for
+the supported model-independent FSM and OpenAI Chat Completions adapter. It
+does not establish tokenizer-exact measurement, other provider adapters,
+configured local inference, model quality, savings or scale.

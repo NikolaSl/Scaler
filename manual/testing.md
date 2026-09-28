@@ -314,6 +314,18 @@ that the admitted continuation carries only the compact reference. Run
 `node --test --import tsx test/conductor.test.ts test/subagents.test.ts
 test/provider-admission.test.ts test/provider-admission-host.test.ts`.
 
+PLAN-164 composes the complete AC-05 process in the installed-host fixture. One
+32,768-token scenario starts with an oversized exact source, verifies the
+conductor dispatches a resolvable externalized reference instead of the source
+bytes, passes that prompt through the real Pi host, externalizes a 9 KB selected
+tool result before the continuation, and completes one tool-less same-attempt
+report repair. The fixture extracts provider-observed usage from both host runs;
+the durable child records retain those values and the budget ledger retains the
+conservative pre-dispatch estimate plus both observed totals. Run
+`node --test --import tsx test/provider-admission-host.test.ts`. This is
+deterministic synthetic transport evidence for the supported FSM and adapter,
+not tokenizer-exact measurement or evidence of local-model quality.
+
 PLAN-121 replaces file `scope: "section"` prefix truncation with explicit,
 exact Markdown-heading selection. The conductor fixture puts the required
 section after a 72k-character unrelated prefix and proves that the actual worker
