@@ -98,8 +98,11 @@ as `d555be8b2662548bd24356943d0b48e271d66bb9` after the full gate passed.
 PLAN-166 then reassesses the P3 boundary without adding code. Its planned
 model-independent units are complete. Remaining SC-04 direction assessment is
 P5 work after P4 intent/necessity contracts; configured local-only SC-09 evidence
-is P7 work; SC-25 retains the documented installed-host limitation. Those
-cross-phase statuses remain honest and do not justify speculative P3 machinery.
+is P7 work; SC-25 retains incomplete actual-host execution coverage across
+context accounting, usage, cancellation and supported child routes, with the
+continuation-envelope restriction as one concrete host limit. Those cross-phase
+statuses remain honest and do not justify speculative model-independent P3
+machinery.
 
 Prior review ran the baseline TypeScript build successfully, 488/488 unit tests
 and 66/67 mock integration tests. The failed retention fixture uses fixed

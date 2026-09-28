@@ -26,9 +26,12 @@ to improve a status label.
    are P7 acceptance work. No such environment is available here, so the row must
    remain Not assessed rather than be simulated.
 4. **SC-25:** the supported Pi adapter's implemented discovery, focus, request
-   admission and strict-child boundaries are evidenced. The remaining guaranteed
-   final post-extension continuation payload is an actual-host capability limit;
-   it cannot be truthfully closed by another local wrapper.
+   admission and strict-child boundaries are evidenced. Actual-host model
+   execution across context accounting, usage, cancellation and every supported
+   child route remains incomplete. The unavailable guaranteed final
+   post-extension continuation payload is one concrete installed-host restriction,
+   not the complete remaining acceptance gap; neither can be truthfully closed by
+   another local wrapper or mock.
 5. The unknown-path and on-demand information boundary requested for P3 was
    completed by PLAN-157 through PLAN-161, including declared 32,768- and
    131,072-token windows. No further context-access code gap is reproduced.

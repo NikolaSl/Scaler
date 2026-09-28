@@ -447,9 +447,11 @@ model-independent P3 units are complete: SC-05/07/08 are Verified at their
 documented boundaries. SC-04 remains Partial because risk-triggered direction
 assessment depends on P4 intent/necessity contracts and belongs to P5. SC-09
 configured local-only end-to-end evidence belongs to P7 and remains Not assessed.
-SC-25 retains the documented actual-host continuation limitation. These honest
-cross-phase statuses do not reopen a reproduced P3 adapter or context-access gap;
-the next implementation phase is P4.
+SC-25 retains its documented incomplete actual-host execution coverage across
+context accounting, usage, cancellation and supported child routes; the
+continuation-envelope restriction is one concrete host limit, not the whole gap.
+These honest cross-phase statuses do not reopen a reproduced model-independent
+P3 adapter or context-access gap; the next implementation phase is P4.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
 unresolved in-scope findings. The primary exact-head gate passed build,
