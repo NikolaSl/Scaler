@@ -336,13 +336,14 @@ export async function recordDebugReport(
 }
 
 export async function assessDebugRetryGate(cwd: string, taskId: string): Promise<DebugRetryGateResult> {
-  const taskAttempts = (await loadDebugAttempts(cwd))
-    .filter((attempt) => attempt.taskId === taskId && attempt.result !== "fixed");
+  const allTaskAttempts = (await loadDebugAttempts(cwd))
+    .filter((attempt) => attempt.taskId === taskId);
+  const taskAttempts = allTaskAttempts.filter((attempt) => attempt.result !== "fixed");
   if (taskAttempts.length === 0) {
     return { allowed: true, taskId, reason: `No debug retry gate for ${taskId}.`, replanRequestIds: [], acceptedReplanDecisionIds: [] };
   }
 
-  const { blockingAttemptIndex, clearedBlockingAttemptIndex } = findUnresolvedBlockingAttempt(taskAttempts);
+  const { blockingAttemptIndex, clearedBlockingAttemptIndex } = findUnresolvedBlockingAttempt(taskAttempts, allTaskAttempts);
   const blockingAttempt = taskAttempts[blockingAttemptIndex];
   if (!blockingAttempt) {
     const clearedBlockingAttempt = taskAttempts[clearedBlockingAttemptIndex];
@@ -524,7 +525,10 @@ function debugEvidenceReferences(
     .filter(Boolean))];
 }
 
-function findUnresolvedBlockingAttempt(attempts: DebugAttemptRecord[]): {
+function findUnresolvedBlockingAttempt(
+  attempts: DebugAttemptRecord[],
+  allTaskAttempts: DebugAttemptRecord[],
+): {
   blockingAttemptIndex: number;
   clearedBlockingAttemptIndex: number;
 } {
@@ -538,7 +542,12 @@ function findUnresolvedBlockingAttempt(attempts: DebugAttemptRecord[]): {
     if (blockingIndex >= 0) {
       if (explicitlyBlocking) {
         blockingIndex = index;
-      } else if (hasFreshReferencedEvidence(attempt, attempts.slice(0, index))) {
+      } else {
+        const allAttemptIndex = allTaskAttempts.indexOf(attempt);
+        const priorAttempts = allAttemptIndex >= 0
+          ? allTaskAttempts.slice(0, allAttemptIndex)
+          : allTaskAttempts;
+        if (!hasFreshReferencedEvidence(attempt, priorAttempts)) continue;
         clearedBlockingAttemptIndex = blockingIndex;
         blockingIndex = -1;
         segmentStart = index + 1;
