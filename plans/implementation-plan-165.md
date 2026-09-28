@@ -39,3 +39,20 @@ requirements and implementation context.
 This unit validates supervisor-owned FSM admission and evidence. It does not
 prove local-model quality or savings, configure a local provider, infer
 permissions from prose, or add automatic approval and budget-recovery policy.
+
+## Outcome
+
+The current-agent provider boundary now consumes an explicit host-owned
+`allowed | denied | unknown` decision and the shared direct/isolated/replay
+boundary plus current-agent admission re-evaluate the existing live budget
+ledger immediately before dispatch. Hard limits refuse before ownership or
+provider traffic; successful route records retain the allowed authority and
+full budget decision. No permission service, recovery policy or new router was
+added.
+
+The coherent three-route fixture repeats under declared 32,768- and
+131,072-token windows and now exercises denied authority and hard-budget
+refusal for direct, current-agent and isolated routes. Candidate validation:
+TypeScript build, 1,202/1,202 unit/component, 73/73 mock integration, 10/10
+conformance/autopilot and 4/4 focused route checks pass with
+`git diff --check`.

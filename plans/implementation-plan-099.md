@@ -410,6 +410,16 @@ the budget ledger separately retains ordinary provider usage accounting. SC-05/A
 is Verified for the supported model-independent FSM and OpenAI Chat Completions
 adapter. This does not claim exact tokenization, alternate-provider coverage,
 configured local inference, model quality, savings or scale.
+PLAN-165 closes the remaining SC-08 route safeguard boundary without adding a
+permission subsystem. Current-agent provider admission receives an explicit
+host-owned authority decision instead of assuming `allowed`; direct, current-
+agent, isolated and replay dispatches re-evaluate the existing live budget
+ledger, refuse hard limits before execution and retain accepted authority plus
+budget evidence in the route admission. The coherent 32K/128K scenario now
+covers denied authority and hard-budget refusal for all three routes. SC-08/AC-08
+is Verified at the model-independent FSM boundary. Configured local inference
+remains SC-09 and the installed Pi continuation-envelope limitation remains
+SC-25; no model-quality or savings claim is made.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
 unresolved in-scope findings. The primary exact-head gate passed build,
