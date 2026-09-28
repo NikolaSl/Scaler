@@ -270,9 +270,10 @@ not task acceptance.
 
 PLAN-156 exercises this composed process with deterministic research/worker
 responses, including incomplete research and an out-of-scope file choice. The
-scenario invokes research and missing-context dispatch explicitly; it does not
-establish autonomous research scheduling, real model discovery, or complete
-SC-07 coverage. It adds no new discovery subsystem.
+scenario invokes research and missing-context dispatch explicitly. PLAN-158
+subsequently connects the same transition sequence to normal automation. These
+tests establish the supervisor/FSM behavior, not source truth or model quality,
+and add no new discovery subsystem.
 
 PLAN-157 repeats the successful process with exact synthetic provider
 identity/policy propagation and task allowances of 32,768 and 131,072 tokens.
@@ -283,8 +284,7 @@ Every dispatched prompt passes normal task-prompt admission and carries the
 complete strict provider model/policy binding; final reports advance only to
 validation. The injected runners do not execute the installed host/provider
 hook. These deterministic runners establish the supervisor/FSM boundary, not
-real local-model execution, source truth, model quality or savings. SC-07
-remains Partial.
+real local-model execution, source truth, model quality or savings.
 
 PLAN-158 connects the same typed lifecycle to the main automation loop. A
 worker-proposed unknown local fact now causes one existing research request and
@@ -304,3 +304,11 @@ blocked. Candidates remain attributed context rather than established facts;
 the worker can request exact material or further investigation. This reuses the
 existing search, manifest and memory resolvers and does not add automatic
 semantic selection, ranking or approval.
+
+PLAN-161 reconciles this evidence with the intended contract. The local model
+chooses what information it needs and proposes a path, selector or pathless
+question; the supervisor validates scope, authority, source identity and the
+complete next envelope. SC-07 is therefore verified at the model-independent
+process boundary. Natural-language inference, recursive semantic traversal and
+automatic context choice by the supervisor are not required. A configured
+local-model run and its resource envelope remain separate SC-09/P7 evidence.
