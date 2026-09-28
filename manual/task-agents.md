@@ -48,7 +48,7 @@ Current conductor integration starts selected tasks, records run results, writes
 
 Task conductor and debug retry treat a zero-exit Pi terminal `error` or `aborted` event as a failed run even if a completed report appeared earlier in stdout. They do not ingest that report, mark the attempt successful, or begin validation. Run records and handoffs use the same terminal outcome predicate as the other strict child paths; exit code alone is insufficient. This is a process outcome check, not a claim about model quality.
 
-Before preparing or executing a selected task, the conductor checks the debug retry gate. A task is refused when unresolved repeated failure fingerprints, blocked debug attempts, or debug cycles exist without later `newEvidence` or an accepted/resolved debug replan request. Cycle detection includes longer hidden fingerprint chains such as A→B→C→A.
+Before preparing or executing a selected task, the conductor checks the debug retry gate. A task is refused when unresolved repeated failure fingerprints, blocked debug attempts, or debug cycles exist without later `newEvidence` carrying a fresh evidence reference or an accepted/resolved debug replan request. Cycle detection includes longer hidden fingerprint chains such as A→B→C→A.
 
 Focused debug-agent runs are available through `/scaler-debug-run [taskId] [execute]`. The debug agent receives the failure records, compact attempt stack, detected cycles, related research summary, and related replan requests. It must emit exactly one structured `scaler_debug_report` JSON event. Accepted debug reports either record the next evidence-backed approach, create research requests, or create a debug-blocked replan request when realistic debug/research paths are exhausted.
 

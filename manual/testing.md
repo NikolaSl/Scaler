@@ -83,7 +83,7 @@ The current mocked integration harness covers:
 - debug report creation of research requests;
 - focused research-agent report ingestion and request resolution;
 - explicit internet research grant behavior, with tools withheld until `internet tools=...` is supplied, web research transaction planning/execution through discovered browser/search/MCP schema records, and source metadata/freshness persisted from structured reports;
-- next-approach debug reports and retry-gate clearance by later `newEvidence`;
+- next-approach debug reports and retry-gate clearance by later `newEvidence` with a fresh evidence reference;
 - rejection of child free-form text for debug, stage, replan, and research agents;
 - stage conductor artifact ingestion and advancement from PRD through knowledge, planning, execution, and completion;
 - autonomous stage workflow coordination for PRD ledger ingestion, Stage II research request fanout/merge into `.scaler/knowledge/knowledge-report.md`, planner report synchronization, and execution-discovered coverage-gap replanning;
