@@ -55,5 +55,14 @@ ledger now journals `applying` before core mutations and resumes that exact
 proposal idempotently; the PRD lock rereads and merges only the journaled
 requirements when their captured revisions still match. The candidate passes
 build, 1,222 unit/component, 73 mock integration, 10 conformance/autopilot and
-51 focused plan/PRD checks. SC-12 and SC-27 remain Partial for the deliberately
+52 focused plan/PRD checks. SC-12 and SC-27 remain Partial for the deliberately
 excluded trigger, replacement/obsolescence and semantic impact boundaries.
+
+A final independent recovery review found that an `applying` retry could still
+erase a newer same-revision invalidation of the same coverage row, while a
+requirement revision mismatch was detected only after downstream durable
+effects. The journal now also captures each affected coverage row's update
+timestamp. Under the PRD lock, acceptance first verifies that exact invalidation
+or its own already-completed transition, then advances coverage before publishing
+the plan, reopened state or task effects. A newer coverage update or requirement
+revision fails closed without those downstream mutations.

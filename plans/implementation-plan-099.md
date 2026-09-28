@@ -498,7 +498,7 @@ plan version. Coverage is reread and affected-only merged under the PRD lock;
 captured requirement-revision drift fails closed without overwriting unrelated
 invalidations. The model cannot use this path to rewrite an exercised accepted
 contract. The candidate passes build, 1,222 unit/component, 73 mock integration,
-10 conformance/autopilot and 51 focused plan/PRD checks. SC-12/27 remain Partial because automatic replan triggering, task
+10 conformance/autopilot and 52 focused plan/PRD checks. SC-12/27 remain Partial because automatic replan triggering, task
 replacement/obsolescence and semantic affected-slice discovery are not provided.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
