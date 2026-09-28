@@ -97,7 +97,7 @@ test("recordDebugAttempt rejects duplicate failed attempt without new evidence",
   });
 });
 
-test("recordDebugAttempt accepts duplicate when new evidence is supplied", async () => {
+test("recordDebugAttempt rejects duplicate when new evidence has no fresh reference", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState();
     await recordDebugAttempt(dir, state, {
@@ -107,6 +107,45 @@ test("recordDebugAttempt accepts duplicate when new evidence is supplied", async
       actionSummary: "Edit tsconfig",
       result: "no_effect",
       failureFingerprint: "TS2307: cannot find module",
+      evidence: ["debug-log:initial"],
+    });
+    const proseOnly = await recordDebugAttempt(dir, state, {
+      taskId: "T-001",
+      failureId: "F-001",
+      hypothesis: "Config is wrong",
+      actionSummary: "Edit tsconfig",
+      result: "partial",
+      failureFingerprint: "TS2307: cannot find module",
+      newEvidence: "Trace resolution points at paths baseUrl.",
+    });
+    const reusedReference = await recordDebugAttempt(dir, state, {
+      taskId: "T-001",
+      failureId: "F-001",
+      hypothesis: "Config is wrong",
+      actionSummary: "Edit tsconfig",
+      result: "partial",
+      failureFingerprint: "TS2307: cannot find module",
+      evidence: [" debug-log:initial "],
+      newEvidence: "Re-read the same trace.",
+    });
+
+    assert.equal(proseOnly.accepted, false);
+    assert.equal(reusedReference.accepted, false);
+    assert.equal((await loadDebugAttempts(dir)).length, 1);
+  });
+});
+
+test("recordDebugAttempt accepts duplicate with explanation and fresh evidence reference", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await recordDebugAttempt(dir, state, {
+      taskId: "T-001",
+      failureId: "F-001",
+      hypothesis: "Config is wrong",
+      actionSummary: "Edit tsconfig",
+      result: "no_effect",
+      failureFingerprint: "TS2307: cannot find module",
+      evidence: ["debug-log:initial"],
     });
     const second = await recordDebugAttempt(dir, state, {
       taskId: "T-001",
@@ -115,6 +154,7 @@ test("recordDebugAttempt accepts duplicate when new evidence is supplied", async
       actionSummary: "Edit tsconfig",
       result: "partial",
       failureFingerprint: "TS2307: cannot find module",
+      evidence: ["debug-log:initial", "debug-log:resolution-trace"],
       newEvidence: "Trace resolution points at paths baseUrl.",
     });
 
@@ -220,7 +260,7 @@ test("assessDebugRetryGate blocks unresolved debug fingerprint cycles", async ()
   });
 });
 
-test("assessDebugRetryGate allows retries after new evidence", async () => {
+test("assessDebugRetryGate requires a fresh evidence reference to clear a cycle", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     await recordDebugAttempt(dir, state, {
@@ -231,6 +271,7 @@ test("assessDebugRetryGate allows retries after new evidence", async () => {
       result: "new_failure",
       failureFingerprint: "failure-a",
       resultingFailureFingerprint: "failure-b",
+      evidence: ["debug-log:initial"],
     }, new Date("2026-01-01T00:00:01.000Z"));
     await recordDebugAttempt(dir, state, {
       taskId: "T-001",
@@ -240,6 +281,7 @@ test("assessDebugRetryGate allows retries after new evidence", async () => {
       result: "new_failure",
       failureFingerprint: "failure-b",
       resultingFailureFingerprint: "failure-a",
+      evidence: ["debug-log:initial"],
     }, new Date("2026-01-01T00:00:02.000Z"));
     await recordDebugAttempt(dir, state, {
       taskId: "T-001",
@@ -249,13 +291,27 @@ test("assessDebugRetryGate allows retries after new evidence", async () => {
       result: "partial",
       failureFingerprint: "failure-a",
       resultingFailureFingerprint: "failure-a",
+      evidence: ["debug-log:initial"],
       newEvidence: "Stack trace points at generated config.",
     }, new Date("2026-01-01T00:00:03.000Z"));
 
-    const gate = await assessDebugRetryGate(dir, "T-001");
+    const blocked = await assessDebugRetryGate(dir, "T-001");
+    await recordDebugAttempt(dir, state, {
+      taskId: "T-001",
+      failureId: "F-001",
+      hypothesis: "Inspect generated config",
+      actionSummary: "Captured generated config trace",
+      result: "partial",
+      failureFingerprint: "failure-a",
+      resultingFailureFingerprint: "failure-a",
+      evidence: ["debug-log:initial", "debug-log:generated-config"],
+      newEvidence: "Generated config omits the mapped path.",
+    }, new Date("2026-01-01T00:00:04.000Z"));
+    const cleared = await assessDebugRetryGate(dir, "T-001");
 
-    assert.equal(gate.allowed, true);
-    assert.match(gate.reason, /cleared by new evidence/);
+    assert.equal(blocked.allowed, false);
+    assert.equal(cleared.allowed, true);
+    assert.match(cleared.reason, /cleared by new evidence/);
   });
 });
 
