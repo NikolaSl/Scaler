@@ -478,6 +478,40 @@ test("local research source binding becomes unavailable when the file changes be
   });
 });
 
+test("resolved local research is reblocked when its report becomes incomplete or oversized", async () => {
+  for (const revision of ["partial", "oversized"] as const) {
+    await withTempDir(async (dir) => {
+      await mkdir(join(dir, "src"), { recursive: true });
+      await writeFile(join(dir, "src", "dependency.json"), "{\"version\":\"1.0.0\"}\n");
+      const state = createState();
+      state.tasks[0]!.allowedPathPrefixes = ["src"];
+      await saveState(dir, state);
+      const created = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need local dependency version"]));
+      const dispatched = await dispatchMissingContextRequest(dir, state, created.created[0]?.id, { execute: true });
+      const recorded = await recordResearchReport(dir, {
+        id: `RPT-${revision}`, requestId: dispatched.request!.evidenceRefs![0], question: "Need local dependency version",
+        status: "complete", taskId: "T-MISS",
+        sources: [{ id: "dependency", title: "dependency metadata", quality: "project", path: "src/dependency.json" }],
+        conclusions: [{ summary: "Dependency version is 1.0.0.", confidence: "high", sourceRefs: ["dependency"] }],
+      });
+      const resolved = await refreshAndUnblockMissingContext(dir, await loadState(dir));
+      assert.deepEqual(resolved.unblockedTaskIds, ["T-MISS"]);
+
+      await recordResearchReport(dir, revision === "partial"
+        ? { id: recorded.id, question: recorded.question, status: "partial" }
+        : {
+            id: recorded.id, question: recorded.question, status: "complete",
+            conclusions: [{ summary: "x".repeat(17_000), confidence: "high", sourceRefs: ["dependency"] }],
+          });
+      const rechecked = await refreshAndUnblockMissingContext(dir, await loadState(dir));
+      assert.deepEqual(rechecked.unblockedTaskIds, []);
+      assert.equal(rechecked.state.tasks[0]?.status, "blocked");
+      assert.equal((await loadMissingContextRequests(dir))[0]?.status, "blocked");
+      assert.equal((await loadTaskContextManifest(dir, "T-MISS"))?.items.some((item) => item.id.startsWith("missing-research-")), false);
+    });
+  }
+});
+
 test("research refresh does not overwrite an existing required answer identity", async () => {
   await withTempDir(async (dir) => {
     await writeFile(join(dir, "package.json"), "{\"version\":\"1.0.0\"}\n");
