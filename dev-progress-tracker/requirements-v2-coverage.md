@@ -65,14 +65,16 @@ admitted only after scope/version/authority checks, including 32K/128K fixtures;
 unavailable and out-of-scope proposals block truthfully. A cited local-research
 claim must cite only task-scoped file sources. Each source is captured with a
 runtime-owned SHA-256 identity and revalidated through the required context
-manifest before retry; resolved bindings and reports are rechecked, and stale,
-incomplete, unresolved or oversized local or internet research context is
-removed before the task is blocked again. Agent ingestion is bound to the selected request, task and
-question, an existing report cannot be retargeted, and research children cannot
-write reports around that ingestion boundary. Direct descriptor/path identity is
+manifest before retry; resolved local bindings and both local and internet
+report envelopes are rechecked. Changed local bindings or incomplete,
+unresolved, conflicting or oversized report context is removed before the task
+is blocked again. Agent ingestion is bound to the selected request, task and
+question, an existing report cannot be retargeted, and research children have
+only read-only project inspection tools and cannot write around that ingestion
+boundary. Direct descriptor/path identity is
 verified before bytes are read, so leaf or ancestor symlink swaps fail closed.
 Configured local-host execution remains SC-09/P7 evidence and no source-truth,
-quality or savings claim is made. Candidate evidence: build, 1,186 unit,
+quality or savings claim is made. Candidate evidence: build, 1,187 unit,
 72 mock integration, 10 conformance and 174 focused component checks.
 
 Prior review ran the baseline TypeScript build successfully, 488/488 unit tests

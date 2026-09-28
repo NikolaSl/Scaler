@@ -57,20 +57,22 @@ remaining exception, which this unit closes minimally: cited file-backed local
 research sources are captured with a runtime-owned SHA-256 fingerprint, checked
 against task path scope and persisted as required reference bindings for
 freshness revalidation before retry. Every cited local source must be file-backed;
-summary-only or mixed unbound claims block. Resolved bindings and their
-admissible reports are revalidated, and stale, conflicting, incomplete,
-unresolved or oversized local or internet research context is removed before
-the task is blocked again.
+summary-only or mixed unbound claims block. Resolved local bindings and both
+local and internet report envelopes are revalidated. Changed local bindings or
+conflicting, incomplete, unresolved or oversized report context is removed
+before the task is blocked again; external source truth remains outside this
+process-boundary claim.
 The selected research request, task and question identity is checked at agent
 ingestion and cannot be retargeted through an existing report ID. Research
-children receive inspection tools but no direct report-ledger write tool, so
-their only admitted result is that bound structured final event.
+children receive only read-only project inspection tools and no direct ledger
+mutation tool, so their only admitted result is the bound structured final
+event ingested by the parent.
 Out-of-scope, absent and changed sources block without injecting the claim.
 Leaf and ancestor symlinks are refused before source bytes are read by matching
 the opened descriptor to a fresh direct-path identity. Unrelated report updates
 cannot rebaseline inherited source fingerprints. Uncited metadata is omitted.
 
-The exact-tree candidate passes the TypeScript build, 1,186/1,186
+The exact-tree candidate passes the TypeScript build, 1,187/1,187
 unit/component tests, 72/72 mock integration tests, 10/10
 conformance/autopilot tests, 174/174 focused
 context/missing-context/conductor/automation tests, 4/4 focused unknown-source

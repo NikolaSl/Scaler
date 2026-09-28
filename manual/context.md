@@ -311,14 +311,16 @@ question; the supervisor validates scope, authority, source identity and the
 complete next envelope. Cited local-research files are fingerprinted when the
 report is recorded, checked against task scope and revalidated through required
 manifest bindings before retry. Every cited local source must be file-backed;
-summary-only or mixed unbound citations block. Resolved bindings and their
-reports are checked again on refresh, and stale, conflicting, incomplete,
-unresolved or oversized local or internet research items are removed before
-the task is blocked again.
+summary-only or mixed unbound citations block. Resolved local bindings and both
+local and internet report envelopes are checked again on refresh. Changed
+local bindings or conflicting, incomplete, unresolved or oversized report
+items are removed before the task is blocked again; this does not independently
+verify external source truth.
 Agent output must retain the selected research request, task and question
 identity; an existing report ID cannot be retargeted while inheriting evidence.
-The child has inspection tools but not the report-ledger write tool, so only its
-bound structured final event can cross this admission boundary.
+The child has only read-only project inspection tools and no direct ledger
+mutation tool, so only its bound structured final event can cross this
+admission boundary through parent ingestion.
 File descriptors are matched to a fresh direct-path identity
 before reading, so leaf and ancestor symlink swaps do not expose source bytes.
 SC-07 is therefore verified at the model-independent
