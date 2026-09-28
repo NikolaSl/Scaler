@@ -53,8 +53,8 @@ added.
 The coherent three-route fixture repeats under declared 32,768- and
 131,072-token windows and now exercises denied authority and hard-budget
 refusal for direct, current-agent and isolated routes. Candidate validation:
-TypeScript build, 1,206/1,206 unit/component, 73/73 mock integration, 10/10
-conformance/autopilot and 9/9 focused safeguard checks pass with
+TypeScript build, 1,208/1,208 unit/component, 73/73 mock integration, 10/10
+conformance/autopilot and 13/13 focused safeguard checks pass with
 `git diff --check`.
 
 The first fresh-context GPT-5.6 Terra/high review found three valid gaps: the
@@ -66,3 +66,12 @@ three. The minimal fixes bind authority to the host preparation, re-read the
 budget inside the serialized execution claim, and reject incomplete or
 mismatched safeguard records. A new exact-head independent review is required
 after these fixes before the phase PR can merge.
+
+That review's exact-head follow-up found two further valid gaps: omitted
+authority still defaulted to `allowed` for requests without permission prose,
+and a structurally valid durable budget decision could replace the trusted
+in-memory evidence during continuation. The follow-up regressions fail on both
+paths. The host commands now pass an explicit decision, omitted authority is
+always `unknown`, and continuation compares the durable safeguards with the
+trusted execution record before adopting them. The full gate above covers the
+updated candidate; another fresh exact-head review remains mandatory.
