@@ -386,7 +386,16 @@ async function continueMissingContext(
 
   let dispatch: MissingContextDispatchResult | undefined;
   let currentRequest = request;
-  if (request.status === "open") {
+  if ((request.kind === "local_research" || request.kind === "internet_research")
+    && request.evidenceRefs?.some((reference) => reference.startsWith("RESEARCH-"))) {
+    await refreshAndUnblockMissingContext(cwd, await loadState(cwd));
+    const refreshed = (await loadMissingContextRequests(cwd)).find((candidate) => candidate.id === request.id);
+    if (refreshed?.status === "resolved") {
+      return { accepted: true, message: `Research resolved missing-context request ${request.id}.` };
+    }
+    currentRequest = refreshed ?? request;
+  }
+  if (currentRequest.status === "open") {
     dispatch = await dispatchMissingContextRequest(cwd, state, request.id, {
       execute: true,
       allowInternet: options.allowInternet,
