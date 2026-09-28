@@ -1094,15 +1094,20 @@ test("runConductorStep rejects a report from a different attempt", async () => {
   await withTempDir(async (dir) => {
     const state = stateWithTasks(["ready"]);
     state.stage = "execution";
-    const result = await runConductorStep(dir, state, { execute: true }, async (request) => ({
-      taskId: request.taskId,
-      exitCode: 0,
-      stdoutEvents: [{ ...completedTaskReport(request), attemptId: "stale-attempt" }],
-      stderr: "",
-      timedOut: false,
-      aborted: false,
-    }));
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
+      runnerCalls += 1;
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [{ ...completedTaskReport(request), attemptId: "stale-attempt" }],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
 
+    assert.equal(runnerCalls, 2, "one task call and one bounded report-only repair call");
     assert.equal(result.validationHandoff?.status, "task_agent_report_invalid");
     assert.match(result.validationHandoff?.diagnostics?.join(" ") ?? "", /stale-attempt.*does not match admitted/);
     assert.equal((await loadState(dir)).tasks[0]?.status, "blocked");
@@ -1167,19 +1172,24 @@ test("runConductorStep blocks validation when successful task-agent omits report
   await withTempDir(async (dir) => {
     const state = stateWithTasks(["ready"]);
     state.stage = "execution";
-    const result = await runConductorStep(dir, state, { execute: true }, async (request) => ({
-      taskId: request.taskId,
-      exitCode: 0,
-      stdoutEvents: [{ type: "done" }],
-      stderr: "",
-      timedOut: false,
-      aborted: false,
-    }));
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
+      runnerCalls += 1;
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [{ type: "done" }],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
 
     const persisted = await loadState(dir);
     const handoffs = await loadValidationHandoffs(dir);
     const runs = await loadTaskAgentRunRecords(dir);
 
+    assert.equal(runnerCalls, 2, "repair must not recurse after one missing repair report");
     assert.equal(result.validationHandoff?.status, "task_agent_report_missing");
     assert.equal(persisted.tasks[0]?.status, "blocked");
     assert.equal(handoffs[0]?.status, "task_agent_report_missing");
@@ -1264,19 +1274,24 @@ test("runConductorStep blocks validation when task-agent report is invalid", asy
   await withTempDir(async (dir) => {
     const state = stateWithTasks(["ready"]);
     state.stage = "execution";
-    const result = await runConductorStep(dir, state, { execute: true }, async (request) => ({
-      taskId: request.taskId,
-      exitCode: 0,
-      stdoutEvents: [{ type: "scaler_task_report", taskId: "WRONG", status: "completed", summary: "Wrong task" }],
-      stderr: "",
-      timedOut: false,
-      aborted: false,
-    }));
+    let runnerCalls = 0;
+    const result = await runConductorStep(dir, state, { execute: true }, async (request) => {
+      runnerCalls += 1;
+      return {
+        taskId: request.taskId,
+        exitCode: 0,
+        stdoutEvents: [{ type: "scaler_task_report", taskId: "WRONG", status: "completed", summary: "Wrong task" }],
+        stderr: "",
+        timedOut: false,
+        aborted: false,
+      };
+    });
 
     const persisted = await loadState(dir);
     const handoffs = await loadValidationHandoffs(dir);
     const runs = await loadTaskAgentRunRecords(dir);
 
+    assert.equal(runnerCalls, 2, "repair must not recurse after one invalid repair report");
     assert.equal(result.validationHandoff?.status, "task_agent_report_invalid");
     assert.equal(persisted.tasks[0]?.status, "blocked");
     assert.equal(handoffs[0]?.status, "task_agent_report_invalid");

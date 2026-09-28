@@ -117,6 +117,9 @@ export interface ConductorStepResult {
   prompt?: string;
   invocation?: TaskAgentInvocation;
   runResult?: TaskAgentRunResult;
+  reportRepairPrompt?: string;
+  reportRepairInvocation?: TaskAgentInvocation;
+  reportRepairRunResult?: TaskAgentRunResult;
   checkpointPath?: string;
   validationHandoff?: ValidationHandoffRecord;
   contextSplit?: ContextSplitRecord;
@@ -474,12 +477,121 @@ export async function runConductorStep(
         agentType: "task",
       })).state;
     }
-    const reportIngestion = runResult && taskAgentRunSucceeded(runResult)
+    let reportIngestion = runResult && taskAgentRunSucceeded(runResult)
       ? await ingestTaskAgentReportFromRun(cwd, nextState, runningTask.id, runResult, attemptBinding!)
       : undefined;
+    const runRecord = runResult ? await recordTaskAgentRun(
+      cwd,
+      runResult,
+      new Date(),
+      summarizeTaskAgentReportIngestion(reportIngestion, runResult),
+      { attempt: attemptBinding, outputFingerprint: reportIngestion?.report?.outputFingerprint },
+    ) : undefined;
+    let reportRepairPrompt: string | undefined;
+    let reportRepairInvocation: TaskAgentInvocation | undefined;
+    let reportRepairRunResult: TaskAgentRunResult | undefined;
+    let reportRepairRunRecord: TaskAgentRunRecord | undefined;
+
+    if (runResult && taskAgentRunSucceeded(runResult) && reportIngestion && !reportIngestion.accepted) {
+      reportRepairPrompt = buildTaskReportRepairPrompt(runningTask, attemptBinding!, reportIngestion, runResult);
+      const repairPromptAdmission = assessTaskPromptAdmission(reportRepairPrompt, promptTokenBudget);
+      if (!repairPromptAdmission.accepted) {
+        reportIngestion = appendReportRepairDiagnostic(
+          reportIngestion,
+          `Report repair prompt refused by allowance: ${repairPromptAdmission.message}`,
+        );
+      } else {
+        const repairBudgetResult = applyBudgetUsageUpdates(nextState, [
+          { key: "spawnedAgents", amount: 1, mode: "increment" },
+        ]);
+        if (repairBudgetResult.decision.status === "hard_limit") {
+          nextState = await persistBudgetDecision(cwd, nextState, repairBudgetResult.decision);
+          reportIngestion = appendReportRepairDiagnostic(
+            reportIngestion,
+            `Report repair refused by budget: ${repairBudgetResult.decision.reason}`,
+          );
+        } else {
+          nextState = await persistBudgetDecision(cwd, repairBudgetResult.state, repairBudgetResult.decision);
+          const repairRequest = {
+            taskId: runningTask.id,
+            prompt: reportRepairPrompt,
+            tools: [],
+            noTools: true,
+            model: options.model,
+            cwd,
+            providerAdmission: request.providerAdmission,
+            providerAdmissionModel: options.providerAdmissionModel,
+            attempt: attemptBinding,
+          };
+          reportRepairInvocation = buildTaskAgentInvocation(repairRequest);
+          await logAgentPromptAudit(cwd, nextState, {
+            agentType: "task-report-repair",
+            agentId: runningTask.id,
+            taskId: runningTask.id,
+            prompt: reportRepairPrompt,
+            inputRefs: [],
+            details: { tokenBudget: promptTokenBudget, attempt: attemptBinding, tools: [] },
+          });
+          try {
+            reportRepairRunResult = await runner(repairRequest, { timeoutMs: options.timeoutMs });
+          } catch (error) {
+            reportIngestion = appendReportRepairDiagnostic(
+              reportIngestion,
+              `Report-only repair runner failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+          if (reportRepairRunResult) {
+            const repairChecked = await checkTaskExecutionResult(cwd, activeAttempt!, reportRepairRunResult.taskId);
+            if (repairChecked.diagnostics.length > 0) {
+              const message = repairChecked.diagnostics.join(" ");
+              const durableState = await interruptTaskExecution(cwd, lock.lock.id, activeAttempt!.id, repairChecked.diagnostics);
+              attemptTerminal = true;
+              reportRepairRunRecord = await recordTaskAgentRun(
+                cwd,
+                reportRepairRunResult,
+                nextTaskRunRecordTime(runRecord),
+                { reportStatus: "invalid", reportDiagnostics: repairChecked.diagnostics },
+                { attempt: attemptBinding },
+              );
+              await appendLogEvent(cwd, createLogEvent(durableState, { eventType: "rejected_transition", summary: message, taskId: runningTask.id }));
+              return {
+                accepted: false, message, state: durableState, task: repairChecked.task,
+                runResult, prompt, invocation, contextSplit,
+                reportRepairPrompt, reportRepairInvocation, reportRepairRunResult,
+              };
+            }
+            nextState = repairChecked.state;
+            if (reportRepairRunResult.usage) {
+              nextState = (await recordProviderUsageBudget(cwd, nextState, reportRepairRunResult.usage, {
+                source: "task-agent-report-repair",
+                taskId: runningTask.id,
+                agentId: runningTask.id,
+                agentType: "task-report-repair",
+              })).state;
+            }
+            const repairIngestion = taskAgentRunSucceeded(reportRepairRunResult)
+              ? await ingestTaskAgentReportFromRun(cwd, nextState, runningTask.id, reportRepairRunResult, attemptBinding!)
+              : undefined;
+            reportRepairRunRecord = await recordTaskAgentRun(
+              cwd,
+              reportRepairRunResult,
+              nextTaskRunRecordTime(runRecord),
+              summarizeTaskAgentReportIngestion(repairIngestion, reportRepairRunResult),
+              { attempt: attemptBinding, outputFingerprint: repairIngestion?.report?.outputFingerprint },
+            );
+            reportIngestion = repairIngestion?.accepted
+              ? repairIngestion
+              : appendReportRepairDiagnostic(
+                reportIngestion,
+                `Report-only repair did not produce an accepted report: ${repairIngestion?.diagnostics.join(" ") ?? "repair process failed"}`,
+              );
+          }
+        }
+      }
+    }
+
     const outputFingerprint = reportIngestion?.report?.outputFingerprint;
     const validationContextFingerprint = runResult ? await captureValidationContext(cwd, nextState, runningTask.id) : undefined;
-    const runRecord = runResult ? await recordTaskAgentRun(cwd, runResult, new Date(), summarizeTaskAgentReportIngestion(reportIngestion, runResult), { attempt: attemptBinding, outputFingerprint }) : undefined;
     const handoff = runResult ? await applyTaskRunHandoff(cwd, nextState, runningTask.id, runResult, reportIngestion, new Date(), { attempt: attemptBinding, outputFingerprint }) : undefined;
     if (runResult && activeAttempt) {
       const acceptedReport = reportIngestion?.report;
@@ -502,7 +614,11 @@ export async function runConductorStep(
         eventType: "agent",
         summary: `${options.execute ? "Executed" : "Prepared"} conductor task step: ${runningTask.id}`,
         taskId: runningTask.id,
-        details: { selection, invocation, runResult, taskAgentRunRecord: runRecord, taskAgentReportIngestion: reportIngestion, validationHandoff: handoff?.record, contextSplit },
+        details: {
+          selection, invocation, runResult, taskAgentRunRecord: runRecord,
+          reportRepairInvocation, reportRepairRunResult, reportRepairRunRecord,
+          taskAgentReportIngestion: reportIngestion, validationHandoff: handoff?.record, contextSplit,
+        },
       }),
     );
     const checkpoint = await writeCheckpoint(cwd, finalState, `conductor-step-${runningTask.id}`, selection.reason);
@@ -515,6 +631,9 @@ export async function runConductorStep(
       prompt,
       invocation,
       runResult,
+      reportRepairPrompt,
+      reportRepairInvocation,
+      reportRepairRunResult,
       checkpointPath: checkpoint.path,
       validationHandoff: handoff?.record,
       contextSplit,
@@ -532,6 +651,63 @@ export async function runConductorStep(
 
 function exactModelSelector(binding: ProviderAdmissionModel | undefined, fallback: string | undefined): string | undefined {
   return binding ? `${binding.provider}/${binding.id}` : fallback;
+}
+
+function buildTaskReportRepairPrompt(
+  task: ScalerTaskState,
+  attempt: TaskAttemptBinding,
+  ingestion: TaskAgentReportIngestionResult,
+  runResult: TaskAgentRunResult,
+): string {
+  return [
+    "# SCALER Task Report Repair",
+    "Repair only the structured report for the same admitted attempt.",
+    "The implementation process already ran. Do not repeat, extend or claim new task effects.",
+    "No tools are available. Return exactly one JSON object and no prose or Markdown.",
+    `Task ID: ${task.id}`,
+    `Run ID: ${attempt.runId}`,
+    `Attempt ID: ${attempt.attemptId}`,
+    `Task fingerprint: ${attempt.taskFingerprint}`,
+    `Input fingerprint: ${attempt.inputFingerprint}`,
+    `Route fingerprint: ${attempt.routeFingerprint}`,
+    `Validation-policy fingerprint: ${attempt.validationPolicyFingerprint}`,
+    `Ingestion diagnostics: ${ingestion.diagnostics.join(" ")}`,
+    "Original successful run output (exact JSON):",
+    JSON.stringify(runResult.stdoutEvents),
+    "Required report object:",
+    JSON.stringify({
+      type: "scaler_task_report",
+      taskId: task.id,
+      runId: attempt.runId,
+      attemptId: attempt.attemptId,
+      taskFingerprint: attempt.taskFingerprint,
+      inputFingerprint: attempt.inputFingerprint,
+      routeFingerprint: attempt.routeFingerprint,
+      validationPolicyFingerprint: attempt.validationPolicyFingerprint,
+      status: "completed|needs_data|blocked|failed|needs_replan",
+      summary: "...",
+      changedFiles: ["path"],
+      memoryRefs: [],
+      validations: [{ command: "npm test", status: "passed|failed|skipped", summary: "..." }],
+      validationRefs: [],
+      evidenceRefs: [],
+      blockers: [],
+      missingData: [],
+      recommendedNextAction: "validate",
+    }),
+  ].join("\n");
+}
+
+function appendReportRepairDiagnostic(
+  ingestion: TaskAgentReportIngestionResult,
+  diagnostic: string,
+): TaskAgentReportIngestionResult {
+  return { ...ingestion, diagnostics: [...ingestion.diagnostics, diagnostic] };
+}
+
+function nextTaskRunRecordTime(previous: TaskAgentRunRecord | undefined): Date {
+  const minimum = previous ? Date.parse(previous.createdAt) + 1 : 0;
+  return new Date(Math.max(Date.now(), minimum));
 }
 
 export function formatTaskAgentRunList(records: TaskAgentRunRecord[], taskId?: string, limit = 10): string {
