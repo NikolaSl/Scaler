@@ -618,6 +618,64 @@ test("current-agent continuation and finalization reject incomplete safeguard ev
   });
 });
 
+test("current-agent continuation rejects valid-looking forged budget evidence", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const request = await prepareToolRequest(dir, state, {
+      toolName: "read",
+      request: "Read one approved file.",
+      allowedTools: ["read"],
+    });
+    assert.ok(request.record);
+    const prepared = await prepareCurrentAgentToolExecution(
+      dir,
+      state,
+      request.record.id,
+      ["read", "scaler_tool_result"],
+      "allowed",
+    );
+    assert.ok(prepared.preparation);
+    const active = prepared.preparation.activeToolNames;
+    const profile = buildRuntimeToolEnvelopeProfile(active.map((name) => ({
+      name,
+      description: name,
+      parameters: { type: "object" },
+    })), active, { requestedToolNames: active, selectionApisAvailable: true });
+    const model = { api: "openai-completions", provider: "local", id: "local-32k", contextWindow: 32_000 };
+    const evidence = {
+      payload: {
+        model: model.id,
+        messages: [{ role: "user", content: prepared.preparation.prompt }],
+        max_completion_tokens: 1_024,
+      },
+      model,
+      policy: { requestTokenAllowance: 32_000, outputReserveTokens: 1_024, safetyMarginTokens: 1_024 },
+      profile,
+    };
+    const admission = await admitCurrentAgentToolProviderCall(dir, state, prepared.preparation, evidence);
+    assert.ok(admission.transaction?.routeAdmission);
+    const originalDecision = structuredClone(admission.transaction.routeAdmission.budgetDecision);
+    const transactions = await loadToolTransactions(dir);
+    transactions[0]!.routeAdmission!.budgetDecision = {
+      ...originalDecision,
+      usage: originalDecision.usage + 1,
+      reason: "forged but structurally valid budget evidence",
+    };
+    await writeFile(getToolTransactionsPath(dir), `${JSON.stringify({ version: 1, transactions }, null, 2)}\n`, "utf8");
+
+    const continuation = await admitCurrentAgentToolProviderCall(
+      dir,
+      state,
+      prepared.preparation,
+      evidence,
+      admission.transaction,
+    );
+
+    assert.equal(continuation.accepted, false);
+    assert.match(continuation.message, /identity changed|safeguard/i);
+  });
+});
+
 test("current-agent provider dispatch refuses explicit denied authority before claim", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
@@ -682,13 +740,12 @@ test("current-agent provider dispatch refuses explicit denied authority before c
   });
 });
 
-test("current-agent preparation does not infer required permission from request text", async () => {
+test("current-agent preparation does not infer omitted authority", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     const request = await prepareToolRequest(dir, state, {
       toolName: "read",
-      request: "Read one permission-bound file.",
-      permissionRequirement: "operator approval",
+      request: "Read one file.",
       allowedTools: ["read"],
     });
     assert.ok(request.record);
@@ -702,6 +759,30 @@ test("current-agent preparation does not infer required permission from request 
 
     assert.ok(prepared.preparation);
     assert.equal((prepared.preparation as typeof prepared.preparation & { authority?: string }).authority, "unknown");
+  });
+});
+
+test("builtin direct dispatch does not infer omitted authority", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const prepared = await prepareToolRequest(dir, state, {
+      toolName: "scaler_tool_catalog",
+      request: "Return the exact compact catalog entry for read.",
+      directOperation: {
+        adapterId: "builtin:tool-catalog-entry-v1",
+        arguments: { toolName: "read" },
+      },
+    });
+    assert.ok(prepared.record);
+
+    const result = await runToolRequestAgentRaw(dir, state, {
+      requestId: prepared.record.id,
+      execute: true,
+    });
+
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /authority-unknown/i);
+    assert.equal((await loadToolRequests(dir))[0]?.activeExecutionId, undefined);
   });
 });
 

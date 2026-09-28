@@ -412,6 +412,11 @@ test("parseToolRunArgs parses optional request and execute flag", () => {
   assert.deepEqual(parseToolRunArgs("REQ-1 execute"), { requestId: "REQ-1", execute: true });
   assert.deepEqual(parseToolRunArgs("execute"), { requestId: undefined, execute: true });
   assert.deepEqual(parseToolRunArgs(" "), { requestId: undefined, execute: false });
+  assert.deepEqual(parseToolRunArgs("REQ-2 execute authority=denied"), {
+    requestId: "REQ-2",
+    execute: true,
+    authority: "denied",
+  });
 });
 
 test("parseToolReplayArgs parses optional transaction, execute flag, and approval id", () => {
