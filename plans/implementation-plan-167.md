@@ -36,3 +36,20 @@ Baseline: merged PLAN-166 / PR #33, exact tree
   than claiming full P4 completion.
 
 This unit makes no model-quality, semantic-necessity or scale claim.
+
+## Implemented evidence
+
+The shared execution-plan validator now collects the complete task-ID set before
+checking references, preserving valid forward dependencies while rejecting absent
+IDs. A deterministic depth-first traversal rejects self-dependencies and longer
+cycles. Because planning reports, current/proposed plan load/save, task application
+and replan acceptance already use this validator, no second graph representation or
+publication path was added.
+
+The focused plan suite passes 25/25 checks, including no-partial-publication for an
+unknown dependency. The exact candidate also passes the TypeScript build, 1,210
+unit/component tests, 73 mock integration tests, 10 conformance/autopilot checks and
+`git diff --check`. This closes only AC-03's structural missing-reference and cycle
+examples. SC-03 remains Partial: semantic task necessity, omitted requested scope,
+progressive milestone admission and unnecessary design-induced prerequisites remain
+outside PLAN-167.
