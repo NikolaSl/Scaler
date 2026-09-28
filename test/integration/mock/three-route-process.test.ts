@@ -194,6 +194,7 @@ test("three-route milestone stays bounded across 32K and 128K windows", async ()
     const directResult = await runToolRequestAgent(dir, state, {
       requestId: direct.record.id,
       execute: true,
+      authority: "allowed",
     }, async (request) => {
       directModelCalls += 1;
       return {
@@ -244,6 +245,7 @@ test("three-route milestone stays bounded across 32K and 128K windows", async ()
         state,
         current.record.id,
         activeToolNames,
+        "allowed",
       );
       assert.ok(preparedCurrent.preparation);
       const model = {

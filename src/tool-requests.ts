@@ -1409,7 +1409,7 @@ export async function runToolRequestAgent(
     ?? (request.directOperation
       ? (basis: Readonly<ToolDispatchRouteBasis>) => createBuiltinDirectRouteSnapshot(
           basis,
-          options.authority ?? (request.permissionRequirement ? "unknown" : "allowed"),
+          options.authority ?? "unknown",
         )
       : undefined);
   const admission = await prepareToolDispatchAdmission(
@@ -1504,7 +1504,7 @@ export async function prepareCurrentAgentToolExecution(
   const unavailable = activeToolNames.filter((name) => !available.has(name));
   if (unavailable.length > 0) return refuse(`requested tools are unavailable: ${unavailable.join(", ")}`);
   const executionId = randomUUID();
-  const resolvedAuthority = authority ?? (request.permissionRequirement ? "unknown" : "allowed");
+  const resolvedAuthority = authority ?? "unknown";
   const prompt = buildCurrentAgentToolPrompt(request, await loadToolSchemaRecords(cwd));
   const invocation: TaskAgentInvocation = { command: "<current-agent>", args: ["--tool-request", request.id], cwd };
   return {
@@ -1599,6 +1599,7 @@ export async function admitCurrentAgentToolProviderCall(
       && currentTransaction?.status === "prepared"
       && currentTransaction.routeAdmission?.route === "current-agent"
       && validToolDispatchSafeguards(currentTransaction.routeAdmission)
+      && sameToolDispatchSafeguards(currentTransaction.routeAdmission, existingTransaction.routeAdmission)
       && currentTransaction.routeAdmission.authority === preparation.authority
       && currentTransaction.routeAdmission.modelId === modelId
       && currentTransaction.routeAdmission.modelApi === modelApi
@@ -2633,6 +2634,16 @@ function validToolDispatchSafeguards(admission: ToolDispatchAdmissionRecord | un
     return false;
   }
   return true;
+}
+
+function sameToolDispatchSafeguards(
+  left: ToolDispatchAdmissionRecord | undefined,
+  right: ToolDispatchAdmissionRecord | undefined,
+): boolean {
+  return validToolDispatchSafeguards(left)
+    && validToolDispatchSafeguards(right)
+    && left!.authority === right!.authority
+    && JSON.stringify(left!.budgetDecision) === JSON.stringify(right!.budgetDecision);
 }
 
 function buildToolRouteRequestBasis(request: ToolRequestRecord, executionId?: string): ToolRouteAssessmentInput["request"] {

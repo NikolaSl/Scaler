@@ -491,6 +491,7 @@ test("current-agent tool dispatch binds exact provider identity and one structur
       state,
       request.record.id,
       ["read", "scaler_tool_result"],
+      "allowed",
     );
     assert.ok(prepared.preparation);
     assert.deepEqual(prepared.preparation.activeToolNames, ["read", "scaler_tool_result"]);
@@ -564,6 +565,7 @@ test("current-agent continuation and finalization reject incomplete safeguard ev
       state,
       request.record.id,
       ["read", "scaler_tool_result"],
+      "allowed",
     );
     assert.ok(prepared.preparation);
     const active = prepared.preparation.activeToolNames;
@@ -1110,6 +1112,7 @@ test("runToolRequestAgent executes an exact direct catalog lookup without a mode
     const result = await runToolRequestAgentRaw(dir, state, {
       requestId: prepared.record.id,
       execute: true,
+      authority: "allowed",
     }, async (request) => {
       runnerCalled = true;
       return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "", timedOut: false, aborted: false, stdoutBytes: 0, stderrBytes: 0 };

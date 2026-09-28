@@ -1660,11 +1660,15 @@ export default function scalerExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("scaler-tool-run", {
-    description: "Prepare or execute an isolated tool-agent transaction: /scaler-tool-run [requestId] [execute]",
+    description: "Prepare or execute a tool transaction: /scaler-tool-run [requestId] [execute] [authority=allowed|denied|unknown]",
     handler: async (args, ctx) => {
       const parsed = parseToolRunArgs(args);
       const state = await ensureState(ctx.cwd);
-      const result = await runToolRequestAgent(ctx.cwd, state, { requestId: parsed.requestId, execute: parsed.execute });
+      const result = await runToolRequestAgent(ctx.cwd, state, {
+        requestId: parsed.requestId,
+        execute: parsed.execute,
+        authority: parsed.authority,
+      });
       const suffix = result.transaction ? ` transaction=${result.transaction.id} status=${result.transaction.status}` : "";
       const message = `${result.message}${suffix}`;
       if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");
