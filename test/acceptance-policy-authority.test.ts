@@ -574,7 +574,7 @@ test("planning cannot replace a preconfigured policy before creating its task", 
         planVersion: 2,
         status: "active",
         tasks: [{
-          id: "T-PRECONFIGURED", title: "Replace preconfigured policy", taskKind: "software",
+          id: "T-PRECONFIGURED", title: "Replace preconfigured policy", taskKind: "non_software",
           atomicityRationale: "One independently testable result.", allowedPathPrefixes: ["result.txt"],
           prdRefs: ["REQ-NOT-PUBLISHED"], definitionOfDone: ["Any result is acceptable"],
           validationRefs: ["unit"], outputPaths: ["result.txt"],

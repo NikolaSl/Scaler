@@ -17,6 +17,7 @@ import {
 } from "./paths.js";
 import { applyPrdRequirementUpserts, computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdAcceptanceCriterion, type RuntimePrdRequirementStatus, type RuntimePrdRequirementsFile } from "./prd.js";
 import { assertStateSnapshotCurrent } from "./state.js";
+import { assessTaskDefinitionQuality, normalizeTaskKind } from "./task-quality.js";
 import { createTask, reviewTaskAcceptancePolicyMutation, updateTask, type UpdateTaskInput } from "./tasks.js";
 import type { ScalerState, ScalerTaskKind, ScalerTaskQualityWaiver } from "./types.js";
 import { assertValidationPolicyMutationAuthorized, getValidationManifestForTask, loadValidationManifests, withValidationPolicyLock, type EmbeddedValidationManifestCommandInput, type ValidationPolicyAuthority } from "./validation.js";
@@ -591,6 +592,7 @@ async function applyPlanningReportLocked(
   if (coverageFailures.length > 0) {
     throw new Error(`Planning report coverage preflight rejected before publication: ${coverageFailures.join(" ")}.`);
   }
+  await preflightExecutionPlanTaskQuality(cwd, state, plan);
   await preflightExecutionPlanValidationInputs(cwd, plan);
   const policyRejections = await preflightExecutionPlanPolicyChanges(cwd, state, plan, "model");
   if (policyRejections.length > 0) throw new Error(`Planning report rejected before publication: ${policyRejections.join(" ")}`);
@@ -636,6 +638,46 @@ async function applyPlanningReportLocked(
     plan: savedPlan,
     report,
   };
+}
+
+async function preflightExecutionPlanTaskQuality(
+  cwd: string,
+  state: ScalerState,
+  plan: ExecutionPlanArtifact,
+): Promise<void> {
+  const blocked: string[] = [];
+  for (const task of plan.tasks) {
+    const existing = state.tasks.find((candidate) => candidate.id === task.id);
+    const candidate: ScalerState["tasks"][number] = {
+      ...(existing ?? { id: task.id, status: "pending", updatedAt: state.updatedAt }),
+      title: existing?.status === "validated" ? existing.title : task.title,
+      taskKind: task.taskKind !== undefined ? normalizeTaskKind(task.taskKind) : existing?.taskKind,
+      atomicityRationale: task.atomicityRationale ?? existing?.atomicityRationale,
+      allowedPathPrefixes: task.allowedPathPrefixes ?? existing?.allowedPathPrefixes,
+      dependsOn: task.dependsOn ?? existing?.dependsOn,
+      prdRefs: task.prdRefs ?? existing?.prdRefs,
+      definitionOfDone: task.definitionOfDone ?? existing?.definitionOfDone,
+      validationRefs: task.validationRefs ?? existing?.validationRefs,
+      qualityWaivers: task.qualityWaivers ?? existing?.qualityWaivers,
+    };
+    const candidateState: ScalerState = {
+      ...state,
+      tasks: existing
+        ? state.tasks.map((current) => current.id === candidate.id ? candidate : current)
+        : [...state.tasks, candidate],
+    };
+    const assessment = await assessTaskDefinitionQuality(cwd, candidateState, candidate, {
+      enforcement: "enforce",
+      supplementalValidationCommands: task.validationCommands,
+      supplementalValidationRefs: task.validationRefs,
+    });
+    if (assessment.warnings.length > 0) {
+      blocked.push(`${task.id}(${assessment.warnings.map((warning) => warning.code).join(",")})`);
+    }
+  }
+  if (blocked.length > 0) {
+    throw new Error(`Planning report task contract preflight rejected before publication: ${blocked.join(" ")}.`);
+  }
 }
 
 function buildPlanningCoverageDiagnostics(
