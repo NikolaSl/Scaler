@@ -235,7 +235,7 @@ async function researchRunner(request: TaskAgentRequest): Promise<TaskAgentRunRe
     stdoutEvents: [{
       type: "scaler_research_report",
       status: "complete",
-      question: "What project-local knowledge is needed?",
+      question: "What project-local knowledge, constraints, risks, and evidence are needed to implement REQ-1: Implement the autonomous workflow.",
       requestId: "RESEARCH-REQ-1",
       requirementRefs: ["REQ-1"],
       sources: [{ id: "src-local", title: "Local source", quality: "project", path: "src/stage-workflow.ts" }],
