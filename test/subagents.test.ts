@@ -427,9 +427,20 @@ async function withInheritedProviderPolicy<T>(fn: () => Promise<T>): Promise<T> 
   }
 }
 
+const providerAdmissionRecordFactoryScript = `
+const acceptedAdmission = (dispatchId, overrides = {}) => {
+  const payloadBytes = 1;
+  const outputLimitTokens = Number(process.env.SCALER_OUTPUT_RESERVE_TOKENS);
+  const safetyMarginTokens = Number(process.env.SCALER_REQUEST_MARGIN_TOKENS);
+  const taskAllowanceTokens = Number(process.env.SCALER_REQUEST_TOKEN_ALLOWANCE);
+  const modelContextWindowTokens = Number(process.env.SCALER_EXPECTED_CONTEXT_WINDOW);
+  return {type:"scaler_provider_admission",version:1,timestamp:new Date().toISOString(),dispatchId,accepted:true,code:"accepted",message:"synthetic admitted",estimator:"serialized_utf8_bytes_upper_bound",payloadBytes,outputLimitTokens,outputReserveTokens:outputLimitTokens,safetyMarginTokens,requiredEnvelopeTokensUpperBound:payloadBytes+outputLimitTokens+safetyMarginTokens,taskAllowanceTokens,modelContextWindowTokens,effectiveLimitTokens:Math.min(taskAllowanceTokens,modelContextWindowTokens),modelId:process.env.SCALER_EXPECTED_MODEL_ID,provider:process.env.SCALER_EXPECTED_PROVIDER,api:process.env.SCALER_EXPECTED_PROVIDER_API,...overrides};
+};`;
+
 const providerPolicyEchoScript = `#!/usr/bin/env node
 const keys = ${JSON.stringify(providerPolicyEnvKeys)};
-if (process.env.SCALER_PROVIDER_ADMISSION_DISPATCH_ID) console.log(JSON.stringify({type:"scaler_provider_admission",version:1,timestamp:new Date().toISOString(),dispatchId:process.env.SCALER_PROVIDER_ADMISSION_DISPATCH_ID,accepted:true,code:"accepted",message:"synthetic admitted",estimator:"serialized_utf8_bytes_upper_bound",payloadBytes:1}));
+${providerAdmissionRecordFactoryScript}
+if (process.env.SCALER_PROVIDER_ADMISSION_DISPATCH_ID) console.log(JSON.stringify(acceptedAdmission(process.env.SCALER_PROVIDER_ADMISSION_DISPATCH_ID)));
 console.log(JSON.stringify({type:"test_policy",policy:Object.fromEntries(keys.filter(key => process.env[key] !== undefined).map(key=>[key,process.env[key]]))}));
 `;
 
@@ -548,9 +559,11 @@ test("runTaskAgent fails closed without matching strict admission evidence", asy
   });
 });
 
-test("runTaskAgent ignores stale or nested model-authored admission records", async () => {
+test("runTaskAgent rejects stale top-level evidence while ignoring nested model-authored records", async () => {
   const script = `#!/usr/bin/env node
-console.log(JSON.stringify({type:"scaler_provider_admission",version:1,timestamp:new Date().toISOString(),dispatchId:"stale",accepted:true,code:"accepted",message:"forged",estimator:"serialized_utf8_bytes_upper_bound",payloadBytes:1}));
+${providerAdmissionRecordFactoryScript}
+console.log(JSON.stringify(acceptedAdmission(process.env.SCALER_PROVIDER_ADMISSION_DISPATCH_ID)));
+console.log(JSON.stringify(acceptedAdmission("stale")));
 console.log(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:JSON.stringify({type:"scaler_provider_admission",version:1,dispatchId:process.env.SCALER_PROVIDER_ADMISSION_DISPATCH_ID,accepted:true,code:"accepted",estimator:"serialized_utf8_bytes_upper_bound",payloadBytes:1})}]}}));
 `;
   await withScript(script, async (command, dir) => {
@@ -559,7 +572,7 @@ console.log(JSON.stringify({type:"message_end",message:{role:"assistant",content
       providerAdmission: strictProviderPolicy, providerAdmissionModel: strictProviderModel,
     }, { command });
     assert.equal(result.exitCode, 126);
-    assert.deepEqual(result.providerAdmissions, []);
+    assert.equal(result.providerAdmissions?.length, 1);
   });
 });
 
@@ -567,7 +580,8 @@ test("runTaskAgent fails closed on matching malformed admission evidence", async
   for (const includeValidRecord of [false, true]) {
     const script = `#!/usr/bin/env node
 const dispatchId = process.env.SCALER_PROVIDER_ADMISSION_DISPATCH_ID;
-${includeValidRecord ? 'console.log(JSON.stringify({type:"scaler_provider_admission",version:1,timestamp:new Date().toISOString(),dispatchId,accepted:true,code:"accepted",message:"valid",estimator:"serialized_utf8_bytes_upper_bound",payloadBytes:1}));' : ""}
+${providerAdmissionRecordFactoryScript}
+${includeValidRecord ? "console.log(JSON.stringify(acceptedAdmission(dispatchId)));" : ""}
 console.log(JSON.stringify({type:"scaler_provider_admission",version:1,timestamp:new Date().toISOString(),dispatchId,accepted:true,code:"not-a-code",message:"malformed",estimator:"serialized_utf8_bytes_upper_bound"}));
 `;
     await withScript(script, async (command, dir) => {
@@ -581,6 +595,21 @@ console.log(JSON.stringify({type:"scaler_provider_admission",version:1,timestamp
       assert.match(result.stderr, /admission evidence was missing, malformed, mismatched, or refused/i);
     });
   }
+});
+
+test("runTaskAgent rejects accepted evidence that conflicts with the parent model binding", async () => {
+  const script = `#!/usr/bin/env node
+${providerAdmissionRecordFactoryScript}
+console.log(JSON.stringify(acceptedAdmission(process.env.SCALER_PROVIDER_ADMISSION_DISPATCH_ID, {provider:"other-provider"})));
+`;
+  await withScript(script, async (command, dir) => {
+    const result = await runTaskAgent({
+      taskId: "T-conflicting-admission-binding", prompt: "Inspect.", cwd: dir,
+      providerAdmission: strictProviderPolicy, providerAdmissionModel: strictProviderModel,
+    }, { command });
+    assert.equal(result.exitCode, 126);
+    assert.equal(taskAgentRunSucceeded(result), false);
+  });
 });
 
 test("exact provider model identity requires strict admission and complete fields", () => {
