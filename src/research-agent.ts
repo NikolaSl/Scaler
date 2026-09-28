@@ -209,11 +209,10 @@ export function prepareResearchAgentInvocation(
 
 export function resolveResearchAgentGrantedTools(request: ResearchRequest, options: ResearchAgentInvocationOptions = {}): string[] {
   const localInspectionTools = new Set(["find", "grep", "ls", "read"]);
-  const readOnlyScalerTools = new Set(["scaler_memory_retrieve", "scaler_memory_search"]);
   const tools = uniqueNonEmpty(options.tools ?? []).filter((tool) => {
-    if (request.scope === "local") return localInspectionTools.has(tool) || readOnlyScalerTools.has(tool);
+    if (request.scope === "local") return localInspectionTools.has(tool);
     if (tool === "bash" || tool === "edit" || tool === "write") return false;
-    return !tool.startsWith("scaler_") || readOnlyScalerTools.has(tool);
+    return !tool.startsWith("scaler_");
   });
   return request.scope === "local" || options.allowInternet ? tools : [];
 }
