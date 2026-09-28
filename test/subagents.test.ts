@@ -612,6 +612,29 @@ console.log(JSON.stringify(acceptedAdmission(process.env.SCALER_PROVIDER_ADMISSI
   });
 });
 
+test("runTaskAgent rejects accepted evidence whose measurements prove refusal", async () => {
+  const invalidMeasurements = [
+    { outputLimitTokens: 31, requiredEnvelopeTokensUpperBound: 1 + 31 + 1_024 },
+    { payloadBytes: 8_000, requiredEnvelopeTokensUpperBound: 8_000 + 32 + 1_024 },
+  ];
+  for (const measurements of invalidMeasurements) {
+    const script = `#!/usr/bin/env node
+${providerAdmissionRecordFactoryScript}
+const dispatchId = process.env.SCALER_PROVIDER_ADMISSION_DISPATCH_ID;
+console.log(JSON.stringify(acceptedAdmission(dispatchId)));
+console.log(JSON.stringify(acceptedAdmission(dispatchId, ${JSON.stringify(measurements)})));
+`;
+    await withScript(script, async (command, dir) => {
+      const result = await runTaskAgent({
+        taskId: "T-self-refuting-admission", prompt: "Inspect.", cwd: dir,
+        providerAdmission: strictProviderPolicy, providerAdmissionModel: strictProviderModel,
+      }, { command });
+      assert.equal(result.exitCode, 126);
+      assert.equal(taskAgentRunSucceeded(result), false);
+    });
+  }
+});
+
 test("exact provider model identity requires strict admission and complete fields", () => {
   assert.throws(() => buildTaskAgentInvocation({
     taskId: "T-model-without-policy", prompt: "Inspect.",
