@@ -113,7 +113,7 @@ test("prepareResearchAgentInvocation builds isolated Pi invocation", async () =>
     currentPlan: { version: 1, planVersion: 0, status: "draft", tasks: [], createdAt: state.createdAt, updatedAt: state.createdAt },
     requirements: { version: 1, requirements: [] },
     coverageSummary: { entries: [], countsByStatus: { pending: 0, in_progress: 0, implemented: 0, validated: 0, blocked: 0, needs_replan: 0 }, unlinkedRequirementIds: [], linkedRequirementIds: [] },
-  }, { command: "pi-test", model: "synthetic-8k", tools: ["read"] });
+  }, { command: "pi-test", model: "synthetic-8k", tools: ["read", "scaler_research_report"] });
 
   assert.equal(preparation.researchRequest.id, "RESEARCH-001");
   assert.equal(preparation.request.taskId, "research-agent-RESEARCH-001");
@@ -121,6 +121,7 @@ test("prepareResearchAgentInvocation builds isolated Pi invocation", async () =>
   assert.equal(preparation.invocation.cwd, "/repo");
   assert.ok(preparation.invocation.args.includes("--model"));
   assert.ok(preparation.invocation.args.includes("synthetic-8k"));
+  assert.deepEqual(preparation.request.tools, ["read"]);
   assert.deepEqual(preparation.request.providerAdmission, {
     requestTokenAllowance: 8_000,
     outputReserveTokens: 1_024,

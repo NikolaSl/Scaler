@@ -229,6 +229,7 @@ async function stageRunner(request: TaskAgentRequest): Promise<TaskAgentRunResul
 async function researchRunner(request: TaskAgentRequest): Promise<TaskAgentRunResult> {
   assert.equal(request.taskId, "research-agent-RESEARCH-REQ-1");
   assert.deepEqual(request.providerAdmissionModel, testProviderAdmissionModel);
+  assert.equal(request.tools?.includes("scaler_research_report"), false);
   return {
     taskId: request.taskId,
     exitCode: 0,
