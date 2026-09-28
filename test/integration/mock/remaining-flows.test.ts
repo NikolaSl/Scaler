@@ -362,7 +362,7 @@ test("mock integration: debug blocked report creates replan request and accepted
     assert.equal(debug.ingestion?.ingested, true);
     assert.ok((await loadReplanRequests(dir)).some((request) => request.trigger === "debug_blocked"));
 
-    const safeRunner = async (request: TaskAgentRequest): Promise<TaskAgentRunResult> => ({ taskId: request.taskId, exitCode: 0, stdoutEvents: [{ type: "scaler_replan_proposal", plan: { version: 1, planVersion: 2, status: "draft", tasks: [{ id: "T-KEEP", title: "Keep", prdRefs: ["REQ-KEEP"] }, { id: "T-NEW", title: "New", prdRefs: ["REQ-NEW"] }], createdAt: state.createdAt, updatedAt: state.createdAt } }], stderr: "", timedOut: false, aborted: false });
+    const safeRunner = async (request: TaskAgentRequest): Promise<TaskAgentRunResult> => ({ taskId: request.taskId, exitCode: 0, stdoutEvents: [{ type: "scaler_replan_proposal", plan: { version: 1, planVersion: 2, status: "draft", tasks: [{ id: "T-KEEP", title: "Keep", prdRefs: ["REQ-KEEP"] }, validPlanTask("T-NEW", "New", { prdRefs: ["REQ-NEW"] })], createdAt: state.createdAt, updatedAt: state.createdAt } }], stderr: "", timedOut: false, aborted: false });
     await runReplanAgentStep(dir, await loadState(dir), { execute: true }, safeRunner);
     const accepted = await acceptReplanProposal(dir, await loadState(dir), await loadPrdRequirements(dir));
     assert.equal(accepted.accepted, true);

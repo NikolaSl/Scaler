@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
+  type ExecutionPlanArtifact,
   appendReplanRequest,
   acceptReplanProposal,
   appendReplanDecision,
@@ -80,6 +81,10 @@ test("saveExecutionPlan and loadExecutionPlan round trip normalized tasks", asyn
       title: "Plan",
       tasks: [
         {
+          id: "T-000",
+          title: "Prepare work",
+        },
+        {
           id: "T-001",
           title: "Do work",
           prdRefs: ["REQ-001", "REQ-001"],
@@ -93,8 +98,9 @@ test("saveExecutionPlan and loadExecutionPlan round trip normalized tasks", asyn
 
     const loaded = await loadExecutionPlan(dir);
     assert.equal(loaded.status, "active");
-    assert.deepEqual(loaded.tasks[0]?.prdRefs, ["REQ-001"]);
-    assert.deepEqual(loaded.tasks[0]?.allowedPathPrefixes, ["src"]);
+    const task = loaded.tasks.find((candidate) => candidate.id === "T-001");
+    assert.deepEqual(task?.prdRefs, ["REQ-001"]);
+    assert.deepEqual(task?.allowedPathPrefixes, ["src"]);
   });
 });
 
@@ -143,6 +149,39 @@ test("validateExecutionPlan rejects duplicate task ids and invalid status", () =
     }),
     /Invalid execution plan status/,
   );
+});
+
+test("validateExecutionPlan rejects unknown dependencies and dependency cycles", () => {
+  const plan = (tasks: ExecutionPlanArtifact["tasks"]): ExecutionPlanArtifact => ({
+    version: 1,
+    planVersion: 1,
+    status: "draft",
+    tasks,
+    createdAt: "now",
+    updatedAt: "now",
+  });
+
+  assert.throws(
+    () => validateExecutionPlan(plan([{ id: "T-001", title: "One", dependsOn: ["T-MISSING"] }])),
+    /unknown dependency T-MISSING.*T-001/i,
+  );
+  assert.throws(
+    () => validateExecutionPlan(plan([{ id: "T-SELF", title: "Self", dependsOn: ["T-SELF"] }])),
+    /dependency cycle.*T-SELF.*T-SELF/i,
+  );
+  assert.throws(
+    () => validateExecutionPlan(plan([
+      { id: "T-A", title: "A", dependsOn: ["T-B"] },
+      { id: "T-B", title: "B", dependsOn: ["T-C"] },
+      { id: "T-C", title: "C", dependsOn: ["T-A"] },
+    ])),
+    /dependency cycle.*T-A.*T-B.*T-C.*T-A/i,
+  );
+
+  assert.doesNotThrow(() => validateExecutionPlan(plan([
+    { id: "T-A", title: "A", dependsOn: ["T-B"] },
+    { id: "T-B", title: "B" },
+  ])));
 });
 
 test("applyExecutionPlanTasks creates missing tasks and preserves existing tasks", async () => {
@@ -210,10 +249,11 @@ test("applyPlanningReport syncs requirements plan tasks prd refs and coverage di
   });
 });
 
-test("applyPlanningReport reports coverage warnings for unlinked and unknown refs", async () => {
+test("applyPlanningReport rejects structural coverage gaps before publication", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
-    const result = await applyPlanningReport(dir, state, {
+
+    await assert.rejects(() => applyPlanningReport(dir, state, {
       requirements: [{ id: "REQ-KNOWN", statement: "Known" }],
       plan: {
         planVersion: 1,
@@ -223,12 +263,98 @@ test("applyPlanningReport reports coverage warnings for unlinked and unknown ref
           validPlanTask("T-NOREF", "No ref"),
         ],
       },
+    }), /coverage preflight.*unlinked=REQ-KNOWN.*unknown=REQ-UNKNOWN.*tasksWithoutPrdRefs=T-NOREF/i);
+
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    assert.deepEqual((await loadPrdCoverage(dir)).entries, []);
+    assert.deepEqual(await loadPrdChanges(dir), []);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual(await loadPlanningReports(dir), []);
+    assert.deepEqual(state.tasks, []);
+  });
+});
+
+test("applyPlanningReport preserves an uncovered persisted requirement without partial publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    await upsertPrdRequirement(dir, { id: "REQ-PERSISTED", statement: "Persisted scope" });
+    const beforeRequirements = await loadPrdRequirements(dir);
+    const beforeCoverage = await loadPrdCoverage(dir);
+    const beforeChanges = await loadPrdChanges(dir);
+
+    await assert.rejects(() => applyPlanningReport(dir, state, {
+      requirements: [{ id: "REQ-NEW", statement: "New scope" }],
+      plan: {
+        planVersion: 1,
+        status: "active",
+        tasks: [validPlanTask("T-NEW", "New task", { prdRefs: ["REQ-NEW"] })],
+      },
+    }), /coverage preflight.*unlinked=REQ-PERSISTED/i);
+
+    assert.deepEqual(await loadPrdRequirements(dir), beforeRequirements);
+    assert.deepEqual(await loadPrdCoverage(dir), beforeCoverage);
+    assert.deepEqual(await loadPrdChanges(dir), beforeChanges);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual(await loadPlanningReports(dir), []);
+    assert.deepEqual(state.tasks, []);
+  });
+});
+
+test("applyPlanningReport accepts a compact one-task one-requirement plan", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const result = await applyPlanningReport(dir, state, {
+      requirements: [{ id: "REQ-COMPACT", statement: "One bounded outcome" }],
+      plan: {
+        planVersion: 1,
+        status: "active",
+        tasks: [validPlanTask("T-COMPACT", "One bounded task", { prdRefs: ["REQ-COMPACT"] })],
+      },
     });
 
-    assert.equal(result.accepted, false);
-    assert.deepEqual(result.report.diagnostics.unlinkedRequirementIds, ["REQ-KNOWN"]);
-    assert.deepEqual(result.report.diagnostics.unknownPlanRequirementIds, ["REQ-UNKNOWN"]);
-    assert.deepEqual(result.report.diagnostics.planUnlinkedTaskIds, ["T-NOREF"]);
+    assert.equal(result.accepted, true);
+    assert.deepEqual(result.state.tasks.map((task) => task.id), ["T-COMPACT"]);
+  });
+});
+
+test("applyPlanningReport rejects an incomplete covered task before publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+
+    await assert.rejects(() => applyPlanningReport(dir, state, {
+      requirements: [{ id: "REQ-CONTRACT", statement: "One covered outcome" }],
+      plan: {
+        planVersion: 1,
+        status: "active",
+        tasks: [{ id: "T-COARSE", title: "Coarse future work", prdRefs: ["REQ-CONTRACT"] }],
+      },
+    }), /task contract preflight.*T-COARSE.*missing_dod.*missing_allowed_paths.*missing_atomicity.*missing_validation.*missing_test_first/i);
+
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    assert.deepEqual((await loadPrdCoverage(dir)).entries, []);
+    assert.deepEqual(await loadPrdChanges(dir), []);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual(await loadPlanningReports(dir), []);
+    assert.deepEqual(state.tasks, []);
+  });
+});
+
+test("applyPlanningReport honors an explicit task-quality waiver during preflight", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+    const task = validPlanTask("T-WAIVED", "Waived path scope", {
+      prdRefs: ["REQ-WAIVED"],
+      allowedPathPrefixes: undefined,
+      qualityWaivers: [{ code: "missing_allowed_paths", reason: "This bounded non-filesystem check has no project path." }],
+    });
+
+    const result = await applyPlanningReport(dir, state, {
+      requirements: [{ id: "REQ-WAIVED", statement: "Perform the bounded non-filesystem check" }],
+      plan: { planVersion: 1, status: "active", tasks: [task] },
+    });
+
+    assert.equal(result.accepted, true);
+    assert.deepEqual(result.state.tasks[0]?.qualityWaivers?.map((waiver) => waiver.code), ["missing_allowed_paths"]);
   });
 });
 
@@ -273,6 +399,32 @@ test("planning report rejects an invalid plan before requirement ledger writes",
     assert.deepEqual((await loadPrdCoverage(dir)).entries, []);
     assert.deepEqual(await loadPrdChanges(dir), []);
     assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual(state.tasks, []);
+  });
+});
+
+test("planning report rejects an unknown dependency before any publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
+
+    await assert.rejects(() => applyPlanningReport(dir, state, {
+      id: "PLAN-UNKNOWN-DEPENDENCY",
+      requirements: [{ id: "REQ-NOT-WRITTEN", statement: "Must remain absent", status: "pending" }],
+      plan: {
+        planVersion: 1,
+        status: "active",
+        tasks: [validPlanTask("T-BLOCKED", "Blocked task", {
+          prdRefs: ["REQ-NOT-WRITTEN"],
+          dependsOn: ["T-MISSING"],
+        })],
+      },
+    }), /unknown dependency T-MISSING.*T-BLOCKED/i);
+
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    assert.deepEqual((await loadPrdCoverage(dir)).entries, []);
+    assert.deepEqual(await loadPrdChanges(dir), []);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual(await loadPlanningReports(dir), []);
     assert.deepEqual(state.tasks, []);
   });
 });
@@ -649,6 +801,82 @@ test("acceptReplanProposal rejects unsafe proposals and records decision", async
     assert.deepEqual(result.decision.preservation.droppedValidatedTaskIds, ["T-001"]);
     assert.equal((await loadReplanDecisions(dir))[0]?.status, "rejected");
     assert.equal((await loadExecutionPlan(dir)).tasks.length, 0);
+  });
+});
+
+test("acceptReplanProposal rejects an incomplete new task before publishing the plan", async () => {
+  await withTempDir(async (dir) => {
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    const state = createDefaultState(now);
+    state.tasks = [{ id: "T-001", title: "Validated", status: "validated", prdRefs: ["REQ-001"], updatedAt: state.createdAt }];
+    state.validatedTaskIds = ["T-001"];
+    const currentPlan = await saveExecutionPlan(dir, {
+      version: 1,
+      planVersion: 1,
+      status: "active",
+      tasks: [{ id: "T-001", title: "Validated", prdRefs: ["REQ-001"] }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    }, now);
+    const proposedPlan: ExecutionPlanArtifact = {
+      version: 1,
+      planVersion: 2,
+      status: "draft",
+      tasks: [
+        { id: "T-001", title: "Validated", prdRefs: ["REQ-001"] },
+        { id: "T-NEW", title: "Coarse new work", prdRefs: ["REQ-001"] },
+      ],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    };
+
+    await assert.rejects(() => acceptReplanProposal(dir, state, {
+      version: 1,
+      requirements: [{ id: "REQ-001", statement: "One", createdAt: state.createdAt, updatedAt: state.createdAt }],
+    }, { currentPlan, proposedPlan, now: new Date("2026-01-01T00:00:01.000Z") }), /task contract preflight.*T-NEW.*missing_dod.*missing_allowed_paths.*missing_atomicity.*missing_validation/i);
+
+    assert.equal((await loadExecutionPlan(dir)).planVersion, 1);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks.map((task) => task.id), ["T-001"]);
+    assert.deepEqual(await loadReplanDecisions(dir), []);
+    assert.deepEqual(state.tasks.map((task) => task.id), ["T-001"]);
+  });
+});
+
+test("acceptReplanProposal rejects unknown requirement refs before publishing the plan", async () => {
+  await withTempDir(async (dir) => {
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    const state = createDefaultState(now);
+    state.tasks = [{ id: "T-001", title: "Validated", status: "validated", prdRefs: ["REQ-001"], updatedAt: state.createdAt }];
+    state.validatedTaskIds = ["T-001"];
+    const currentPlan = await saveExecutionPlan(dir, {
+      version: 1,
+      planVersion: 1,
+      status: "active",
+      tasks: [{ id: "T-001", title: "Validated", prdRefs: ["REQ-001"] }],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    }, now);
+    const proposedPlan: ExecutionPlanArtifact = {
+      version: 1,
+      planVersion: 2,
+      status: "draft",
+      tasks: [
+        { id: "T-001", title: "Validated", prdRefs: ["REQ-001"] },
+        validPlanTask("T-UNKNOWN", "Unknown requirement", { prdRefs: ["REQ-UNKNOWN"] }),
+      ],
+      createdAt: state.createdAt,
+      updatedAt: state.createdAt,
+    };
+
+    await assert.rejects(() => acceptReplanProposal(dir, state, {
+      version: 1,
+      requirements: [{ id: "REQ-001", statement: "One", createdAt: state.createdAt, updatedAt: state.createdAt }],
+    }, { currentPlan, proposedPlan, now: new Date("2026-01-01T00:00:01.000Z") }), /coverage preflight.*unknown=REQ-UNKNOWN/i);
+
+    assert.equal((await loadExecutionPlan(dir)).planVersion, 1);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks.map((task) => task.id), ["T-001"]);
+    assert.deepEqual(await loadReplanDecisions(dir), []);
+    assert.deepEqual(state.tasks.map((task) => task.id), ["T-001"]);
   });
 });
 

@@ -452,6 +452,31 @@ context accounting, usage, cancellation and supported child routes; the
 continuation-envelope restriction is one concrete host limit, not the whole gap.
 These honest cross-phase statuses do not reopen a reproduced model-independent
 P3 adapter or context-access gap; the next implementation phase is P4.
+PLAN-167 starts P4 with the smallest reproduced structural admission gap. The
+shared execution-plan validator now rejects missing dependency IDs, self-cycles
+and longer cycles before planning-report publication while retaining valid
+forward-reference DAGs. Its candidate passes build, 1,210 unit/component, 73
+mock integration, 10 conformance/autopilot and 25 focused plan checks. SC-03
+remains Partial because links and acyclicity do not establish task necessity,
+requested-scope completeness, progressive milestone readiness or the absence of
+design-induced prerequisites.
+PLAN-168 makes the existing two-way structural coverage diagnostics a true
+admission guard. Planning reports now combine the current catalog with proposed
+requirement IDs and reject uncovered requirements, unknown task refs and tasks
+without requirement refs before requirement, plan, report or task publication.
+A compact one-task/one-requirement plan remains valid. The candidate passes
+build, 1,212 unit/component, 73 mock integration, 10 conformance/autopilot and
+58 affected plan/policy checks. This still does not treat links as proof of
+semantic necessity or requested-scope completeness.
+PLAN-169 reuses the existing task-quality assessor as a read-only planning
+preflight. The exact prospective task overlay must satisfy DoD, path scope,
+atomicity and validation/test-first policy (or explicit waivers) before any
+planning publication. Accepted replans share the coverage and contract preflights
+before snapshot or active-plan writes, without rechecking existing tasks that their
+application path leaves unchanged. Existing manifest inheritance is preserved. The
+candidate passes build, 1,216 unit/component, 73 mock integration, 10
+conformance/autopilot and 65 affected checks. This verifies contract admission,
+not the semantic quality or necessity of model-proposed work.
 PR #24 merged as `232b3f2c9c5007833a8ee0ec7ca0ab171d7267b2` after an
 independent GPT-5.6 Terra/high review of exact head `e3d849c` found no
 unresolved in-scope findings. The primary exact-head gate passed build,
