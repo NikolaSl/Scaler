@@ -223,6 +223,41 @@ test("memory dispatch resolves from memory candidates and unblocks a task", asyn
   });
 });
 
+test("concurrent memory dispatch preserves every resolved request context", async () => {
+  await withTempDir(async (dir) => {
+    const state = createState();
+    await saveState(dir, state);
+    const alpha = await writeMemory(dir, {
+      title: "alphakey decision",
+      content: "alpha full body",
+      summary: "Required alpha summary.",
+      tags: ["alphakey"],
+    });
+    const beta = await writeMemory(dir, {
+      title: "betakey decision",
+      content: "beta full body",
+      summary: "Required beta summary.",
+      tags: ["betakey"],
+    });
+    const created = await createMissingContextRequestsFromTaskReport(
+      dir,
+      state,
+      report(["Need memory alphakey decision", "Need memory betakey decision"]),
+    );
+    assert.equal(created.created.length, 2);
+
+    const dispatched = await Promise.all(created.created.map((request) =>
+      dispatchMissingContextRequest(dir, state, request.id, { execute: true })));
+    assert.equal(dispatched.every((result) => result.request?.status === "resolved"), true);
+    const manifest = await loadTaskContextManifest(dir, "T-MISS");
+    assert.ok(manifest?.items.some((item) => item.memoryId === alpha.id));
+    assert.ok(manifest?.items.some((item) => item.memoryId === beta.id));
+    for (const request of created.created) {
+      assert.ok(manifest?.items.some((item) => item.reason.includes(request.id)), `missing required context for ${request.id}`);
+    }
+  });
+});
+
 test("memory dispatch blocks without candidates or on conflicting manifest scope", async () => {
   await withTempDir(async (dir) => {
     const state = createState();

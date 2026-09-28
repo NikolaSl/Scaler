@@ -524,6 +524,16 @@ test("current-agent tool dispatch binds exact provider identity and one structur
     assert.equal(changedModel.accepted, false);
     assert.match(changedModel.message, /identity changed/i);
 
+    const changedProvider = await admitCurrentAgentToolProviderCall(
+      dir,
+      state,
+      prepared.preparation,
+      { payload, model: { ...model, provider: "other-local" }, policy, profile },
+      admission.transaction,
+    );
+    assert.equal(changedProvider.accepted, false);
+    assert.match(changedProvider.message, /identity changed/i);
+
     await recordToolResult(dir, state, {
       requestId: request.record.id,
       executionId: admission.transaction!.id,
@@ -567,6 +577,20 @@ test("current-agent tool dispatch refuses unavailable, direct and isolation-boun
     const directResult = await prepareCurrentAgentToolExecution(dir, state, direct.record.id, ["scaler_tool_catalog", "scaler_tool_result"]);
     assert.equal(directResult.accepted, false);
     assert.match(directResult.message, /exact direct operation/i);
+
+    const supervisorMutation = await prepareToolRequest(dir, state, {
+      toolName: "scaler_task_update",
+      request: "Advance the task state.",
+    });
+    assert.ok(supervisorMutation.record);
+    const supervisorResult = await prepareCurrentAgentToolExecution(
+      dir,
+      state,
+      supervisorMutation.record.id,
+      ["scaler_task_update", "scaler_tool_result"],
+    );
+    assert.equal(supervisorResult.accepted, false);
+    assert.match(supervisorResult.message, /supervisor/i);
   });
 });
 
