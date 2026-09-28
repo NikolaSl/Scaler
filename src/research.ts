@@ -233,7 +233,8 @@ export async function saveResearchReports(cwd: string, reports: ResearchReport[]
 export async function recordResearchReport(cwd: string, input: ResearchReportInput, now = new Date()): Promise<ResearchReport> {
   const timestamp = now.toISOString();
   const reports = await loadResearchReports(cwd);
-  const existing = input.id ? reports.find((report) => report.id === input.id) : undefined;
+  const reportId = input.id?.trim();
+  const existing = reportId ? reports.find((report) => report.id === reportId) : undefined;
   if (existing && input.sources !== undefined && input.conclusions === undefined) {
     throw new Error(`Research report ${existing.id} source revisions require explicit conclusions.`);
   }
@@ -272,7 +273,7 @@ export async function recordResearchReport(cwd: string, input: ResearchReportInp
   }
 
   const report: ResearchReport = {
-    id: input.id?.trim() || existing?.id || `RPT-RESEARCH-${timestamp.replace(/[^0-9]/g, "")}`,
+    id: reportId || existing?.id || `RPT-RESEARCH-${timestamp.replace(/[^0-9]/g, "")}`,
     status: normalizeReportStatus(input.status ?? existing?.status ?? "partial"),
     question,
     requestId,
