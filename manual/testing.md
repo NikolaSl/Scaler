@@ -944,3 +944,19 @@ Final accumulated phase results: build, 1,177/1,177 unit/component, 72/72 mock
 integration, 10/10 conformance/autopilot and 18/18 focused checks plus
 `git diff --check`. This is FSM/context-delivery evidence, not proof of memory
 truth, model quality, savings or full SC-07 acceptance.
+
+PLAN-161 reconciles SC-07 against the intended model-proposal and
+supervisor-validation contract. Re-run the exact-section, missing-context,
+conductor, automation and unknown-source window scenarios with:
+
+```bash
+node --test --import tsx test/context.test.ts test/context-splits.test.ts test/missing-context.test.ts test/conductor.test.ts test/autopilot.test.ts
+node --test --import tsx test/integration/mock/unknown-source-context-flow.test.ts test/integration/mock/varied-window-context-flow.test.ts
+```
+
+The focused result is 167/167 component tests and 4/4 integration scenarios.
+The complete candidate gate is build, 1,177/1,177 unit/component, 72/72 mock
+integration, 10/10 conformance/autopilot and `git diff --check`. This verifies
+the deterministic SC-07 FSM boundary, including truthful refusal and 32K/128K
+admission. It does not verify source truth, model quality, token savings or a
+configured local host; those remain separate evidence domains.

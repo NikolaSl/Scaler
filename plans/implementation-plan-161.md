@@ -48,3 +48,18 @@ This unit does not add semantic search, automatic task/context selection,
 another routing layer, a local model, a provider adapter or a quality benchmark.
 Task decomposition remains P4. Real configured local-only operation and its
 resource envelope remain SC-09/P7 evidence.
+
+## Outcome
+
+No production change was necessary. The existing worker-proposed exact-source,
+exact-selector and pathless-question paths pass their positive and negative
+controls. Required context reaches the retried task through the normal manifest
+and complete provider-admission boundary; unavailable, malformed and
+out-of-scope proposals remain blocked. SC-07/AC-07 is therefore Verified for
+the model-independent process contract, while SC-09 and real local-host
+evidence remain separate.
+
+Exact-tree validation passes the TypeScript build, 1,177/1,177 unit/component
+tests, 72/72 mock integration tests, 10/10 conformance/autopilot tests, 167/167
+focused context/missing-context/conductor/automation tests, 4/4 focused
+unknown-source and varied-window scenarios, and `git diff --check`.
