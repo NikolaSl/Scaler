@@ -311,9 +311,10 @@ question; the supervisor validates scope, authority, source identity and the
 complete next envelope. Cited local-research files are fingerprinted when the
 report is recorded, checked against task scope and revalidated through required
 manifest bindings before retry. Every cited local source must be file-backed;
-summary-only or mixed unbound citations block. Resolved bindings are checked
-again on refresh, and stale or conflicting items are removed before the task is
-blocked again. File descriptors are matched to a fresh direct-path identity
+summary-only or mixed unbound citations block. Resolved bindings and their
+reports are checked again on refresh, and stale, conflicting, incomplete,
+unresolved or oversized items are removed before the task is blocked again.
+File descriptors are matched to a fresh direct-path identity
 before reading, so leaf and ancestor symlink swaps do not expose source bytes.
 SC-07 is therefore verified at the model-independent
 process boundary. Natural-language inference, recursive semantic traversal and

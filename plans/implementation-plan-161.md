@@ -57,16 +57,17 @@ remaining exception, which this unit closes minimally: cited file-backed local
 research sources are captured with a runtime-owned SHA-256 fingerprint, checked
 against task path scope and persisted as required reference bindings for
 freshness revalidation before retry. Every cited local source must be file-backed;
-summary-only or mixed unbound claims block. Resolved bindings are revalidated,
-and stale or conflicting context is removed before the task is blocked again.
+summary-only or mixed unbound claims block. Resolved bindings and their
+admissible reports are revalidated, and stale, conflicting, incomplete,
+unresolved or oversized context is removed before the task is blocked again.
 Out-of-scope, absent and changed sources block without injecting the claim.
 Leaf and ancestor symlinks are refused before source bytes are read by matching
 the opened descriptor to a fresh direct-path identity. Unrelated report updates
 cannot rebaseline inherited source fingerprints. Uncited metadata is omitted.
 
-The exact-tree candidate passes the TypeScript build, 1,182/1,182
+The exact-tree candidate passes the TypeScript build, 1,183/1,183
 unit/component tests, 72/72 mock integration tests, 10/10
-conformance/autopilot tests, 172/172 focused
+conformance/autopilot tests, 173/173 focused
 context/missing-context/conductor/automation tests, 4/4 focused unknown-source
 and varied-window scenarios, and `git diff --check`. SC-07/AC-07 is Verified at
 the model-independent process boundary. SC-09 and real local-host evidence

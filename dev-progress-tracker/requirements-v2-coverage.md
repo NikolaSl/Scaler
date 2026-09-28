@@ -65,12 +65,13 @@ admitted only after scope/version/authority checks, including 32K/128K fixtures;
 unavailable and out-of-scope proposals block truthfully. A cited local-research
 claim must cite only task-scoped file sources. Each source is captured with a
 runtime-owned SHA-256 identity and revalidated through the required context
-manifest before retry; resolved bindings are rechecked and stale context is
-removed before the task is blocked again. Direct descriptor/path identity is
+manifest before retry; resolved bindings and reports are rechecked, and stale,
+incomplete, unresolved or oversized context is removed before the task is
+blocked again. Direct descriptor/path identity is
 verified before bytes are read, so leaf or ancestor symlink swaps fail closed.
 Configured local-host execution remains SC-09/P7 evidence and no source-truth,
-quality or savings claim is made. Candidate evidence: build, 1,182 unit,
-72 mock integration, 10 conformance and 172 focused component checks.
+quality or savings claim is made. Candidate evidence: build, 1,183 unit,
+72 mock integration, 10 conformance and 173 focused component checks.
 
 Prior review ran the baseline TypeScript build successfully, 488/488 unit tests
 and 66/67 mock integration tests. The failed retention fixture uses fixed
