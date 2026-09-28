@@ -197,14 +197,29 @@ test("memory dispatch resolves from memory candidates and unblocks a task", asyn
   await withTempDir(async (dir) => {
     const state = createState();
     await saveState(dir, state);
-    await writeMemory(dir, { title: "Auth decision", content: "Use OAuth", summary: "OAuth decision", tags: ["auth"] });
+    const memory = await writeMemory(dir, {
+      title: "Auth decision",
+      content: "FULL_MEMORY_BODY_MUST_NOT_REACH_THE_FOCUSED_WORKER",
+      summary: "Use the accepted OAuth decision.",
+      tags: ["auth"],
+    });
     const created = await createMissingContextRequestsFromTaskReport(dir, state, report(["Need memory auth decision"]));
 
     const result = await dispatchMissingContextRequest(dir, state, created.created[0]?.id, { execute: true });
     assert.equal(result.accepted, true, result.message);
+    const manifest = await loadTaskContextManifest(dir, "T-MISS");
+    const supplied = manifest?.items.find((item) => item.source === "memory" && item.memoryId === memory.id);
+    assert.equal(supplied?.priority, "required");
+    assert.equal(supplied?.scope, "summary");
+    assert.equal(supplied?.exactness, "summary-ok");
     const unblocked = await unblockTasksWithResolvedMissingContext(dir, await loadState(dir));
     assert.deepEqual(unblocked.unblockedTaskIds, ["T-MISS"]);
     assert.equal((await loadState(dir)).tasks[0]?.status, "ready");
+    const nextItems = await resolveTaskContextManifest(dir, unblocked.state, manifest!);
+    const nextPrompt = buildTaskAgentPrompt({ state: unblocked.state, task: unblocked.state.tasks[0]!, contextItems: nextItems }).prompt;
+    assert.match(nextPrompt, /Use the accepted OAuth decision/);
+    assert.match(nextPrompt, /validity=active/);
+    assert.doesNotMatch(nextPrompt, /FULL_MEMORY_BODY_MUST_NOT_REACH_THE_FOCUSED_WORKER/);
   });
 });
 
