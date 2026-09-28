@@ -317,16 +317,20 @@ test/provider-admission.test.ts test/provider-admission-host.test.ts`.
 PLAN-164 composes the complete AC-05 process in the installed-host fixture. One
 32,768-token scenario starts with an oversized exact source, verifies the
 conductor dispatches a resolvable externalized reference instead of the source
-bytes, and applies the production strict-child environment and extension order.
+bytes, and applies the production strict-child environment builder with equivalent
+extension order inside the installed host.
 The actually granted `read` tool retrieves the source; its large result is
 externalized before the continuation; and an admission-only, tool-less,
 same-attempt repair completes the report. The fixture extracts provider-observed
 usage from both host runs. Each durable child record retains both that observed
-input and its dispatch-correlated final-payload byte-bound estimate and delta;
-ordinary provider totals remain accounted in the budget ledger. Run
-`node --test --import tsx test/provider-admission-host.test.ts`. This is
-deterministic synthetic transport evidence for the supported FSM and adapter,
-not tokenizer-exact measurement or evidence of local-model quality.
+input and its dispatch-correlated final-payload byte-bound estimate and delta.
+Focused subprocess tests independently execute the actual `runTaskAgent`
+UUID/correlation/parser path, accept only top-level channel evidence and reject
+missing, stale or nested model-authored records. Ordinary provider totals remain
+accounted in the budget ledger. Run `node --test --import tsx
+test/provider-admission-host.test.ts test/subagents.test.ts`. This is deterministic
+synthetic transport evidence for the supported FSM and adapter, not
+tokenizer-exact measurement or evidence of local-model quality.
 
 PLAN-121 replaces file `scope: "section"` prefix truncation with explicit,
 exact Markdown-heading selection. The conductor fixture puts the required

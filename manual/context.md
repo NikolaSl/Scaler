@@ -174,8 +174,10 @@ parent extension separately assesses every ordinary final provider payload
 against the live model context window, output reserve and safety margin; it
 aborts before transport and records only compact measurements. Strict task-agent
 dispatches correlate those final-payload byte-bound estimates with observed input
-usage in their durable run record. Provider-internal retries and model eligibility
-policy remain later P3 work.
+usage in their durable run record. The record crosses Pi's isolated JSON stdout
+channel; missing, refused, stale or nested model-authored evidence fails the
+strict run before handoff. Provider-internal retries and model eligibility policy
+remain later P3 work.
 
 Strict child launches can currently activate only Pi built-in tools and SCALER
 tools loaded by the isolated child profile. The shared strict invocation

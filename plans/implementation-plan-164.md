@@ -26,9 +26,9 @@ gaps reproduced by that scenario.
 3. Return a successful process without a valid task report, then exercise the
    existing one-shot, tool-less, same-attempt report repair and require a valid
    validation handoff.
-4. Extract provider-observed usage from the installed-host messages and prove
-   that the durable run record and budget ledger reconcile the conservative
-   pre-dispatch estimate with that observed increment.
+4. Extract provider-observed usage from the installed-host messages, retain the
+   matching final-payload estimate, observation and delta in the durable run
+   record, and keep ordinary provider usage budget accounting separate.
 5. Keep every model response synthetic and deterministic. This verifies the
    model-independent FSM and envelope controls, not model quality, savings or
    configured local inference.
@@ -47,13 +47,18 @@ The first composed fixture reproduced two evidence gaps: it exercised a parent
 host rather than the production strict-child environment, and it added observed
 usage to the budget without retaining a dispatch-correlated estimate/observation
 pair. The accepted review fix is intentionally small. Strict launches now assign
-one runtime-owned dispatch ID; the final provider hook records its admitted
-serialized-payload byte bound under that ID; the runner retrieves only matching
-records; and each durable task-run record stores the aggregate estimated input
-upper bound, observed provider input and their delta.
+one runtime-owned dispatch ID; the final provider hook emits its admitted
+serialized-payload byte bound through Pi's isolated JSON stdout channel before
+transport; the runner accepts only top-level matching records and fails closed
+when evidence is missing or refused; and each durable task-run record stores the
+aggregate estimated input upper bound, observed provider input and their delta.
+No mutable shared report directory is scanned or trusted.
 
-The corrected installed-host scenario uses the production environment builder
-and extension ordering. Under one declared 32,768-token model window, conductor externalizes an oversized
+The corrected in-process installed-host scenario uses the production environment
+builder and equivalent extension ordering. Separate subprocess tests execute the
+actual `runTaskAgent` UUID/correlation/parser path and reject missing, stale or
+nested model-authored evidence. Under one declared 32,768-token model window,
+conductor externalizes an oversized
 exact source, dispatches only a fitting prompt with a resolvable memory path,
 and the real strict child keeps its granted `read` tool available. Reading the
 oversized exact source produces a large result which is externalized before the

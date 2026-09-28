@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { cp, mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -29,6 +29,8 @@ import { extractProviderUsage } from "../src/provider-usage.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import {
   buildTaskAgentEnvironment,
+  getDefaultScalerChildExtensionPath,
+  getProviderAdmissionExtensionPath,
   resolveChildAgentExtensionPaths,
   type TaskAgentRequest,
   type TaskAgentRunResult,
@@ -48,7 +50,7 @@ const policyEnv = {
 
 // All provider traffic is replaced before creating the SDK session. No live
 // credentials, endpoints, command providers or global resource discovery are used.
-async function runInstalledHost(systemCharacters: number, extensions: ExtensionFactory[] = [], options: { autoCompaction?: boolean; activeTask?: boolean; largeUnselectedTool?: boolean; largeSelectedToolResult?: boolean; selectedReadPath?: string; reemitBeforeStartPrompt?: boolean; rewriteBeforeScaler?: boolean; defaultSystemPrompt?: boolean; failScalerAuditBeforeStart?: boolean; failScalerAuditBeforeProvider?: boolean; queueFollowUpAfterAbort?: boolean; wrongExpectedModel?: boolean; modelContextWindow?: number; modelMaxTokens?: number; noTools?: boolean; prompt?: string; responseText?: string; memorySourceDir?: string; childEnvironment?: NodeJS.ProcessEnv; includeScalerExtension?: boolean } = {}) {
+async function runInstalledHost(systemCharacters: number, extensions: ExtensionFactory[] = [], options: { autoCompaction?: boolean; activeTask?: boolean; largeUnselectedTool?: boolean; largeSelectedToolResult?: boolean; selectedReadPath?: string; reemitBeforeStartPrompt?: boolean; rewriteBeforeScaler?: boolean; defaultSystemPrompt?: boolean; failScalerAuditBeforeStart?: boolean; failScalerAuditBeforeProvider?: boolean; failProviderAdmissionSink?: boolean; queueFollowUpAfterAbort?: boolean; wrongExpectedModel?: boolean; modelContextWindow?: number; modelMaxTokens?: number; noTools?: boolean; prompt?: string; responseText?: string; memorySourceDir?: string; childEnvironment?: NodeJS.ProcessEnv; includeScalerExtension?: boolean; captureProviderAdmission?: boolean } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "scaler-provider-host-test-"));
   const savedFetch = globalThis.fetch;
   const environmentKeys = Array.from(new Set([
@@ -59,6 +61,7 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
   let fetchCalls = 0;
   let payload: Record<string, unknown> | undefined;
   const payloads: Record<string, unknown>[] = [];
+  const providerAdmissions: ProviderAdmissionRecord[] = [];
   let compactionCancelled = false;
   try {
     Object.assign(process.env, options.childEnvironment ?? policyEnv);
@@ -134,6 +137,15 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
       input: ["text" as const], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: options.modelContextWindow ?? 8000, maxTokens: options.modelMaxTokens ?? 2000,
     };
+    const admissionInstaller = options.captureProviderAdmission
+      ? (await import("../src/provider-admission-extension.js")).installProviderAdmissionExtension
+      : undefined;
+    const capturedAdmissionExtension: ExtensionFactory | undefined = admissionInstaller
+      ? ((pi) => admissionInstaller(pi, (record) => {
+          if (options.failProviderAdmissionSink) throw new Error("synthetic admission channel failure");
+          providerAdmissions.push(record);
+        }))
+      : undefined;
     const loader = new DefaultResourceLoader({
       cwd: dir, agentDir: join(dir, "agent"), settingsManager,
       noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
@@ -193,6 +205,7 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
           pi.on("before_agent_start", (event) => ({ systemPrompt: `${event.systemPrompt}\nCOMPANION_BEFORE_START_PROMPT` }));
         }) satisfies ExtensionFactory] : []),
         ...extensions,
+        ...(capturedAdmissionExtension ? [capturedAdmissionExtension] : []),
       ],
     });
     await loader.reload();
@@ -218,12 +231,6 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
     await session.prompt(options.prompt ?? (options.autoCompaction ? `Inspect. ${"x".repeat(4000)}` : "Inspect the exact source."));
     const lastMessage = session.messages.at(-1);
     const events = await readLogEvents(dir).catch(() => []);
-    const providerAdmissions: ProviderAdmissionRecord[] = [];
-    const admissionDirectory = join(dir, ".scaler", "reports", "provider-admission");
-    for (const filename of await readdir(admissionDirectory).catch(() => [])) {
-      const parsed = JSON.parse(await readFile(join(admissionDirectory, filename), "utf8")) as ProviderAdmissionRecord;
-      providerAdmissions.push(parsed);
-    }
     return {
       fetchCalls, payload, payloads, model, compactionCancelled, events,
       usage: extractProviderUsage(session.messages), providerAdmissions,
@@ -240,10 +247,6 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
     }
     await rm(dir, { recursive: true, force: true });
   }
-}
-
-async function admissionExtension(): Promise<ExtensionFactory> {
-  return (await import("../src/provider-admission-extension.js")).default;
 }
 
 test("installed Scaler parent admission aborts an oversized final host envelope", async () => {
@@ -330,14 +333,15 @@ test("installed Pi composes the complete AC-05 envelope process under one declar
         const [split] = await loadContextSplitRecords(dir);
         const selectedReadPath = split?.externalizedMemoryRefs[0]?.path;
         assert.ok(selectedReadPath);
-        assert.equal(extensionPaths.length, 2, "strict tool child must load SCALER plus admission");
-        const host = await runInstalledHost(40, [await admissionExtension()], {
+        assert.deepEqual(extensionPaths, [getDefaultScalerChildExtensionPath(), getProviderAdmissionExtensionPath()]);
+        const host = await runInstalledHost(40, [], {
           selectedReadPath,
           memorySourceDir: dir,
           modelContextWindow: 32_768,
           modelMaxTokens: 1_024,
           prompt: request.prompt,
           childEnvironment,
+          captureProviderAdmission: true,
         });
         assert.equal(host.fetchCalls, 2, JSON.stringify(host.providerAdmissions));
         assert.deepEqual(host.activeToolNames, ["read"]);
@@ -363,8 +367,8 @@ test("installed Pi composes the complete AC-05 envelope process under one declar
         memoryRefs: [], validations: [], validationRefs: [], evidenceRefs: [], blockers: [], missingData: [],
         recommendedNextAction: "validate",
       };
-      assert.equal(extensionPaths.length, 1, "strict tool-less repair must load admission only");
-      const host = await runInstalledHost(40, [await admissionExtension()], {
+      assert.deepEqual(extensionPaths, [getProviderAdmissionExtensionPath()]);
+      const host = await runInstalledHost(40, [], {
         modelContextWindow: 32_768,
         modelMaxTokens: 1_024,
         noTools: true,
@@ -372,6 +376,7 @@ test("installed Pi composes the complete AC-05 envelope process under one declar
         responseText: JSON.stringify(report),
         childEnvironment,
         includeScalerExtension: false,
+        captureProviderAdmission: true,
       });
       assert.equal(host.fetchCalls, 1);
       assert.deepEqual(host.activeToolNames, []);
@@ -412,19 +417,28 @@ test("installed Pi composes the complete AC-05 envelope process under one declar
 });
 
 test("provider admission aborts oversized installed Pi requests before transport", async () => {
-  const result = await runInstalledHost(40_000, [await admissionExtension()]);
+  const result = await runInstalledHost(40_000, [], { captureProviderAdmission: true });
   assert.equal(result.fetchCalls, 0);
   assert.equal(result.stopReason, "aborted");
 });
 
 test("provider admission permits an adequate installed Pi envelope", async () => {
-  const result = await runInstalledHost(40, [await admissionExtension()]);
+  const result = await runInstalledHost(40, [], { captureProviderAdmission: true });
   assert.equal(result.fetchCalls, 1);
   assert.ok(result.payload);
 });
 
+test("strict provider admission refuses transport when evidence emission fails", async () => {
+  const result = await runInstalledHost(40, [], {
+    captureProviderAdmission: true,
+    failProviderAdmissionSink: true,
+  });
+  assert.equal(result.fetchCalls, 0);
+  assert.equal(result.stopReason, "aborted");
+});
+
 test("provider admission aborts when the live model differs from the parent binding", async () => {
-  const result = await runInstalledHost(40, [await admissionExtension()], { wrongExpectedModel: true });
+  const result = await runInstalledHost(40, [], { wrongExpectedModel: true, captureProviderAdmission: true });
   assert.equal(result.fetchCalls, 0);
   assert.equal(result.stopReason, "aborted");
 });
@@ -502,7 +516,7 @@ test("installed Pi auto-compaction bypasses provider-request hooks without the s
 });
 
 test("strict provider admission cancels automatic compaction before unguarded transport", async () => {
-  const result = await runInstalledHost(40, [await admissionExtension()], { autoCompaction: true });
+  const result = await runInstalledHost(40, [], { autoCompaction: true, captureProviderAdmission: true });
   assert.equal(result.fetchCalls, 1, "only the admitted ordinary request may reach transport");
   assert.equal(result.stopReason, "stop", "cancelling compaction must preserve the successful ordinary answer");
   assert.equal(result.compactionCancelled, true);

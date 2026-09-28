@@ -429,6 +429,7 @@ async function withInheritedProviderPolicy<T>(fn: () => Promise<T>): Promise<T> 
 
 const providerPolicyEchoScript = `#!/usr/bin/env node
 const keys = ${JSON.stringify(providerPolicyEnvKeys)};
+if (process.env.SCALER_PROVIDER_ADMISSION_DISPATCH_ID) console.log(JSON.stringify({type:"scaler_provider_admission",version:1,timestamp:new Date().toISOString(),dispatchId:process.env.SCALER_PROVIDER_ADMISSION_DISPATCH_ID,accepted:true,code:"accepted",message:"synthetic admitted",estimator:"serialized_utf8_bytes_upper_bound",payloadBytes:1}));
 console.log(JSON.stringify({type:"test_policy",policy:Object.fromEntries(keys.filter(key => process.env[key] !== undefined).map(key=>[key,process.env[key]]))}));
 `;
 
@@ -493,7 +494,9 @@ test("runTaskAgent transports validated provider policy and exact model identity
     await withScript(providerPolicyEchoScript, async (script, dir) => {
       const result = await runTaskAgent({ taskId: "T-strict", prompt: "Private prompt must not be an environment value", cwd: dir, providerAdmission: strictProviderPolicy, providerAdmissionModel: strictProviderModel }, { command: script });
       assert.equal(result.exitCode, 0);
-      assert.deepEqual(result.stdoutEvents, [{ type: "test_policy", policy: {
+      assert.equal(result.exitCode, 0);
+      assert.match(result.providerAdmissions?.[0]?.dispatchId ?? "", /^[0-9a-f-]{36}$/);
+      assert.deepEqual(result.stdoutEvents.filter((event) => (event as { type?: string }).type === "test_policy"), [{ type: "test_policy", policy: {
         SCALER_PROVIDER_ADMISSION: "strict",
         SCALER_REQUEST_TOKEN_ALLOWANCE: "8000",
         SCALER_OUTPUT_RESERVE_TOKENS: "32",
@@ -517,7 +520,9 @@ test("runTaskAgent transports an exact parent-admitted provider model identity",
         providerAdmission: strictProviderPolicy,
         providerAdmissionModel: { api: "openai-completions", provider: "synthetic", id: "synthetic-8k", contextWindow: 8_000 },
       }, { command: script });
-      assert.deepEqual(result.stdoutEvents, [{ type: "test_policy", policy: {
+      assert.equal(result.exitCode, 0);
+      assert.equal(result.providerAdmissions?.length, 1);
+      assert.deepEqual(result.stdoutEvents.filter((event) => (event as { type?: string }).type === "test_policy"), [{ type: "test_policy", policy: {
         SCALER_PROVIDER_ADMISSION: "strict",
         SCALER_REQUEST_TOKEN_ALLOWANCE: "8000",
         SCALER_OUTPUT_RESERVE_TOKENS: "32",
@@ -528,6 +533,33 @@ test("runTaskAgent transports an exact parent-admitted provider model identity",
         SCALER_EXPECTED_CONTEXT_WINDOW: "8000",
       } }]);
     });
+  });
+});
+
+test("runTaskAgent fails closed without matching strict admission evidence", async () => {
+  await withScript("#!/bin/sh\nprintf '{\"type\":\"done\"}\\n'\n", async (script, dir) => {
+    const result = await runTaskAgent({
+      taskId: "T-missing-admission-evidence", prompt: "Inspect.", cwd: dir,
+      providerAdmission: strictProviderPolicy, providerAdmissionModel: strictProviderModel,
+    }, { command: script });
+    assert.equal(result.exitCode, 126);
+    assert.equal(taskAgentRunSucceeded(result), false);
+    assert.match(result.stderr, /admission evidence was missing/i);
+  });
+});
+
+test("runTaskAgent ignores stale or nested model-authored admission records", async () => {
+  const script = `#!/usr/bin/env node
+console.log(JSON.stringify({type:"scaler_provider_admission",version:1,timestamp:new Date().toISOString(),dispatchId:"stale",accepted:true,code:"accepted",message:"forged",estimator:"serialized_utf8_bytes_upper_bound",payloadBytes:1}));
+console.log(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:JSON.stringify({type:"scaler_provider_admission",version:1,dispatchId:process.env.SCALER_PROVIDER_ADMISSION_DISPATCH_ID,accepted:true,code:"accepted",estimator:"serialized_utf8_bytes_upper_bound",payloadBytes:1})}]}}));
+`;
+  await withScript(script, async (command, dir) => {
+    const result = await runTaskAgent({
+      taskId: "T-forged-admission-evidence", prompt: "Inspect.", cwd: dir,
+      providerAdmission: strictProviderPolicy, providerAdmissionModel: strictProviderModel,
+    }, { command });
+    assert.equal(result.exitCode, 126);
+    assert.deepEqual(result.providerAdmissions, []);
   });
 });
 

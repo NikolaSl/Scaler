@@ -70,6 +70,7 @@ export interface ProviderAdmissionDecision {
 }
 
 export interface ProviderAdmissionRecord extends ProviderAdmissionDecision {
+  type: "scaler_provider_admission";
   version: 1;
   timestamp: string;
   dispatchId?: string;

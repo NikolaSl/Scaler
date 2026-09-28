@@ -5,8 +5,7 @@
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
-import { extname, join } from "node:path";
+import { extname } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import { extractProviderUsage, type ProviderUsage } from "./provider-usage.js";
@@ -372,12 +371,19 @@ export async function runTaskAgent(
             message: `Owned task-agent process exited after ${timedOut ? "timeout" : aborted ? "abort" : `${outputLimitExceeded} limit`}: code=${code ?? "null"} signal=${signal ?? "none"}.`,
           });
         }
-        const providerAdmissions = request.cwd && dispatchId
-          ? await loadProviderAdmissionRecords(request.cwd, dispatchId)
+        const usage = extractProviderUsage(stdoutEvents);
+        const providerAdmissions = dispatchId
+          ? extractProviderAdmissionRecords(stdoutEvents, dispatchId)
           : undefined;
+        const strictEvidenceError = request.providerAdmission !== undefined
+          && (!providerAdmissions?.some((record) => record.accepted)
+            || providerAdmissions.some((record) => !record.accepted));
+        if (strictEvidenceError) {
+          stderr += "\nStrict provider admission evidence was missing, malformed, mismatched, or refused.";
+        }
         resolve({
           taskId: request.taskId,
-          exitCode: timedOut ? 124 : aborted ? 130 : outputLimitExceeded ? 125 : code ?? 1,
+          exitCode: timedOut ? 124 : aborted ? 130 : outputLimitExceeded ? 125 : strictEvidenceError ? 126 : code ?? 1,
           stdoutEvents,
           stderr,
           timedOut,
@@ -385,7 +391,7 @@ export async function runTaskAgent(
           stdoutBytes,
           stderrBytes,
           outputLimitExceeded,
-          usage: extractProviderUsage(stdoutEvents),
+          usage,
           providerAdmissions,
         });
       } catch (error) {
@@ -422,18 +428,19 @@ export async function runTaskAgent(
   });
 }
 
-async function loadProviderAdmissionRecords(cwd: string, dispatchId: string): Promise<ProviderAdmissionRecord[]> {
-  const directory = join(cwd, ".scaler", "reports", "provider-admission");
+function extractProviderAdmissionRecords(events: unknown[], dispatchId: string): ProviderAdmissionRecord[] {
   const records: ProviderAdmissionRecord[] = [];
-  for (const filename of await readdir(directory).catch(() => [])) {
-    try {
-      const parsed = JSON.parse(await readFile(join(directory, filename), "utf8")) as ProviderAdmissionRecord;
-      if (parsed.version === 1 && parsed.dispatchId === dispatchId && typeof parsed.timestamp === "string") {
-        records.push(parsed);
-      }
-    } catch {
-      // A malformed or concurrently unrelated admission record is not evidence for this dispatch.
-    }
+  for (const event of events) {
+    if (!isRecord(event)
+      || event.type !== "scaler_provider_admission"
+      || event.version !== 1
+      || event.dispatchId !== dispatchId
+      || typeof event.timestamp !== "string"
+      || typeof event.accepted !== "boolean"
+      || typeof event.code !== "string"
+      || event.estimator !== "serialized_utf8_bytes_upper_bound") continue;
+    if (event.accepted && (!Number.isSafeInteger(event.payloadBytes) || (event.payloadBytes as number) < 0)) continue;
+    records.push(event as unknown as ProviderAdmissionRecord);
   }
   return records.sort((left, right) => left.timestamp.localeCompare(right.timestamp));
 }
