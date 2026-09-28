@@ -1,4 +1,4 @@
-# PLAN-162 — P3 three-route process acceptance
+# PLAN-162 — P3 three-route process milestone
 
 ## Reassessment
 
@@ -21,11 +21,12 @@ model-independent routing FSM.
 2. Exercise 32,768- and 131,072-token model windows, a small selected tool from
    a large catalog, an unknown output bound that blocks, and a changed schema
    fingerprint that forces a fresh profile identity.
-3. Preserve the existing authority, provider-envelope, execution ownership,
+3. Preserve the existing provider-envelope, execution ownership,
    bounded-result and structured-evidence checks for every route.
-4. Reconcile SC-08/AC-08 only if the scenario and the existing focused/full
-   gates pass. Keep the installed isolated command's unavailable future-envelope
-   supplier explicit as a host-integration limit under SC-25.
+4. Reconcile SC-08/AC-08 only if the scenario also demonstrates runtime-owned
+   permission and budget admission for every route. Keep the installed isolated
+   command's unavailable future-envelope supplier explicit as a host-integration
+   limit under SC-25.
 
 ## Validation
 
@@ -60,8 +61,12 @@ checks use the same bound.
 The exact executable tree passes the TypeScript build, 1,187/1,187
 unit/component tests, 73/73 mock integration tests, 10/10
 conformance/autopilot tests, 89/89 focused route/tool/ledger checks and `git
-diff --check`. This establishes SC-08/AC-08 at the model-independent core
-routing boundary. The installed Pi command still refuses isolated execution
+diff --check`. This establishes the shared routing, envelope and result
+milestone, but not complete SC-08/AC-08: current-agent admission currently
+marks route authority allowed without a separately bound runtime grant, while
+isolated admission receives authority from its trusted supplier, and the
+scenario does not exercise denied permission or budget refusal across all three
+routes. The installed Pi command still refuses isolated execution
 without a trustworthy final caller-continuation envelope; that adapter-specific
 limitation remains SC-25, while configured local-only execution remains SC-09.
 
@@ -73,3 +78,6 @@ continuation boundary with unknown, one-byte-short and exact-reserve controls.
 A fresh follow-up then found a remaining fixture-only byte-size placeholder;
 the isolated supplier now carries its measured `read` profile byte size and the
 scenario checks the exact serialized-payload contribution to route overhead.
+The phase review then found the remaining authority/economy evidence gap above.
+The finding is valid; the status stays Partial rather than adding an ungrounded
+permission subsystem to this bounded unit.

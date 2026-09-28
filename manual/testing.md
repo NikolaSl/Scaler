@@ -619,9 +619,13 @@ fingerprint, and refuses an unknown caller-result bound before dispatch. The
 test-first fixture exposed that the former 1 MiB result reserve could not fit
 either acceptance window; the runtime-owned structured result cap is now 16
 KiB and retains the existing byte, ownership and atomic-publication checks.
-This validates SC-08/AC-08's model-independent route FSM, not a configured
-local-model run or model quality. Installed Pi isolated execution continues to
-refuse without a trustworthy final continuation envelope under SC-25.
+This validates the shared route, provider-envelope and bounded-result milestone,
+not complete SC-08/AC-08, a configured local-model run or model quality.
+Current-agent route admission does not yet bind a separate runtime permission
+decision, isolated admission trusts its host-owned supplier's authority evidence,
+and the combined scenario does not exercise denied permission or budget refusal
+for every route. Installed Pi isolated execution continues to refuse without a
+trustworthy final continuation envelope under SC-25.
 
 PLAN-133 covers durable stage-artifact refusal after a failed child directly
 publishes to the artifact ledger. Run `node --test --import tsx

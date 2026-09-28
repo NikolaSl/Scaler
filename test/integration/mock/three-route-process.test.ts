@@ -125,7 +125,7 @@ function isolatedSupplier(
   };
 }
 
-test("AC-08 process: direct, current-agent and isolated routes stay bounded across 32K and 128K windows", async () => {
+test("three-route milestone stays bounded across 32K and 128K windows", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
     assert.equal(DEFAULT_TOOL_EXECUTION_LIMITS.resultBytes, 16 * 1024);
