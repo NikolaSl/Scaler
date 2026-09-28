@@ -721,18 +721,22 @@ async function readStableContextFile(
 ): Promise<{ bytes: Buffer; outputExemptible: boolean }> {
   const absolute = resolveContextPath(cwd, path);
   const directBefore = await directProjectFileStat(cwd, path);
-  const file = await open(absolute, constants.O_RDONLY | constants.O_NONBLOCK);
+  if (!directBefore) throw new Error(`Context source is not a direct regular file: ${path}`);
+  const file = await open(absolute, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
   try {
     const before = await file.stat();
     if (!before.isFile()) throw new Error(`Context source is not a regular file: ${path}`);
+    const directOpened = await directProjectFileStat(cwd, path);
+    if (!directOpened || !sameFile(directOpened, before)) {
+      throw new Error(`Context source path changed before reading: ${path}`);
+    }
     const bytes = await file.readFile();
     const after = await file.stat();
     if (!sameFile(before, after)) throw new Error(`Context source changed while reading: ${path}`);
     const directAfter = await directProjectFileStat(cwd, path);
     return {
       bytes,
-      outputExemptible: directBefore !== undefined && sameFile(directBefore, before)
-        && directAfter !== undefined && sameFile(directAfter, after),
+      outputExemptible: sameFile(directBefore, before) && directAfter !== undefined && sameFile(directAfter, after),
     };
   } finally {
     await file.close();
