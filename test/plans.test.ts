@@ -977,6 +977,16 @@ test("acceptReplanProposal resumes an applying decision without losing audit or 
     const coverage = await loadPrdCoverage(dir);
     assert.equal(coverage.entries.find((entry) => entry.requirementId === "REQ-AFFECTED")?.status, "in_progress");
     assert.equal(coverage.entries.find((entry) => entry.requirementId === "REQ-CONCURRENT")?.status, "needs_replan");
+
+    const retried = await acceptReplanProposal(dir, result.state, requirements, {
+      currentPlan: result.savedPlan,
+      proposedPlan,
+      now: new Date("2026-01-01T00:02:00.000Z"),
+    });
+    assert.equal(retried.accepted, true, retried.message);
+    assert.equal(retried.savedPlan?.planVersion, 2);
+    assert.equal(retried.decision.id, "DECISION-APPLYING");
+    assert.equal((await loadReplanDecisions(dir)).length, 1);
   });
 });
 
