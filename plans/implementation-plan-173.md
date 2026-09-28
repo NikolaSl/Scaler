@@ -62,3 +62,8 @@ malformed containers fail closed.
 The final exact-tree review also found that malformed persisted `newEvidence`
 could reach a string operation. Non-string explanations are now ignored, so
 legacy corruption cannot crash retry admission or grant clearance.
+
+The post-fix exact-tree review found one final freshness gap: fixed attempts were
+excluded from both blocker counting and the task-wide reference history. Fixed
+attempts remain excluded from blocker counting, but their references now remain
+part of freshness comparison, so an old accepted ref cannot be reused as new.

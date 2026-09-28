@@ -526,6 +526,8 @@ claims under a bounded non-stealing lock and rejects malformed legacy reference
 values and containers without crashing. The gate tracks the latest unresolved
 blocker, so evidence that cleared an earlier cycle cannot mask a later cycle.
 Malformed non-string `newEvidence` explanations also fail closed.
+Evidence freshness includes references from fixed attempts even though those
+attempts remain excluded from blocker counting.
 SC-11
 remains Partial because semantic rewording detection, aggregate tactic limits
 across replacement/resumption and the full AC-11 bounded fixture remain open.
