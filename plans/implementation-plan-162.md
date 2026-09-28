@@ -70,3 +70,6 @@ authorization defects. The scenario now binds the isolated request to its own
 `read` profile, includes only the selected definitions in each actual provider
 payload and checks the measured payload bytes, and locks the exact 16 KiB
 continuation boundary with unknown, one-byte-short and exact-reserve controls.
+A fresh follow-up then found a remaining fixture-only byte-size placeholder;
+the isolated supplier now carries its measured `read` profile byte size and the
+scenario checks the exact serialized-payload contribution to route overhead.

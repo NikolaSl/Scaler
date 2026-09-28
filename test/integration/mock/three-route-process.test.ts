@@ -55,9 +55,25 @@ function toolDefinitions(schemaVersion: number) {
   ];
 }
 
+function isolatedProviderPayload(contextWindow: number) {
+  return {
+    model: `local-${contextWindow}`,
+    messages: [{ role: "user", content: "Inspect one approved file and return one bounded result." }],
+    tools: [{
+      type: "function",
+      function: {
+        name: "read",
+        description: "Read one approved project file.",
+        parameters: { type: "object", properties: { path: { type: "string" } } },
+      },
+    }],
+    max_completion_tokens: 1_024,
+  };
+}
+
 function isolatedSupplier(
   contextWindow: number,
-  profileFingerprint: string,
+  profile: { byteSize: number; fingerprint: string },
   continuationBytes: number | null,
 ): ToolDispatchRouteEvidenceSupplier {
   return (basis) => {
@@ -72,19 +88,7 @@ function isolatedSupplier(
       outputReserveTokens: 1_024,
       safetyMarginTokens: 1_024,
     };
-    const payload = {
-      model: model.id,
-      messages: [{ role: "user", content: "Inspect one approved file and return one bounded result." }],
-      tools: [{
-        type: "function",
-        function: {
-          name: "read",
-          description: "Read one approved project file.",
-          parameters: { type: "object", properties: { path: { type: "string" } } },
-        },
-      }],
-      max_completion_tokens: 1_024,
-    };
+    const payload = isolatedProviderPayload(contextWindow);
     return {
       version: 1,
       requestId: basis.requestId,
@@ -94,8 +98,8 @@ function isolatedSupplier(
           version: 1,
           footprint: "selected",
           toolNames: [...basis.toolNames],
-          byteSize: 256,
-          fingerprint: profileFingerprint,
+          byteSize: profile.byteSize,
+          fingerprint: profile.fingerprint,
         },
         authority: "allowed",
         direct: { exactArgumentsAvailable: false, argumentsValidated: false },
@@ -257,12 +261,16 @@ test("AC-08 process: direct, current-agent and isolated routes stay bounded acro
         requestedToolNames: ["read"],
         selectionApisAvailable: true,
       });
-      assert.ok(isolatedProfile.fingerprint);
+      assert.ok(isolatedProfile.byteSize !== null && isolatedProfile.fingerprint);
+      const isolatedProfileEvidence = {
+        byteSize: isolatedProfile.byteSize,
+        fingerprint: isolatedProfile.fingerprint,
+      };
       let isolatedModelCalls = 0;
       const unknownOutput = await runToolRequestAgent(dir, state, {
         requestId: isolated.record.id,
         execute: true,
-        routeEvidenceSupplier: isolatedSupplier(contextWindow, isolatedProfile.fingerprint!, null),
+        routeEvidenceSupplier: isolatedSupplier(contextWindow, isolatedProfileEvidence, null),
       }, async (request) => {
         isolatedModelCalls += 1;
         return {
@@ -286,7 +294,7 @@ test("AC-08 process: direct, current-agent and isolated routes stay bounded acro
         execute: true,
         routeEvidenceSupplier: isolatedSupplier(
           contextWindow,
-          isolatedProfile.fingerprint!,
+          isolatedProfileEvidence,
           DEFAULT_TOOL_EXECUTION_LIMITS.resultBytes - 1,
         ),
       }, async (request) => {
@@ -311,7 +319,7 @@ test("AC-08 process: direct, current-agent and isolated routes stay bounded acro
         execute: true,
         routeEvidenceSupplier: isolatedSupplier(
           contextWindow,
-          isolatedProfile.fingerprint!,
+          isolatedProfileEvidence,
           DEFAULT_TOOL_EXECUTION_LIMITS.resultBytes,
         ),
       }, async (request) => {
@@ -340,6 +348,11 @@ test("AC-08 process: direct, current-agent and isolated routes stay bounded acro
       assert.equal(isolatedModelCalls, 1);
       assert.equal(isolatedResult.transaction?.routeAdmission?.route, "isolated");
       assert.equal(isolatedResult.transaction?.routeAdmission?.profileFingerprint, isolatedProfile.fingerprint);
+      const isolatedPayloadBytes = Buffer.byteLength(JSON.stringify(isolatedProviderPayload(contextWindow)), "utf8");
+      assert.equal(
+        isolatedResult.transaction?.routeAdmission?.selectedEstimatedOverheadUpperBound,
+        2 * (isolatedPayloadBytes + 1_024 + 1_024) + DEFAULT_TOOL_EXECUTION_LIMITS.resultBytes,
+      );
       assert.equal(isolatedResult.resultRecord?.acceptanceStatus, "accepted");
     }
   });
