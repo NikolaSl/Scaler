@@ -76,7 +76,7 @@ export interface RuntimePrdCoverageFile {
 
 export interface AdvanceReplannedCoverageInput {
   affectedRequirementRevisions: Record<string, number>;
-  expectedCoverageUpdatedAts: Record<string, string>;
+  expectedCoverageEntries: Record<string, RuntimePrdCoverageEntry>;
   taskIdsByRequirement: Record<string, string[]>;
   updatedAt: string;
 }
@@ -256,16 +256,20 @@ export async function advanceReplannedCoverage(
       }
       const entry = coverage.entries.find((candidate) => candidate.requirementId === id);
       if (!entry) throw new Error(`Replan coverage update requires coverage entry ${id}.`);
-      const expectedCoverageUpdatedAt = input.expectedCoverageUpdatedAts[id];
-      if (!expectedCoverageUpdatedAt) {
+      const expectedCoverageEntry = input.expectedCoverageEntries[id];
+      if (!expectedCoverageEntry
+        || expectedCoverageEntry.requirementId !== id
+        || expectedCoverageEntry.status !== "needs_replan") {
         throw new Error(`Replan coverage update for ${id} lacks an expected coverage basis.`);
       }
-      const targetTaskIds = input.taskIdsByRequirement[id] ?? entry.taskIds;
-      const matchesJournaledInvalidation = entry.status === "needs_replan"
-        && entry.updatedAt === expectedCoverageUpdatedAt;
-      const matchesCompletedTransition = entry.status === "in_progress"
-        && entry.updatedAt === input.updatedAt
-        && JSON.stringify(entry.taskIds ?? []) === JSON.stringify(targetTaskIds ?? []);
+      const completedTransition: RuntimePrdCoverageEntry = {
+        ...expectedCoverageEntry,
+        status: "in_progress",
+        taskIds: input.taskIdsByRequirement[id] ?? expectedCoverageEntry.taskIds,
+        updatedAt: input.updatedAt,
+      };
+      const matchesJournaledInvalidation = samePrdCoverageEntry(entry, expectedCoverageEntry);
+      const matchesCompletedTransition = samePrdCoverageEntry(entry, completedTransition);
       if (!matchesJournaledInvalidation && !matchesCompletedTransition) {
         throw new Error(`Stale replan coverage update for ${id}: coverage changed after the acceptance journal.`);
       }
@@ -285,6 +289,24 @@ export async function advanceReplannedCoverage(
     };
     await savePrdCoverageUnlocked(cwd, updated);
     return updated;
+  });
+}
+
+function samePrdCoverageEntry(left: RuntimePrdCoverageEntry, right: RuntimePrdCoverageEntry): boolean {
+  return JSON.stringify({
+    requirementId: left.requirementId,
+    status: left.status,
+    taskIds: left.taskIds ?? [],
+    evidenceRefs: left.evidenceRefs ?? [],
+    notes: left.notes ?? null,
+    updatedAt: left.updatedAt,
+  }) === JSON.stringify({
+    requirementId: right.requirementId,
+    status: right.status,
+    taskIds: right.taskIds ?? [],
+    evidenceRefs: right.evidenceRefs ?? [],
+    notes: right.notes ?? null,
+    updatedAt: right.updatedAt,
   });
 }
 

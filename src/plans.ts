@@ -16,7 +16,7 @@ import {
   getReplanDecisionsPath,
   getReplanRequestsPath,
 } from "./paths.js";
-import { advanceReplannedCoverage, applyPrdRequirementUpserts, computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdAcceptanceCriterion, type RuntimePrdRequirementStatus, type RuntimePrdRequirementsFile } from "./prd.js";
+import { advanceReplannedCoverage, applyPrdRequirementUpserts, computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdAcceptanceCriterion, type RuntimePrdCoverageEntry, type RuntimePrdRequirementStatus, type RuntimePrdRequirementsFile } from "./prd.js";
 import { assertStateSnapshotCurrent, saveState } from "./state.js";
 import { assessTaskDefinitionQuality, normalizeTaskKind } from "./task-quality.js";
 import { createTask, reviewTaskAcceptancePolicyMutation, updateTask, type UpdateTaskInput } from "./tasks.js";
@@ -188,8 +188,9 @@ export interface ReplanDecisionRecord {
   reopenedTaskIds?: string[];
   rejectedTaskIds?: string[];
   proposalFingerprint?: string;
+  previousPlanFingerprint?: string;
   affectedRequirementRevisions?: Record<string, number>;
-  affectedCoverageUpdatedAts?: Record<string, string>;
+  affectedCoverageEntries?: Record<string, RuntimePrdCoverageEntry>;
   preservation: ExecutionPlanPreservationCheck;
   createdAt: string;
 }
@@ -475,12 +476,14 @@ async function acceptReplanProposalLocked(
       if (!requirement) throw new Error(`Replan acceptance requires runtime PRD requirement ${id}.`);
       return [id, requirement.revision ?? 1];
     }));
-  const affectedCoverageUpdatedAts = applyingDecision?.affectedCoverageUpdatedAts
+  const affectedCoverageEntries = applyingDecision?.affectedCoverageEntries
     ?? Object.fromEntries([...affectedRequirementIds].map((id) => {
       const entry = coverage.entries.find((candidate) => candidate.requirementId === id);
       if (!entry) throw new Error(`Replan acceptance requires coverage entry ${id}.`);
-      return [id, entry.updatedAt];
+      return [id, entry];
     }));
+  const previousPlanFingerprint = applyingDecision?.previousPlanFingerprint
+    ?? fingerprintReplanProposal(currentPlan);
   const durablePlan = await loadExecutionPlan(cwd);
   if (!applyingDecision && !sameAcceptedReplanPlan(durablePlan, { ...currentPlan, status: "active" })) {
     throw new Error(`Replan acceptance has a stale current plan: expected version ${currentPlan.planVersion}, active version ${durablePlan.planVersion}.`);
@@ -499,28 +502,44 @@ async function acceptReplanProposalLocked(
     existingTaskIds: proposedPlan.tasks.filter((task) => state.tasks.some((current) => current.id === task.id)).map((task) => task.id),
     reopenedTaskIds,
     proposalFingerprint,
+    previousPlanFingerprint,
     affectedRequirementRevisions,
-    affectedCoverageUpdatedAts,
+    affectedCoverageEntries,
     preservation,
     createdAt: timestamp,
   });
-  const taskIdsByRequirement = buildPlanTaskIdsByRequirement(targetPlan);
-  await advanceReplannedCoverage(cwd, {
-    affectedRequirementRevisions,
-    expectedCoverageUpdatedAts: affectedCoverageUpdatedAts,
-    taskIdsByRequirement: Object.fromEntries(taskIdsByRequirement),
-    updatedAt: journal.createdAt,
-  });
-  let savedPlan: ExecutionPlanArtifact;
   if (durablePlan.planVersion === journal.proposedPlanVersion) {
     if (!sameAcceptedReplanPlan(durablePlan, targetPlan)) {
       throw new Error(`Replan decision ${journal.id} target plan conflicts with active plan version ${durablePlan.planVersion}.`);
     }
-    savedPlan = durablePlan;
   } else if (durablePlan.planVersion === journal.previousPlanVersion) {
-    savedPlan = await saveExecutionPlan(cwd, targetPlan, now);
+    if (!journal.previousPlanFingerprint || fingerprintReplanProposal(durablePlan) !== journal.previousPlanFingerprint) {
+      throw new Error(`Replan decision ${journal.id} previous plan conflicts with active plan version ${durablePlan.planVersion}.`);
+    }
   } else {
     throw new Error(`Replan decision ${journal.id} cannot resume from active plan version ${durablePlan.planVersion}.`);
+  }
+  const taskIdsByRequirement = buildPlanTaskIdsByRequirement(targetPlan);
+  await advanceReplannedCoverage(cwd, {
+    affectedRequirementRevisions,
+    expectedCoverageEntries: affectedCoverageEntries,
+    taskIdsByRequirement: Object.fromEntries(taskIdsByRequirement),
+    updatedAt: journal.createdAt,
+  });
+  const durablePlanAfterCoverage = await loadExecutionPlan(cwd);
+  let savedPlan: ExecutionPlanArtifact;
+  if (durablePlanAfterCoverage.planVersion === journal.proposedPlanVersion) {
+    if (!sameAcceptedReplanPlan(durablePlanAfterCoverage, targetPlan)) {
+      throw new Error(`Replan decision ${journal.id} target plan conflicts with active plan version ${durablePlanAfterCoverage.planVersion}.`);
+    }
+    savedPlan = durablePlanAfterCoverage;
+  } else if (durablePlanAfterCoverage.planVersion === journal.previousPlanVersion) {
+    if (!journal.previousPlanFingerprint || fingerprintReplanProposal(durablePlanAfterCoverage) !== journal.previousPlanFingerprint) {
+      throw new Error(`Replan decision ${journal.id} previous plan conflicts with active plan version ${durablePlanAfterCoverage.planVersion}.`);
+    }
+    savedPlan = await saveExecutionPlan(cwd, targetPlan, now);
+  } else {
+    throw new Error(`Replan decision ${journal.id} cannot resume from active plan version ${durablePlanAfterCoverage.planVersion}.`);
   }
   if (reopenedState !== state) await saveState(cwd, reopenedState);
   const applyResult = await applyExecutionPlanTasks(cwd, reopenedState, savedPlan);

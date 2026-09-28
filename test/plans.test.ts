@@ -922,8 +922,11 @@ test("acceptReplanProposal resumes an applying decision without losing audit or 
       snapshotPath: ".scaler/plans/versions/PLAN-v001.json",
       reopenedTaskIds: ["T-AFFECTED"],
       proposalFingerprint,
+      previousPlanFingerprint: createHash("sha256").update(JSON.stringify({ ...currentPlan, planVersion: 1 })).digest("hex"),
       affectedRequirementRevisions: { "REQ-AFFECTED": 2 },
-      affectedCoverageUpdatedAts: { "REQ-AFFECTED": now.toISOString() },
+      affectedCoverageEntries: {
+        "REQ-AFFECTED": { requirementId: "REQ-AFFECTED", status: "needs_replan", taskIds: ["T-AFFECTED"], updatedAt: now.toISOString() },
+      },
       preservation: {
         ok: true,
         preservedValidatedTaskIds: ["T-KEEP"],
@@ -1059,7 +1062,6 @@ test("acceptReplanProposal rejects stale applying coverage before durable plan o
         proposalFingerprint,
         previousPlanFingerprint,
         affectedRequirementRevisions: { "REQ-AFFECTED": 2 },
-        affectedCoverageUpdatedAts: { "REQ-AFFECTED": now.toISOString() },
         affectedCoverageEntries: { "REQ-AFFECTED": journaledCoverage },
         preservation: {
           ok: true,

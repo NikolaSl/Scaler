@@ -359,7 +359,9 @@ test("advanceReplannedCoverage merges only matching affected revisions", async (
 
     await advanceReplannedCoverage(dir, {
       affectedRequirementRevisions: { "REQ-A": 2 },
-      expectedCoverageUpdatedAts: { "REQ-A": now.toISOString() },
+      expectedCoverageEntries: {
+        "REQ-A": { requirementId: "REQ-A", status: "needs_replan", updatedAt: now.toISOString() },
+      },
       taskIdsByRequirement: { "REQ-A": ["T-A"] },
       updatedAt: "2026-01-01T00:01:00.000Z",
     });
@@ -376,7 +378,9 @@ test("advanceReplannedCoverage merges only matching affected revisions", async (
     });
     await assert.rejects(() => advanceReplannedCoverage(dir, {
       affectedRequirementRevisions: { "REQ-A": 2 },
-      expectedCoverageUpdatedAts: { "REQ-A": now.toISOString() },
+      expectedCoverageEntries: {
+        "REQ-A": { requirementId: "REQ-A", status: "in_progress", taskIds: ["T-A"], updatedAt: "2026-01-01T00:01:00.000Z" },
+      },
       taskIdsByRequirement: { "REQ-A": ["T-A"] },
       updatedAt: "2026-01-01T00:03:00.000Z",
     }), /stale replan coverage update.*expected revision 2.*current revision 3/i);
