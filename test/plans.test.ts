@@ -1064,8 +1064,10 @@ test("acceptReplanProposal rejects stale applying coverage before durable plan o
         updatedAt: state.createdAt,
       }, now);
       const proposedPlan: ExecutionPlanArtifact = { ...currentPlan, planVersion: 2, status: "draft" };
-      const proposalFingerprint = createHash("sha256").update(JSON.stringify(proposedPlan)).digest("hex");
-      const previousPlanFingerprint = createHash("sha256").update(JSON.stringify(currentPlan)).digest("hex");
+      const { updatedAt: _proposalUpdatedAt, ...proposalIdentity } = proposedPlan;
+      const proposalFingerprint = createHash("sha256").update(JSON.stringify(proposalIdentity)).digest("hex");
+      const { updatedAt: _currentUpdatedAt, ...currentPlanIdentity } = currentPlan;
+      const previousPlanFingerprint = createHash("sha256").update(JSON.stringify(currentPlanIdentity)).digest("hex");
       const journaledCoverage = (await loadPrdCoverage(dir)).entries[0]!;
       await appendReplanDecision(dir, {
         id: `DECISION-${drift.toUpperCase()}`,
@@ -1122,7 +1124,7 @@ test("acceptReplanProposal rejects stale applying coverage before durable plan o
         currentPlan,
         proposedPlan,
         now: new Date("2026-01-01T00:01:00.000Z"),
-      }), /stale replan|replan coverage.*changed|plan.*conflict/i);
+      }), /stale replan|replan coverage.*changed|plan.*conflict/i, drift);
 
       assert.equal((await loadExecutionPlan(dir)).planVersion, 1);
       if (drift === "plan") assert.equal((await loadExecutionPlan(dir)).title, "Concurrent replacement");

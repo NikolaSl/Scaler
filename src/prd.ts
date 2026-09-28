@@ -249,10 +249,10 @@ export async function advanceReplannedCoverageAndRun<T>(
   publish: (coverage: RuntimePrdCoverageFile) => Promise<T>,
 ): Promise<T> {
   const affectedIds = Object.keys(input.affectedRequirementRevisions);
-  if (affectedIds.length === 0) return publish(await loadPrdCoverage(cwd));
   return withPrdRequirementsLock(cwd, async () => {
-    const requirements = await loadPrdRequirementsUnlocked(cwd);
     const coverage = await loadPrdCoverage(cwd);
+    if (affectedIds.length === 0) return publish(coverage);
+    const requirements = await loadPrdRequirementsUnlocked(cwd);
     const affected = new Set(affectedIds);
     for (const id of affectedIds) {
       const requirement = requirements.requirements.find((candidate) => candidate.id === id);

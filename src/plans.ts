@@ -856,13 +856,16 @@ function reopenAffectedValidatedTasks(state: ScalerState, taskIds: string[], tim
 }
 
 function fingerprintReplanProposal(plan: ExecutionPlanArtifact): string {
-  return createHash("sha256").update(JSON.stringify(plan)).digest("hex");
+  return createHash("sha256").update(JSON.stringify(replanPlanIdentity(plan))).digest("hex");
 }
 
 function sameAcceptedReplanPlan(current: ExecutionPlanArtifact, target: ExecutionPlanArtifact): boolean {
-  const { updatedAt: _currentUpdatedAt, ...currentIdentity } = current;
-  const { updatedAt: _targetUpdatedAt, ...targetIdentity } = target;
-  return JSON.stringify(currentIdentity) === JSON.stringify(targetIdentity);
+  return JSON.stringify(replanPlanIdentity(current)) === JSON.stringify(replanPlanIdentity(target));
+}
+
+function replanPlanIdentity(plan: ExecutionPlanArtifact): Omit<ExecutionPlanArtifact, "updatedAt"> {
+  const { updatedAt: _updatedAt, ...identity } = plan;
+  return identity;
 }
 
 function assertExecutionPlanCoverage(
