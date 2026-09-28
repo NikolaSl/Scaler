@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -38,7 +38,7 @@ const policyEnv = {
 
 // All provider traffic is replaced before creating the SDK session. No live
 // credentials, endpoints, command providers or global resource discovery are used.
-async function runInstalledHost(systemCharacters: number, extensions: ExtensionFactory[] = [], options: { autoCompaction?: boolean; activeTask?: boolean; largeUnselectedTool?: boolean; largeSelectedToolResult?: boolean; reemitBeforeStartPrompt?: boolean; rewriteBeforeScaler?: boolean; defaultSystemPrompt?: boolean; failScalerAuditBeforeStart?: boolean; failScalerAuditBeforeProvider?: boolean; queueFollowUpAfterAbort?: boolean; wrongExpectedModel?: boolean; modelContextWindow?: number; modelMaxTokens?: number; noTools?: boolean; prompt?: string; responseText?: string } = {}) {
+async function runInstalledHost(systemCharacters: number, extensions: ExtensionFactory[] = [], options: { autoCompaction?: boolean; activeTask?: boolean; largeUnselectedTool?: boolean; largeSelectedToolResult?: boolean; reemitBeforeStartPrompt?: boolean; rewriteBeforeScaler?: boolean; defaultSystemPrompt?: boolean; failScalerAuditBeforeStart?: boolean; failScalerAuditBeforeProvider?: boolean; queueFollowUpAfterAbort?: boolean; wrongExpectedModel?: boolean; modelContextWindow?: number; modelMaxTokens?: number; noTools?: boolean; prompt?: string; responseText?: string; memorySourceDir?: string } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "scaler-provider-host-test-"));
   const savedFetch = globalThis.fetch;
   const savedEnv = Object.fromEntries(Object.keys(policyEnv).map((key) => [key, process.env[key]]));
@@ -49,6 +49,9 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
   let compactionCancelled = false;
   try {
     Object.assign(process.env, policyEnv);
+    if (options.memorySourceDir) {
+      await cp(join(options.memorySourceDir, ".scaler", "memory"), join(dir, ".scaler", "memory"), { recursive: true });
+    }
     if (options.modelContextWindow) process.env.SCALER_EXPECTED_CONTEXT_WINDOW = String(options.modelContextWindow);
     if (options.wrongExpectedModel) process.env.SCALER_EXPECTED_MODEL_ID = "different-model";
     if (options.autoCompaction) process.env.SCALER_OUTPUT_RESERVE_TOKENS = "1024";
@@ -189,7 +192,7 @@ async function runInstalledHost(systemCharacters: number, extensions: ExtensionF
         : options.autoCompaction
         ? []
         : options.largeSelectedToolResult
-          ? ["large_selected"]
+          ? ["read", "large_selected"]
         : options.activeTask
           ? ["read", ...(options.largeUnselectedTool ? ["large_unselected"] : []), "scaler_tool_request", "scaler_task_report"]
           : ["read"],
@@ -303,10 +306,12 @@ test("installed Pi composes the complete AC-05 envelope process under one declar
 
         const host = await runInstalledHost(40, [], {
           largeSelectedToolResult: true,
+          memorySourceDir: dir,
           modelContextWindow: 32_768,
           prompt: request.prompt,
         });
         assert.equal(host.fetchCalls, 2);
+        assert.deepEqual(host.activeToolNames.sort(), ["large_selected", "read"]);
         assert.ok(host.usage?.totalTokens);
         observedTotals.push(host.usage.totalTokens);
         const continuation = JSON.stringify(host.payloads[1]);
