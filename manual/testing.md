@@ -600,7 +600,7 @@ remains Partial.
 
 PLAN-160 adds the bounded current-agent route. Run `node --test --import tsx
 test/extension-shape.test.ts test/tool-requests.test.ts test/tool-routing.test.ts
-test/provider-host.test.ts` for exact tool focus, actual-payload route admission,
+test/provider-admission-host.test.ts` for exact tool focus, actual-payload route admission,
 provider/model and profile continuity, provider-call bounds, runtime-owned result
 binding, restoration and telemetry-independent refusal. The installed-host
 suite verifies the selected Pi prompt boundary. These tests do not configure or
