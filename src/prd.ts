@@ -390,10 +390,28 @@ async function amendPrdRequirementLocked(
     createdAt: existing.createdAt,
     updatedAt: timestamp,
   };
+  const acceptanceBasisChanged = !sameRequirementAcceptanceBasis(existing, proposedContent);
+  const coverage = acceptanceBasisChanged ? await loadPrdCoverage(cwd) : undefined;
   await savePrdRequirementsUnlocked(cwd, {
     version: 1,
     requirements: [...requirements.requirements.filter((candidate) => candidate.id !== input.id), requirement],
   });
+  if (coverage) {
+    const existingCoverage = coverage.entries.find((entry) => entry.requirementId === input.id);
+    const invalidatedCoverage: RuntimePrdCoverageEntry = {
+      ...existingCoverage,
+      requirementId: input.id,
+      status: "needs_replan",
+      updatedAt: timestamp,
+    };
+    await savePrdCoverageUnlocked(cwd, {
+      version: 1,
+      entries: [
+        ...coverage.entries.filter((entry) => entry.requirementId !== input.id),
+        invalidatedCoverage,
+      ],
+    });
+  }
   await appendPrdChange(cwd, {
     timestamp,
     reason,
@@ -613,6 +631,21 @@ function sameRequirementContent(
   }) === JSON.stringify({
     statement: proposed.statement,
     title: proposed.title ?? null,
+    source: proposed.source ?? null,
+    acceptanceCriteria: proposed.acceptanceCriteria ?? [],
+  });
+}
+
+function sameRequirementAcceptanceBasis(
+  existing: Pick<RuntimePrdRequirement, "statement" | "source" | "acceptanceCriteria">,
+  proposed: Pick<RuntimePrdRequirement, "statement" | "source" | "acceptanceCriteria">,
+): boolean {
+  return JSON.stringify({
+    statement: existing.statement,
+    source: existing.source ?? null,
+    acceptanceCriteria: existing.acceptanceCriteria ?? [],
+  }) === JSON.stringify({
+    statement: proposed.statement,
     source: proposed.source ?? null,
     acceptanceCriteria: proposed.acceptanceCriteria ?? [],
   });
