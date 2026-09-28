@@ -357,6 +357,11 @@ async function acceptReplanProposalLocked(
     return { accepted: false, message: decision.summary, state, decision, currentPlan, proposedPlan };
   }
 
+  assertExecutionPlanCoverage(
+    proposedPlan,
+    new Set(requirements.requirements.map((requirement) => requirement.id)),
+  );
+  await preflightExecutionPlanTaskQuality(cwd, state, proposedPlan, { updateExisting: false });
   const policyRejections = await preflightExecutionPlanPolicyChanges(cwd, state, proposedPlan, "model");
   if (policyRejections.length > 0) {
     const decision = await appendReplanDecision(cwd, {
@@ -583,16 +588,8 @@ async function applyPlanningReportLocked(
     ...currentRequirements.requirements.map((requirement) => requirement.id),
     ...input.requirements.map((requirement) => requirement.id),
   ]);
-  const coveragePreflight = buildPlanningCoverageDiagnostics(plan, prospectiveRequirementIds);
-  const coverageFailures = [
-    coveragePreflight.unlinkedRequirementIds.length > 0 ? `unlinked=${coveragePreflight.unlinkedRequirementIds.join(",")}` : undefined,
-    coveragePreflight.unknownPlanRequirementIds.length > 0 ? `unknown=${coveragePreflight.unknownPlanRequirementIds.join(",")}` : undefined,
-    coveragePreflight.planUnlinkedTaskIds.length > 0 ? `tasksWithoutPrdRefs=${coveragePreflight.planUnlinkedTaskIds.join(",")}` : undefined,
-  ].filter((value): value is string => Boolean(value));
-  if (coverageFailures.length > 0) {
-    throw new Error(`Planning report coverage preflight rejected before publication: ${coverageFailures.join(" ")}.`);
-  }
-  await preflightExecutionPlanTaskQuality(cwd, state, plan);
+  assertExecutionPlanCoverage(plan, prospectiveRequirementIds);
+  await preflightExecutionPlanTaskQuality(cwd, state, plan, { updateExisting: true });
   await preflightExecutionPlanValidationInputs(cwd, plan);
   const policyRejections = await preflightExecutionPlanPolicyChanges(cwd, state, plan, "model");
   if (policyRejections.length > 0) throw new Error(`Planning report rejected before publication: ${policyRejections.join(" ")}`);
@@ -644,10 +641,12 @@ async function preflightExecutionPlanTaskQuality(
   cwd: string,
   state: ScalerState,
   plan: ExecutionPlanArtifact,
+  options: { updateExisting: boolean },
 ): Promise<void> {
   const blocked: string[] = [];
   for (const task of plan.tasks) {
     const existing = state.tasks.find((candidate) => candidate.id === task.id);
+    if (existing && !options.updateExisting) continue;
     const candidate: ScalerState["tasks"][number] = {
       ...(existing ?? { id: task.id, status: "pending", updatedAt: state.updatedAt }),
       title: existing?.status === "validated" ? existing.title : task.title,
@@ -678,6 +677,22 @@ async function preflightExecutionPlanTaskQuality(
   if (blocked.length > 0) {
     throw new Error(`Planning report task contract preflight rejected before publication: ${blocked.join(" ")}.`);
   }
+}
+
+function assertExecutionPlanCoverage(
+  plan: ExecutionPlanArtifact,
+  requirementIds: ReadonlySet<string>,
+): PlanningCoverageDiagnostics {
+  const diagnostics = buildPlanningCoverageDiagnostics(plan, requirementIds);
+  const failures = [
+    diagnostics.unlinkedRequirementIds.length > 0 ? `unlinked=${diagnostics.unlinkedRequirementIds.join(",")}` : undefined,
+    diagnostics.unknownPlanRequirementIds.length > 0 ? `unknown=${diagnostics.unknownPlanRequirementIds.join(",")}` : undefined,
+    diagnostics.planUnlinkedTaskIds.length > 0 ? `tasksWithoutPrdRefs=${diagnostics.planUnlinkedTaskIds.join(",")}` : undefined,
+  ].filter((value): value is string => Boolean(value));
+  if (failures.length > 0) {
+    throw new Error(`Execution plan coverage preflight rejected before publication: ${failures.join(" ")}.`);
+  }
+  return diagnostics;
 }
 
 function buildPlanningCoverageDiagnostics(

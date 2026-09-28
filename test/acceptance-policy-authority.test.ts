@@ -764,6 +764,7 @@ test("replan rejects an exercised policy replacement before snapshot or plan pub
       tasks: [{
         id: "T-POLICY", title: "Preserve acceptance policy", taskKind: "software",
         atomicityRationale: "One independently testable result.", allowedPathPrefixes: ["result.txt"],
+        prdRefs: ["REQ-POLICY"],
         definitionOfDone: ["result.txt contains fixed"], validationRefs: ["unit"], outputPaths: ["result.txt"],
         validationCommands: (await getValidationManifestForTask(dir, "T-POLICY")).commands,
       }],
@@ -781,7 +782,15 @@ test("replan rejects an exercised policy replacement before snapshot or plan pub
       })),
     };
 
-    const result = await acceptReplanProposal(dir, state, { version: 1, requirements: [] }, {
+    const result = await acceptReplanProposal(dir, state, {
+      version: 1,
+      requirements: [{
+        id: "REQ-POLICY",
+        statement: "Preserve the accepted task policy.",
+        createdAt: state.createdAt,
+        updatedAt: state.updatedAt,
+      }],
+    }, {
       currentPlan,
       proposedPlan,
       now: new Date("2026-09-18T00:00:00.000Z"),
