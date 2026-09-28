@@ -74,6 +74,12 @@ export interface RuntimePrdCoverageFile {
   entries: RuntimePrdCoverageEntry[];
 }
 
+export interface AdvanceReplannedCoverageInput {
+  affectedRequirementRevisions: Record<string, number>;
+  taskIdsByRequirement: Record<string, string[]>;
+  updatedAt: string;
+}
+
 export interface RuntimePrdChangeRecord {
   timestamp: string;
   reason: string;
@@ -227,6 +233,46 @@ export async function loadPrdCoverage(cwd: string): Promise<RuntimePrdCoverageFi
 
 export async function savePrdCoverage(cwd: string, coverage: RuntimePrdCoverageFile): Promise<void> {
   await withPrdRequirementsLock(cwd, async () => savePrdCoverageUnlocked(cwd, coverage));
+}
+
+export async function advanceReplannedCoverage(
+  cwd: string,
+  input: AdvanceReplannedCoverageInput,
+): Promise<RuntimePrdCoverageFile> {
+  const affectedIds = Object.keys(input.affectedRequirementRevisions);
+  if (affectedIds.length === 0) return loadPrdCoverage(cwd);
+  return withPrdRequirementsLock(cwd, async () => {
+    const requirements = await loadPrdRequirementsUnlocked(cwd);
+    const coverage = await loadPrdCoverage(cwd);
+    const affected = new Set(affectedIds);
+    for (const id of affectedIds) {
+      const requirement = requirements.requirements.find((candidate) => candidate.id === id);
+      if (!requirement) throw new Error(`Replan coverage update requires runtime PRD requirement ${id}.`);
+      const expectedRevision = input.affectedRequirementRevisions[id];
+      const currentRevision = requirement.revision ?? 1;
+      if (currentRevision !== expectedRevision) {
+        throw new Error(`Stale replan coverage update for ${id}: expected revision ${expectedRevision}, current revision ${currentRevision}.`);
+      }
+      const entry = coverage.entries.find((candidate) => candidate.requirementId === id);
+      if (!entry) throw new Error(`Replan coverage update requires coverage entry ${id}.`);
+      if (entry.status !== "needs_replan" && entry.status !== "in_progress") {
+        throw new Error(`Replan coverage update for ${id} requires needs_replan or in_progress status; current status is ${entry.status}.`);
+      }
+    }
+    const updated: RuntimePrdCoverageFile = {
+      version: 1,
+      entries: coverage.entries.map((entry) => affected.has(entry.requirementId)
+        ? {
+            ...entry,
+            status: "in_progress",
+            taskIds: input.taskIdsByRequirement[entry.requirementId] ?? entry.taskIds,
+            updatedAt: input.updatedAt,
+          }
+        : entry),
+    };
+    await savePrdCoverageUnlocked(cwd, updated);
+    return updated;
+  });
 }
 
 export async function upsertPrdRequirement(cwd: string, input: UpsertPrdRequirementInput): Promise<RuntimePrdRequirement> {
