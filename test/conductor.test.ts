@@ -1440,6 +1440,39 @@ test("recordTaskAgentRun truncates stderr summaries", async () => {
   });
 });
 
+test("recordTaskAgentRun records unavailable observed usage for a conservatively admitted strict run", async () => {
+  await withTempDir(async (dir) => {
+    const record = await recordTaskAgentRun(dir, {
+      taskId: "T-001",
+      exitCode: 0,
+      stdoutEvents: [],
+      stderr: "",
+      timedOut: false,
+      aborted: false,
+      providerAdmissions: [{
+        type: "scaler_provider_admission",
+        version: 1,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        dispatchId: "dispatch-1",
+        accepted: true,
+        code: "accepted",
+        message: "Admitted by conservative serialized-byte bound.",
+        estimator: "serialized_utf8_bytes_upper_bound",
+        payloadBytes: 321,
+      }],
+    });
+
+    assert.deepEqual(record.providerUsageReconciliation, {
+      status: "unavailable",
+      dispatchId: "dispatch-1",
+      estimator: "serialized_utf8_bytes_upper_bound",
+      admittedRequestCount: 1,
+      estimatedInputTokensUpperBound: 321,
+      limitation: "provider_input_usage_unavailable",
+    });
+  });
+});
+
 test("buildTaskAgentPrompt returns context omissions from resolver", () => {
   const state = stateWithTasks(["ready"]);
   const result = buildTaskAgentPrompt({

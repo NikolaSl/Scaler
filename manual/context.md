@@ -172,9 +172,15 @@ diagnostic debug, replanning, tool-schema discovery and explicit task spawns now
 attach this strict policy after early final-prompt admission. The installed
 parent extension separately assesses every ordinary final provider payload
 against the live model context window, output reserve and safety margin; it
-aborts before transport and records only compact measurements. Provider-internal
-retries, model eligibility policy and reconciliation against observed usage
-remain later P3 work.
+aborts before transport and records only compact measurements. Strict task-agent
+dispatches retain each final-payload byte-bound estimate and either its
+provider-observed input usage/delta or an explicit
+`provider_input_usage_unavailable` limitation in the durable run record. The
+admission record crosses Pi's isolated JSON stdout channel; missing, malformed,
+conflicting, refused, stale or nested model-authored evidence fails the strict
+run before handoff. Missing provider telemetry does not override a verified
+conservative admission bound. Provider-internal retries and model eligibility
+policy remain later P3 work.
 
 Strict child launches can currently activate only Pi built-in tools and SCALER
 tools loaded by the isolated child profile. The shared strict invocation

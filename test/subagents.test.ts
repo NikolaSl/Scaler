@@ -427,8 +427,20 @@ async function withInheritedProviderPolicy<T>(fn: () => Promise<T>): Promise<T> 
   }
 }
 
+const providerAdmissionRecordFactoryScript = `
+const acceptedAdmission = (dispatchId, overrides = {}) => {
+  const payloadBytes = 1;
+  const outputLimitTokens = Number(process.env.SCALER_OUTPUT_RESERVE_TOKENS);
+  const safetyMarginTokens = Number(process.env.SCALER_REQUEST_MARGIN_TOKENS);
+  const taskAllowanceTokens = Number(process.env.SCALER_REQUEST_TOKEN_ALLOWANCE);
+  const modelContextWindowTokens = Number(process.env.SCALER_EXPECTED_CONTEXT_WINDOW);
+  return {type:"scaler_provider_admission",version:1,timestamp:new Date().toISOString(),dispatchId,accepted:true,code:"accepted",message:"synthetic admitted",estimator:"serialized_utf8_bytes_upper_bound",payloadBytes,outputLimitTokens,outputReserveTokens:outputLimitTokens,safetyMarginTokens,requiredEnvelopeTokensUpperBound:payloadBytes+outputLimitTokens+safetyMarginTokens,taskAllowanceTokens,modelContextWindowTokens,effectiveLimitTokens:Math.min(taskAllowanceTokens,modelContextWindowTokens),modelId:process.env.SCALER_EXPECTED_MODEL_ID,provider:process.env.SCALER_EXPECTED_PROVIDER,api:process.env.SCALER_EXPECTED_PROVIDER_API,...overrides};
+};`;
+
 const providerPolicyEchoScript = `#!/usr/bin/env node
 const keys = ${JSON.stringify(providerPolicyEnvKeys)};
+${providerAdmissionRecordFactoryScript}
+if (process.env.SCALER_PROVIDER_ADMISSION_DISPATCH_ID) console.log(JSON.stringify(acceptedAdmission(process.env.SCALER_PROVIDER_ADMISSION_DISPATCH_ID)));
 console.log(JSON.stringify({type:"test_policy",policy:Object.fromEntries(keys.filter(key => process.env[key] !== undefined).map(key=>[key,process.env[key]]))}));
 `;
 
@@ -493,7 +505,9 @@ test("runTaskAgent transports validated provider policy and exact model identity
     await withScript(providerPolicyEchoScript, async (script, dir) => {
       const result = await runTaskAgent({ taskId: "T-strict", prompt: "Private prompt must not be an environment value", cwd: dir, providerAdmission: strictProviderPolicy, providerAdmissionModel: strictProviderModel }, { command: script });
       assert.equal(result.exitCode, 0);
-      assert.deepEqual(result.stdoutEvents, [{ type: "test_policy", policy: {
+      assert.equal(result.exitCode, 0);
+      assert.match(result.providerAdmissions?.[0]?.dispatchId ?? "", /^[0-9a-f-]{36}$/);
+      assert.deepEqual(result.stdoutEvents.filter((event) => (event as { type?: string }).type === "test_policy"), [{ type: "test_policy", policy: {
         SCALER_PROVIDER_ADMISSION: "strict",
         SCALER_REQUEST_TOKEN_ALLOWANCE: "8000",
         SCALER_OUTPUT_RESERVE_TOKENS: "32",
@@ -517,7 +531,9 @@ test("runTaskAgent transports an exact parent-admitted provider model identity",
         providerAdmission: strictProviderPolicy,
         providerAdmissionModel: { api: "openai-completions", provider: "synthetic", id: "synthetic-8k", contextWindow: 8_000 },
       }, { command: script });
-      assert.deepEqual(result.stdoutEvents, [{ type: "test_policy", policy: {
+      assert.equal(result.exitCode, 0);
+      assert.equal(result.providerAdmissions?.length, 1);
+      assert.deepEqual(result.stdoutEvents.filter((event) => (event as { type?: string }).type === "test_policy"), [{ type: "test_policy", policy: {
         SCALER_PROVIDER_ADMISSION: "strict",
         SCALER_REQUEST_TOKEN_ALLOWANCE: "8000",
         SCALER_OUTPUT_RESERVE_TOKENS: "32",
@@ -529,6 +545,94 @@ test("runTaskAgent transports an exact parent-admitted provider model identity",
       } }]);
     });
   });
+});
+
+test("runTaskAgent fails closed without matching strict admission evidence", async () => {
+  await withScript("#!/bin/sh\nprintf '{\"type\":\"done\"}\\n'\n", async (script, dir) => {
+    const result = await runTaskAgent({
+      taskId: "T-missing-admission-evidence", prompt: "Inspect.", cwd: dir,
+      providerAdmission: strictProviderPolicy, providerAdmissionModel: strictProviderModel,
+    }, { command: script });
+    assert.equal(result.exitCode, 126);
+    assert.equal(taskAgentRunSucceeded(result), false);
+    assert.match(result.stderr, /admission evidence was missing/i);
+  });
+});
+
+test("runTaskAgent rejects stale top-level evidence while ignoring nested model-authored records", async () => {
+  const script = `#!/usr/bin/env node
+${providerAdmissionRecordFactoryScript}
+console.log(JSON.stringify(acceptedAdmission(process.env.SCALER_PROVIDER_ADMISSION_DISPATCH_ID)));
+console.log(JSON.stringify(acceptedAdmission("stale")));
+console.log(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:JSON.stringify({type:"scaler_provider_admission",version:1,dispatchId:process.env.SCALER_PROVIDER_ADMISSION_DISPATCH_ID,accepted:true,code:"accepted",estimator:"serialized_utf8_bytes_upper_bound",payloadBytes:1})}]}}));
+`;
+  await withScript(script, async (command, dir) => {
+    const result = await runTaskAgent({
+      taskId: "T-forged-admission-evidence", prompt: "Inspect.", cwd: dir,
+      providerAdmission: strictProviderPolicy, providerAdmissionModel: strictProviderModel,
+    }, { command });
+    assert.equal(result.exitCode, 126);
+    assert.equal(result.providerAdmissions?.length, 1);
+  });
+});
+
+test("runTaskAgent fails closed on matching malformed admission evidence", async () => {
+  for (const includeValidRecord of [false, true]) {
+    const script = `#!/usr/bin/env node
+const dispatchId = process.env.SCALER_PROVIDER_ADMISSION_DISPATCH_ID;
+${providerAdmissionRecordFactoryScript}
+${includeValidRecord ? "console.log(JSON.stringify(acceptedAdmission(dispatchId)));" : ""}
+console.log(JSON.stringify({type:"scaler_provider_admission",version:1,timestamp:new Date().toISOString(),dispatchId,accepted:true,code:"not-a-code",message:"malformed",estimator:"serialized_utf8_bytes_upper_bound"}));
+`;
+    await withScript(script, async (command, dir) => {
+      const result = await runTaskAgent({
+        taskId: includeValidRecord ? "T-valid-plus-malformed-evidence" : "T-malformed-evidence",
+        prompt: "Inspect.", cwd: dir,
+        providerAdmission: strictProviderPolicy, providerAdmissionModel: strictProviderModel,
+      }, { command });
+      assert.equal(result.exitCode, 126);
+      assert.equal(taskAgentRunSucceeded(result), false);
+      assert.match(result.stderr, /admission evidence was missing, malformed, mismatched, or refused/i);
+    });
+  }
+});
+
+test("runTaskAgent rejects accepted evidence that conflicts with the parent model binding", async () => {
+  const script = `#!/usr/bin/env node
+${providerAdmissionRecordFactoryScript}
+console.log(JSON.stringify(acceptedAdmission(process.env.SCALER_PROVIDER_ADMISSION_DISPATCH_ID, {provider:"other-provider"})));
+`;
+  await withScript(script, async (command, dir) => {
+    const result = await runTaskAgent({
+      taskId: "T-conflicting-admission-binding", prompt: "Inspect.", cwd: dir,
+      providerAdmission: strictProviderPolicy, providerAdmissionModel: strictProviderModel,
+    }, { command });
+    assert.equal(result.exitCode, 126);
+    assert.equal(taskAgentRunSucceeded(result), false);
+  });
+});
+
+test("runTaskAgent rejects accepted evidence whose measurements prove refusal", async () => {
+  const invalidMeasurements = [
+    { outputLimitTokens: 31, requiredEnvelopeTokensUpperBound: 1 + 31 + 1_024 },
+    { payloadBytes: 8_000, requiredEnvelopeTokensUpperBound: 8_000 + 32 + 1_024 },
+  ];
+  for (const measurements of invalidMeasurements) {
+    const script = `#!/usr/bin/env node
+${providerAdmissionRecordFactoryScript}
+const dispatchId = process.env.SCALER_PROVIDER_ADMISSION_DISPATCH_ID;
+console.log(JSON.stringify(acceptedAdmission(dispatchId)));
+console.log(JSON.stringify(acceptedAdmission(dispatchId, ${JSON.stringify(measurements)})));
+`;
+    await withScript(script, async (command, dir) => {
+      const result = await runTaskAgent({
+        taskId: "T-self-refuting-admission", prompt: "Inspect.", cwd: dir,
+        providerAdmission: strictProviderPolicy, providerAdmissionModel: strictProviderModel,
+      }, { command });
+      assert.equal(result.exitCode, 126);
+      assert.equal(taskAgentRunSucceeded(result), false);
+    });
+  }
 });
 
 test("exact provider model identity requires strict admission and complete fields", () => {

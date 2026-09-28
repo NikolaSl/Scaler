@@ -4,6 +4,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { extname } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
@@ -13,6 +14,7 @@ import {
   validateProviderAdmissionPolicy,
   type ProviderAdmissionModel,
   type ProviderAdmissionPolicy,
+  type ProviderAdmissionRecord,
 } from "./provider-admission.js";
 import { recordWatchdogCleanup } from "./watchdogs.js";
 import type { TaskAttemptBinding } from "./task-attempts.js";
@@ -52,6 +54,7 @@ export interface TaskAgentRunResult {
   stderrBytes?: number;
   outputLimitExceeded?: "stdout" | "stderr";
   usage?: ProviderUsage;
+  providerAdmissions?: ProviderAdmissionRecord[];
 }
 
 export interface TaskAgentOutputLimits {
@@ -207,6 +210,31 @@ export function resolveChildAgentExtensionPaths(request: TaskAgentRequest, tools
   return [getDefaultScalerChildExtensionPath()];
 }
 
+export function buildTaskAgentEnvironment(
+  request: TaskAgentRequest,
+  baseEnvironment: NodeJS.ProcessEnv = process.env,
+  dispatchId?: string,
+): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = { ...baseEnvironment, SCALER_CHILD_AGENT: "1" };
+  delete environment.SCALER_TOOL_EXECUTION_ID;
+  for (const key of providerAdmissionEnvironmentKeys) delete environment[key];
+  if (request.providerAdmission) {
+    environment.SCALER_PROVIDER_ADMISSION = "strict";
+    environment.SCALER_REQUEST_TOKEN_ALLOWANCE = String(request.providerAdmission.requestTokenAllowance);
+    environment.SCALER_OUTPUT_RESERVE_TOKENS = String(request.providerAdmission.outputReserveTokens);
+    environment.SCALER_REQUEST_MARGIN_TOKENS = String(request.providerAdmission.safetyMarginTokens);
+    if (dispatchId) environment.SCALER_PROVIDER_ADMISSION_DISPATCH_ID = dispatchId;
+    if (request.providerAdmissionModel) {
+      environment.SCALER_EXPECTED_PROVIDER_API = String(request.providerAdmissionModel.api);
+      environment.SCALER_EXPECTED_PROVIDER = String(request.providerAdmissionModel.provider);
+      environment.SCALER_EXPECTED_MODEL_ID = String(request.providerAdmissionModel.id);
+      environment.SCALER_EXPECTED_CONTEXT_WINDOW = String(request.providerAdmissionModel.contextWindow);
+    }
+  }
+  if (request.executionId) environment.SCALER_TOOL_EXECUTION_ID = request.executionId;
+  return environment;
+}
+
 export function extractStructuredReportPayloads(stdoutEvents: unknown[], reportType: string): Record<string, unknown>[] {
   const payloads: Record<string, unknown>[] = [];
   for (const event of stdoutEvents) {
@@ -239,22 +267,8 @@ export async function runTaskAgent(
     };
   }
   const invocation = buildTaskAgentInvocation(request, options.command ?? "pi");
-  const environment: NodeJS.ProcessEnv = { ...process.env, SCALER_CHILD_AGENT: "1" };
-  delete environment.SCALER_TOOL_EXECUTION_ID;
-  for (const key of providerAdmissionEnvironmentKeys) delete environment[key];
-  if (request.providerAdmission) {
-    environment.SCALER_PROVIDER_ADMISSION = "strict";
-    environment.SCALER_REQUEST_TOKEN_ALLOWANCE = String(request.providerAdmission.requestTokenAllowance);
-    environment.SCALER_OUTPUT_RESERVE_TOKENS = String(request.providerAdmission.outputReserveTokens);
-    environment.SCALER_REQUEST_MARGIN_TOKENS = String(request.providerAdmission.safetyMarginTokens);
-    if (request.providerAdmissionModel) {
-      environment.SCALER_EXPECTED_PROVIDER_API = String(request.providerAdmissionModel.api);
-      environment.SCALER_EXPECTED_PROVIDER = String(request.providerAdmissionModel.provider);
-      environment.SCALER_EXPECTED_MODEL_ID = String(request.providerAdmissionModel.id);
-      environment.SCALER_EXPECTED_CONTEXT_WINDOW = String(request.providerAdmissionModel.contextWindow);
-    }
-  }
-  if (request.executionId) environment.SCALER_TOOL_EXECUTION_ID = request.executionId;
+  const dispatchId = request.providerAdmission ? randomUUID() : undefined;
+  const environment = buildTaskAgentEnvironment(request, process.env, dispatchId);
 
   return await new Promise<TaskAgentRunResult>((resolve, reject) => {
     const child = spawn(invocation.command, invocation.args, {
@@ -357,9 +371,26 @@ export async function runTaskAgent(
             message: `Owned task-agent process exited after ${timedOut ? "timeout" : aborted ? "abort" : `${outputLimitExceeded} limit`}: code=${code ?? "null"} signal=${signal ?? "none"}.`,
           });
         }
+        const usage = extractProviderUsage(stdoutEvents);
+        const admissionEvidence = dispatchId
+          ? extractProviderAdmissionRecords(
+              stdoutEvents,
+              dispatchId,
+              request.providerAdmission,
+              request.providerAdmissionModel,
+            )
+          : undefined;
+        const providerAdmissions = admissionEvidence?.records;
+        const strictEvidenceError = request.providerAdmission !== undefined
+          && (admissionEvidence?.malformed === true
+            || !providerAdmissions?.some((record) => record.accepted)
+            || providerAdmissions.some((record) => !record.accepted));
+        if (strictEvidenceError) {
+          stderr += "\nStrict provider admission evidence was missing, malformed, mismatched, or refused.";
+        }
         resolve({
           taskId: request.taskId,
-          exitCode: timedOut ? 124 : aborted ? 130 : outputLimitExceeded ? 125 : code ?? 1,
+          exitCode: timedOut ? 124 : aborted ? 130 : outputLimitExceeded ? 125 : strictEvidenceError ? 126 : code ?? 1,
           stdoutEvents,
           stderr,
           timedOut,
@@ -367,7 +398,8 @@ export async function runTaskAgent(
           stdoutBytes,
           stderrBytes,
           outputLimitExceeded,
-          usage: extractProviderUsage(stdoutEvents),
+          usage,
+          providerAdmissions,
         });
       } catch (error) {
         reject(error);
@@ -401,6 +433,101 @@ export async function runTaskAgent(
       }, options.timeoutMs);
     }
   });
+}
+
+const providerAdmissionCodes = new Set([
+  "accepted",
+  "invalid_policy",
+  "invalid_model",
+  "unsupported_api",
+  "invalid_payload",
+  "unsupported_content",
+  "invalid_output_limit",
+  "conflicting_output_limits",
+  "insufficient_output_reserve",
+  "envelope_exceeds_limit",
+]);
+
+function extractProviderAdmissionRecords(
+  events: unknown[],
+  dispatchId: string,
+  expectedPolicy: ProviderAdmissionPolicy | undefined,
+  expectedModel: ProviderAdmissionModel | undefined,
+): { records: ProviderAdmissionRecord[]; malformed: boolean } {
+  const records: ProviderAdmissionRecord[] = [];
+  let malformed = false;
+  for (const event of events) {
+    if (!isRecord(event) || event.type !== "scaler_provider_admission") continue;
+    if (event.dispatchId !== dispatchId) {
+      malformed = true;
+      continue;
+    }
+    const timestamp = typeof event.timestamp === "string" ? event.timestamp : "";
+    const numericFields = [
+      "payloadBytes", "outputLimitTokens", "outputReserveTokens", "safetyMarginTokens",
+      "requiredEnvelopeTokensUpperBound", "taskAllowanceTokens", "modelContextWindowTokens",
+      "effectiveLimitTokens",
+    ];
+    const optionalNumbersValid = numericFields.every((field) => event[field] === undefined
+      || (Number.isSafeInteger(event[field]) && (event[field] as number) >= 0));
+    const optionalStringsValid = ["modelId", "provider", "api"].every((field) => event[field] === undefined
+      || (typeof event[field] === "string" && (event[field] as string).trim().length > 0));
+    const codeValid = typeof event.code === "string" && providerAdmissionCodes.has(event.code);
+    const shapeValid = event.version === 1
+      && event.dispatchId === dispatchId
+      && timestamp.length > 0
+      && !Number.isNaN(Date.parse(timestamp))
+      && new Date(timestamp).toISOString() === timestamp
+      && typeof event.accepted === "boolean"
+      && codeValid
+      && typeof event.message === "string"
+      && event.message.trim().length > 0
+      && event.estimator === "serialized_utf8_bytes_upper_bound"
+      && optionalNumbersValid
+      && optionalStringsValid
+      && (event.accepted ? event.code === "accepted" : event.code !== "accepted")
+      && (!event.accepted || acceptedProviderAdmissionMatches(event, expectedPolicy, expectedModel));
+    if (!shapeValid) {
+      malformed = true;
+      continue;
+    }
+    records.push(event as unknown as ProviderAdmissionRecord);
+  }
+  return {
+    records: records.sort((left, right) => left.timestamp.localeCompare(right.timestamp)),
+    malformed,
+  };
+}
+
+function acceptedProviderAdmissionMatches(
+  event: Record<string, unknown>,
+  expectedPolicy: ProviderAdmissionPolicy | undefined,
+  expectedModel: ProviderAdmissionModel | undefined,
+): boolean {
+  if (!expectedPolicy || !expectedModel) return false;
+  const payloadBytes = event.payloadBytes;
+  const outputLimitTokens = event.outputLimitTokens;
+  if (!Number.isSafeInteger(payloadBytes) || (payloadBytes as number) < 0
+    || !Number.isSafeInteger(outputLimitTokens) || (outputLimitTokens as number) <= 0) return false;
+  const requiredEnvelopeTokensUpperBound = (payloadBytes as number)
+    + (outputLimitTokens as number)
+    + expectedPolicy.safetyMarginTokens;
+  if (!Number.isSafeInteger(requiredEnvelopeTokensUpperBound)) return false;
+  const effectiveLimitTokens = Math.min(
+    expectedPolicy.requestTokenAllowance,
+    expectedModel.contextWindow as number,
+  );
+  return (outputLimitTokens as number) >= expectedPolicy.outputReserveTokens
+    && requiredEnvelopeTokensUpperBound <= effectiveLimitTokens
+    && event.outputReserveTokens === expectedPolicy.outputReserveTokens
+    && event.safetyMarginTokens === expectedPolicy.safetyMarginTokens
+    && event.requiredEnvelopeTokensUpperBound === requiredEnvelopeTokensUpperBound
+    && event.taskAllowanceTokens === expectedPolicy.requestTokenAllowance
+    && event.modelContextWindowTokens === expectedModel.contextWindow
+    && event.effectiveLimitTokens === effectiveLimitTokens
+    && event.modelId === expectedModel.id
+    && event.provider === expectedModel.provider
+    && event.api === expectedModel.api;
 }
 
 function validateProviderAdmissionModelBinding(model: ProviderAdmissionModel): void {

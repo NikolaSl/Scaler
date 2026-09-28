@@ -12,6 +12,7 @@ export const providerAdmissionEnvironmentKeys = [
   "SCALER_EXPECTED_PROVIDER",
   "SCALER_EXPECTED_MODEL_ID",
   "SCALER_EXPECTED_CONTEXT_WINDOW",
+  "SCALER_PROVIDER_ADMISSION_DISPATCH_ID",
 ] as const;
 
 export interface ProviderAdmissionPolicy {
@@ -67,6 +68,29 @@ export interface ProviderAdmissionDecision {
   provider?: string;
   api?: string;
 }
+
+export interface ProviderAdmissionRecord extends ProviderAdmissionDecision {
+  type: "scaler_provider_admission";
+  version: 1;
+  timestamp: string;
+  dispatchId?: string;
+}
+
+interface ProviderUsageReconciliationBase {
+  dispatchId: string;
+  estimator: "serialized_utf8_bytes_upper_bound";
+  admittedRequestCount: number;
+  estimatedInputTokensUpperBound: number;
+}
+
+export type ProviderUsageReconciliation = ProviderUsageReconciliationBase & ({
+  status: "observed";
+  observedInputTokens: number;
+  inputDeltaTokens: number;
+} | {
+  status: "unavailable";
+  limitation: "provider_input_usage_unavailable";
+});
 
 export interface ProviderAdmissionInput {
   payload: unknown;
