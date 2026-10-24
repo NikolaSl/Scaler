@@ -19,7 +19,7 @@ import {
 } from "../src/debug.js";
 import { loadReplanRequests, saveReplanRequests } from "../src/plans.js";
 import { loadResearchRequests } from "../src/research.js";
-import { createDefaultState, loadState } from "../src/state.js";
+import { createDefaultState, loadState, saveState } from "../src/state.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-debug-test-"));
@@ -502,6 +502,32 @@ test("findDebugFingerprintCycles detects longer hidden cycles", async () => {
     assert.match(third.cycleDetected ?? "", /failure-a -> failure-b -> failure-c -> failure-a/);
     assert.equal(cycles.length, 1);
     assert.deepEqual(cycles[0]?.fingerprints, ["failure-a", "failure-b", "failure-c", "failure-a"]);
+  });
+});
+
+test("debug tactic limit survives reload and task replacement without charging replay", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    state.budgets = { version: 1, limits: { tacticChanges: { hard: 1 } } };
+    await saveState(dir, state);
+    const proposal = {
+      id: "RPT-TACTIC-1", taskId: "T-001", status: "next_approach",
+      summary: "Inspect module resolution", nextApproach: "Run the resolution trace.",
+      evidenceRefs: ["validation:missing-module"],
+    };
+    const first = await recordDebugReport(dir, await loadState(dir), proposal);
+    const replay = await recordDebugReport(dir, await loadState(dir), proposal);
+    assert.equal(first.accepted, true);
+    assert.equal(replay.accepted, true);
+    assert.equal((await loadDebugReports(dir)).length, 1);
+    const replacement = await recordDebugReport(dir, await loadState(dir), {
+      ...proposal, id: "RPT-TACTIC-2", taskId: "T-REPLACEMENT",
+      summary: "Inspect generated config", nextApproach: "Capture generated configuration.",
+      evidenceRefs: ["validation:generated-config"],
+    });
+    assert.equal(replacement.accepted, false);
+    assert.match(replacement.message, /tactic.*limit/i);
+    assert.deepEqual((await loadDebugReports(dir)).map((report) => report.id), [proposal.id]);
   });
 });
 
