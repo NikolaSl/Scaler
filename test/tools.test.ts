@@ -33,10 +33,15 @@ test("task tools forward necessity instead of silently dropping nonrequired prop
   await withTempDir(async (dir) => {
     const registered = new Map<string, any>();
     registerScalerTools({ registerTool(tool: any) { registered.set(tool.name, tool); } } as never);
-    await registered.get("scaler_task_create").execute("base", { taskId: "CSV", title: "Export CSV" }, undefined, undefined, { cwd: dir });
+    const contract = { taskKind: "non_software", atomicityRationale: "One independently checkable output.",
+      allowedPathPrefixes: ["src"], outputPaths: [], definitionOfDone: ["One bounded output checked"],
+      validationCommands: [{ id: "check", command: "node -e \"process.exit(0)\"", required: true }] };
+    await registered.get("scaler_task_create").execute("base", { ...contract, taskId: "CSV", title: "Export CSV" }, undefined, undefined, { cwd: dir });
     const before = await loadState(dir);
+    assert.equal(before.tasks[0]?.id, "CSV");
     for (const name of ["scaler_task_create", "scaler_task_update"]) {
       const result = await registered.get(name).execute("optional", {
+        ...contract,
         taskId: name.endsWith("create") ? "EXTRA" : "CSV", title: "Optional plugin framework",
         necessity: "optional", prdRefs: ["CSV-REQ"],
       }, undefined, undefined, { cwd: dir });
