@@ -21,7 +21,8 @@ import {
 import { readLogEvents } from "../src/logging.js";
 import { appendReplanRequest, loadProposedExecutionPlan, loadReplanRequests, saveExecutionPlan } from "../src/plans.js";
 import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
-import { createDefaultState } from "../src/state.js";
+import { createDefaultState, loadState, saveState } from "../src/state.js";
+import { getBudgetState } from "../src/budgets.js";
 import { testProviderAdmissionModel } from "./provider-model-fixture.js";
 
 const prepareReplanAgentInvocation: typeof prepareReplanAgentInvocationImpl = (cwd, input, options = {}) =>
@@ -37,6 +38,67 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
     await rm(dir, { recursive: true, force: true });
   }
 }
+
+test("replanner charges persisted launch before a failed child and refuses after reload", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    state.budgets = { limits: { spawnedAgents: { hard: 2 } } };
+    await saveState(dir, state);
+    let calls = 0;
+    const runner: Parameters<typeof runReplanAgentStep>[3] = async (request) => {
+      calls++;
+      const child = await loadState(dir);
+      assert.equal(getBudgetState(child).usage.spawnedAgents, 1);
+      child.orchestrationReason = "Child evidence retained";
+      await saveState(dir, child);
+      return { taskId: request.taskId, exitCode: 1, stdoutEvents: [], stderr: "fixture",
+        timedOut: false, aborted: false, usage: { totalTokens: 11, sources: ["fixture"] } };
+    };
+    assert.equal((await runReplanAgentStep(dir, state, {}, runner)).accepted, true);
+    assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents, undefined);
+    const first = await runReplanAgentStep(dir, state, { execute: true }, runner);
+    assert.equal(first.runRecord?.status, "failed");
+    const resumed = await loadState(dir);
+    assert.equal(resumed.orchestrationReason, "Child evidence retained");
+    assert.equal(getBudgetState(resumed).usage.contextTokens, 11);
+    const refused = await runReplanAgentStep(dir, resumed, { execute: true }, runner);
+    assert.equal(refused.accepted, false);
+    assert.match(refused.message, /budget.*spawnedAgents/i);
+    assert.equal(calls, 1);
+    assert.equal((await loadState(dir)).stage, "paused");
+    assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents, 1);
+    assert.equal((await loadReplanAgentRunRecords(dir)).filter(r => r.status !== "prepared").length, 1);
+  });
+});
+
+for (const reason of ["paused", "stale"] as const) {
+  test(`replanner refuses ${reason} dispatch without child effects`, async () => {
+    await withTempDir(async (dir) => {
+      const state = createDefaultState();
+      if (reason === "paused") state.stage = "paused";
+      await saveState(dir, state);
+      if (reason === "stale") await saveState(dir, await loadState(dir));
+      const before = await loadState(dir);
+      const result = await runReplanAgentStep(dir, state, { execute: true }, async () => {
+        throw new Error("must not launch");
+      });
+      assert.equal(result.accepted, false);
+      assert.match(result.message, reason === "paused" ? /paused/i : /stale state snapshot/i);
+      assert.deepEqual(await loadState(dir), before);
+      assert.deepEqual(await loadReplanAgentRunRecords(dir), []);
+      assert.equal(await loadProposedExecutionPlan(dir), undefined);
+    });
+  });
+}
+
+test("replanner uncertain launch retains pre-dispatch usage", async () => {
+  await withTempDir(async (dir) => {
+    await assert.rejects(runReplanAgentStep(dir, createDefaultState(), { execute: true }, async () => {
+      throw new Error("uncertain launch");
+    }), /uncertain launch/);
+    assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents, 1);
+  });
+});
 
 test("buildReplanAgentPrompt includes replan requests, PRD coverage, current plan, and report contract", async () => {
   await withTempDir(async (dir) => {
