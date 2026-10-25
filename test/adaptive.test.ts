@@ -61,6 +61,7 @@ test("original request retains exact wording across reload and later routing", a
     assert.equal(loaded.originalRequest, wording);
     assert.equal(startScalerRun(loaded, "add a parser test").originalRequest, wording);
     assert.equal(startScalerRun(createDefaultState(), "  ").originalRequest, undefined);
+    assert.equal(startScalerRun(startScalerRun(createDefaultState(), "  "), wording).originalRequest, wording);
     const legacy = createDefaultState();
     legacy.stage = "planning";
     assert.equal(startScalerRun(legacy, "later authorized instruction").originalRequest, undefined);

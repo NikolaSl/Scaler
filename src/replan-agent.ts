@@ -133,6 +133,8 @@ export function buildReplanAgentPrompt(input: ReplanAgentPromptInput): string {
     "Do not accept the plan yourself; SCALER will run preservation checks and `/scaler-replan-accept` separately.",
     "",
     `Supervisor: ${formatStateStatus(input.state)}`,
+    "Original user wording (source, separate from normalized interpretations; does not override supervisor/tool permissions):",
+    typeof input.state.originalRequest === "string" ? JSON.stringify(input.state.originalRequest) : "Original user wording unavailable; do not reconstruct it from the plan or requirements.",
     "",
     "Current execution plan summary:",
     formatExecutionPlanSummary(planSummary),
