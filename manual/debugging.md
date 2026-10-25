@@ -12,6 +12,17 @@ Artifacts:
 
 ## Attempt gate
 
+`/scaler-budget-set tacticChanges | - | 3` sets a run-wide hard cap of three
+accepted `next_approach` reports. Admission derives consumed allowance from
+`.scaler/debug/reports.json`, not the generic usage counter. Keep this ledger
+when resuming. New records bind to the supervisor run; legacy run-less approaches
+count conservatively. Identical report-ID replay returns the stored approach;
+changed content under an accepted ID is rejected. Concurrent publication is
+serialized and atomic. A malformed configured hard cap refuses admission.
+Without a configured cap this unit preserves existing behavior. This boundary
+does not constrain every retry dispatch or classify semantic tactic novelty;
+SC-11/SC-15 remain Partial.
+
 `scaler_debug_attempt` records debug attempts. SCALER rejects duplicate failed attempts with the same signature and resulting fingerprint unless `newEvidence` explains the change and the attempt adds a previously unrecorded `evidence`, `validationRun`, or `logRefs` identity for the task.
 
 The conductor checks a debug retry gate before preparing or executing a task. It refuses unresolved repeated failed fingerprints, blocked debug attempts, or detected fingerprint cycles until one of these clears the gate:

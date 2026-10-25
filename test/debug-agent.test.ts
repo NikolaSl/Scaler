@@ -21,7 +21,8 @@ import {
 import { loadDebugReports, recordDebugAttempt } from "../src/debug.js";
 import { readLogEvents } from "../src/logging.js";
 import { loadResearchRequests } from "../src/research.js";
-import { createDefaultState } from "../src/state.js";
+import { createDefaultState, loadState } from "../src/state.js";
+import { getBudgetState } from "../src/budgets.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../src/subagents.js";
 import { testProviderAdmissionModel } from "./provider-model-fixture.js";
 
@@ -216,6 +217,7 @@ test("runDebugAgentStep prepares selected debugging task", async () => {
 test("runDebugAgentStep executes and ingests report", async () => {
   await withTempDir(async (dir) => {
     const state = debugState();
+    state.budgets = { limits: { tacticChanges: { hard: 1 } } };
     const runner = async (request: TaskAgentRequest): Promise<TaskAgentRunResult> => ({
       taskId: request.taskId,
       exitCode: 0,
@@ -227,6 +229,7 @@ test("runDebugAgentStep executes and ingests report", async () => {
         nextApproach: "Patch shared adapter instead of toggling individual call sites.",
         evidenceRefs: ["debug-log-1"],
       }],
+      usage: { inputTokens: 11, totalTokens: 11, sources: ["test-provider"] },
       stderr: "",
       timedOut: false,
       aborted: false,
@@ -237,6 +240,7 @@ test("runDebugAgentStep executes and ingests report", async () => {
     assert.equal(result.accepted, true);
     assert.equal(result.ingestion?.ingested, true);
     assert.equal((await loadDebugReports(dir))[0]?.status, "next_approach");
+    assert.equal(getBudgetState(await loadState(dir)).usage.contextTokens, 11);
   });
 });
 

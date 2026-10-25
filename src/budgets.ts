@@ -15,6 +15,7 @@ export type BudgetUsageKey =
   | "toolCalls"
   | "spawnedAgents"
   | "debugAttempts"
+  | "tacticChanges"
   | "wallClockMs"
   | "checkpoints"
   | "contextTokens"
@@ -88,6 +89,7 @@ export const budgetUsageKeys: BudgetUsageKey[] = [
   "toolCalls",
   "spawnedAgents",
   "debugAttempts",
+  "tacticChanges",
   "wallClockMs",
   "checkpoints",
   "contextTokens",
@@ -265,7 +267,7 @@ export async function scanScalerStorageBytes(cwd: string): Promise<number> {
 
 export function formatBudgetStatus(state: ScalerState, now = new Date()): string {
   const budgets = getBudgetState(state, now);
-  const decisions = budgetUsageKeys.map((key) => evaluateBudgetUsage(key, budgets.usage[key] ?? 0, budgets.limits[key]));
+  const decisions = budgetUsageKeys.filter((key) => key !== "tacticChanges").map((key) => evaluateBudgetUsage(key, budgets.usage[key] ?? 0, budgets.limits[key]));
   const strongest = getStrongestBudgetDecision(decisions);
   const lines = [
     `Budgets: strongest=${strongest.status} key=${strongest.key} action=${strongest.recommendedAction}`,
@@ -273,6 +275,10 @@ export function formatBudgetStatus(state: ScalerState, now = new Date()): string
     "Usage:",
   ];
   for (const key of budgetUsageKeys) {
+    if (key === "tacticChanges") {
+      lines.push(`- tacticChanges: usage=derived-from-debug-reports hard=${budgets.limits[key]?.hard ?? "-"}; evaluated at report admission`);
+      continue;
+    }
     const usage = budgets.usage[key] ?? 0;
     const limit = budgets.limits[key];
     const decision = evaluateBudgetUsage(key, usage, limit);
@@ -374,6 +380,12 @@ function normalizeLimits(value: unknown): Partial<Record<BudgetUsageKey, BudgetL
   const limits: Partial<Record<BudgetUsageKey, BudgetLimit>> = {};
   for (const key of budgetUsageKeys) {
     const raw = source[key];
+    // A malformed configured tactic cap must survive unrelated accounting so
+    // report admission can refuse it rather than silently restoring no limit.
+    if (key === "tacticChanges" && Object.hasOwn(source, key)) {
+      limits[key] = raw as BudgetLimit;
+      continue;
+    }
     if (!isRecord(raw)) continue;
     limits[key] = {
       soft: typeof raw.soft === "number" && Number.isFinite(raw.soft) ? raw.soft : undefined,

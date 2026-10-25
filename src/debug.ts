@@ -4,10 +4,12 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rmdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { appendLogEvent, createLogEvent } from "./logging.js";
+import { fingerprintJson } from "./fingerprints.js";
+import { assertStateSnapshotCurrent } from "./state.js";
 import { getDebugAttemptsPath, getDebugFailuresPath, getDebugReportsPath, getDebugRetriesPath } from "./paths.js";
 import { loadReplanDecisions, loadReplanRequests } from "./plans.js";
 import { requestReplan } from "./replanning.js";
@@ -85,6 +87,7 @@ export interface DebugCycleSummary {
 
 export interface DebugReportRecord {
   id: string;
+  runId?: string;
   taskId: string;
   status: DebugReportStatus;
   summary: string;
@@ -231,7 +234,14 @@ export async function saveDebugRetries(cwd: string, retries: DebugNextApproachRe
 export async function saveDebugReports(cwd: string, reports: DebugReportRecord[]): Promise<DebugReportRecord[]> {
   for (const report of reports) validateDebugReport(report);
   const sorted = [...reports].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
-  await writeJsonFile(getDebugReportsPath(cwd), { version: 1, reports: sorted } satisfies DebugReportIndex);
+  const path = getDebugReportsPath(cwd);
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeJsonFile(temporary, { version: 1, reports: sorted } satisfies DebugReportIndex);
+    await rename(temporary, path);
+  } finally {
+    await rm(temporary, { force: true });
+  }
   return sorted;
 }
 
@@ -255,10 +265,13 @@ export async function recordDebugReport(
   input: DebugReportInput,
   now = new Date(),
 ): Promise<DebugReportApplyResult> {
+  return withDebugAttemptLock(cwd, async () => {
   const timestamp = now.toISOString();
-  const existing = input.id ? (await loadDebugReports(cwd)).find((report) => report.id === input.id) : undefined;
+  const reports = await loadDebugReports(cwd);
+  const existing = reports.find((report) => report.id === clean(input.id));
   const report: DebugReportRecord = {
-    id: clean(input.id) ?? existing?.id ?? `RPT-DEBUG-${timestamp.replace(/[^0-9]/g, "")}`,
+    id: clean(input.id) ?? existing?.id ?? `RPT-DEBUG-${randomUUID()}`,
+    runId: state.runId,
     taskId: cleanRequired(input.taskId, "Debug report taskId is required."),
     status: normalizeDebugReportStatus(input.status),
     summary: cleanRequired(input.summary, "Debug report summary is required."),
@@ -282,6 +295,28 @@ export async function recordDebugReport(
 
   try {
     validateDebugReport(report);
+    if (report.status === "next_approach" || existing?.status === "next_approach") {
+      await assertStateSnapshotCurrent(cwd, state);
+    }
+    if (existing?.status === "next_approach") {
+      if ((existing.runId && existing.runId !== state.runId) ||
+          fingerprintJson(JSON.parse(JSON.stringify({ ...existing, runId: state.runId, updatedAt: timestamp }))) !== fingerprintJson(JSON.parse(JSON.stringify(report)))) {
+        throw new Error("An accepted debug approach is immutable; use a new report ID for a new approach.");
+      }
+      return { accepted: true, message: `Debug report replay: ${existing.id}`, report: existing, researchRequestIds: existing.researchRequestIds ?? [] };
+    }
+    if (report.status === "next_approach") {
+      const limits = state.budgets.limits as Record<string, unknown> | undefined;
+      const configured = limits?.tacticChanges;
+      if (configured !== undefined) {
+        const hard = (configured as { hard?: unknown } | null)?.hard;
+        if (typeof hard !== "number" || !Number.isSafeInteger(hard) || hard < 0) {
+          throw new Error("Debug tactic limit requires a finite non-negative integer hard limit.");
+        }
+        const used = reports.filter((prior) => prior.status === "next_approach" && (!prior.runId || prior.runId === state.runId)).length;
+        if (used >= hard) throw new Error(`Debug tactic limit exhausted: ${used}/${hard}; retain history and stop recoverably.`);
+      }
+    }
   } catch (error) {
     const message = `Debug report rejected: ${(error as Error).message}`;
     await appendLogEvent(cwd, createLogEvent(state, { eventType: "debug", summary: message, taskId: input.taskId, details: input }));
@@ -323,7 +358,6 @@ export async function recordDebugReport(
     researchRequestIds: researchRequestIds.length > 0 ? researchRequestIds : report.researchRequestIds,
     replanRequestId,
   };
-  const reports = await loadDebugReports(cwd);
   await saveDebugReports(cwd, [...reports.filter((candidate) => candidate.id !== storedReport.id), storedReport]);
   const message = `Debug report recorded: ${storedReport.id}`;
   await appendLogEvent(cwd, createLogEvent(finalState, {
@@ -333,6 +367,7 @@ export async function recordDebugReport(
     details: { report: storedReport },
   }));
   return { accepted: true, message, report: storedReport, researchRequestIds, replanRequestId };
+  });
 }
 
 export async function assessDebugRetryGate(cwd: string, taskId: string): Promise<DebugRetryGateResult> {

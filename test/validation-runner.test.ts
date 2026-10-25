@@ -117,6 +117,28 @@ test("runTaskValidation records policy warnings without blocking default impleme
   });
 });
 
+test("repeated green validation after reload does not publish progress again", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    state.tasks = [{ id: "T-001", status: "validating", updatedAt: state.createdAt }];
+    await saveState(dir, state);
+    await saveValidationManifest(dir, {
+      taskId: "T-001",
+      commands: [{ id: "ok", command: "node -e \"process.exit(0)\"", required: true, gate: "unit_tests" }],
+      outputPaths: [], createdAt: "", updatedAt: "",
+    });
+    const first = await runTaskValidation(dir, state, "T-001");
+    const before = await loadWatchdogHeartbeats(dir);
+    const second = await runTaskValidation(dir, await loadState(dir), "T-001");
+    assert.equal(first.acceptance?.accepted, true);
+    assert.equal(second.status, "passed");
+    assert.equal(second.acceptance?.accepted, false);
+    assert.match(second.acceptance?.message ?? "", /cannot be applied from task status validated/);
+    assert.equal((await loadValidationRuns(dir)).length, 2);
+    assert.deepEqual(await loadWatchdogHeartbeats(dir), before);
+  });
+});
+
 test("runTaskValidation fails manifest policy before executing blocked commands", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState();
