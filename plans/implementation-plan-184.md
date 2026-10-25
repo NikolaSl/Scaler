@@ -19,3 +19,16 @@ workflow controls. Build, full unit/mock/conformance, focused checks and fresh
 independent exact-head review before merge. No scope expansion to all review or
 retry limits, direction/necessity protocol, reservations or full SC-15/P5. Mock
 runners prove process boundaries, not model quality or configured local inference.
+
+## Implementation evidence
+
+Four admission/accounting counterexamples fail before the fix. Added controls
+cover same-run child state, changed-run handoff and workflow refusal both before
+dispatch and after provider usage. Ordinary proposal ingestion/acceptance remains
+covered by the existing workflow. Build and 33 affected checks pass locally.
+The first full gate passed 1274 unit checks and exposed two sequential integration
+fixtures accepting with the old pre-charge revision. Reloading current state fixes
+those caller inputs without removing acceptance or preservation assertions.
+Final exact-head full gate and independent review results are recorded in the PR.
+No generic cleanup, reservation or failure-record subsystem is added; a thrown
+launch retains persisted usage and propagates its existing exception behavior.
