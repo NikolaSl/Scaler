@@ -279,7 +279,10 @@ test("Stage II threads research usage across children and stops on shared budget
     assert.equal(getBudgetState(result.finalState).usage.contextTokens, calls * 11);
     assert.deepEqual(JSON.parse(JSON.stringify(result.finalState)), await loadState(dir));
     assert.equal(result.steps[0]?.accepted, hard === 3);
-    if (hard === 2) assert.equal(result.finalState.stage, "paused");
+    if (hard === 2) {
+      assert.equal(result.finalState.stage, "paused");
+      assert.match(result.steps[0]?.message ?? "", /budget.*spawnedAgents/i);
+    }
   });
 });
 

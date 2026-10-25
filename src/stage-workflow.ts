@@ -619,7 +619,10 @@ async function runKnowledgeWorkflowStep(
     return {
       accepted,
       action: "research_agents",
-      message: `Stage II research agents ${options.execute ? "executed" : "prepared"}: ${selected.map((request) => request.id).join(", ")}`,
+      message: [
+        `Stage II research agents ${options.execute ? "executed" : "prepared"}: ${selected.slice(0, runs.length).map((request) => request.id).join(", ")}`,
+        ...runs.filter((run) => !run.accepted).map((run) => run.message),
+      ].join("\n"),
       state,
       continueWorkflow: Boolean(options.execute && accepted),
       stopReason: options.execute && accepted ? undefined : (options.execute ? "step_rejected" : "prepared_agent"),
