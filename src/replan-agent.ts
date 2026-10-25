@@ -6,6 +6,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
+import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
 import { logAgentPromptAudit, logStructuredReportAudit } from "./logging.js";
 import { getReplanAgentRunsPath } from "./paths.js";
 import {
@@ -26,7 +27,7 @@ import { requireTaskPromptAdmission, TaskPromptAdmissionError, type TaskPromptAd
 import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
-import { formatStateStatus } from "./state.js";
+import { assertStateSnapshotCurrent, formatStateStatus, loadState, StateConflictError } from "./state.js";
 import type { ScalerState } from "./types.js";
 
 export interface ReplanAgentPromptInput {
@@ -97,6 +98,7 @@ export interface ReplanAgentRunIndex {
 export interface ReplanAgentStepResult {
   accepted: boolean;
   message: string;
+  state?: ScalerState;
   prompt?: string;
   invocation?: TaskAgentInvocation;
   runResult?: TaskAgentRunResult;
@@ -227,6 +229,23 @@ export async function runReplanAgentStep(
         promptAdmission: error instanceof TaskPromptAdmissionError ? error.decision : undefined,
       };
     }
+    if (options.execute) {
+      try {
+        await assertStateSnapshotCurrent(cwd, state);
+      } catch (error) {
+        if (!(error instanceof StateConflictError)) throw error;
+        return { accepted: false, message: error.message };
+      }
+      if (state.stage === "paused") {
+        return { accepted: false, message: "Replan dispatch refused: run is paused; resume explicitly before executing another child.", state };
+      }
+      const budget = applyBudgetUsageUpdates(state, [{ key: "spawnedAgents", amount: 1 }]);
+      if (budget.decision.status === "hard_limit") {
+        state = await persistBudgetDecision(cwd, state, budget.decision);
+        return { accepted: false, message: `Budget refused replan dispatch: ${budget.decision.reason}`, state };
+      }
+      state = await persistBudgetDecision(cwd, budget.state, budget.decision);
+    }
     await logAgentPromptAudit(cwd, state, {
       agentType: "replan",
       agentId: "replan-agent",
@@ -235,14 +254,19 @@ export async function runReplanAgentStep(
       details: { invocation: preparation.invocation, currentPlanVersion: context.currentPlan.planVersion },
     });
     const runResult = options.execute ? await runner(preparation.request, { timeoutMs: options.timeoutMs }) : undefined;
+    if (options.execute) {
+      const current = await loadState(cwd);
+      if (current.runId !== state.runId) throw new StateConflictError("Replan child handoff refused: run identity changed during execution.");
+      state = current;
+    }
     if (runResult?.usage) {
-      await recordProviderUsageBudget(cwd, state, runResult.usage, {
+      state = (await recordProviderUsageBudget(cwd, state, runResult.usage, {
         source: "replan-agent-run",
         agentId: "replan-agent",
         agentType: "replan",
-      });
+      })).state;
     }
-    const ingestion = runResult && taskAgentRunSucceeded(runResult) ? await ingestReplanProposalReport(cwd, runResult.stdoutEvents, state) : { attempted: false, ingested: false };
+    const ingestion = state.stage !== "paused" && runResult && taskAgentRunSucceeded(runResult) ? await ingestReplanProposalReport(cwd, runResult.stdoutEvents, state) : { attempted: false, ingested: false };
     if (ingestion.attempted) {
       await logStructuredReportAudit(cwd, state, {
         reportType: "scaler_replan_proposal",
@@ -254,8 +278,9 @@ export async function runReplanAgentStep(
     }
     const runRecord = await recordReplanAgentRun(cwd, runResult, options.execute ? ingestion : undefined, options.execute ? undefined : "prepared");
     return {
-      accepted: true,
+      accepted: state.stage !== "paused" || !options.execute,
       message: `${options.execute ? "Executed" : "Prepared"} replanner agent`,
+      state,
       prompt: preparation.prompt,
       invocation: preparation.invocation,
       runResult,

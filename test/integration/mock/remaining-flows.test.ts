@@ -384,7 +384,7 @@ test("mock integration: blocked validation requests replanning and acceptance re
 
     const runner = async (request: TaskAgentRequest): Promise<TaskAgentRunResult> => ({ taskId: request.taskId, exitCode: 0, stdoutEvents: [{ type: "scaler_replan_proposal", plan: { version: 1, planVersion: 2, status: "draft", tasks: [{ id: "T-KEEP", title: "Keep", prdRefs: ["REQ-KEEP"] }, { id: "T-BLOCK", title: "Blocked", prdRefs: ["REQ-NEW"] }], createdAt: state.createdAt, updatedAt: state.createdAt } }], stderr: "", timedOut: false, aborted: false });
     await runReplanAgentStep(dir, blocked.state, { execute: true }, runner);
-    const accepted = await acceptReplanProposal(dir, blocked.state, await loadPrdRequirements(dir));
+    const accepted = await acceptReplanProposal(dir, await loadState(dir), await loadPrdRequirements(dir));
     assert.equal(accepted.accepted, true);
     assert.equal((await loadReplanRequests(dir))[0]?.status, "resolved");
   });

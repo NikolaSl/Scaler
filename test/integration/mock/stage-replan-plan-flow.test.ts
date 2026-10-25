@@ -243,7 +243,7 @@ test("integration: runtime PRD replan request becomes preserved plan, accepted d
     assert.equal((await loadProposedExecutionPlan(dir))?.planVersion, 2);
     assert.equal((await loadReplanAgentRunRecords(dir))[0]?.ingestionStatus, "ingested");
 
-    const accepted = await acceptReplanProposal(dir, state, await loadPrdRequirements(dir), {
+    const accepted = await acceptReplanProposal(dir, await loadState(dir), await loadPrdRequirements(dir), {
       now: new Date("2026-01-01T00:00:03.000Z"),
     });
     assert.equal(accepted.accepted, true, accepted.message);
