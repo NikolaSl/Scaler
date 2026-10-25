@@ -602,7 +602,7 @@ async function runKnowledgeWorkflowStep(
     const selected = openRequests.slice(0, options.execute ? maxAgents : 1);
     const runs: ResearchAgentStepResult[] = [];
     for (const request of selected) {
-      runs.push(await runResearchAgentStep(cwd, state, {
+      const run = await runResearchAgentStep(cwd, state, {
         requestId: request.id,
         execute: options.execute,
         allowInternet: options.allowInternet,
@@ -610,14 +610,19 @@ async function runKnowledgeWorkflowStep(
         model: options.model,
         providerAdmissionModel: options.providerAdmissionModel,
         timeoutMs: options.timeoutMs,
-      }, researchRunner));
-      if (!options.execute) break;
+      }, researchRunner);
+      runs.push(run);
+      state = run.state ?? state;
+      if (!options.execute || !run.accepted) break;
     }
     const accepted = runs.every((run) => run.accepted && (!options.execute || run.ingestion?.ingested !== false));
     return {
       accepted,
       action: "research_agents",
-      message: `Stage II research agents ${options.execute ? "executed" : "prepared"}: ${selected.map((request) => request.id).join(", ")}`,
+      message: [
+        `Stage II research agents ${options.execute ? "executed" : "prepared"}: ${selected.slice(0, runs.length).map((request) => request.id).join(", ")}`,
+        ...runs.filter((run) => !run.accepted).map((run) => run.message),
+      ].join("\n"),
       state,
       continueWorkflow: Boolean(options.execute && accepted),
       stopReason: options.execute && accepted ? undefined : (options.execute ? "step_rejected" : "prepared_agent"),

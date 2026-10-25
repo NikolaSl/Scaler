@@ -10,7 +10,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { loadExecutionPlan, saveExecutionPlan } from "../src/plans.js";
 import { loadCurrentPrd, loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
-import { loadResearchReports, loadResearchRequests } from "../src/research.js";
+import { loadResearchReports, loadResearchRequests, upsertResearchRequest } from "../src/research.js";
+import { getBudgetState } from "../src/budgets.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { loadStageArtifacts, upsertStageArtifact } from "../src/stages.js";
 import {
@@ -249,6 +250,45 @@ async function researchRunner(request: TaskAgentRequest): Promise<TaskAgentRunRe
     aborted: false,
   };
 }
+
+test("Stage II threads research usage across children and stops on shared budget refusal", async () => {
+  for (const { hard, tokenHard, expectedCalls } of [
+    { hard: 2, expectedCalls: 1 },
+    { hard: 3, expectedCalls: 2 },
+    { hard: 5, tokenHard: 10, expectedCalls: 1 },
+  ]) await withTempDir(async (dir) => {
+    const state = createState("knowledge");
+    state.budgets = { limits: { spawnedAgents: { hard }, ...(tokenHard ? { contextTokens: { hard: tokenHard } } : {}) } };
+    await saveState(dir, state);
+    for (const id of ["RESEARCH-REQ-A", "RESEARCH-REQ-B"]) {
+      await upsertResearchRequest(dir, { id, question: id, reason: "Need local evidence" });
+    }
+    let calls = 0;
+    const result = await runAutonomousStageWorkflow(dir, state, { execute: true, maxSteps: 1, maxResearchAgents: 2 }, {
+      research: async (request) => {
+        calls++;
+        const id = request.taskId.replace("research-agent-", "");
+        return {
+          taskId: request.taskId, exitCode: 0, stderr: "", timedOut: false, aborted: false,
+          usage: { totalTokens: 11, sources: ["fixture"] },
+          stdoutEvents: [{ type: "scaler_research_report", requestId: id, question: id, status: "partial",
+            sources: [{ id: "local", title: "Local", quality: "project", summary: "Observed contract" }],
+            conclusions: [{ summary: "More evidence needed", confidence: "low", sourceRefs: ["local"] }],
+          }],
+        };
+      },
+    });
+    assert.equal(calls, expectedCalls);
+    assert.equal(getBudgetState(result.finalState).usage.spawnedAgents, calls);
+    assert.equal(getBudgetState(result.finalState).usage.contextTokens, calls * 11);
+    assert.deepEqual(JSON.parse(JSON.stringify(result.finalState)), await loadState(dir));
+    assert.equal(result.steps[0]?.accepted, expectedCalls === 2);
+    if (expectedCalls === 1) {
+      assert.equal(result.finalState.stage, "paused");
+      assert.match(result.steps[0]?.message ?? "", tokenHard ? /paused/i : /budget.*spawnedAgents/i);
+    }
+  });
+});
 
 test("runAutonomousStageWorkflow executes PRD, Stage II research merge, and planning ledger sync", async () => {
   await withTempDir(async (dir) => {

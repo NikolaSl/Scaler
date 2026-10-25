@@ -24,7 +24,8 @@ import {
 } from "../src/research-agent.js";
 import { readLogEvents } from "../src/logging.js";
 import { loadResearchReports, loadResearchRequests, recordResearchReport, upsertResearchRequest } from "../src/research.js";
-import { createDefaultState } from "../src/state.js";
+import { createDefaultState, loadState, saveState } from "../src/state.js";
+import { getBudgetState } from "../src/budgets.js";
 import { testProviderAdmissionModel } from "./provider-model-fixture.js";
 
 const prepareResearchAgentInvocation: typeof prepareResearchAgentInvocationImpl = (cwd, input, options = {}) =>
@@ -329,6 +330,86 @@ test("runResearchAgentStep prepares oldest open request and executes with report
     const events = await readLogEvents(dir);
     assert.equal(events.some((event) => event.eventType === "agent" && /Agent prompt prepared/.test(event.summary) && event.detailsPath), true);
     assert.equal(events.some((event) => event.eventType === "report" && /Research report ingested/.test(event.summary) && event.detailsPath), true);
+  });
+});
+
+test("research dispatch shares persisted agent allowance across requests and reloads", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    // Existing budget semantics refuse a proposed count at the hard threshold.
+    state.budgets = { limits: { spawnedAgents: { hard: 2 } } };
+    await saveState(dir, state);
+    for (const id of ["A", "B"]) {
+      await upsertResearchRequest(dir, { id, question: `Question ${id}?`, reason: "Need local evidence" });
+    }
+    let calls = 0;
+    const runner: Parameters<typeof runResearchAgentStep>[3] = async (request) => {
+      calls++;
+      assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents, 1);
+      return {
+        taskId: request.taskId, exitCode: 1, stdoutEvents: [], stderr: "No answer",
+        timedOut: false, aborted: false,
+        usage: { totalTokens: 11, sources: ["fixture"] },
+      };
+    };
+    assert.equal((await runResearchAgentStep(dir, state, { requestId: "A" }, runner)).accepted, true);
+    assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents, undefined);
+    const first = await runResearchAgentStep(dir, state, { requestId: "A", execute: true }, runner);
+    assert.equal(first.runRecord?.status, "failed");
+    const resumed = await loadState(dir);
+    assert.equal(getBudgetState(resumed).usage.spawnedAgents, 1);
+    assert.equal(getBudgetState(resumed).usage.contextTokens, 11);
+    assert.deepEqual(JSON.parse(JSON.stringify(first.state)), resumed);
+    const refused = await runResearchAgentStep(dir, resumed, { requestId: "B", execute: true }, runner);
+    assert.equal(refused.accepted, false);
+    assert.match(refused.message, /budget.*spawnedAgents/i);
+    assert.equal(calls, 1);
+    const stopped = await loadState(dir);
+    assert.equal(stopped.stage, "paused");
+    assert.equal(getBudgetState(stopped).usage.spawnedAgents, 1);
+    assert.equal(getBudgetState(stopped).usage.contextTokens, 11);
+    assert.deepEqual(JSON.parse(JSON.stringify(refused.state)), stopped);
+    assert.equal((await loadResearchAgentRunRecords(dir)).filter((run) => run.status !== "prepared").length, 1);
+    assert.deepEqual(await loadResearchReports(dir), []);
+    assert.equal((await loadResearchRequests(dir)).every((request) => request.status === "open"), true);
+  });
+});
+
+test("paused research permits preparation but refuses child execution", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    state.stage = "paused";
+    await saveState(dir, state);
+    await upsertResearchRequest(dir, { id: "A", question: "Which API?", reason: "Need evidence" });
+    assert.equal((await runResearchAgentStep(dir, state)).accepted, true);
+    const result = await runResearchAgentStep(dir, state, { execute: true }, async () => {
+      throw new Error("must refuse before dispatch");
+    });
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /paused/i);
+    assert.deepEqual(await loadState(dir), state);
+    assert.equal((await loadResearchAgentRunRecords(dir)).every((run) => run.status === "prepared"), true);
+  });
+});
+
+test("stale research snapshots cannot bypass a newer launch budget", async () => {
+  await withTempDir(async (dir) => {
+    const stale = createDefaultState();
+    await saveState(dir, stale);
+    const current = await loadState(dir);
+    current.budgets = { limits: { spawnedAgents: { hard: 0 } } };
+    await saveState(dir, current);
+    await upsertResearchRequest(dir, { id: "A", question: "Which API?", reason: "Need evidence" });
+    let called = false;
+    const result = await runResearchAgentStep(dir, stale, { execute: true }, async () => {
+      called = true;
+      throw new Error("must refuse before dispatch");
+    });
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /stale state snapshot/i);
+    assert.equal(called, false);
+    assert.deepEqual(await loadResearchAgentRunRecords(dir), []);
+    assert.equal((await loadState(dir)).revision, current.revision);
   });
 });
 
