@@ -32,6 +32,17 @@ async function tempDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "scaler-stage-agents-test-"));
 }
 
+test("stage prompts retain exact original wording or explicit absence without clipping", () => {
+  const state = createDefaultState();
+  assert.match(buildStageAgentPrompt({ stage: "planning", state }), /Original user wording.*unavailable/i);
+  state.originalRequest = "  Само CSV.\nБез Excel или scheduler.  ";
+  for (const stage of ["prd", "planning", "knowledge", "replanning"] as const) {
+    assert.ok(buildStageAgentPrompt({ stage, state }).includes(JSON.stringify(state.originalRequest)));
+  }
+  state.originalRequest = "EXACT-CONSTRAINT ".repeat(10_000);
+  assert.throws(() => prepareStageAgentInvocation("/repo", { stage: "planning", state }), /final SCALER prompt refused/i);
+});
+
 test("buildStageAgentPrompt includes stage contract, state, and artifact refs", () => {
   const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
   state.stage = "planning";

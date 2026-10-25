@@ -110,6 +110,9 @@ export function startScalerRun(state: ScalerState, request: string, now = new Da
   const staged = transitionStage(
     {
       ...state,
+      ...(state.originalRequest === undefined && state.stage === "idle" && state.tasks.length === 0
+        && (state.orchestrationReason === "not started" || state.orchestrationReason === "Empty request.") && request.trim()
+        ? { originalRequest: request } : {}),
       complexityLevel: decision.level,
       orchestrationReason: decision.reason,
     },

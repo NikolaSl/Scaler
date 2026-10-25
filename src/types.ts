@@ -63,6 +63,7 @@ export interface ScalerState {
   version: 1;
   revision: number;
   runId: string;
+  originalRequest?: string;
   complexityLevel: number;
   stage: ScalerStage;
   previousStage: ScalerStage | null;

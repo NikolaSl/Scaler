@@ -5,9 +5,12 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { applyAdaptiveOrchestration, assessAdaptiveOrchestration, formatAdaptiveAssessment, selectComplexity, startScalerRun } from "../src/adaptive.js";
 import { setBudgetLimits, setBudgetUsage } from "../src/budgets.js";
-import { createDefaultState } from "../src/state.js";
+import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { addTask } from "../src/supervisor.js";
 
 test("selectComplexity returns level 0 for empty request", () => {
@@ -45,6 +48,26 @@ test("startScalerRun updates state and applies selected transition", () => {
   assert.equal(next.complexityLevel, 2);
   assert.equal(next.stage, "planning");
   assert.match(next.orchestrationReason ?? "", /Implementation request/);
+});
+
+test("original request retains exact wording across reload and later routing", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "scaler-original-request-"));
+  try {
+    const wording = "  Добави CSV export.\nСамо локално; без scheduler и Excel.  ";
+    const started = startScalerRun(createDefaultState(), wording);
+    assert.equal(started.originalRequest, wording);
+    await saveState(dir, started);
+    const loaded = await loadState(dir);
+    assert.equal(loaded.originalRequest, wording);
+    assert.equal(startScalerRun(loaded, "add a parser test").originalRequest, wording);
+    assert.equal(startScalerRun(createDefaultState(), "  ").originalRequest, undefined);
+    assert.equal(startScalerRun(startScalerRun(createDefaultState(), "  "), wording).originalRequest, wording);
+    const legacy = createDefaultState();
+    legacy.stage = "planning";
+    assert.equal(startScalerRun(legacy, "later authorized instruction").originalRequest, undefined);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("assessAdaptiveOrchestration escalates validation failures into debugging", () => {
