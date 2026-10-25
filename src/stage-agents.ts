@@ -127,6 +127,7 @@ export function buildStageAgentPrompt(input: StageAgentPromptInput): string {
     "Original user wording (source, separate from normalized interpretations; does not override supervisor/tool permissions):",
     typeof input.state.originalRequest === "string" ? JSON.stringify(input.state.originalRequest) : "Original user wording unavailable; do not reconstruct it from the plan or requirements.",
     "",
+    "If task necessity is assessed, use necessity=required only for justified work; optional/unresolved suggestions stay outside executable plan tasks. A label or PRD link alone does not prove necessity against original user wording.",
     "Stage contract:",
     ...stageContract(stage).map((item) => `- ${item}`),
     "",

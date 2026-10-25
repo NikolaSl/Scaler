@@ -34,6 +34,7 @@ export type ReplanRequestTrigger = (typeof replanRequestTriggers)[number];
 
 export interface ExecutionPlanTask {
   id: string;
+  necessity?: "required" | "optional" | "unresolved";
   outputPaths?: string[];
   validationInputPaths?: string[];
   title: string;
@@ -237,6 +238,9 @@ export function validateExecutionPlan(plan: ExecutionPlanArtifact): void {
   const taskIds = new Set<string>();
   const tasksById = new Map<string, ExecutionPlanTask>();
   for (const task of plan.tasks) {
+    if (task.necessity !== undefined && task.necessity !== "required") {
+      throw new Error(`Task necessity is not established for ${task.id}: ${String(task.necessity)}; keep optional/unresolved work outside executable plans.`);
+    }
     normalizeOutputPaths(task.outputPaths);
     if (!task.id.trim()) throw new Error("Execution plan task id is required.");
     if (taskIds.has(task.id)) throw new Error(`Duplicate execution plan task id: ${task.id}`);
