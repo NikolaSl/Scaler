@@ -124,6 +124,41 @@ test("rejected research does not publish raw evidence or resolve its request", a
   });
 });
 
+test("raw research source references preflight the entire batch", async () => {
+  await withTempDir(async (dir) => {
+    await upsertResearchRequest(dir, { id: "REQ", question: "Which API?", reason: "Need contract." });
+    await assert.rejects(recordResearchReport(dir, {
+      requestId: "REQ", status: "complete", question: "Which API?",
+      sources: [{ id: "docs", title: "Docs", quality: "official", summary: "Contract" }],
+      conclusions: [{ summary: "Use API", confidence: "high", sourceRefs: ["docs"] }],
+      rawEvidence: [
+        { title: "Valid", content: "Declared source", sourceId: "docs" },
+        { title: "Foreign", content: "Undeclared source", sourceId: "missing" },
+      ],
+    }), /raw evidence.*unknown source/i);
+    assert.deepEqual((await loadMemoryIndex(dir)).entries, []);
+    assert.deepEqual(await loadResearchReports(dir), []);
+    assert.equal((await loadResearchRequests(dir))[0]?.status, "open");
+  });
+});
+
+test("raw research normalizes attribution and permits unattributed evidence", async () => {
+  await withTempDir(async (dir) => {
+    const report = await recordResearchReport(dir, {
+      question: "Which API?", status: "complete",
+      sources: [{ id: " docs ", title: "Docs", quality: "official", summary: "Contract" }],
+      conclusions: [{ summary: "Use API", confidence: "high", sourceRefs: ["docs"] }],
+      rawEvidence: [
+        { title: "Declared", content: "Known", sourceId: " docs " },
+        { title: "Unattributed", content: "Observation" },
+        { title: "Blank", content: "Observation", sourceId: " " },
+      ],
+    });
+    const sources = await Promise.all(report.memoryRefs!.map(async (ref) => (await retrieveMemory(dir, ref)).entry.source));
+    assert.deepEqual(sources.sort(), ["research", "research", "research:docs"]);
+  });
+});
+
 test("recordResearchReport cannot retarget an existing report identity", async () => {
   await withTempDir(async (dir) => {
     await upsertResearchRequest(dir, {
