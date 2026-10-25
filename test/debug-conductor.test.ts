@@ -17,7 +17,7 @@ import {
 import { loadDebugReports } from "../src/debug.js";
 import { loadProposedExecutionPlan, loadReplanRequests } from "../src/plans.js";
 import { loadResearchReports, loadResearchRequests } from "../src/research.js";
-import { createDefaultState, saveState } from "../src/state.js";
+import { createDefaultState, loadState, saveState } from "../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../src/subagents.js";
 import type { ScalerState } from "../src/types.js";
 import { testProviderAdmissionModel } from "./provider-model-fixture.js";
@@ -138,6 +138,35 @@ test("runDebugConductorLoop chains debug needs_research, research completion, an
     assert.equal((await loadResearchRequests(dir))[0]?.status, "resolved");
     assert.equal((await loadResearchReports(dir))[0]?.id, "RPT-RESEARCH-DEBUG");
     assert.equal((await loadDebugReports(dir))[0]?.id, "RPT-DEBUG-NEXT");
+  });
+});
+
+test("debug conductor stops follow-up work after provider usage pauses the run", async () => {
+  for (const status of ["needs_research", "needs_replan", "next_approach"]) await withTempDir(async (dir) => {
+    const state = debuggingState();
+    state.budgets = { limits: { contextTokens: { hard: 10 } } };
+    await saveState(dir, state);
+    let calls = 0;
+    const forbidden = async (): Promise<TaskAgentRunResult> => { throw new Error("paused follow-up must not launch"); };
+    const result = await runDebugConductorLoop(dir, state, { execute: true, maxSteps: 3 }, {
+      debug: async (request) => {
+        calls++;
+        return { ...runResult(request, [{ type: "scaler_debug_report", taskId: "T-DEBUG", status,
+          summary: "Need another bounded step", evidenceRefs: ["probe:failure"],
+          researchQuestions: ["Which API contract?"], replanReason: "Observed contract differs",
+          nextApproach: "Probe the versioned adapter contract",
+        }]), usage: { totalTokens: 11, sources: ["fixture"] } };
+      }, research: forbidden, replan: forbidden, retry: forbidden,
+    });
+    assert.equal(calls, 1);
+    assert.equal(result.finalState.stage, "paused");
+    assert.equal(result.stopReason, "step_rejected");
+    assert.equal(result.steps.length, 1);
+    const repeated = await runDebugConductorStep(dir, await loadState(dir), { execute: true }, {
+      debug: forbidden, research: forbidden, replan: forbidden,
+    });
+    assert.equal(repeated.accepted, false);
+    assert.match(repeated.message, /paused/i);
   });
 });
 

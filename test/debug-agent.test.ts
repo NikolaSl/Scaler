@@ -21,7 +21,7 @@ import {
 import { loadDebugReports, recordDebugAttempt } from "../src/debug.js";
 import { readLogEvents } from "../src/logging.js";
 import { loadResearchRequests } from "../src/research.js";
-import { createDefaultState, loadState } from "../src/state.js";
+import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { getBudgetState } from "../src/budgets.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../src/subagents.js";
 import { testProviderAdmissionModel } from "./provider-model-fixture.js";
@@ -241,6 +241,57 @@ test("runDebugAgentStep executes and ingests report", async () => {
     assert.equal(result.ingestion?.ingested, true);
     assert.equal((await loadDebugReports(dir))[0]?.status, "next_approach");
     assert.equal(getBudgetState(await loadState(dir)).usage.contextTokens, 11);
+  });
+});
+
+test("diagnostic allowance survives reload and replacement task without charging preparation or refusal", async () => {
+  await withTempDir(async (dir) => {
+    const state = debugState();
+    state.budgets = { limits: { spawnedAgents: { hard: 2 } } };
+    await saveState(dir, state);
+    let calls = 0;
+    const runner = async (request: TaskAgentRequest): Promise<TaskAgentRunResult> => {
+      calls++;
+      assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents, 1);
+      return { taskId: request.taskId, exitCode: 1, stdoutEvents: [], stderr: "No diagnosis",
+        timedOut: false, aborted: false, usage: { totalTokens: 11, sources: ["fixture"] } };
+    };
+    assert.equal((await runDebugAgentStep(dir, state)).accepted, true);
+    assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents, undefined);
+    assert.equal((await runDebugAgentStep(dir, state, { execute: true }, runner)).runRecord?.status, "failed");
+    const resumed = await loadState(dir);
+    resumed.tasks = [{ ...resumed.tasks[0]!, id: "T-REPLACEMENT" }];
+    resumed.currentTaskId = "T-REPLACEMENT";
+    await saveState(dir, resumed);
+    const refused = await runDebugAgentStep(dir, resumed, { execute: true }, runner);
+    assert.equal(refused.accepted, false);
+    assert.match(refused.message, /budget.*spawnedAgents/i);
+    assert.equal(calls, 1);
+    const stopped = await loadState(dir);
+    assert.equal(stopped.stage, "paused");
+    assert.equal(getBudgetState(stopped).usage.spawnedAgents, 1);
+    assert.equal(getBudgetState(stopped).usage.contextTokens, 11);
+    assert.deepEqual(await loadDebugReports(dir), []);
+    assert.equal((await loadDebugAgentRunRecords(dir)).filter((run) => run.status !== "prepared").length, 1);
+  });
+});
+
+test("stale and paused debug execution refuse before the runner", async () => {
+  for (const paused of [false, true]) await withTempDir(async (dir) => {
+    const supplied = debugState();
+    if (paused) supplied.stage = "paused";
+    await saveState(dir, supplied);
+    if (!paused) {
+      const current = await loadState(dir);
+      current.budgets = { limits: { spawnedAgents: { hard: 0 } } };
+      await saveState(dir, current);
+    } else assert.equal((await runDebugAgentStep(dir, supplied)).accepted, true);
+    const result = await runDebugAgentStep(dir, supplied, { execute: true }, async () => {
+      throw new Error("must refuse before dispatch");
+    });
+    assert.equal(result.accepted, false);
+    assert.match(result.message, paused ? /paused/i : /stale state snapshot/i);
+    assert.equal((await loadDebugAgentRunRecords(dir)).every((run) => run.status === "prepared"), true);
   });
 });
 
