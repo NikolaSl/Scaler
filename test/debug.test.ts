@@ -19,7 +19,8 @@ import {
 } from "../src/debug.js";
 import { loadReplanRequests, saveReplanRequests } from "../src/plans.js";
 import { loadResearchRequests } from "../src/research.js";
-import { createDefaultState, loadState } from "../src/state.js";
+import { createDefaultState, loadState, saveState } from "../src/state.js";
+import { incrementBudgetUsage } from "../src/budgets.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-debug-test-"));
@@ -502,6 +503,128 @@ test("findDebugFingerprintCycles detects longer hidden cycles", async () => {
     assert.match(third.cycleDetected ?? "", /failure-a -> failure-b -> failure-c -> failure-a/);
     assert.equal(cycles.length, 1);
     assert.deepEqual(cycles[0]?.fingerprints, ["failure-a", "failure-b", "failure-c", "failure-a"]);
+  });
+});
+
+test("debug tactic limit survives reload and task replacement without charging replay", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    state.budgets = { version: 1, limits: { tacticChanges: { hard: 1 } } };
+    await saveState(dir, state);
+    const proposal = {
+      id: "RPT-TACTIC-1", taskId: "T-001", status: "next_approach",
+      summary: "Inspect module resolution", nextApproach: "Run the resolution trace.",
+      evidenceRefs: ["validation:missing-module"],
+    };
+    const first = await recordDebugReport(dir, await loadState(dir), proposal);
+    const replay = await recordDebugReport(dir, await loadState(dir), proposal);
+    assert.equal(first.accepted, true);
+    assert.equal(replay.accepted, true);
+    assert.equal((await loadDebugReports(dir)).length, 1);
+    const replacement = await recordDebugReport(dir, await loadState(dir), {
+      ...proposal, id: "RPT-TACTIC-2", taskId: "T-REPLACEMENT",
+      summary: "Inspect generated config", nextApproach: "Capture generated configuration.",
+      evidenceRefs: ["validation:generated-config"],
+    });
+    assert.equal(replacement.accepted, false);
+    assert.match(replacement.message, /tactic.*limit/i);
+    assert.deepEqual((await loadDebugReports(dir)).map((report) => report.id), [proposal.id]);
+  });
+});
+
+test("tactic history survives replay, edits and concurrent admissions", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    state.budgets = { limits: { tacticChanges: { hard: 2 } } };
+    await saveState(dir, state);
+    const current = await loadState(dir);
+    const proposal = { id: "A", taskId: "T", status: "next_approach", summary: "Trace", nextApproach: "Trace imports", evidenceRefs: ["log:1"] };
+    const first = await recordDebugReport(dir, current, proposal);
+    const replay = await recordDebugReport(dir, current, proposal);
+    assert.deepEqual(replay.report, JSON.parse(JSON.stringify(first.report)));
+    for (const edit of [{ nextApproach: "Rewrite config" }, { status: "needs_research", researchQuestions: ["Why?"] }, { taskId: "T2" }, { evidenceRefs: ["log:2"] }]) {
+      assert.equal((await recordDebugReport(dir, current, { ...proposal, ...edit })).accepted, false);
+    }
+    const outcomes = await Promise.all(["B", "C"].map((id) => recordDebugReport(dir, current, { ...proposal, id, taskId: id })));
+    assert.deepEqual(outcomes.map((result) => result.accepted).sort(), [false, true]);
+    const reports = await loadDebugReports(dir);
+    assert.equal(reports.length, 2);
+    assert.deepEqual(reports.find((report) => report.id === "A")?.evidenceRefs, ["log:1"]);
+    assert.equal(reports.every((report) => report.runId === current.runId), true);
+  });
+});
+
+test("malformed tactic limits and stale policy refuse admission", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await saveState(dir, state);
+    const proposal = { id: "A", taskId: "T", status: "next_approach", summary: "Trace", nextApproach: "Trace imports" };
+    for (const hard of [-1, 1.5, "2", null]) {
+      const current = await loadState(dir);
+      current.budgets = { limits: { tacticChanges: { hard } } };
+      await saveState(dir, current);
+      const result = await recordDebugReport(dir, await loadState(dir), proposal);
+      assert.equal(result.accepted, false);
+      assert.match(result.message, /tactic limit/);
+    }
+    const stale = await loadState(dir);
+    stale.budgets = { limits: { tacticChanges: { hard: 2 } } };
+    await saveState(dir, structuredClone(stale));
+    assert.equal((await recordDebugReport(dir, stale, proposal)).accepted, false);
+    assert.deepEqual(await loadDebugReports(dir), []);
+  });
+});
+
+test("legacy run-less approaches consume configured allowance conservatively", async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, ".scaler", "debug"), { recursive: true });
+    await writeFile(join(dir, ".scaler", "debug", "reports.json"), JSON.stringify({ version: 1, reports: [{ id: "old", taskId: "old-task", status: "next_approach", summary: "Old", nextApproach: "Old approach", createdAt: "2026-01-01", updatedAt: "2026-01-01" }] }));
+    const state = createDefaultState();
+    state.budgets = { limits: { tacticChanges: { hard: 1 } } };
+    await saveState(dir, state);
+    const result = await recordDebugReport(dir, await loadState(dir), { id: "new", taskId: "new-task", status: "next_approach", summary: "New", nextApproach: "New approach" });
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /tactic limit exhausted/);
+    assert.equal((await loadDebugReports(dir))[0]?.id, "old");
+  });
+});
+
+test("generated report IDs cannot overwrite charged history in the same millisecond", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    state.budgets = { limits: { tacticChanges: { hard: 2 } } };
+    await saveState(dir, state);
+    const current = await loadState(dir);
+    const now = new Date("2026-01-01T00:00:00Z");
+    const results = [];
+    for (const taskId of ["A", "B", "C"]) results.push(await recordDebugReport(dir, current, { taskId, status: "next_approach", summary: taskId, nextApproach: taskId }, now));
+    assert.deepEqual(results.map((result) => result.accepted), [true, true, false]);
+    assert.equal(new Set((await loadDebugReports(dir)).map((report) => report.id)).size, 2);
+  });
+});
+
+test("unrelated budget accounting cannot erase a malformed tactic cap", async () => {
+  await withTempDir(async (dir) => {
+    let state = createDefaultState();
+    state.budgets = { limits: { tacticChanges: null } };
+    state = incrementBudgetUsage(state, "toolCalls").state;
+    await saveState(dir, state);
+    const result = await recordDebugReport(dir, await loadState(dir), { taskId: "T", status: "next_approach", summary: "Trace", nextApproach: "Trace imports" });
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /tactic limit/);
+  });
+});
+
+test("stale uncapped state cannot bypass a newly configured cap", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await saveState(dir, state);
+    const current = structuredClone(state);
+    current.budgets = { limits: { tacticChanges: { hard: 0 } } };
+    await saveState(dir, current);
+    const result = await recordDebugReport(dir, state, { taskId: "T", status: "next_approach", summary: "Trace", nextApproach: "Trace imports" });
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /Stale state/);
   });
 });
 

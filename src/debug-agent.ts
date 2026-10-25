@@ -244,15 +244,16 @@ export async function runDebugAgentStep(
       details: { invocation: preparation.invocation },
     });
     const runResult = options.execute ? await runner(preparation.request, { timeoutMs: options.timeoutMs }) : undefined;
+    let ingestionState = state;
     if (runResult?.usage) {
-      await recordProviderUsageBudget(cwd, state, runResult.usage, {
+      ingestionState = (await recordProviderUsageBudget(cwd, state, runResult.usage, {
         source: "debug-agent-run",
         taskId: context.task.id,
         agentId: context.task.id,
         agentType: "debug",
-      });
+      })).state;
     }
-    const ingestion = runResult && taskAgentRunSucceeded(runResult) ? await ingestDebugReport(cwd, state, runResult.stdoutEvents) : { attempted: false, ingested: false };
+    const ingestion = runResult && taskAgentRunSucceeded(runResult) ? await ingestDebugReport(cwd, ingestionState, runResult.stdoutEvents) : { attempted: false, ingested: false };
     if (ingestion.attempted) {
       await logStructuredReportAudit(cwd, state, {
         reportType: "scaler_debug_report",
