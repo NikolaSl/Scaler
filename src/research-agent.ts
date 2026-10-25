@@ -268,6 +268,9 @@ export async function runResearchAgentStep(
         if (!(error instanceof StateConflictError)) throw error;
         return { accepted: false, message: error.message, researchRequest: context.request };
       }
+      if (state.stage === "paused") {
+        return { accepted: false, message: "Research dispatch refused: run is paused; resume explicitly before executing another child.", state, researchRequest: context.request };
+      }
       const budget = applyBudgetUsageUpdates(state, [{ key: "spawnedAgents", amount: 1 }]);
       if (budget.decision.status === "hard_limit") {
         state = await persistBudgetDecision(cwd, state, budget.decision);

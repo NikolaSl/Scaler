@@ -30,3 +30,8 @@ uncharged; executed admissions are persisted before the runner and remain
 consumed on failure/uncertain launch rather than being silently refunded.
 The existing threshold refuses a proposed count equal to the hard limit; this
 unit does not change that shared convention. It adds no new function or ledger.
+
+Independent review reproduced a provider-token hard stop followed by another
+sibling launch. Research execution now refuses a current paused run (preparation
+remains available). The Stage II fixture covers provider accounting pausing the
+run after its first child, not merely exhausting the child-count allowance.

@@ -375,6 +375,23 @@ test("research dispatch shares persisted agent allowance across requests and rel
   });
 });
 
+test("paused research permits preparation but refuses child execution", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    state.stage = "paused";
+    await saveState(dir, state);
+    await upsertResearchRequest(dir, { id: "A", question: "Which API?", reason: "Need evidence" });
+    assert.equal((await runResearchAgentStep(dir, state)).accepted, true);
+    const result = await runResearchAgentStep(dir, state, { execute: true }, async () => {
+      throw new Error("must refuse before dispatch");
+    });
+    assert.equal(result.accepted, false);
+    assert.match(result.message, /paused/i);
+    assert.deepEqual(await loadState(dir), state);
+    assert.equal((await loadResearchAgentRunRecords(dir)).every((run) => run.status === "prepared"), true);
+  });
+});
+
 test("stale research snapshots cannot bypass a newer launch budget", async () => {
   await withTempDir(async (dir) => {
     const stale = createDefaultState();

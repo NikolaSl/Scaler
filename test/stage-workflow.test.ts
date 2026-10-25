@@ -252,9 +252,13 @@ async function researchRunner(request: TaskAgentRequest): Promise<TaskAgentRunRe
 }
 
 test("Stage II threads research usage across children and stops on shared budget refusal", async () => {
-  for (const hard of [2, 3]) await withTempDir(async (dir) => {
+  for (const { hard, tokenHard, expectedCalls } of [
+    { hard: 2, expectedCalls: 1 },
+    { hard: 3, expectedCalls: 2 },
+    { hard: 5, tokenHard: 10, expectedCalls: 1 },
+  ]) await withTempDir(async (dir) => {
     const state = createState("knowledge");
-    state.budgets = { limits: { spawnedAgents: { hard } } };
+    state.budgets = { limits: { spawnedAgents: { hard }, ...(tokenHard ? { contextTokens: { hard: tokenHard } } : {}) } };
     await saveState(dir, state);
     for (const id of ["RESEARCH-REQ-A", "RESEARCH-REQ-B"]) {
       await upsertResearchRequest(dir, { id, question: id, reason: "Need local evidence" });
@@ -274,14 +278,14 @@ test("Stage II threads research usage across children and stops on shared budget
         };
       },
     });
-    assert.equal(calls, hard - 1);
+    assert.equal(calls, expectedCalls);
     assert.equal(getBudgetState(result.finalState).usage.spawnedAgents, calls);
     assert.equal(getBudgetState(result.finalState).usage.contextTokens, calls * 11);
     assert.deepEqual(JSON.parse(JSON.stringify(result.finalState)), await loadState(dir));
-    assert.equal(result.steps[0]?.accepted, hard === 3);
-    if (hard === 2) {
+    assert.equal(result.steps[0]?.accepted, expectedCalls === 2);
+    if (expectedCalls === 1) {
       assert.equal(result.finalState.stage, "paused");
-      assert.match(result.steps[0]?.message ?? "", /budget.*spawnedAgents/i);
+      assert.match(result.steps[0]?.message ?? "", tokenHard ? /paused/i : /budget.*spawnedAgents/i);
     }
   });
 });
