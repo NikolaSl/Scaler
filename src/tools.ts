@@ -299,6 +299,7 @@ const PlanningReportParams = Type.Object({
     source: Type.Optional(Type.String()),
     tasks: Type.Array(Type.Object({
       id: Type.String(),
+      necessity: Type.Optional(Type.Union([Type.Literal("required"), Type.Literal("optional"), Type.Literal("unresolved")])),
       outputPaths: Type.Optional(Type.Array(Type.String(), { description: "Exact output paths for the task's validation basis; [] only for no filesystem outputs." })),
       validationInputPaths: Type.Optional(Type.Array(Type.String(), { description: "Exact files implementing the executable validation basis; [] only for self-contained commands." })),
       title: Type.String(),

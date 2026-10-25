@@ -576,6 +576,7 @@ test("scaler_planning_report syncs planner output", async () => {
           status: "active",
           tasks: [{
             id: "T-TOOL-PLAN",
+            necessity: "required",
             title: "Tool task",
             taskKind: "software",
             atomicityRationale: "T-TOOL-PLAN is independently completable and testable.",
@@ -597,6 +598,7 @@ test("scaler_planning_report syncs planner output", async () => {
 
     assert.equal(result?.details.status, "accepted");
     assert.equal((await loadExecutionPlan(dir)).planVersion, 3);
+    assert.equal((await loadExecutionPlan(dir)).tasks[0]?.necessity, "required");
     assert.deepEqual((await loadExecutionPlan(dir)).tasks[0]?.validationInputPaths, []);
     assert.deepEqual((await getValidationManifestForTask(dir, "T-TOOL-PLAN")).validationInputPaths, []);
     assert.equal((await loadPrdRequirements(dir)).requirements[0]?.id, "REQ-TOOL");

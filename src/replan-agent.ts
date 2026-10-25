@@ -158,6 +158,7 @@ export function buildReplanAgentPrompt(input: ReplanAgentPromptInput): string {
     "- Preserve every validated task id already in the current plan.",
     "- Preserve validated requirement coverage; do not unlink known runtime requirements.",
     "- Link every proposed task to runtime PRD refs when possible.",
+    "- If necessity is assessed, use necessity=required only for justified work; keep optional/unresolved suggestions outside executable plan tasks. A label or PRD link alone is not proof of necessity against original user wording.",
     "- Keep tasks atomic, sequential, independently validateable, and include taskKind, atomicityRationale, allowedPathPrefixes, definitionOfDone, and validationRefs or validationCommands.",
     "- Software/mixed tasks must include a test_first validation command/check before implementation gates, or a qualityWaivers entry with an explicit reason and alternative validation path.",
     "- Declare existing local validator, fixture, and validation-config files in validationInputPaths. Use [] only for genuinely self-contained commands; if a task creates its validator, configure the manifest after creation and before first validation.",

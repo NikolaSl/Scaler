@@ -450,7 +450,7 @@ test("required necessity remains an admitted proposal and round-trips without ex
     });
     assert.equal(result.accepted, true);
     assert.equal((await loadExecutionPlan(dir)).tasks[0]?.necessity, "required");
-    assert.equal(state.tasks.length, 1);
+    assert.equal(result.state.tasks.length, 1);
   });
 });
 
