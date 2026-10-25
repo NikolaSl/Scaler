@@ -255,6 +255,7 @@ export async function runStageAgentStep(
       try {
         runResult = await runner(preparation.request, { timeoutMs: options.timeoutMs });
       } catch (error) {
+        if ((await loadState(cwd)).runId !== state.runId) throw error;
         const blockedArtifactIds = await blockArtifactsChangedDuringFailedRun(cwd, artifacts);
         await recordThrownStageAgentRun(cwd, stage, error, blockedArtifactIds);
         throw error;
