@@ -55,14 +55,21 @@ test("buildReplanAgentPrompt includes replan requests, PRD coverage, current pla
     await appendReplanRequest(dir, { id: "REPLAN-001", trigger: "manual", reason: "Need safer next task", requirementRefs: ["REQ-001"] });
     const requirements = await loadPrdRequirements(dir);
     const coverage = await loadPrdCoverage(dir);
-    const prompt = buildReplanAgentPrompt({
+    state.originalRequest = "  CSV export само локално.\nБез Excel, scheduler или plugin framework.  ";
+    const input = {
       state,
       currentPlan,
       requirements,
       coverageSummary: computePrdCoverageSummary(requirements, coverage, state),
       replanRequests: await loadReplanRequests(dir),
       extraInstructions: "Prefer small tasks.",
-    });
+    };
+    const prompt = buildReplanAgentPrompt(input);
+    assert.ok(prompt.includes(JSON.stringify(state.originalRequest)));
+    state.originalRequest = "EXACT-CONSTRAINT ".repeat(10_000);
+    assert.throws(() => prepareReplanAgentInvocation(dir, input), /final SCALER prompt refused/i);
+    delete state.originalRequest;
+    assert.match(buildReplanAgentPrompt(input), /Original user wording.*unavailable/i);
 
     assert.match(prompt, /focused SCALER replanner agent/);
     assert.match(prompt, /REPLAN-001/);
