@@ -23,3 +23,30 @@ controls. Run build, full unit/mock/conformance gate and independent exact-head
 review. No new helper, ledger, policy defaults or model call. This does not close
 replan-agent dispatch, all retry/review limits, direction/necessity assessment,
 or full SC-15/P5; do not upgrade aggregate coverage.
+
+## Implementation evidence and limits
+
+Existing lock/snapshot/budget primitives now guard executed stage children;
+preparation remains uncharged. Returned state carries admission/provider usage
+through CLI advancement, stage conductor and autonomous stage workflow. The child
+handoff reloads current same-run state before usage accounting; it refuses a
+changed run identity rather than charging or advancing a replacement run. Failed
+or thrown launch retains the pre-dispatch count. Provider pause blocks caller
+advancement and supplemental PRD/planning ingestion. A stage artifact recorded
+from successful output remains a proposal, not authorization to continue paused
+work. No new helper/ledger/default policy.
+
+Four regression scenarios reproduced baseline failures: missing launch count,
+paused/stale dispatch and stale supplemental planning after provider pause.
+Additional controls cover child-persisted state, uncertain launch and conductor
+pause propagation. One pre-existing sequential mock fixture needed current state
+after the new persisted stage charge; all free-form rejection assertions remain.
+
+Own stable-candidate gate: build, 1266 unit/component, 74 mock integration,
+10 conformance, 52 focused stage/agent/conductor/workflow checks and diff check.
+The first full gate exposed the stale mock input; it was corrected by reloading
+state, not weakening production admission or dropping assertions. Exact-head
+independent review is still required before merge; its final evidence belongs in
+the PR conversation. Synthetic runners prove process boundaries only, not model
+quality, local inference, resource isolation or savings. Aggregate coverage stays
+partial; direction/necessity and separate replan-agent admission remain open.
