@@ -48,6 +48,17 @@ test("direct task inputs refuse nonrequired necessity before task/policy/quality
   }
 });
 
+test("explicit required direct task inputs remain admitted proposals without runtime proof field", async () => {
+  await withTempDir(async (dir) => {
+    const created = await createTask(dir, createDefaultState(), { id: "CSV", title: "Export CSV", necessity: "required" });
+    assert.equal(created.accepted, true);
+    const updated = await updateTask(dir, created.state, { id: "CSV", title: "Export CSV locally", necessity: "required" });
+    assert.equal(updated.accepted, true);
+    assert.equal((await loadState(dir)).tasks[0]?.title, "Export CSV locally");
+    assert.equal("necessity" in updated.state.tasks[0]!, false);
+  });
+});
+
 test("createTask adds pending task by default", async () => {
   await withTempDir(async (dir) => {
     const result = await createTask(dir, createDefaultState(), { id: "T-001", title: "First task" });

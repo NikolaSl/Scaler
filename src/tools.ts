@@ -238,6 +238,7 @@ const TaskValidationCommandParams = Type.Object({
 
 const TaskCreateParams = Type.Object({
   taskId: Type.String(),
+  necessity: Type.Optional(Type.Union([Type.Literal("required"), Type.Literal("optional"), Type.Literal("unresolved")])),
   outputPaths: Type.Optional(Type.Array(Type.String(), { description: "Exact output paths to bind before validation; [] only for no filesystem outputs." })),
   validationInputPaths: Type.Optional(Type.Array(Type.String(), { description: "Exact local validator, fixture, helper, or runner-config files whose bytes define the executable validation basis; [] only for self-contained commands." })),
   title: Type.Optional(Type.String()),
@@ -255,6 +256,7 @@ const TaskCreateParams = Type.Object({
 
 const TaskUpdateParams = Type.Object({
   taskId: Type.String(),
+  necessity: Type.Optional(Type.Union([Type.Literal("required"), Type.Literal("optional"), Type.Literal("unresolved")])),
   outputPaths: Type.Optional(Type.Array(Type.String(), { description: "Replacement declared output paths; omit to preserve the existing basis." })),
   validationInputPaths: Type.Optional(Type.Array(Type.String(), { description: "Replacement executable validation-basis paths; omit to preserve the existing basis." })),
   title: Type.Optional(Type.String()),
@@ -644,6 +646,7 @@ export function registerScalerTools(pi: ExtensionAPI, runtimeBindings: ScalerToo
       const state = await ensureState(ctx.cwd);
       const result = await createTask(ctx.cwd, state, {
         id: params.taskId,
+        necessity: params.necessity,
         title: params.title,
         status: params.status,
         taskKind: params.taskKind,
@@ -674,6 +677,7 @@ export function registerScalerTools(pi: ExtensionAPI, runtimeBindings: ScalerToo
       const state = await ensureState(ctx.cwd);
       const result = await updateTask(ctx.cwd, state, {
         id: params.taskId,
+        necessity: params.necessity,
         title: params.title,
         status: params.status,
         taskKind: params.taskKind,
