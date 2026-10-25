@@ -29,6 +29,23 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
+test("task tools forward necessity instead of silently dropping nonrequired proposals", async () => {
+  await withTempDir(async (dir) => {
+    const registered = new Map<string, any>();
+    registerScalerTools({ registerTool(tool: any) { registered.set(tool.name, tool); } } as never);
+    await registered.get("scaler_task_create").execute("base", { taskId: "CSV", title: "Export CSV" }, undefined, undefined, { cwd: dir });
+    const before = await loadState(dir);
+    for (const name of ["scaler_task_create", "scaler_task_update"]) {
+      const result = await registered.get(name).execute("optional", {
+        taskId: name.endsWith("create") ? "EXTRA" : "CSV", title: "Optional plugin framework",
+        necessity: "optional", prdRefs: ["CSV-REQ"],
+      }, undefined, undefined, { cwd: dir });
+      assert.match(result.content[0].text, /necessity/i);
+      assert.deepEqual(await loadState(dir), before);
+    }
+  });
+});
+
 test("scalerToolNames lists structured Scaler tools", () => {
   assert.deepEqual([...scalerToolNames], [
     "scaler_report",
