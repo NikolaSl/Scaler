@@ -7,7 +7,7 @@ import { runDebugAgentStep, type DebugAgentRunner, type DebugAgentStepResult, ty
 import { loadDebugRetryPolicy, runDebugRetryPolicyWorkflow, type DebugRetryPolicyWorkflowResult } from "./debug-retry.js";
 import { appendLogEvent, createLogEvent } from "./logging.js";
 import { loadReplanRequests } from "./plans.js";
-import { loadState } from "./state.js";
+import { assertStateSnapshotCurrent, loadState, StateConflictError } from "./state.js";
 import { runReplanAgentStep, type ReplanAgentRunner, type ReplanAgentStepResult, type RunReplanAgentOptions } from "./replan-agent.js";
 import { loadResearchRequests } from "./research.js";
 import { runResearchAgentStep, type ResearchAgentRunner, type ResearchAgentStepResult, type RunResearchAgentOptions } from "./research-agent.js";
@@ -90,6 +90,17 @@ export async function runDebugConductorStep(
   options: DebugConductorStepOptions = {},
   runners: DebugConductorRunners = {},
 ): Promise<DebugConductorStepResult> {
+  if (options.execute) {
+    try {
+      await assertStateSnapshotCurrent(cwd, state);
+    } catch (error) {
+      if (!(error instanceof StateConflictError)) throw error;
+      return { accepted: false, action: "no_action", message: error.message, state };
+    }
+  }
+  if (options.execute && state.stage === "paused") {
+    return { accepted: false, action: "no_action", message: "Debug conductor refused: run is paused; resume explicitly before executing follow-up work.", state };
+  }
   const task = selectDebugConductorTask(state, options.taskId);
   if (!task) {
     const message = options.taskId ? `No debugging task found for ${options.taskId}.` : "No debugging task found.";
@@ -277,7 +288,7 @@ export async function runDebugConductorLoop(
     details: { stopReason, steps: steps.map(summarizeStepForLog) },
   }));
   return {
-    accepted: steps.length > 0 && steps.every((step) => step.accepted),
+    accepted: steps.length > 0 && steps.every((step) => step.accepted) && (!options.execute || currentState.stage !== "paused"),
     completed: stopReason === "next_approach" || stopReason === "retry_prepared" || stopReason === "retry_exact_validation_passed" || stopReason === "proposed_replan" || stopReason === "no_action",
     stopReason,
     steps,
@@ -296,6 +307,7 @@ export function selectDebugConductorTask(state: ScalerState, taskId?: string): S
 }
 
 function classifyLoopStopReason(step: DebugConductorStepResult, executed: boolean): DebugConductorLoopStopReason {
+  if (executed && step.state.stage === "paused") return "step_rejected";
   if (step.action === "no_debug_task") return "no_debug_task";
   if (!step.accepted) return "step_rejected";
   if (!executed) {

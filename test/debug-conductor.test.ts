@@ -160,6 +160,7 @@ test("debug conductor stops follow-up work after provider usage pauses the run",
     });
     assert.equal(calls, 1);
     assert.equal(result.finalState.stage, "paused");
+    assert.equal(result.accepted, false);
     assert.equal(result.stopReason, "step_rejected");
     assert.equal(result.steps.length, 1);
     const repeated = await runDebugConductorStep(dir, await loadState(dir), { execute: true }, {
@@ -167,6 +168,11 @@ test("debug conductor stops follow-up work after provider usage pauses the run",
     });
     assert.equal(repeated.accepted, false);
     assert.match(repeated.message, /paused/i);
+    const stale = await runDebugConductorStep(dir, state, { execute: true }, {
+      debug: forbidden, research: forbidden, replan: forbidden,
+    });
+    assert.equal(stale.accepted, false);
+    assert.match(stale.message, /stale state snapshot/i);
   });
 });
 

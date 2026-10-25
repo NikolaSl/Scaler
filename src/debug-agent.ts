@@ -5,6 +5,7 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { logAgentPromptAudit, logStructuredReportAudit } from "./logging.js";
 import {
@@ -27,7 +28,7 @@ import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { formatResearchSummary, loadResearchReports, loadResearchRequests } from "./research.js";
 import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
-import { formatStateStatus } from "./state.js";
+import { assertStateSnapshotCurrent, formatStateStatus, StateConflictError } from "./state.js";
 import type { ScalerState, ScalerTaskState } from "./types.js";
 
 export interface DebugAgentPromptInput {
@@ -234,6 +235,23 @@ export async function runDebugAgentStep(
         task: context.task,
         promptAdmission: error instanceof TaskPromptAdmissionError ? error.decision : undefined,
       };
+    }
+    if (options.execute) {
+      try {
+        await assertStateSnapshotCurrent(cwd, state);
+      } catch (error) {
+        if (!(error instanceof StateConflictError)) throw error;
+        return { accepted: false, message: error.message, task: context.task };
+      }
+      if (state.stage === "paused") {
+        return { accepted: false, message: "Debug dispatch refused: run is paused; resume explicitly before executing another child.", task: context.task };
+      }
+      const budget = applyBudgetUsageUpdates(state, [{ key: "spawnedAgents", amount: 1 }]);
+      if (budget.decision.status === "hard_limit") {
+        await persistBudgetDecision(cwd, state, budget.decision);
+        return { accepted: false, message: `Budget refused debug dispatch: ${budget.decision.reason}`, task: context.task };
+      }
+      state = await persistBudgetDecision(cwd, budget.state, budget.decision);
     }
     await logAgentPromptAudit(cwd, state, {
       agentType: "debug",
