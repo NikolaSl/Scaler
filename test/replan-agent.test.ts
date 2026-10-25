@@ -4,7 +4,8 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { getStatePath } from "../src/paths.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -97,6 +98,22 @@ test("replanner uncertain launch retains pre-dispatch usage", async () => {
       throw new Error("uncertain launch");
     }), /uncertain launch/);
     assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents, 1);
+  });
+});
+
+test("replanner changed-run handoff cannot account or ingest into replacement run", async () => {
+  await withTempDir(async (dir) => {
+    const replacement = createDefaultState();
+    replacement.revision = 1;
+    await assert.rejects(runReplanAgentStep(dir, createDefaultState(), { execute: true }, async (request) => {
+      await writeFile(getStatePath(dir), JSON.stringify(replacement), "utf8");
+      return { taskId: request.taskId, exitCode: 0, stderr: "", timedOut: false, aborted: false,
+        usage: { totalTokens: 11, sources: ["fixture"] },
+        stdoutEvents: [{ type: "scaler_replan_proposal", plan: { planVersion: 1, tasks: [] } }] };
+    }), /run identity changed/i);
+    assert.deepEqual(await loadState(dir), replacement);
+    assert.equal(await loadProposedExecutionPlan(dir), undefined);
+    assert.deepEqual(await loadReplanAgentRunRecords(dir), []);
   });
 });
 

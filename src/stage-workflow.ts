@@ -786,6 +786,7 @@ async function runReplanningWorkflowStep(
       providerAdmissionModel: options.providerAdmissionModel,
       timeoutMs: options.timeoutMs,
     }, replanRunner);
+    state = run.state ?? state;
     if (!options.execute) {
       return {
         accepted: run.accepted,

@@ -8,7 +8,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { loadExecutionPlan, saveExecutionPlan } from "../src/plans.js";
+import { appendReplanRequest, loadExecutionPlan, loadProposedExecutionPlan, saveExecutionPlan } from "../src/plans.js";
 import { loadCurrentPrd, loadPrdRequirements, upsertPrdRequirement } from "../src/prd.js";
 import { loadResearchReports, loadResearchRequests, upsertResearchRequest } from "../src/research.js";
 import { getBudgetState } from "../src/budgets.js";
@@ -57,6 +57,35 @@ function validWorkflowTask(id: string, title: string, overrides: Record<string, 
     ...overrides,
   };
 }
+
+test("replan workflow retains hard refusal/pause and does not ingest or accept the proposal", async () => {
+  for (const beforeDispatch of [true, false]) {
+    await withTempDir(async (dir) => {
+      const state = createState("replanning");
+      state.budgets = { limits: beforeDispatch ? { spawnedAgents: { hard: 0 } } : { contextTokens: { hard: 10 } } };
+      await saveState(dir, state);
+      await upsertPrdRequirement(dir, { id: "REQ", statement: "One bounded change" });
+      await appendReplanRequest(dir, { id: "R", trigger: "manual", reason: "Need bounded correction" });
+      let calls = 0;
+      const result = await runAutonomousStageWorkflow(dir, state, { execute: true, maxSteps: 3 }, {
+        replan: async (request) => {
+          calls++;
+          return { taskId: request.taskId, exitCode: 0, stderr: "", timedOut: false, aborted: false,
+            usage: { totalTokens: 11, sources: ["fixture"] },
+            stdoutEvents: [{ type: "scaler_replan_proposal", plan: { planVersion: 1, status: "draft",
+              tasks: [validWorkflowTask("NEXT", "One bounded change", { prdRefs: ["REQ"] })] } }] };
+        },
+      });
+      assert.equal(calls, beforeDispatch ? 0 : 1);
+      assert.equal(result.accepted, false);
+      assert.equal(result.finalState.stage, "paused");
+      assert.deepEqual(JSON.parse(JSON.stringify(result.finalState)), await loadState(dir));
+      assert.deepEqual(result.finalState.tasks, []);
+      assert.equal(await loadProposedExecutionPlan(dir), undefined);
+      assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    });
+  }
+});
 
 test("deriveKnowledgeResearchRequests creates deterministic Stage II requests for uncovered requirements", () => {
   const requests = deriveKnowledgeResearchRequests([
