@@ -25,3 +25,6 @@ workflow or complete SC-03/04/10/27 claim. Run focused plan/tool/prompt checks,
 build, full unit/mock/conformance gate and independent exact-head review before
 merge. If original intent is misclassified or the field omitted, the broader
 semantic assessment remains open; do not advertise this as full necessity proof.
+This unit guards execution-plan routes, not independent direct task creation or
+updating task necessity after a plan has already been applied. Those contracts do
+not yet carry this disposition; omission is deliberately not inferred as proof.
