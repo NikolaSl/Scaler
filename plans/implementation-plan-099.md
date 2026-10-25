@@ -16,15 +16,17 @@ is a durable continuation record; scheduled execution is recorded separately.
 
 Nikola explicitly authorized autonomous implementation and merging PRs after
 review when there are no valid unresolved findings and applicable tests pass.
-Nikola renewed unattended work for 24 hours on 2026-09-27 at 20:10:01Z. The
-current mutation deadline is `2026-09-28T20:10:01Z` (23:10:01 Europe/Sofia),
-superseding earlier cutoffs. Check live ownership and time before changes; stop
+Nikola renewed unattended work for 24 hours on 2026-10-24 at 22:12:41Z. The
+current mutation deadline is `2026-10-25T22:12:41Z` (00:12:41 Europe/Sofia on
+2026-10-26), superseding earlier cutoffs. This record does not extend that
+authorization. Check live ownership and UTC before changes; stop
 mutations, save a durable handoff and release ownership before the deadline.
 No paid model spending or deployment is authorized.
 
-- On 2026-09-27 Nikola replaced Copilot as the mandatory reviewer with an
-  independent assistant agent using a lighter model, explicitly suggesting
-  GPT-5.6 Terra. Review the exact candidate head with Terra/high, preserve
+- On 2026-09-27 Nikola replaced Copilot with an independent assistant agent,
+  suggesting GPT-5.6 Terra. The renewed October authorization permits an
+  available equivalent; identify the actual model truthfully. Review the exact
+  candidate head in a fresh context, preserve
   concrete findings and reasoning in the PR/handoff, and have the primary
   agent independently review and run the applicable exact-head gate. Fix valid
   findings and re-review a changed head. A Copilot request or old Copilot
@@ -37,7 +39,9 @@ No paid model spending or deployment is authorized.
   each disposition with the reviewed commit identity. The same local model may
   author and review sequentially in separate contexts.
 - Merge only the reviewed, tested head using an expected-head-SHA guard and a
-  merge commit to preserve implementation history. Respect branch protection.
+  merge commit to preserve implementation history. Nikola's 2026-10-25 revision
+  removes separate protection/ruleset inspection as a prerequisite, not server-
+  enforced restrictions: never modify or bypass them. Copilot is not required.
 - Keep paid model spending and deployment out of scope. Existing free-provider
   synthetic tests are permitted; do not disclose credentials.
 - Continuations must inspect current remote state before acting and avoid
@@ -56,9 +60,9 @@ No paid model spending or deployment is authorized.
   next unit is in preparation; do not merge before prerequisites are merged.
   Do not spend active work repeatedly sleeping or resending the same review
   request. A successful API response is not a completed review.
-- The review delegate uses GPT-5.6 Terra/high under Nikola's newer instruction.
-  Other delegated implementation work follows any separately authorized model
-  constraint; do not silently substitute a weaker model.
+- Independent review uses an available authorized model in a fresh context;
+  recent reviews used GPT-5.6-sol/high, not unavailable Terra. Other delegated
+  work follows any separately authorized model constraint.
 - Report meaningful published commits in Bulgarian with commit links, purpose,
   validation and next action. Group related commits when necessary; do not make
   empty reporting commits or repeatedly announce an unchanged pending review.
@@ -540,8 +544,8 @@ with shared outcome semantics; build, 1,163 unit, 68 mock integration,
 7 conformance and 69 focused tests pass on its candidate tree. This does not
 upgrade any full SC/AC row to Verified.
 
-The earlier exact-head Copilot gate was superseded on 2026-09-27 by Nikola's
-explicit Terra-agent replacement above. Preserve all branch protections and
+The earlier exact-head Copilot gate was superseded by Nikola's independent-
+agent review policy above. Preserve all server-enforced restrictions and
 use expected-head merge commits after a completed independent exact-head
 review, primary review and the full applicable gate.
 
@@ -550,9 +554,13 @@ in review and one next unit in preparation. Claim a bounded continuation marker
 after checking live agents, processes, worktrees and Git state; release it at
 handoff. Report published commit links, actual checks, blockers and next steps
 in Bulgarian on each scheduled run. Never imply continuous execution between
-runs or manufacture commits for reports. The current review delegate is
-GPT-5.6 Terra/high by Nikola's explicit replacement. Paid external model calls
-and deployments remain out of scope.
+runs or manufacture commits for reports. Identify the actual available independent
+review model; never report an unavailable model as used. Paid external model
+calls and deployments remain out of scope.
+
+The [PLAN-188 consolidated handoff](implementation-plan-188.md) indexes the
+bounded October P5 work through PR #50, its evidence and remaining acceptance
+gaps. It does not upgrade aggregate coverage or authorize another work window.
 
 ## Architecture direction
 
