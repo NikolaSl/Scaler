@@ -25,6 +25,7 @@ import {
 import { readLogEvents } from "../src/logging.js";
 import { loadResearchReports, loadResearchRequests, recordResearchReport, upsertResearchRequest } from "../src/research.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
+import { getBudgetState } from "../src/budgets.js";
 import { testProviderAdmissionModel } from "./provider-model-fixture.js";
 
 const prepareResearchAgentInvocation: typeof prepareResearchAgentInvocationImpl = (cwd, input, options = {}) =>
@@ -344,7 +345,7 @@ test("research dispatch shares persisted agent allowance across requests and rel
     let calls = 0;
     const runner: Parameters<typeof runResearchAgentStep>[3] = async (request) => {
       calls++;
-      assert.equal((await loadState(dir)).budgets.usage?.spawnedAgents, 1);
+      assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents, 1);
       return {
         taskId: request.taskId, exitCode: 1, stdoutEvents: [], stderr: "No answer",
         timedOut: false, aborted: false,
@@ -352,20 +353,22 @@ test("research dispatch shares persisted agent allowance across requests and rel
       };
     };
     assert.equal((await runResearchAgentStep(dir, state, { requestId: "A" }, runner)).accepted, true);
-    assert.equal((await loadState(dir)).budgets.usage?.spawnedAgents, undefined);
+    assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents, undefined);
     const first = await runResearchAgentStep(dir, state, { requestId: "A", execute: true }, runner);
     assert.equal(first.runRecord?.status, "failed");
     const resumed = await loadState(dir);
-    assert.equal(resumed.budgets.usage?.spawnedAgents, 1);
-    assert.equal(resumed.budgets.usage?.contextTokens, 11);
+    assert.equal(getBudgetState(resumed).usage.spawnedAgents, 1);
+    assert.equal(getBudgetState(resumed).usage.contextTokens, 11);
+    assert.deepEqual(JSON.parse(JSON.stringify(first.state)), resumed);
     const refused = await runResearchAgentStep(dir, resumed, { requestId: "B", execute: true }, runner);
     assert.equal(refused.accepted, false);
     assert.match(refused.message, /budget.*spawnedAgents/i);
     assert.equal(calls, 1);
     const stopped = await loadState(dir);
     assert.equal(stopped.stage, "paused");
-    assert.equal(stopped.budgets.usage?.spawnedAgents, 1);
-    assert.equal(stopped.budgets.usage?.contextTokens, 11);
+    assert.equal(getBudgetState(stopped).usage.spawnedAgents, 1);
+    assert.equal(getBudgetState(stopped).usage.contextTokens, 11);
+    assert.deepEqual(JSON.parse(JSON.stringify(refused.state)), stopped);
     assert.equal((await loadResearchAgentRunRecords(dir)).filter((run) => run.status !== "prepared").length, 1);
     assert.deepEqual(await loadResearchReports(dir), []);
     assert.equal((await loadResearchRequests(dir)).every((request) => request.status === "open"), true);

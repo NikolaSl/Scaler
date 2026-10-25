@@ -5,6 +5,7 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
 import { logAgentPromptAudit, logStructuredReportAudit } from "./logging.js";
 import { loadExecutionPlan, summarizeExecutionPlan, formatExecutionPlanSummary, type ExecutionPlanArtifact } from "./plans.js";
@@ -24,7 +25,7 @@ import {
   type ResearchRequest,
 } from "./research.js";
 import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
-import { formatStateStatus } from "./state.js";
+import { assertStateSnapshotCurrent, formatStateStatus, StateConflictError } from "./state.js";
 import type { ScalerState } from "./types.js";
 
 export interface ResearchAgentPromptInput {
@@ -102,6 +103,7 @@ export interface ResearchAgentRunIndex {
 export interface ResearchAgentStepResult {
   accepted: boolean;
   message: string;
+  state?: ScalerState;
   prompt?: string;
   invocation?: TaskAgentInvocation;
   runResult?: TaskAgentRunResult;
@@ -259,6 +261,20 @@ export async function runResearchAgentStep(
         promptAdmission: error instanceof TaskPromptAdmissionError ? error.decision : undefined,
       };
     }
+    if (options.execute) {
+      try {
+        await assertStateSnapshotCurrent(cwd, state);
+      } catch (error) {
+        if (!(error instanceof StateConflictError)) throw error;
+        return { accepted: false, message: error.message, researchRequest: context.request };
+      }
+      const budget = applyBudgetUsageUpdates(state, [{ key: "spawnedAgents", amount: 1 }]);
+      if (budget.decision.status === "hard_limit") {
+        state = await persistBudgetDecision(cwd, state, budget.decision);
+        return { accepted: false, message: `Budget refused research dispatch: ${budget.decision.reason}`, state, researchRequest: context.request };
+      }
+      state = await persistBudgetDecision(cwd, budget.state, budget.decision);
+    }
     await logAgentPromptAudit(cwd, state, {
       agentType: "research",
       agentId: context.request.id,
@@ -269,12 +285,12 @@ export async function runResearchAgentStep(
     });
     const runResult = options.execute ? await runner(preparation.request, { timeoutMs: options.timeoutMs }) : undefined;
     if (runResult?.usage) {
-      await recordProviderUsageBudget(cwd, state, runResult.usage, {
+      state = (await recordProviderUsageBudget(cwd, state, runResult.usage, {
         source: "research-agent-run",
         taskId: context.request.taskId,
         agentId: context.request.id,
         agentType: "research",
-      });
+      })).state;
     }
     const ingestion = runResult && taskAgentRunSucceeded(runResult)
       ? await ingestResearchReport(cwd, runResult.stdoutEvents, context.request)
@@ -292,6 +308,7 @@ export async function runResearchAgentStep(
     const runRecord = await recordResearchAgentRun(cwd, context.request.id, runResult, options.execute ? ingestion : undefined, options.execute ? undefined : "prepared");
     return {
       accepted: true,
+      state,
       message: `${options.execute ? "Executed" : "Prepared"} research agent for ${context.request.id}`,
       prompt: preparation.prompt,
       invocation: preparation.invocation,
