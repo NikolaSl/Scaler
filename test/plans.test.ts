@@ -405,6 +405,55 @@ test("planning report rejects an invalid plan before requirement ledger writes",
   });
 });
 
+test("explicit optional or unresolved necessity refuses even well-linked tasks before publication", async () => {
+  for (const necessity of ["optional", "unresolved", "invented", null]) await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    await assert.rejects(applyPlanningReport(dir, state, {
+      requirements: [{ id: "CSV", statement: "Export CSV without a scheduler or plugin framework" }],
+      plan: { planVersion: 1, status: "active", tasks: [
+        validPlanTask("CSV-EXPORT", "Export CSV", { prdRefs: ["CSV"] }),
+        validPlanTask("EXTRA", "Scheduler/plugin prerequisite", { prdRefs: ["CSV"], necessity }),
+      ] },
+    }), /necessity.*EXTRA/i);
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    assert.deepEqual((await loadPrdCoverage(dir)).entries, []);
+    assert.deepEqual(await loadPrdChanges(dir), []);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual(await loadPlanningReports(dir), []);
+    assert.deepEqual(state.tasks, []);
+  });
+});
+
+test("necessity disposition applies to persistence, direct application and replan acceptance", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    const plan: ExecutionPlanArtifact = { version: 1, planVersion: 1, status: "active", createdAt: "now", updatedAt: "now",
+      tasks: [validPlanTask("EXTRA", "Optional scheduler", { prdRefs: ["CSV"], necessity: "optional" })] };
+    const requirements = { version: 1 as const, requirements: [{ id: "CSV", statement: "Export CSV", createdAt: "now", updatedAt: "now" }] };
+    assert.throws(() => validateExecutionPlan(plan), /necessity.*EXTRA/i);
+    await assert.rejects(saveExecutionPlan(dir, plan), /necessity.*EXTRA/i);
+    await assert.rejects(saveProposedExecutionPlan(dir, plan), /necessity.*EXTRA/i);
+    await assert.rejects(applyExecutionPlanTasks(dir, state, plan), /necessity.*EXTRA/i);
+    await assert.rejects(acceptReplanProposal(dir, state, requirements, { proposedPlan: plan }), /necessity.*EXTRA/i);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.equal(await loadProposedExecutionPlan(dir), undefined);
+    assert.deepEqual(state.tasks, []);
+  });
+});
+
+test("required necessity remains an admitted proposal and round-trips without extra roles", async () => {
+  await withTempDir(async (dir) => {
+    const state = createDefaultState();
+    const result = await applyPlanningReport(dir, state, {
+      requirements: [{ id: "CSV", statement: "Export CSV" }],
+      plan: { planVersion: 1, status: "active", tasks: [validPlanTask("EXPORT", "Export CSV", { prdRefs: ["CSV"], necessity: "required" })] },
+    });
+    assert.equal(result.accepted, true);
+    assert.equal((await loadExecutionPlan(dir)).tasks[0]?.necessity, "required");
+    assert.equal(state.tasks.length, 1);
+  });
+});
+
 test("planning report rejects an unknown dependency before any publication", async () => {
   await withTempDir(async (dir) => {
     const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
