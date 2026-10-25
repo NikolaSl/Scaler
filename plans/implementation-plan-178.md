@@ -21,3 +21,12 @@ it does not enforce query/page caps inside a child, semantic search novelty,
 unknown costs, all other child routes or full SC-15/21 acceptance. Focused tests,
 build, full unit/mock/conformance gate and fresh exact-head independent review
 are required before merge.
+
+The existing Stage II workflow must carry the returned research state between
+children and into stage advancement; otherwise new accounting correctly causes
+a stale-state conflict. A two-request fixture covers both continued admission
+and a recoverable budget refusal with nonzero provider usage. Preparation is
+uncharged; executed admissions are persisted before the runner and remain
+consumed on failure/uncertain launch rather than being silently refunded.
+The existing threshold refuses a proposed count equal to the hard limit; this
+unit does not change that shared convention. It adds no new function or ledger.
