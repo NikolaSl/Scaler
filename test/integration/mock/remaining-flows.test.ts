@@ -443,10 +443,11 @@ test("mock integration: research raw evidence becomes memory and appears in late
     const runner = async (request: TaskAgentRequest): Promise<TaskAgentRunResult> => ({ taskId: request.taskId, exitCode: 0, stdoutEvents: [{ type: "scaler_research_report", id: "RPT-MEM", requestId: "RESEARCH-MEM", taskId: "T-RESEARCH-MEM", status: "complete", question: "What evidence?", sources: [{ id: "src", title: "Source", quality: "project", path: "src/app.js" }], conclusions: [{ summary: "Use raw evidence.", confidence: "high", sourceRefs: ["src"] }], contradictions: [], unresolvedUnknowns: [], recommendations: ["Use memory"], rawEvidence: [{ title: "Raw evidence", content: "Exact raw evidence body", sourceId: "src", summary: "raw" }] }], stderr: "", timedOut: false, aborted: false });
     const research = await runResearchAgentStep(dir, state, { requestId: "RESEARCH-MEM", execute: true }, runner);
     assert.equal(research.ingestion?.ingested, true);
+    assert.ok(research.state);
     const memoryEntries = await loadMemoryIndex(dir);
     assert.equal(memoryEntries.entries.length, 1);
     const reports = await loadResearchReports(dir);
-    const stateWithMemory = { ...state, memoryRefs: reports[0]?.memoryRefs ?? [] };
+    const stateWithMemory = { ...research.state, memoryRefs: reports[0]?.memoryRefs ?? [] };
     await saveState(dir, stateWithMemory);
     const manifest = await ensureTaskContextManifest(dir, stateWithMemory, "T-RESEARCH-MEM");
     assert.ok(manifest.items.some((item) => item.source === "memory"));
