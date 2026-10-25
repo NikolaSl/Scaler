@@ -8,7 +8,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { retrieveMemory } from "../src/memory.js";
+import { loadMemoryIndex, retrieveMemory } from "../src/memory.js";
 import { createDefaultState } from "../src/state.js";
 import {
   formatResearchSummary,
@@ -106,6 +106,21 @@ test("recordResearchReport sorts sources, stores raw evidence in memory, and res
     const reports = await loadResearchReports(dir);
     assert.equal(reports[0]?.id, "REPORT-001");
     assert.match(formatResearchSummary(await loadResearchRequests(dir), reports), /confidence=high memory_refs=1/);
+  });
+});
+
+test("rejected research does not publish raw evidence or resolve its request", async () => {
+  await withTempDir(async (dir) => {
+    await upsertResearchRequest(dir, { id: "REQ", question: "Which API?", reason: "Need contract." });
+    await assert.rejects(recordResearchReport(dir, {
+      id: "BAD", requestId: "REQ", status: "complete", question: "Which API?",
+      sources: [{ id: "docs", title: "Docs", quality: "official", summary: "Contract" }],
+      conclusions: [{ summary: "Use API", confidence: "high", sourceRefs: ["missing"] }],
+      rawEvidence: [{ title: "Unaccepted excerpt", content: "Raw candidate bytes", sourceId: "docs" }],
+    }), /unknown sources/);
+    assert.deepEqual((await loadMemoryIndex(dir)).entries, []);
+    assert.deepEqual(await loadResearchReports(dir), []);
+    assert.equal((await loadResearchRequests(dir))[0]?.status, "open");
   });
 });
 
