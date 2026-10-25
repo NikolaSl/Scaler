@@ -42,3 +42,8 @@ First publish the executable counterexample as a failing regression; implement
 only after reviewing this boundary. Then focused debug/budget checks, build,
 full unit/mock integration/conformance gate and independent exact-head review
 are required before a phase PR is accepted. No red preparation branch is merged.
+
+Implementation uses the report ledger alone for consumed allowance, with
+run-bound immutable approaches and idempotent replay. `tacticChanges` is now
+a recognized configuration key; no default cap is invented. The CLI's generic
+usage counter is not admission authority for this derived ledger count.
