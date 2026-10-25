@@ -19,7 +19,8 @@ import {
   runStageAgentStep as runStageAgentStepImpl,
   type RunStageAgentOptions,
 } from "../src/stage-agents.js";
-import { createDefaultState } from "../src/state.js";
+import { createDefaultState, loadState, saveState } from "../src/state.js";
+import { getBudgetState } from "../src/budgets.js";
 import { loadStageArtifacts } from "../src/stages.js";
 import { testProviderAdmissionModel } from "./provider-model-fixture.js";
 
@@ -30,6 +31,62 @@ const runStageAgentStep: typeof runStageAgentStepImpl = (cwd, state, stage, opti
 
 async function tempDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "scaler-stage-agents-test-"));
+}
+
+test("stage launch budget survives failed child, reload and different stage", async () => {
+  const cwd = await tempDir();
+  const state = createDefaultState();
+  state.budgets = { limits: { spawnedAgents: { hard: 2 } } };
+  await saveState(cwd, state);
+  let calls = 0;
+  const runner: Parameters<typeof runStageAgentStep>[4] = async (request) => {
+    calls++;
+    assert.equal(getBudgetState(await loadState(cwd)).usage.spawnedAgents, 1);
+    return { taskId: request.taskId, exitCode: 1, stdoutEvents: [], stderr: "Failed fixture",
+      timedOut: false, aborted: false, usage: { totalTokens: 11, sources: ["fixture"] } };
+  };
+  assert.equal((await runStageAgentStep(cwd, state, "prd", {}, runner)).accepted, true);
+  assert.equal(getBudgetState(await loadState(cwd)).usage.spawnedAgents, undefined);
+  assert.equal((await runStageAgentStep(cwd, state, "prd", { execute: true }, runner)).runRecord?.status, "failed");
+  const resumed = await loadState(cwd);
+  assert.equal(getBudgetState(resumed).usage.contextTokens, 11);
+  const refused = await runStageAgentStep(cwd, resumed, "planning", { execute: true }, runner);
+  assert.equal(refused.accepted, false);
+  assert.match(refused.message, /budget.*spawnedAgents/i);
+  assert.equal(calls, 1);
+  const stopped = await loadState(cwd);
+  assert.equal(stopped.stage, "paused");
+  assert.equal(getBudgetState(stopped).usage.spawnedAgents, 1);
+  assert.equal(getBudgetState(stopped).usage.contextTokens, 11);
+  assert.equal((await loadStageAgentRunRecords(cwd)).filter((r) => r.status !== "prepared").length, 1);
+  assert.deepEqual(await loadStageArtifacts(cwd), []);
+});
+
+for (const reason of ["paused", "stale"] as const) {
+  test(`${reason} stage snapshot refuses dispatch before child/run effects`, async () => {
+    const cwd = await tempDir();
+    const state = createDefaultState();
+    if (reason === "paused") state.stage = "paused";
+    await saveState(cwd, state);
+    if (reason === "stale") {
+      const current = await loadState(cwd);
+      current.budgets = { limits: { spawnedAgents: { hard: 0 } } };
+      await saveState(cwd, current);
+    } else {
+      assert.equal((await runStageAgentStep(cwd, state, "prd")).accepted, true);
+    }
+    const before = await loadState(cwd);
+    let calls = 0;
+    const result = await runStageAgentStep(cwd, state, "prd", { execute: true }, async () => {
+      calls++;
+      throw new Error("must refuse before dispatch");
+    });
+    assert.equal(result.accepted, false);
+    assert.match(result.message, reason === "paused" ? /paused/i : /stale state snapshot/i);
+    assert.equal(calls, 0);
+    assert.deepEqual(await loadState(cwd), before);
+    assert.equal((await loadStageAgentRunRecords(cwd)).every((r) => r.status === "prepared"), true);
+  });
 }
 
 test("stage prompts retain exact original wording or explicit absence without clipping", () => {

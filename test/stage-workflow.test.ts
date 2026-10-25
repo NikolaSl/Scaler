@@ -251,6 +251,29 @@ async function researchRunner(request: TaskAgentRequest): Promise<TaskAgentRunRe
   };
 }
 
+test("stage provider pause reaches workflow and prevents supplemental planning publication", async () => {
+  await withTempDir(async (dir) => {
+    const state = createState("planning");
+    state.budgets = { limits: { contextTokens: { hard: 10 } } };
+    await saveState(dir, state);
+    let calls = 0;
+    const result = await runAutonomousStageWorkflow(dir, state, { execute: true, maxSteps: 3 }, {
+      stage: async (request) => {
+        calls++;
+        return { ...await stageRunner(request), usage: { totalTokens: 11, sources: ["fixture"] } };
+      },
+    });
+    assert.equal(calls, 1);
+    assert.equal(result.accepted, false);
+    assert.equal(result.finalState.stage, "paused");
+    assert.equal((await loadState(dir)).stage, "paused");
+    assert.equal(getBudgetState(result.finalState).usage.spawnedAgents, 1);
+    assert.equal(getBudgetState(result.finalState).usage.contextTokens, 11);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+  });
+});
+
 test("Stage II threads research usage across children and stops on shared budget refusal", async () => {
   for (const { hard, tokenHard, expectedCalls } of [
     { hard: 2, expectedCalls: 1 },
