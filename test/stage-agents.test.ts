@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -21,7 +21,8 @@ import {
 } from "../src/stage-agents.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { getBudgetState } from "../src/budgets.js";
-import { loadStageArtifacts } from "../src/stages.js";
+import { loadStageArtifacts, upsertStageArtifact } from "../src/stages.js";
+import { getStatePath } from "../src/paths.js";
 import { testProviderAdmissionModel } from "./provider-model-fixture.js";
 
 const prepareStageAgentInvocation: typeof prepareStageAgentInvocationImpl = (cwd, input, options = {}) =>
@@ -113,6 +114,21 @@ test("stage runner exception retains admitted launch count", async () => {
   }), /uncertain launch/);
   assert.equal(getBudgetState(await loadState(cwd)).usage.spawnedAgents, 1);
   assert.equal((await loadStageAgentRunRecords(cwd))[0]?.status, "failed");
+});
+
+test("changed-run stage handoff does not charge or block replacement artifacts", async () => {
+  const cwd = await tempDir();
+  const replacement = createDefaultState();
+  replacement.revision = 1;
+  await assert.rejects(runStageAgentStep(cwd, createDefaultState(), "prd", { execute: true }, async (request) => {
+    await writeFile(getStatePath(cwd), JSON.stringify(replacement), "utf8");
+    await upsertStageArtifact(cwd, { id: "REPLACEMENT", stage: "prd", status: "ready", summary: "Other run artifact" });
+    return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "",
+      timedOut: false, aborted: false, usage: { totalTokens: 11, sources: ["fixture"] } };
+  }), /run identity changed/i);
+  assert.deepEqual(await loadState(cwd), replacement);
+  assert.equal((await loadStageArtifacts(cwd))[0]?.status, "ready");
+  assert.deepEqual(await loadStageAgentRunRecords(cwd), []);
 });
 
 test("stage prompts retain exact original wording or explicit absence without clipping", () => {

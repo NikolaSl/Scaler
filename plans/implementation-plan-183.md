@@ -42,7 +42,7 @@ Additional controls cover child-persisted state, uncertain launch and conductor
 pause propagation. One pre-existing sequential mock fixture needed current state
 after the new persisted stage charge; all free-form rejection assertions remain.
 
-Own stable-candidate gate: build, 1266 unit/component, 74 mock integration,
+Own gate on `730408a` before final handoff correction: build, 1266 unit/component, 74 mock integration,
 10 conformance, 52 focused stage/agent/conductor/workflow checks and diff check.
 The first full gate exposed the stale mock input; it was corrected by reloading
 state, not weakening production admission or dropping assertions. Exact-head
@@ -50,3 +50,7 @@ independent review is still required before merge; its final evidence belongs in
 the PR conversation. Synthetic runners prove process boundaries only, not model
 quality, local inference, resource isolation or savings. Aggregate coverage stays
 partial; direction/necessity and separate replan-agent admission remain open.
+
+Own review moved the changed-run check outside failed-child artifact cleanup so
+a replacement run's artifacts are not blocked by the old handoff. Its regression
+passes with 53 focused checks; the final exact-head full gate is recorded in the PR.

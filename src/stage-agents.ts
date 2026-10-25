@@ -254,14 +254,14 @@ export async function runStageAgentStep(
     if (options.execute) {
       try {
         runResult = await runner(preparation.request, { timeoutMs: options.timeoutMs });
-        const current = await loadState(cwd);
-        if (current.runId !== state.runId) throw new StateConflictError("Stage child handoff refused: run identity changed during execution.");
-        state = current;
       } catch (error) {
         const blockedArtifactIds = await blockArtifactsChangedDuringFailedRun(cwd, artifacts);
         await recordThrownStageAgentRun(cwd, stage, error, blockedArtifactIds);
         throw error;
       }
+      const current = await loadState(cwd);
+      if (current.runId !== state.runId) throw new StateConflictError("Stage child handoff refused: run identity changed during execution.");
+      state = current;
     }
     const blockedArtifactIds = runResult && !taskAgentRunSucceeded(runResult)
       ? await blockArtifactsChangedDuringFailedRun(cwd, artifacts)
