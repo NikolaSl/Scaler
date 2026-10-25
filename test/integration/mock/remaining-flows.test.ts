@@ -280,7 +280,7 @@ test("mock integration: planning report syncs runtime PRD coverage before execut
   });
 });
 
-test("mock integration: non-debug child free-form output is rejected without mutating ledgers", async () => {
+test("mock integration: non-debug child free-form output is rejected without mutating artifact ledgers", async () => {
   await withTempRepo(async (dir) => {
     const state = stateAt("planning");
     await saveState(dir, state);
@@ -299,13 +299,13 @@ test("mock integration: non-debug child free-form output is rejected without mut
     assert.equal((await loadStageAgentRunRecords(dir)).length, 1);
 
     await appendReplanRequest(dir, { id: "REPLAN-FREEFORM", trigger: "manual", reason: "Need plan." });
-    const replan = await runReplanAgentStep(dir, { ...state, stage: "replanning" }, { execute: true }, freeForm);
+    const replan = await runReplanAgentStep(dir, { ...await loadState(dir), stage: "replanning" }, { execute: true }, freeForm);
     assert.equal(replan.ingestion?.ingested, false);
     assert.equal(await loadProposedExecutionPlan(dir), undefined);
     assert.equal((await loadReplanAgentRunRecords(dir))[0]?.ingestionStatus, "rejected");
 
     await upsertResearchRequest(dir, { id: "RESEARCH-FREEFORM", question: "Q?", reason: "Need answer.", scope: "local" });
-    const research = await runResearchAgentStep(dir, state, { requestId: "RESEARCH-FREEFORM", execute: true }, freeForm);
+    const research = await runResearchAgentStep(dir, await loadState(dir), { requestId: "RESEARCH-FREEFORM", execute: true }, freeForm);
     assert.equal(research.ingestion?.ingested, false);
     assert.deepEqual(await loadResearchReports(dir), []);
     assert.equal((await loadResearchAgentRunRecords(dir))[0]?.ingestionStatus, "rejected");

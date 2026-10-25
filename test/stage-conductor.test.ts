@@ -25,6 +25,26 @@ async function tempDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "scaler-stage-conductor-test-"));
 }
 
+test("stage conductor retains provider pause instead of advancing a successful child", async () => {
+  const cwd = await tempDir();
+  const state = createDefaultState();
+  state.stage = "prd";
+  state.budgets = { limits: { contextTokens: { hard: 10 } } };
+  await saveState(cwd, state);
+  let calls = 0;
+  const result = await runStageConductorLoop(cwd, state, { execute: true, maxSteps: 3 }, async (request) => {
+    calls++;
+    return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "",
+      timedOut: false, aborted: false, usage: { totalTokens: 11, sources: ["fixture"] } };
+  });
+  assert.equal(calls, 1);
+  assert.equal(result.accepted, false);
+  assert.equal(result.stopReason, "step_rejected");
+  assert.equal(result.finalState.stage, "paused");
+  assert.deepEqual(JSON.parse(JSON.stringify(result.finalState)), await loadState(cwd));
+  assert.equal(result.steps[0]?.advancement, undefined);
+});
+
 async function seedValidatedTask(cwd: string, state: ScalerState): Promise<void> {
   state.tasks = [{ id: "T-001", status: "validating", updatedAt: state.updatedAt }];
   await saveState(cwd, state);
