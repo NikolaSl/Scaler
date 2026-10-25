@@ -280,7 +280,13 @@ export async function recordResearchReport(cwd: string, input: ResearchReportInp
     updatedAt: timestamp,
   };
   validateResearchReport(report);
-  for (const evidence of input.rawEvidence ?? []) {
+  const rawEvidence = (input.rawEvidence ?? []).map((evidence) => ({ ...evidence, sourceId: clean(evidence.sourceId) }));
+  for (const evidence of rawEvidence) {
+    if (evidence.sourceId && !report.sources.some((source) => source.id === evidence.sourceId)) {
+      throw new Error(`Research raw evidence references unknown source: ${evidence.sourceId}`);
+    }
+  }
+  for (const evidence of rawEvidence) {
     const memory = await writeMemory(cwd, {
       title: evidence.title,
       content: evidence.content,
