@@ -260,17 +260,6 @@ export async function recordResearchReport(cwd: string, input: ResearchReportInp
     }
   }
   const memoryRefs = [...(input.memoryRefs ?? existing?.memoryRefs ?? [])];
-  for (const evidence of input.rawEvidence ?? []) {
-    const memory = await writeMemory(cwd, {
-      title: evidence.title,
-      content: evidence.content,
-      source: evidence.sourceId ? `research:${evidence.sourceId}` : "research",
-      taskId: input.taskId,
-      summary: evidence.summary,
-      now,
-    });
-    memoryRefs.push(memory.id);
-  }
 
   const report: ResearchReport = {
     id: reportId || existing?.id || `RPT-RESEARCH-${timestamp.replace(/[^0-9]/g, "")}`,
@@ -291,6 +280,18 @@ export async function recordResearchReport(cwd: string, input: ResearchReportInp
     updatedAt: timestamp,
   };
   validateResearchReport(report);
+  for (const evidence of input.rawEvidence ?? []) {
+    const memory = await writeMemory(cwd, {
+      title: evidence.title,
+      content: evidence.content,
+      source: evidence.sourceId ? `research:${evidence.sourceId}` : "research",
+      taskId: input.taskId,
+      summary: evidence.summary,
+      now,
+    });
+    memoryRefs.push(memory.id);
+  }
+  report.memoryRefs = normalizeList(memoryRefs);
   await saveResearchReports(cwd, [...reports.filter((candidate) => candidate.id !== report.id), report]);
   if (report.requestId && report.status === "complete") await markResearchRequestResolved(cwd, report.requestId, now);
   return report;
