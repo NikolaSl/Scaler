@@ -14,10 +14,10 @@ import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { addTask } from "../src/supervisor.js";
 import { loadValidationChecklists, recordValidationChecklist } from "../src/validation.js";
 
-// PLAN-185 preparation: two intentionally RED counterexamples. Do not merge
-// until author assessment AND pending-material-finding acceptance guards exist.
+// PLAN-185 characterization: a gate label is not reviewer provenance. Preserve
+// manual negative validation; an eventual reviewer route needs its own contract.
 for (const status of ["failed", "blocked"] as const) {
-  test(`reviewer ${status} proposal cannot impose extra scope before author assessment`, async () => {
+  test(`manual adversarial checklist ${status} applies validation but cannot invent requirement scope`, async () => {
     const dir = await mkdtemp(join(tmpdir(), "scaler-review-author-"));
     try {
       const state = addTask(createDefaultState(), { id: "CSV", status: "validating", prdRefs: ["CSV-REQ"] });
@@ -28,17 +28,22 @@ for (const status of ["failed", "blocked"] as const) {
       const requirements = await loadPrdRequirements(dir);
       const result = await recordValidationChecklist(dir, state, {
         taskId: "CSV", gate: "adversarial_review",
-        summary: "Reviewer proposes that an Excel/plugin framework is mandatory.",
+        summary: "Manual checklist entry mentioning an Excel/plugin framework.",
         items: [{ id: "reviewer-extra", statement: "Excel/plugin framework must exist", status,
           evidenceRefs: ["reviewer:preference-not-user-authority"] }],
       });
-      // Findings stay inspectable; this is NOT permission to ignore valid issues.
+      // No actor/author-disposition contract exists here. Do not infer one from gate.
       assert.equal((await loadValidationChecklists(dir))[0]?.status, status);
-      assert.equal(result.applyResult.accepted, false, "No author assessment was submitted");
-      assert.equal(result.applyResult.state.tasks[0]?.status, "validating");
-      assert.deepEqual(await loadState(dir), state);
+      assert.equal(result.applyResult.accepted, true);
+      const current = await loadState(dir);
+      assert.equal(current.tasks[0]?.status, status === "failed" ? "debugging" : "blocked");
+      assert.equal(current.stage, status === "failed" ? "execution" : "replanning");
+      assert.deepEqual(current.tasks[0]?.prdRefs, ["CSV-REQ"]);
+      assert.equal(current.originalRequest, state.originalRequest);
       assert.deepEqual(await loadPrdRequirements(dir), requirements);
-      assert.deepEqual(await loadReplanRequests(dir), []);
+      const requests = await loadReplanRequests(dir);
+      assert.equal(requests.length, status === "failed" ? 0 : 1);
+      if (status === "blocked") assert.equal(requests[0]?.trigger, "validation_blocked");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
