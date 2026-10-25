@@ -15,6 +15,7 @@ import { assertValidationPolicyMutationAuthorized, getValidationManifestForTask,
 
 export interface CreateTaskInput {
   id: string;
+  necessity?: "required" | "optional" | "unresolved";
   outputPaths?: string[];
   validationInputPaths?: string[];
   title?: string;
@@ -41,6 +42,7 @@ export interface CreateTaskResult {
 
 export interface UpdateTaskInput {
   id: string;
+  necessity?: "required" | "optional" | "unresolved";
   outputPaths?: string[];
   validationInputPaths?: string[];
   title?: string;
@@ -117,6 +119,7 @@ export async function updateTask(cwd: string, state: ScalerState, input: UpdateT
 
 async function updateTaskLocked(cwd: string, state: ScalerState, input: UpdateTaskInput): Promise<UpdateTaskResult> {
   await assertStateSnapshotCurrent(cwd, state);
+  if (input.necessity !== undefined && input.necessity !== "required") return { state, accepted: false, message: `Task necessity is not established for ${input.id}: ${String(input.necessity)}; keep optional/unresolved work outside executable tasks.` };
   const outputPaths = normalizeOutputPaths(input.outputPaths);
   const validationInputPaths = normalizeValidationInputPaths(input.validationInputPaths);
   const existing = state.tasks.find((task) => task.id === input.id);
@@ -251,6 +254,7 @@ export async function reviewTaskAcceptancePolicyMutation(
 }
 
 export async function createTask(cwd: string, state: ScalerState, input: CreateTaskInput): Promise<CreateTaskResult> {
+  if (input.necessity !== undefined && input.necessity !== "required") return { state, accepted: false, message: `Task necessity is not established for ${input.id}: ${String(input.necessity)}; keep optional/unresolved work outside executable tasks.` };
   const outputPaths = normalizeOutputPaths(input.outputPaths);
   const validationInputPaths = normalizeValidationInputPaths(input.validationInputPaths);
   const status = input.status ?? "pending";

@@ -10,6 +10,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { createDefaultState, loadState } from "../src/state.js";
 import { createTask, formatTaskList, retryTask, updateTask } from "../src/tasks.js";
+import { loadValidationManifests } from "../src/validation.js";
+import { loadTaskDefinitionReviews } from "../src/task-quality.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-task-test-"));
@@ -19,6 +21,43 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
     await rm(dir, { recursive: true, force: true });
   }
 }
+
+test("direct task inputs refuse nonrequired necessity before task/policy/quality publication", async () => {
+  for (const necessity of ["optional", "unresolved", "unknown", null]) {
+    await withTempDir(async (dir) => {
+      const base = await createTask(dir, createDefaultState(), { id: "CSV", title: "Export CSV", outputPaths: [] });
+      const before = await loadState(dir);
+      const policies = await loadValidationManifests(dir);
+      const reviews = await loadTaskDefinitionReviews(dir);
+      const proposal = { title: "Extra plugin framework", status: "ready", necessity,
+        taskKind: "non_software", atomicityRationale: "One independently checkable change.",
+        prdRefs: ["CSV-REQ"], allowedPathPrefixes: ["plugins"], outputPaths: ["plugins/config.json"],
+        definitionOfDone: ["Plugin framework configured"],
+        validationCommands: [{ id: "check", command: "node -e \"process.exit(0)\"", required: true }] };
+      for (const operation of ["create", "update"] as const) {
+        const result = operation === "create"
+          ? await createTask(dir, base.state, { ...proposal, id: "EXTRA" } as never)
+          : await updateTask(dir, base.state, { ...proposal, id: "CSV" } as never);
+        assert.equal(result.accepted, false);
+        assert.match(result.message, /necessity/i);
+        assert.deepEqual(await loadState(dir), before);
+        assert.deepEqual(await loadValidationManifests(dir), policies);
+        assert.deepEqual(await loadTaskDefinitionReviews(dir), reviews);
+      }
+    });
+  }
+});
+
+test("explicit required direct task inputs remain admitted proposals without runtime proof field", async () => {
+  await withTempDir(async (dir) => {
+    const created = await createTask(dir, createDefaultState(), { id: "CSV", title: "Export CSV", necessity: "required" });
+    assert.equal(created.accepted, true);
+    const updated = await updateTask(dir, created.state, { id: "CSV", title: "Export CSV locally", necessity: "required" });
+    assert.equal(updated.accepted, true);
+    assert.equal((await loadState(dir)).tasks[0]?.title, "Export CSV locally");
+    assert.equal("necessity" in updated.state.tasks[0]!, false);
+  });
+});
 
 test("createTask adds pending task by default", async () => {
   await withTempDir(async (dir) => {

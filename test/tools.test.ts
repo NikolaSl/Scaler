@@ -29,6 +29,34 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
+test("task tools forward necessity instead of silently dropping nonrequired proposals", async () => {
+  await withTempDir(async (dir) => {
+    const registered = new Map<string, any>();
+    registerScalerTools({ registerTool(tool: any) { registered.set(tool.name, tool); } } as never);
+    const contract = { taskKind: "non_software", atomicityRationale: "One independently checkable output.",
+      allowedPathPrefixes: ["src"], outputPaths: [], definitionOfDone: ["One bounded output checked"],
+      validationCommands: [{ id: "check", command: "node -e \"process.exit(0)\"", required: true }] };
+    await registered.get("scaler_task_create").execute("base", { ...contract, taskId: "CSV", title: "Export CSV", necessity: "required" }, undefined, undefined, { cwd: dir });
+    await registered.get("scaler_task_update").execute("base-update", { taskId: "CSV", title: "Export CSV locally", necessity: "required" }, undefined, undefined, { cwd: dir });
+    const before = await loadState(dir);
+    assert.equal(before.tasks[0]?.id, "CSV");
+    assert.equal(before.tasks[0]?.title, "Export CSV locally");
+    let toolCalls = getBudgetState(before).usage.toolCalls ?? 0;
+    for (const name of ["scaler_task_create", "scaler_task_update"]) {
+      const result = await registered.get(name).execute("optional", {
+        ...contract,
+        taskId: name.endsWith("create") ? "EXTRA" : "CSV", title: "Optional plugin framework",
+        necessity: "optional", prdRefs: ["CSV-REQ"],
+      }, undefined, undefined, { cwd: dir });
+      assert.match(result.content[0].text, /necessity/i);
+      const current = await loadState(dir);
+      assert.deepEqual(current.tasks, before.tasks);
+      assert.equal(current.stage, before.stage);
+      assert.equal(getBudgetState(current).usage.toolCalls, ++toolCalls);
+    }
+  });
+});
+
 test("scalerToolNames lists structured Scaler tools", () => {
   assert.deepEqual([...scalerToolNames], [
     "scaler_report",
