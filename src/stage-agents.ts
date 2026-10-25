@@ -6,13 +6,14 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
+import { applyBudgetUsageUpdates, persistBudgetDecision } from "./budgets.js";
 import { logAgentPromptAudit, logStructuredReportAudit } from "./logging.js";
 import { getStageAgentRunsPath } from "./paths.js";
 import { assessTaskPromptAdmission, resolveTaskPromptTokenBudget, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
 import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
 import { buildTaskAgentInvocation, extractStructuredReportPayloads, runTaskAgent, taskAgentRunSucceeded, TaskAgentInvocationAdmissionError, type TaskAgentInvocation, type TaskAgentRequest, type TaskAgentRunResult } from "./subagents.js";
-import { formatStateStatus } from "./state.js";
+import { assertStateSnapshotCurrent, formatStateStatus, loadState, StateConflictError } from "./state.js";
 import { loadStageArtifacts, saveStageArtifacts, stageArtifactStatuses, stageArtifactStages, upsertStageArtifact, type StageArtifact, type StageArtifactInput, type StageArtifactStage } from "./stages.js";
 import type { ScalerState } from "./types.js";
 
@@ -76,6 +77,7 @@ export interface StageAgentArtifactIngestionResult {
 export interface StageAgentStepResult {
   accepted: boolean;
   message: string;
+  state?: ScalerState;
   stage?: StageArtifactStage;
   prompt?: string;
   invocation?: TaskAgentInvocation;
@@ -224,6 +226,23 @@ export async function runStageAgentStep(
         promptAdmission: error.decision,
       };
     }
+    if (options.execute) {
+      try {
+        await assertStateSnapshotCurrent(cwd, state);
+      } catch (error) {
+        if (!(error instanceof StateConflictError)) throw error;
+        return { accepted: false, message: error.message, stage };
+      }
+      if (state.stage === "paused") {
+        return { accepted: false, message: "Stage dispatch refused: run is paused; resume explicitly before executing another child.", state, stage };
+      }
+      const budget = applyBudgetUsageUpdates(state, [{ key: "spawnedAgents", amount: 1 }]);
+      if (budget.decision.status === "hard_limit") {
+        state = await persistBudgetDecision(cwd, state, budget.decision);
+        return { accepted: false, message: `Budget refused stage dispatch: ${budget.decision.reason}`, state, stage };
+      }
+      state = await persistBudgetDecision(cwd, budget.state, budget.decision);
+    }
     await logAgentPromptAudit(cwd, state, {
       agentType: "stage",
       agentId: stage,
@@ -235,6 +254,9 @@ export async function runStageAgentStep(
     if (options.execute) {
       try {
         runResult = await runner(preparation.request, { timeoutMs: options.timeoutMs });
+        const current = await loadState(cwd);
+        if (current.runId !== state.runId) throw new StateConflictError("Stage child handoff refused: run identity changed during execution.");
+        state = current;
       } catch (error) {
         const blockedArtifactIds = await blockArtifactsChangedDuringFailedRun(cwd, artifacts);
         await recordThrownStageAgentRun(cwd, stage, error, blockedArtifactIds);
@@ -245,11 +267,11 @@ export async function runStageAgentStep(
       ? await blockArtifactsChangedDuringFailedRun(cwd, artifacts)
       : [];
     if (runResult?.usage) {
-      await recordProviderUsageBudget(cwd, state, runResult.usage, {
+      state = (await recordProviderUsageBudget(cwd, state, runResult.usage, {
         source: "stage-agent-run",
         agentId: stage,
         agentType: "stage",
-      });
+      })).state;
     }
     const runRecord = await recordStageAgentRun(cwd, stage, runResult, options.execute ? undefined : "prepared", new Date(), blockedArtifactIds);
     const ingestion = runResult && taskAgentRunSucceeded(runResult) ? await ingestStageAgentArtifactReport(cwd, stage, runResult.stdoutEvents) : { attempted: false, ingested: false };
@@ -263,8 +285,9 @@ export async function runStageAgentStep(
       });
     }
     return {
-      accepted: true,
+      accepted: state.stage !== "paused" || !options.execute,
       message: `${options.execute ? "Executed" : "Prepared"} stage agent ${stage}`,
+      state,
       stage,
       prompt: preparation.prompt,
       invocation: preparation.invocation,

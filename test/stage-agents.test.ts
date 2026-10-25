@@ -89,6 +89,32 @@ for (const reason of ["paused", "stale"] as const) {
   });
 }
 
+test("stage handoff preserves child-persisted state before provider usage", async () => {
+  const cwd = await tempDir();
+  const state = createDefaultState();
+  const result = await runStageAgentStep(cwd, state, "prd", { execute: true }, async (request) => {
+    const childState = await loadState(cwd);
+    childState.orchestrationReason = "Child retained local evidence";
+    await saveState(cwd, childState);
+    return { taskId: request.taskId, exitCode: 0, stdoutEvents: [], stderr: "",
+      timedOut: false, aborted: false, usage: { totalTokens: 11, sources: ["fixture"] } };
+  });
+  const persisted = await loadState(cwd);
+  assert.equal(persisted.orchestrationReason, "Child retained local evidence");
+  assert.equal(getBudgetState(persisted).usage.spawnedAgents, 1);
+  assert.equal(getBudgetState(persisted).usage.contextTokens, 11);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.state)), persisted);
+});
+
+test("stage runner exception retains admitted launch count", async () => {
+  const cwd = await tempDir();
+  await assert.rejects(runStageAgentStep(cwd, createDefaultState(), "prd", { execute: true }, async () => {
+    throw new Error("uncertain launch");
+  }), /uncertain launch/);
+  assert.equal(getBudgetState(await loadState(cwd)).usage.spawnedAgents, 1);
+  assert.equal((await loadStageAgentRunRecords(cwd))[0]?.status, "failed");
+});
+
 test("stage prompts retain exact original wording or explicit absence without clipping", () => {
   const state = createDefaultState();
   assert.match(buildStageAgentPrompt({ stage: "planning", state }), /Original user wording.*unavailable/i);

@@ -97,8 +97,8 @@ export async function runStageConductorStep(
   }
 
   const stageAgent = await runStageAgentStep(cwd, state, stage, options, runner);
-  const advancement = options.execute && stageAgent.runRecord?.status === "passed"
-    ? await advanceStageAfterReadyArtifact(cwd, state, stage)
+  const advancement = options.execute && stageAgent.accepted && stageAgent.runRecord?.status === "passed"
+    ? await advanceStageAfterReadyArtifact(cwd, stageAgent.state ?? state, stage)
     : undefined;
 
   return {
@@ -128,6 +128,7 @@ export async function runStageConductorLoop(
   for (let index = 0; index < maxSteps; index += 1) {
     const step = await runStageConductorStep(cwd, currentState, options, runner);
     steps.push(step);
+    if (step.stageAgent?.state) currentState = step.stageAgent.state;
     if (step.advancement?.state) currentState = step.advancement.state;
 
     if (currentState.stage === "completed") {

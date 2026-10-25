@@ -1146,8 +1146,8 @@ export default function scalerExtension(pi: ExtensionAPI): void {
             ? `${message}\nIngested stage artifact ${result.ingestion.artifact?.id ?? "unknown"}.`
             : `${message}\nNo stage artifact ingested: ${result.ingestion.reason ?? "unknown reason"}`;
         }
-        if (parsed.execute && result.runRecord?.status === "passed" && result.stage) {
-          const advancement = await advanceStageAfterReadyArtifact(ctx.cwd, state, result.stage);
+        if (parsed.execute && result.accepted && result.runRecord?.status === "passed" && result.stage) {
+          const advancement = await advanceStageAfterReadyArtifact(ctx.cwd, result.state ?? state, result.stage);
           message = `${message}\n${advancement.message}`;
         }
         if (ctx.hasUI) ctx.ui.notify(message, result.accepted ? "info" : "warning");

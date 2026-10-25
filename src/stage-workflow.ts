@@ -534,7 +534,8 @@ async function runArtifactStageWorkflowStep(
     providerAdmissionModel: options.providerAdmissionModel,
     timeoutMs: options.timeoutMs,
   }, runner);
-  const runSucceeded = Boolean(stageAgent.runResult && taskAgentRunSucceeded(stageAgent.runResult));
+  state = stageAgent.state ?? state;
+  const runSucceeded = Boolean(stageAgent.accepted && stageAgent.runResult && taskAgentRunSucceeded(stageAgent.runResult));
   const supplemental = runSucceeded
     ? await ingestSupplementalStageReports(cwd, { stage, state, runResult: stageAgent.runResult })
     : {};
@@ -832,7 +833,8 @@ async function runReplanningWorkflowStep(
     providerAdmissionModel: options.providerAdmissionModel,
     timeoutMs: options.timeoutMs,
   }, stageRunner);
-  const runSucceeded = Boolean(stageAgent.runResult && taskAgentRunSucceeded(stageAgent.runResult));
+  state = stageAgent.state ?? state;
+  const runSucceeded = Boolean(stageAgent.accepted && stageAgent.runResult && taskAgentRunSucceeded(stageAgent.runResult));
   const postAdvance = options.execute && runSucceeded ? await advanceIfReady(cwd, state, "replanning") : undefined;
   return {
     accepted: stageAgent.accepted && (!options.execute || Boolean(postAdvance?.accepted)),
