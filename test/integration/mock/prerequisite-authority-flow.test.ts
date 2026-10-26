@@ -12,22 +12,25 @@ import { createDefaultState, loadState } from "../../../src/state.js";
 import { createTask, updateTask } from "../../../src/tasks.js";
 import { runConductorStep } from "./provider-bound-helpers.js";
 
-for (const check of ["mutation", "dispatch", "model_draft", "user_update"] as const) {
+for (const check of ["mutation", "dispatch", "model_draft", "user_ordinary", "user_update"] as const) {
   test(`explicit decision prerequisite authority: ${check}`, async () => {
     const dir = await mkdtemp(join(tmpdir(), "scaler-prerequisite-authority-"));
     try {
       const initial = createDefaultState();
       initial.stage = "execution";
-      initial.originalRequest = "Use a local provider only after the decision is accepted.";
+      const mandatory = check !== "model_draft" && check !== "user_ordinary";
+      initial.originalRequest = mandatory ? "Use a local provider only after the decision is accepted."
+        : "Complete one local provider action; ordinary implementation dependencies may be simplified.";
       const decision = await createTask(dir, initial, {
         id: "DECISION", status: "blocked", title: "Resolve local-only constraint before use", outputPaths: [],
       });
       assert.equal(decision.accepted, true, decision.message);
       const owner = check === "model_draft" ? "model" : "user_command";
       const use = await createTask(dir, decision.state, {
-        id: "USE", title: "Use only an accepted decision", status: "ready", dependsOn: ["DECISION"],
+        id: "USE", title: mandatory ? "Use only an accepted decision" : "Complete one provider action", status: "ready", dependsOn: ["DECISION"],
         acceptanceAuthority: owner, taskKind: "non_software", atomicityRationale: "One decision-dependent action.",
-        allowedPathPrefixes: ["effect.txt"], outputPaths: [], definitionOfDone: ["Use only the accepted current decision."],
+        allowedPathPrefixes: ["effect.txt"], outputPaths: [],
+        definitionOfDone: [mandatory ? "Use only the accepted current decision." : "Complete one provider action."],
         validationCommands: [{ id: "check", command: "node -e \"process.exit(0)\"", required: true }],
       });
       assert.equal(use.accepted, true, use.message);
