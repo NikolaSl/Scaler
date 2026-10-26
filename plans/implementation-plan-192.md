@@ -28,3 +28,12 @@ Four RED / two positive PASS; `/tmp/scaler-plan192-red.log`. The fix reuses
 `verifyTaskDependenciesAccepted` before snapshot, before each command and before
 acceptance. A final-command mutation control separately checks the last boundary.
 This guards declared dependencies, not inferred risk or arbitrary external effects.
+
+The first broad gate passed build and 1284/1285 unit tests, but the existing
+planning/policy-lock test timed out waiting for its child start marker under high
+parallel load; preserve that failed log, do not call it a repaired defect. Recheck
+the same assertion in isolation and run the complete unchanged assertion set with
+bounded test concurrency. No timeout/assertion is weakened. Fixture task metadata
+is explicit non-software/DoD/path/atomicity rather than relying on API warn mode.
+Later prerequisite changes after dependent acceptance and transitive durable
+receipt freshness remain separate; this unit checks validation-time boundaries.

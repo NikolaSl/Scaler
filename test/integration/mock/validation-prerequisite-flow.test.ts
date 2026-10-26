@@ -24,6 +24,8 @@ for (const mode of ["blocked", "missing", "stale", "during", "after", "fresh", "
         await writeFile(join(dir, "decision.txt"), "accepted local decision");
         const decision = await createTask(dir, state, {
           id: "DECISION", status: mode === "blocked" ? "blocked" : "validating",
+          title: "One provider decision", taskKind: "non_software", allowedPathPrefixes: ["decision.txt"],
+          atomicityRationale: "One independently checkable provider decision.", definitionOfDone: ["The local decision is accepted."],
           outputPaths: ["decision.txt"], validationCommands: commands,
         });
         assert.equal(decision.accepted, true, decision.message);
@@ -37,6 +39,8 @@ for (const mode of ["blocked", "missing", "stale", "during", "after", "fresh", "
       }
       const use = await createTask(dir, state, {
         id: "USE", status: "validating", acceptanceAuthority: "user_command",
+        title: "Validate use of the accepted decision", taskKind: "non_software", allowedPathPrefixes: ["use.txt"],
+        atomicityRationale: "One bounded decision-dependent validation.", definitionOfDone: ["Use only the current accepted decision."],
         dependsOn: mode === "none" ? [] : ["DECISION"],
         protectedDependsOn: mode === "none" ? [] : ["DECISION"],
         outputPaths: [], validationCommands: mode === "during" || mode === "after" ? [
