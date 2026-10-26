@@ -64,3 +64,13 @@ argument to parent task create/update commands; an explicitly empty final field
 clears protection, omission preserves it. Child commands cannot grant this authority.
 Check persistence, unauthorized designation/clearing, system-plan weakening,
 ordinary simplification, explicit user revision and fingerprint compatibility.
+
+Implementation focused gate: 139 checks pass. The original two RED cases now
+pass with the explicit designation, along with all three ordinary/user controls.
+Initial added-test failures were fixture errors: a too-short atomicity rationale
+and comparison of serialized state against undefined-bearing in-memory fields.
+Planning report normalization treats an empty dependency array as omitted (and
+therefore preserves existing dependencies); the pre-publication negative probe
+instead replaces the protected dependency with a different valid plan task.
+No existing normalization or quality guard was weakened. Actual full gate and
+fresh exact-head review are recorded in the PR, not presumed by this result.

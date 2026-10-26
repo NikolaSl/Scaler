@@ -654,6 +654,15 @@ Examples:
 
 Allowed paths are used later for safe per-task git commits. Dependencies prevent the conductor from selecting a task until all listed task ids are validated. PRD refs link the task to runtime PRD requirements for coverage/replanning summaries. DoD items are stored as task metadata. Waivers use `code:reason` entries such as `missing_test_first:Documentation-only task has a checklist validation path`; waived issues are stored in task-quality review records.
 
+An optional final `| <protected dependency ids comma list>` explicitly designates
+a subset of dependencies as mandatory acceptance prerequisites. Only the parent
+user-command route can configure/revise this `protectedDependsOn` list; model,
+child and system-plan updates cannot discard those dependencies. Task listing
+shows `[protected: ...]`. Ordinary dependencies stay editable. This designation
+does not infer necessity from task ownership or discover risk automatically;
+legacy tasks gain no implicit protection. Existing dependency acceptance and
+current-evidence checks still govern dispatch.
+
 ## `/scaler-task-retry <taskId> | <reason>`
 
 Retries a task through deterministic supervisor task transitions:
@@ -667,6 +676,13 @@ Terminal `failed` tasks are rejected by current retry rules.
 ## `/scaler-task-update <taskId> | <title> | <status> | <allowed paths> | <dependencies> | <PRD refs> | <DoD items semicolon list> | <kind> | <atomicity rationale> | <validation refs comma list> | <waivers code:reason;...>`
 
 Updates task metadata and enforces the same task-definition quality contract as creation. If `status` is provided, the update must also be a valid supervisor task transition.
+
+The same optional final protected-dependency field follows waivers. Omission
+preserves protection; an explicitly empty final field clears it through the parent
+user-command route. Removing a protected dependency requires explicitly revising
+its designation too. Clearing protection does not itself remove the dependency.
+The designation is persisted and fingerprint-bound, so changed contracts cannot
+reuse old task evidence. It is not a separate review or risk subsystem.
 
 Examples:
 
