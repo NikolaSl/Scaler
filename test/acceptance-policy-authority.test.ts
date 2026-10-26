@@ -4,6 +4,7 @@
  */
 
 import assert from "node:assert/strict";
+import childProcess from "node:child_process";
 import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import fsPromises from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
@@ -27,6 +28,24 @@ async function waitForPath(path: string): Promise<void> {
     }
   }
   throw new Error(`Timed out waiting for ${path}`);
+}
+
+function observeValidationCommand(dir: string, command: string) {
+  const original = childProcess.spawn;
+  let resolve!: () => void;
+  let reject!: (error: Error) => void;
+  const started = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
+  childProcess.spawn = ((...args: Parameters<typeof original>) => {
+    const child = original(...args);
+    const options = args[1] as unknown as { cwd?: string };
+    if (args[0] === command && options?.cwd === dir) {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    }
+    return child;
+  }) as typeof original;
+  syncBuiltinESMExports();
+  return { started, restore() { childProcess.spawn = original; syncBuiltinESMExports(); } };
 }
 
 async function withFailedPolicy(
@@ -629,6 +648,38 @@ test("planning can create a task that inherits a preconfigured policy without re
   }
 });
 
+test("validation readiness observer rejects a real child spawn error", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "scaler-readiness-error-"));
+  const command = join(dir, "missing-executable");
+  const observer = observeValidationCommand(dir, command);
+  try {
+    const child = childProcess.spawn(command, { cwd: dir });
+    const closed = new Promise(resolve => child.once("close", resolve));
+    await assert.rejects(observer.started, /ENOENT/);
+    await closed;
+  } finally {
+    observer.restore();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("validation settling without expected readiness cannot satisfy the barrier", async () => {
+  await withFailedPolicy(async dir => {
+    const state = await loadState(dir);
+    const observer = observeValidationCommand(dir, "not-the-unit-command");
+    const validation = runTaskValidation(dir, state, "T-POLICY");
+    try {
+      await assert.rejects(Promise.race([
+        observer.started,
+        validation.then(() => { throw new Error("Validation settled before unit readiness"); }),
+      ]), /settled before unit readiness/);
+    } finally {
+      await Promise.allSettled([validation]);
+      observer.restore();
+    }
+  }, false);
+});
+
 test("planning cannot publish between first validation and policy authority checking", async () => {
   await withFailedPolicy(async (dir) => {
     const manifest = await getValidationManifestForTask(dir, "T-POLICY");
@@ -641,32 +692,45 @@ test("planning cannot publish between first validation and policy authority chec
           }
         : command),
     });
-    const validation = runTaskValidation(dir, await loadState(dir), "T-POLICY");
-    await waitForPath(join(dir, "planning-validation-started"));
-    const planning = applyPlanningReport(dir, await loadState(dir), {
-      requirements: [{ id: "REQ-NEW", statement: "A newly published requirement" }],
-      plan: {
-        planVersion: 2,
-        status: "active",
-        tasks: [{
-          id: "T-POLICY", title: "Preserve acceptance policy", taskKind: "software",
-          atomicityRationale: "One independently testable result.", allowedPathPrefixes: ["result.txt"],
-          prdRefs: ["REQ-NEW"], definitionOfDone: ["Any result is acceptable"],
-          validationRefs: ["unit"], outputPaths: ["result.txt"],
-          validationCommands: manifest.commands,
-        }],
-      },
-    });
-    assert.equal(await Promise.race([
-      planning.then(() => "completed", () => "rejected"),
-      new Promise((resolve) => setTimeout(() => resolve("waiting"), 50)),
-    ]), "waiting");
-    await writeFile(join(dir, "planning-validation-release"), "release");
-    assert.equal((await validation).status, "failed");
-    await assert.rejects(planning, /stale state snapshot/i);
-    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
-    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
-    assert.deepEqual((await loadState(dir)).tasks[0]?.definitionOfDone, ["result.txt contains fixed"]);
+    const command = (await getValidationManifestForTask(dir, "T-POLICY")).commands.find(c => c.id === "unit")!.command;
+    const state = await loadState(dir);
+    const observer = observeValidationCommand(dir, command);
+    const validation = runTaskValidation(dir, state, "T-POLICY");
+    void validation.catch(() => {});
+    let planning: ReturnType<typeof applyPlanningReport> | undefined;
+    try {
+      await Promise.race([observer.started, validation.then(() => { throw new Error("Validation settled before unit readiness"); })]);
+      planning = applyPlanningReport(dir, await loadState(dir), {
+        requirements: [{ id: "REQ-NEW", statement: "A newly published requirement" }],
+        plan: {
+          planVersion: 2,
+          status: "active",
+          tasks: [{
+            id: "T-POLICY", title: "Preserve acceptance policy", taskKind: "software",
+            atomicityRationale: "One independently testable result.", allowedPathPrefixes: ["result.txt"],
+            prdRefs: ["REQ-NEW"], definitionOfDone: ["Any result is acceptable"],
+            validationRefs: ["unit"], outputPaths: ["result.txt"],
+            validationCommands: manifest.commands,
+          }],
+        },
+      });
+      void planning.catch(() => {});
+      assert.equal(await Promise.race([
+        planning.then(() => "completed", () => "rejected"),
+        new Promise((resolve) => setTimeout(() => resolve("waiting"), 50)),
+      ]), "waiting");
+      await writeFile(join(dir, "planning-validation-release"), "release");
+      assert.equal((await validation).status, "failed");
+      await assert.rejects(planning, /stale state snapshot/i);
+      assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+      assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+      assert.deepEqual((await loadState(dir)).tasks[0]?.definitionOfDone, ["result.txt contains fixed"]);
+    } finally {
+      try {
+        await writeFile(join(dir, "planning-validation-release"), "release");
+        await Promise.allSettled([validation, ...(planning ? [planning] : [])]);
+      } finally { observer.restore(); }
+    }
   }, false);
 });
 
@@ -683,30 +747,42 @@ test("planning rejects a stale state after waiting for first validation without 
         : command),
     });
     const staleState = await loadState(dir);
+    const command = (await getValidationManifestForTask(dir, "T-POLICY")).commands.find(c => c.id === "unit")!.command;
+    const observer = observeValidationCommand(dir, command);
     const validation = runTaskValidation(dir, staleState, "T-POLICY");
-    await waitForPath(join(dir, "stale-planning-started"));
-    const planning = applyPlanningReport(dir, staleState, {
-      requirements: [{ id: "REQ-UNLINKED", statement: "Must not publish from stale state" }],
-      plan: {
-        planVersion: 2,
-        status: "active",
-        tasks: [{
-          id: "T-POLICY", title: "Preserve acceptance policy", taskKind: "software",
-          atomicityRationale: "One independently testable result.", allowedPathPrefixes: ["result.txt"],
-          definitionOfDone: ["result.txt contains fixed"], validationRefs: ["unit"], outputPaths: ["result.txt"],
-          validationCommands: manifest.commands,
-        }],
-      },
-    });
-    assert.equal(await Promise.race([
-      planning.then(() => "completed", () => "rejected"),
-      new Promise((resolve) => setTimeout(() => resolve("waiting"), 50)),
-    ]), "waiting");
-    await writeFile(join(dir, "stale-planning-release"), "release");
-    assert.equal((await validation).status, "failed");
-    await assert.rejects(planning, /stale state snapshot/i);
-    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
-    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    void validation.catch(() => {});
+    let planning: ReturnType<typeof applyPlanningReport> | undefined;
+    try {
+      await Promise.race([observer.started, validation.then(() => { throw new Error("Validation settled before unit readiness"); })]);
+      planning = applyPlanningReport(dir, staleState, {
+        requirements: [{ id: "REQ-UNLINKED", statement: "Must not publish from stale state" }],
+        plan: {
+          planVersion: 2,
+          status: "active",
+          tasks: [{
+            id: "T-POLICY", title: "Preserve acceptance policy", taskKind: "software",
+            atomicityRationale: "One independently testable result.", allowedPathPrefixes: ["result.txt"],
+            definitionOfDone: ["result.txt contains fixed"], validationRefs: ["unit"], outputPaths: ["result.txt"],
+            validationCommands: manifest.commands,
+          }],
+        },
+      });
+      void planning.catch(() => {});
+      assert.equal(await Promise.race([
+        planning.then(() => "completed", () => "rejected"),
+        new Promise((resolve) => setTimeout(() => resolve("waiting"), 50)),
+      ]), "waiting");
+      await writeFile(join(dir, "stale-planning-release"), "release");
+      assert.equal((await validation).status, "failed");
+      await assert.rejects(planning, /stale state snapshot/i);
+      assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+      assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    } finally {
+      try {
+        await writeFile(join(dir, "stale-planning-release"), "release");
+        await Promise.allSettled([validation, ...(planning ? [planning] : [])]);
+      } finally { observer.restore(); }
+    }
   }, false);
 });
 
