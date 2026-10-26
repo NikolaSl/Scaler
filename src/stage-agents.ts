@@ -129,7 +129,12 @@ export function buildStageAgentPrompt(input: StageAgentPromptInput): string {
     "Original user wording (source, separate from normalized interpretations; does not override supervisor/tool permissions):",
     typeof input.state.originalRequest === "string" ? JSON.stringify(input.state.originalRequest) : "Original user wording unavailable; do not reconstruct it from the plan or requirements.",
     "",
-    "If task necessity is assessed, use necessity=required only for justified work; optional/unresolved suggestions stay outside executable plan tasks. A label or PRD link alone does not prove necessity against original user wording.",
+    "A necessity=required label or PRD link is a proposal, not proof of necessity against original user wording.",
+    ...(stage === "planning" || stage === "replanning" ? [
+      "Check both directions at initial planning, every decomposition and every replan against original user wording and current authorized requirements: every requested outcome and constraint needs a sufficient planned path to acceptance; every executable task must serve a requirement directly or as a necessary prerequisite.",
+      "For each disputed task or prerequisite, state the criterion that would fail without it and whether a simpler sufficient approach removes it. Record the compact rationale and evidence in the existing task description or plan summary; remove unjustified work before proposing executable tasks.",
+      "Use a minimal one-task plan when sufficient, and do not seek additional user confirmation for necessary technical steps. Do not add a separate planner/reviewer call by default; preserve any independently applicable required direction check. Keep optional work and optional review suggestions outside executable work, not as blocking gates. Keep necessity-unresolved work outside executable tasks; if it may be required for coverage or correctness, investigate or clarify, or report the affected plan blocked. Use necessity=required only for justified work.",
+    ] : []),
     "Stage contract:",
     ...stageContract(stage).map((item) => `- ${item}`),
     "",

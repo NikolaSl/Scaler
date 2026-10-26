@@ -145,6 +145,25 @@ test("stage prompts retain exact original wording or explicit absence without cl
   assert.throws(() => prepareStageAgentInvocation("/repo", { stage: "planning", state }), /final SCALER prompt refused/i);
 });
 
+test("planning stage prompts require two-way assessment without extra planner calls", () => {
+  const state = createDefaultState();
+  state.originalRequest = "Export CSV columns id, name, email with escaping and error handling; no Excel, scheduler or plugin framework.";
+  for (const stage of ["planning", "replanning"] as const) {
+    const prompt = buildStageAgentPrompt({ stage, state });
+    assert.ok(prompt.includes(JSON.stringify(state.originalRequest)));
+    assert.doesNotMatch(prompt, /If (task )?necessity is assessed/i);
+    assert.match(prompt, /initial planning, every decomposition and every replan/i);
+    assert.match(prompt, /every requested outcome.*sufficient planned path to acceptance/i);
+    assert.match(prompt, /criterion that would fail without.*simpler sufficient approach/i);
+    assert.match(prompt, /existing task description or plan summary/i);
+    assert.match(prompt, /minimal one-task plan when sufficient.*do not seek additional user confirmation for necessary technical steps/i);
+    assert.match(prompt, /optional work and optional review suggestions outside executable work.*blocking gates/i);
+    assert.match(prompt, /necessity-unresolved work.*investigate.*clarify.*affected plan blocked/i);
+    assert.match(prompt, /planner\/reviewer call by default; preserve.*required direction check/i);
+  }
+  assert.doesNotMatch(buildStageAgentPrompt({ stage: "knowledge", state }), /Check both directions at initial planning/i);
+});
+
 test("buildStageAgentPrompt includes stage contract, state, and artifact refs", () => {
   const state = createDefaultState(new Date("2026-01-01T00:00:00.000Z"));
   state.stage = "planning";

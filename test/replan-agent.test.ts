@@ -145,6 +145,15 @@ test("buildReplanAgentPrompt includes replan requests, PRD coverage, current pla
     };
     const prompt = buildReplanAgentPrompt(input);
     assert.ok(prompt.includes(JSON.stringify(state.originalRequest)));
+    assert.doesNotMatch(prompt, /If (task )?necessity is assessed/i);
+    assert.match(prompt, /initial planning, every decomposition and every replan/i);
+    assert.match(prompt, /every requested outcome.*sufficient planned path to acceptance/i);
+    assert.match(prompt, /criterion that would fail without.*simpler sufficient approach/i);
+    assert.match(prompt, /existing task description or plan summary/i);
+    assert.match(prompt, /minimal one-task plan when sufficient.*do not seek additional user confirmation for necessary technical steps/i);
+    assert.match(prompt, /optional work and optional review suggestions outside executable work.*blocking gates/i);
+    assert.match(prompt, /necessity-unresolved work.*investigate.*clarify.*affected plan blocked/i);
+    assert.match(prompt, /planner\/reviewer call by default; preserve.*required direction check/i);
     state.originalRequest = "EXACT-CONSTRAINT ".repeat(10_000);
     assert.throws(() => prepareReplanAgentInvocation(dir, input), /final SCALER prompt refused/i);
     delete state.originalRequest;
