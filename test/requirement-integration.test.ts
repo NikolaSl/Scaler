@@ -10,6 +10,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { amendPrdRequirement, upsertPrdRequirement } from "../src/prd.js";
 import { completeRunWithEvidence } from "../src/run-completion.js";
+import { createTask } from "../src/tasks.js";
+import { verifyAcceptedTaskEvidence } from "../src/accepted-evidence.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import type { ScalerState } from "../src/types.js";
 import {
@@ -85,6 +87,20 @@ async function fixture(
     await rm(dir, { recursive: true, force: true });
   }
 }
+
+test("a dependent cannot reuse an integration owner after its participant changes", async () => fixture([{
+  id: "integration", command: 'node -e "process.exit(0)"', required: true, gate: "integration_tests",
+}], async (dir, state) => {
+  const created = await createTask(dir, state, { id: "DEPENDENT", status: "validating", dependsOn: ["T-B"],
+    taskKind: "non_software", outputPaths: [], validationCommands: [{ id: "check", command: 'node -e "process.exit(0)"', required: true }] });
+  assert.equal(created.accepted, true, created.message);
+  assert.equal((await runTaskValidation(dir, created.state, "DEPENDENT")).acceptance?.accepted, true);
+  state = await loadState(dir);
+  assert.deepEqual(await verifyAcceptedTaskEvidence(dir, state, "DEPENDENT"), []);
+  await writeFile(join(dir, "a.txt"), "changed integration participant");
+  assert.notDeepEqual(await verifyAcceptedTaskEvidence(dir, state, "T-B"), []);
+  assert.notDeepEqual(await verifyAcceptedTaskEvidence(dir, state, "DEPENDENT"), []);
+}));
 
 test("component success does not satisfy a missing named integration command", async () => fixture([{
   id: "component-b",

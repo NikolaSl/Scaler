@@ -32,6 +32,7 @@ export async function verifyAcceptedTaskEvidence(
   taskId: string,
   context?: AcceptedEvidenceContext,
   subject = "Accepted task evidence",
+  dependencyChecks?: Map<string, Promise<string[]>>,
 ): Promise<string[]> {
   context ??= await loadAcceptedEvidenceContext(cwd);
   if (context.durable.runId !== state.runId || context.durable.revision !== state.revision) {
@@ -49,7 +50,7 @@ export async function verifyAcceptedTaskEvidence(
     const { gitCandidateFingerprint: _historical, ...historical } = run.receipt.snapshot;
     let currentSnapshot;
     try {
-      currentSnapshot = await captureValidationSnapshot(cwd, state, taskId);
+      currentSnapshot = await captureValidationSnapshot(cwd, state, taskId, dependencyChecks);
     } catch (error) {
       errors.push(`${subject} rejected: snapshot unavailable: ${String(error)}`);
       return errors;
