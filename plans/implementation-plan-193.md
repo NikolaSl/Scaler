@@ -1,0 +1,30 @@
+# PLAN-193 — Accepted dependent evidence after prerequisite mutation
+
+SC-03/06/10/12 require current input versions and rejection of stale acceptance.
+PLAN-192 checks dependencies during validation, not their later reuse. Reproduce
+through public task/validation/evidence/conductor APIs before choosing a fix.
+
+Accept DECISION with declared `decision.txt`, then COPY with declared `copy.txt`
+and explicit dependency on DECISION. Its objective command checks exact equality
+of both files. Neither task has a model attempt; this is supported configured
+non-software validation, not a real provider/model run. A third ready USE task
+depends only on COPY. After acceptance, change only the original decision bytes.
+First demonstrate DECISION evidence itself is stale. COPY evidence must also
+refuse reuse, and USE must not reach its injected runner. Positive controls keep
+the basis unchanged or modify an unrelated file; both preserve COPY evidence and
+permit one USE runner invocation (deliberate exit1; admission witness only).
+
+The dependency edge explicitly declares the acceptance input. The validation
+command reads DECISION's output, but its manifest does not separately duplicate
+that output in validationInputPaths: this probes whether task dependency evidence
+is intrinsically preserved, not whether manually duplicated source bindings work.
+
+This is regression preparation, not an accepted fix. Avoid a recursion-only
+shortcut that would make old COPY evidence fresh again merely because DECISION
+is subsequently revalidated on different bytes. Before implementation, assess a
+minimal version-bound dependency receipt using existing snapshots/ledgers, with
+fail-closed legacy dependent receipts, cycle handling and transitive checks.
+Preserve independent tasks and no-dependency compatibility. No generic graph
+framework, automatic semantic inference, all-route authority or full phase claim.
+No RED merge/full-green gate claim; exact-head independent preparation review
+does not replace the eventual fix gate/review.
