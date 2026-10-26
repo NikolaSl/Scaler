@@ -55,3 +55,20 @@ and preserve the validation-run index `{version,runs}` shape in the legacy probe
 Neither correction changes acceptance assertions or production behavior.
 Full exact-head gate and independent fix review are still required and recorded
 in the PR; preparation review alone was not fix approval. No full phase claim.
+
+Independent fix review found two valid material gaps in the first candidate:
+selected participant fields did not cover a dependency's own integration or
+attempt/report freshness, and Git commit-to-clean-skip changed provenance without
+changing the accepted basis. New tests reproduce both freshness escapes and the
+Git compatibility failure. Reuse the full accepted-evidence verifier, with a
+per-snapshot shared promise map (never a persisted freshness cache) so DAG checks
+do not multiply recursively. The closure guard rejects cycles before recursion.
+Dependency provenance is verified but fingerprinted as a stable accepted basis,
+not the current commit/skip representation. Existing integration-only shapes are
+unchanged. The ESM cycle is function-only with no top-level binding access;
+build/focused execution verify initialization instead of adding a new module.
+All 24 focused tests pass after these fixes. The initial candidate's full green
+gate was not acceptance; a new exact-head full gate and material-fix re-review
+are required. Git setup uses the real locked commit operation before acceptance;
+its earlier missing explicit commit/state promotion was a fixture error, not the
+commit-to-skip regression. Retain both failure and final evidence logs.
