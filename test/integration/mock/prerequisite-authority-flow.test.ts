@@ -22,13 +22,13 @@ for (const check of ["mutation", "dispatch", "model_draft", "user_ordinary", "us
       initial.originalRequest = mandatory ? "Use a local provider only after the decision is accepted."
         : "Complete one local provider action; ordinary implementation dependencies may be simplified.";
       const decision = await createTask(dir, initial, {
-        id: "DECISION", status: "blocked", title: "Resolve local-only constraint before use", outputPaths: [],
+        id: "DECISION", status: "blocked", title: mandatory ? "Resolve local-only constraint before use" : "Investigate one implementation choice", outputPaths: [],
       });
       assert.equal(decision.accepted, true, decision.message);
       const owner = check === "model_draft" ? "model" : "user_command";
       const use = await createTask(dir, decision.state, {
         id: "USE", title: mandatory ? "Use only an accepted decision" : "Complete one provider action", status: "ready", dependsOn: ["DECISION"],
-        acceptanceAuthority: owner, taskKind: "non_software", atomicityRationale: "One decision-dependent action.",
+        acceptanceAuthority: owner, taskKind: "non_software", atomicityRationale: mandatory ? "One decision-dependent action." : "One bounded provider action.",
         allowedPathPrefixes: ["effect.txt"], outputPaths: [],
         definitionOfDone: [mandatory ? "Use only the accepted current decision." : "Complete one provider action."],
         validationCommands: [{ id: "check", command: "node -e \"process.exit(0)\"", required: true }],
