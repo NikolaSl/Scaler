@@ -12,6 +12,7 @@ import { promisify } from "node:util";
 import { captureValidationContext, checkAttemptEvidence } from "./attempt-evidence.js";
 import { fingerprintTaskContract, fingerprintValidationPolicy } from "./attempt-identity.js";
 import { fingerprintJson } from "./fingerprints.js";
+import { verifyCommittedOutputs } from "./committed-outputs.js";
 import { fingerprintDeclaredOutputs, fingerprintValidationInputs } from "./output-artifacts.js";
 import { loadPrdCoverage, loadPrdRequirements } from "./prd.js";
 import { loadCommitReports, loadCommitSkips, type CommitValidationSummary } from "./git.js";
@@ -116,23 +117,24 @@ async function fingerprintTaskIntegrationInputs(
   ownerTaskId: string,
   taskRequirementIds: string[],
 ): Promise<string> {
+  const dependencyIds = taskDependencyIds(state, ownerTaskId);
   const coverage = await loadPrdCoverage(cwd);
   const linkedRequirementIds = new Set([...taskRequirementIds, ...coverage.entries
     .filter((entry) => entry.taskIds?.includes(ownerTaskId))
     .map((entry) => entry.requirementId)]);
-  if (linkedRequirementIds.size === 0) return fingerprintJson([]);
+  if (linkedRequirementIds.size === 0 && dependencyIds.length === 0) return fingerprintJson([]);
   const requirements = await loadPrdRequirements(cwd);
   const criteria = requirements.requirements.filter((requirement) => linkedRequirementIds.has(requirement.id)).flatMap((requirement) =>
     (requirement.acceptanceCriteria ?? [])
       .filter((criterion) => criterion.validationTaskId === ownerTaskId)
       .map((criterion) => ({ requirementId: requirement.id, ...criterion })))
     .sort((a, b) => `${a.requirementId}:${a.id}`.localeCompare(`${b.requirementId}:${b.id}`));
-  if (criteria.length === 0) return fingerprintJson([]);
+  if (criteria.length === 0 && dependencyIds.length === 0) return fingerprintJson([]);
 
   const [attempts, runs, commits, skips] = await Promise.all([
     loadTaskAttempts(cwd), loadValidationRuns(cwd), loadCommitReports(cwd), loadCommitSkips(cwd),
   ]);
-  const participantIds = [...new Set(criteria.flatMap((criterion) => criterion.participantTaskIds)
+  const participantIds = [...new Set([...dependencyIds, ...criteria.flatMap((criterion) => criterion.participantTaskIds)]
     .filter((taskId) => taskId !== ownerTaskId))].sort();
   const participants = [];
   for (const participantTaskId of participantIds) {
@@ -148,6 +150,16 @@ async function fingerprintTaskIntegrationInputs(
       && candidate.commitHash.trim() && matchesValidation(candidate.validation, run));
     const skipped = run && skips.find((candidate) => candidate.taskId === participantTaskId
       && candidate.status === "skipped" && candidate.reason.trim() && matchesValidation(candidate.validation, run));
+    const dependency = dependencyIds.includes(participantTaskId);
+    if (dependency && (task.status !== "validated" || !state.validatedTaskIds.includes(participantTaskId)
+      || verifyValidationRecordEvidence(run, manifest).length || (!commit && !skipped)
+      || (!commit && manifest.outputPaths === undefined))) {
+      throw new Error(`Dependency ${participantTaskId} has no current accepted evidence.`);
+    }
+    if (dependency && commit) {
+      const errors = await verifyCommittedOutputs(cwd, commit);
+      if (errors.length) throw new Error(errors.join(" "));
+    }
     participants.push({
       taskId: participantTaskId,
       taskFingerprint: fingerprintTaskContract(task),
@@ -156,12 +168,36 @@ async function fingerprintTaskIntegrationInputs(
       policyFingerprint: fingerprintValidationPolicy(manifest),
       contextFingerprint: await captureValidationContext(cwd, state, participantTaskId),
       declaredOutputFingerprint: await fingerprintDeclaredOutputs(cwd, manifest.outputPaths),
+      ...(dependency ? {
+        requirementFingerprint: await fingerprintTaskRequirements(cwd, participantTaskId, task.prdRefs ?? []),
+        validationInputFingerprint: await verifyValidationInputBaseline(cwd, manifest),
+        acceptedBasis: withoutGitCandidate(run!.receipt!.snapshot),
+      } : {}),
       acceptance: commit
         ? { kind: "commit", commitHash: commit.commitHash, includedPaths: [...commit.includedPaths].sort() }
         : skipped ? { kind: "skip" } : { kind: "missing" },
     });
   }
-  return fingerprintJson({ criteria, participants });
+  return fingerprintJson({ criteria, participants, ...(dependencyIds.length ? { dependencyBasisVersion: 1, dependencyIds } : {}) });
+}
+
+function taskDependencyIds(state: ScalerState, ownerTaskId: string): string[] {
+  const tasks = new Map(state.tasks.map(task => [task.id, task]));
+  const dependencies = new Set<string>(), visiting = new Set<string>(), done = new Set<string>();
+  if (tasks.size !== state.tasks.length) throw new Error("Ambiguous dependency task identities.");
+  const visit = (id: string): void => {
+    if (visiting.has(id)) throw new Error(`Cyclic dependency at ${id}.`);
+    if (done.has(id)) return;
+    const task = tasks.get(id);
+    if (!task) throw new Error(`Missing dependency ${id}.`);
+    const ids = task.dependsOn === undefined ? [] : task.dependsOn;
+    if (!Array.isArray(ids) || Array.from(ids).some(id => typeof id !== "string" || !id.trim())) throw new Error(`Malformed dependencies for ${id}.`);
+    visiting.add(id);
+    for (const dependencyId of ids) { visit(dependencyId); dependencies.add(dependencyId); }
+    visiting.delete(id); done.add(id);
+  };
+  visit(ownerTaskId);
+  return [...dependencies].sort();
 }
 
 function matchesValidation(summary: CommitValidationSummary, run: ValidationRunRecord): boolean {
