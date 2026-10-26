@@ -352,6 +352,15 @@ async function acceptReplanProposalLocked(
     return { accepted: false, message: decision.summary, state, decision, currentPlan };
   }
 
+  // Replan application preserves existing contracts; do not publish edges that
+  // execution would not enforce. Use the guarded task-update/replacement path first.
+  for (const task of proposedPlan.tasks) {
+    const existing = state.tasks.find((candidate) => candidate.id === task.id);
+    if (existing && JSON.stringify((normalizeList(existing.dependsOn) ?? []).sort())
+      !== JSON.stringify((normalizeList(task.dependsOn) ?? []).sort())) {
+      throw new Error(`Replan dependency basis mismatch for ${task.id}: revise its current contract through the guarded task-update/replacement path before accepting the plan.`);
+    }
+  }
   const proposalFingerprint = fingerprintReplanProposal(proposedPlan);
   const decisions = await loadReplanDecisions(cwd);
   const acceptedDecision = decisions.find((decision) =>
