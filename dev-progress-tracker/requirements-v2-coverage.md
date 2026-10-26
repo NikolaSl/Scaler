@@ -14,6 +14,14 @@ Not assessed means this review did not establish the acceptance result. PLAN-161
 reconciles the accumulated executable evidence and upgrades only SC-07 to
 Verified at its model-independent process boundary.
 
+Targeted reconciliation on 2026-10-26 (PLAN-195, main `d682840`): SC-03/04/10
+are assessed below against the bounded evidence through PR57. SC-10 changes from
+the original Failed assessment to Partial, not Verified. Other rows are not
+reassessed by this change and may retain historical baseline counterexamples;
+they must not be treated as freshly reproduced current bugs. The original
+baseline assessment and failure records remain in Git history and the evidence
+sections below. Test counts are not evidence of full requirement satisfaction.
+
 PLAN-151 adds a bounded explicit file-request path: the request is resolved
 only after a stable regular file within task scope is persisted as required
 exact context, and the next worker prompt receives the exact bytes. Missing,
@@ -104,6 +112,37 @@ continuation-envelope restriction as one concrete host limit. Those cross-phase
 statuses remain honest and do not justify speculative model-independent P3
 machinery.
 
+## Current SC-03/04/10 evidence and remaining acceptance
+
+This is a bounded reconciliation through [PR57](https://github.com/NikolaSl/Scaler/pull/57),
+not a new runtime acceptance result. SC-03 and SC-04 remain Partial; the SC-10
+row below no longer presents the pre-receipt baseline bypass as a current result.
+No full P4/P5, P6 or P7 completion follows from this assessment.
+
+| Boundary / retained evidence | Established on the exercised profile | Still not established |
+|---|---|---|
+| SC-03: PLAN-167–169; PLAN-182/187; [PR54](https://github.com/NikolaSl/Scaler/pull/54), [PR56](https://github.com/NikolaSl/Scaler/pull/56) | Structural coverage/contracts/DAG admission; explicit nonrequired inputs refused; user-designated protected prerequisites survive unauthorized removal; declared dependency acceptance binds current and historical basis, including supported revalidation. | Semantic necessity/completeness of CSV decomposition and replans, omitted requested columns, design-induced unnecessary prerequisites, or automatic mandatory-dependency inference. `required` and requirement links are not proofs. |
+| SC-04: PLAN-166; [PR49](https://github.com/NikolaSl/Scaler/pull/49), [PR53](https://github.com/NikolaSl/Scaler/pull/53), [PR55](https://github.com/NikolaSl/Scaler/pull/55) | Existing proportional routes; configured local-only decision validation plus declared downstream dependency refusal before acceptance/when stale; validation-time dependency checks. | Automatic/complete configured risk-trigger assessment before consequential decisions and after material changes, provider preflight or prevention of arbitrary effects. |
+| SC-10: PLAN-104/105 and `test/manual-validation-authority.test.ts`, `test/requirement-integration.test.ts` | Manual positive proposals cannot self-approve; receipt/version and named integration checks reject the exercised missing/stale evidence and allow current evidence. | Semantic intent correctness, universal arbitrary-writer authority or full AC-10 from component success. |
+| SC-10: [PR52](https://github.com/NikolaSl/Scaler/pull/52), [PR57](https://github.com/NikolaSl/Scaler/pull/57) | Separately supplied external findings/manual author assessments cover unsupported extras, material repair, inconclusive stop and stale input; scripted EXPECT then COMPARE supplies source-first context and a persisted all-child call cap across replacement. | A completed model finding actually handed into author assessment; semantic expectation quality/model independence; review-specific time/clarification/tactic bounds or every dispatch route. |
+
+PLAN-185's correction remains binding: `adversarial_review` is a manual gate,
+not reviewer provenance. Negative manual reports remain effective. A new review
+contract must not simply ignore negative observations or permit an unresolved
+material finding to pass by relabeling it optional. A reviewer-created feature
+does not acquire requirement authority; author assessment of every finding and
+current candidate/requirement binding must both be preserved.
+
+Next acceptance question: compose a completed review proposal with existing
+manual author/objective acceptance through supported public routes, including
+material-disagreement and correct-minimal/unsupported-extra controls. Inspect
+the smallest concrete counterexample before changing production. The separately
+green PLAN-189/194 scenarios do not prove that combined handoff and are not an
+instruction to add a generic review subsystem or mandatory routine LLM call.
+P6 authority/effect reconciliation/retention and P7 configured local-only host,
+scale and release remain separately unverified. This documentation change grants
+no new authority and makes no inference/model-quality/savings claim.
+
 Prior review ran the baseline TypeScript build successfully, 488/488 unit tests
 and 66/67 mock integration tests. The failed retention fixture uses fixed
 December 2025 dates with a 200-day threshold and depends on the wall clock.
@@ -120,7 +159,7 @@ Those results do not verify revision 2, a local model, or the real host end to e
 | SC-07 | Verified | Workers can request exact file/section context or ask a pathless missing-data question. The supervisor validates task scope, authority, stable source identity and exact selector semantics, supplies only exact bytes or bounded attributed candidate/summary context, rechecks the complete next envelope and resumes the same task. Cited local-research files are fingerprinted when reported and remain required freshness bindings through retry. Missing, ambiguous, stale, oversized, unavailable and out-of-scope proposals fail closed. Exact retrieval, unknown-source research, automation continuation, effective split projection and memory-summary delivery are exercised under declared 32,768- and 131,072-token windows without silently withholding required information. The model remains responsible for proposing what it needs; optional semantic traversal or automatic supervisor choice is not required. Deterministic evidence establishes the FSM boundary, not source truth, model quality or savings; configured local-host execution remains SC-09/P7. | `src/context.ts`, `src/context-splits.ts`, `src/task-attempts.ts`, `src/attempt-execution.ts`, `src/conductor.ts`, `src/debug-retry.ts`, `src/autopilot.ts`, `src/missing-context.ts`, `src/research.ts`, `test/context.test.ts`, `test/context-splits.test.ts`, `test/attempt-execution.test.ts`, `test/conductor.test.ts`, `test/debug-retry.test.ts`, `test/autopilot.test.ts`, `test/missing-context.test.ts`, `test/integration/mock/unknown-source-context-flow.test.ts`, `test/integration/mock/varied-window-context-flow.test.ts`, `manual/context.md` | [AC-07](../specs/acceptance-scenarios.md#ac-07) |
 | SC-08 | Verified | One coherent deterministic scenario exercises all three routing implementations: exact direct execution without a model call, current-agent execution over the measured selected-tool envelope, and isolated execution with fresh worker plus caller-continuation evidence. The model-backed routes repeat under declared 32,768- and 131,072-token profiles. A small selected operation remains independent of a 130-definition catalog, schema drift changes its profile identity, unknown result size blocks before dispatch, and provider/model binding, execution ownership and bounded structured evidence remain enforced. Current-agent admission requires an explicit host-owned authority decision at every provider boundary; direct and isolated authority remains runtime/host evidence rather than request or model content. Direct, current-agent, isolated and replay dispatches re-evaluate the live budget ledger, refuse hard limits before execution, and retain accepted authority and budget evidence in the route admission. The combined scenario covers denied authority and hard-budget refusal for every route. The 16 KiB result cap keeps the conservative continuation reserve feasible at the smaller window while oversized output still fails closed. This verifies the model-independent routing FSM, not a configured local model, model quality or savings. Pi's unavailable guaranteed final post-extension continuation payload remains a separate SC-25 host-adapter limitation; configured local-only operation remains SC-09. | `src/tool-routing.ts`, `src/tool-requests.ts`, `src/index.ts`, `test/tool-routing.test.ts`, `test/tool-requests.test.ts`, `test/integration/mock/three-route-process.test.ts`, `test/provider-admission-host.test.ts`, `manual/tools.md`, `plans/implementation-plan-165.md` | [AC-08](../specs/acceptance-scenarios.md#ac-08) |
 | SC-09 | Not assessed | Strict children preserve an exact runtime-owned host selection and reject ambient provider/model drift. A non-authorizing prerequisite now rejects malformed/unknown capability profiles and assesses task, locality, data-location, structured-output, tool and envelope eligibility without fallback. No installed dispatch consumes it, and no supported local-only profile, real process run, resource envelope or state-transition/outcome evidence is demonstrated. Acceptance concerns the model-independent FSM and validated model proposals, including truthful refusal, not a particular model's task-completion rate. | `src/subagents.ts`, `src/provider-admission.ts`, `src/model-profile-eligibility.ts`, `test/provider-admission-host.test.ts`, `test/model-profile-eligibility.test.ts`, `manual/model-profiles.md` | [AC-09](../specs/acceptance-scenarios.md#ac-09) |
-| SC-10 | Failed | Accepted status can be obtained without validation runs; evidence/version acceptance needs repair. | `src/validation.ts`, `src/tools.ts` | [AC-10](../specs/acceptance-scenarios.md#ac-10) |
+| SC-10 | Partial | Naked manual positive claims are proposal-only; current receipt, attempt, output, requirement and declared integration/dependency evidence is checked on the exercised acceptance routes. Configured objective direction checks, supplied external findings/manual author decisions, source-first scripted sequencing and an aggregate child-call stop have separate bounded evidence. End-to-end completed model finding to author assessment, automatic risk-trigger selection and complete selected-review acceptance remain unverified; these scenarios do not prove semantic truth or universal authority. | `src/validation.ts`, `src/validation-acceptance.ts`, `src/accepted-evidence.ts`, `test/manual-validation-authority.test.ts`, `test/requirement-integration.test.ts`, `test/integration/mock/manual-review-profile-flow.test.ts`, `test/integration/mock/selected-review-sequence.test.ts`, [current reconciliation](#current-sc-030410-evidence-and-remaining-acceptance) | [AC-10](../specs/acceptance-scenarios.md#ac-10) |
 | SC-11 | Partial | Failure/attempt ledgers exist; revised combined retry/effect/validation criteria need verification. | `src/debug.ts`, `src/debug-retry.ts` | [AC-11](../specs/acceptance-scenarios.md#ac-11) |
 | SC-12 | Partial | Plan preservation exists, materially changed requirement coverage is marked `needs_replan`, and acceptance of a preservation-valid replan reopens only explicitly linked validated tasks while retaining unrelated validated work and historical evidence. Automatic replan triggering, task replacement/obsolescence, assumption invalidation and semantic affected-slice discovery remain open. | `src/prd.ts`, `src/plans.ts`, `src/replan-agent.ts`, `test/prd.test.ts`, `test/plans.test.ts`, `plans/implementation-plan-171.md` | [AC-12](../specs/acceptance-scenarios.md#ac-12) |
 | SC-13 | Failed | Parent overwrote simulated child changes; prepare persisted running without a worker. | `src/state.ts`, `src/conductor.ts` | [AC-13](../specs/acceptance-scenarios.md#ac-13) |
