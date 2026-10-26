@@ -9,15 +9,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { verifyAcceptedTaskEvidence } from "../../../src/accepted-evidence.js";
+import { getBudgetState, setBudgetLimits } from "../../../src/budgets.js";
+import { saveTaskContextManifest } from "../../../src/context.js";
+import { loadTaskAgentReports } from "../../../src/task-reports.js";
+import { createTask } from "../../../src/tasks.js";
+import { runConductorStep } from "./provider-bound-helpers.js";
 import { loadPrdRequirements, upsertPrdRequirement } from "../../../src/prd.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { recordValidationChecklist, runTaskValidation, saveValidationManifest } from "../../../src/validation.js";
 
-for (const mode of ["unsupported_extra", "material", "inconclusive"] as const) {
-  test(`explicit manual author review profile: ${mode}`, async () => {
+for (const handoff of [false, true]) for (const mode of ["unsupported_extra", "material", "inconclusive"] as const) {
+  test(`${handoff ? "completed child proposal to" : "explicit"} manual author review profile: ${mode}`, async () => {
     const dir = await mkdtemp(join(tmpdir(), "scaler-manual-review-profile-"));
     try {
-      const state = createDefaultState();
+      const state = handoff ? setBudgetLimits(createDefaultState(), { spawnedAgents: { hard: 2 } }) : createDefaultState();
       state.stage = "execution";
       state.originalRequest = "Choose a local-only provider. No cloud provider or plugin framework.";
       state.tasks = [{ id: "DECISION", status: "validating", taskKind: "non_software",
@@ -27,13 +32,49 @@ for (const mode of ["unsupported_extra", "material", "inconclusive"] as const) {
       await upsertPrdRequirement(dir, { id: "LOCAL", statement: state.originalRequest });
       const requirements = await loadPrdRequirements(dir);
       await writeFile(join(dir, "request.txt"), state.originalRequest);
-      // External findings and author assessment are supplied, not model-generated.
-      await writeFile(join(dir, "review.txt"), mode === "unsupported_extra"
+      // Scripted observations/author decisions, not model-quality evidence.
+      const finding = mode === "unsupported_extra"
         ? "Reviewer proposes a mandatory plugin framework."
         : mode === "material" ? "Remote provider violates the explicit local-only constraint."
-        : "Required assessment is inconclusive; no authorized alternative.");
+        : "Required assessment is inconclusive; no authorized alternative.";
       const candidate = (provider: string) => JSON.stringify({ provider });
       await writeFile(join(dir, "candidate.json"), candidate(mode === "material" ? "remote" : "local"));
+      let proposalRef: string | undefined;
+      let assessedFinding = finding;
+      if (handoff) {
+        const created = await createTask(dir, await loadState(dir), { id: "REVIEW", title: "Compare candidate with request.txt; return a cited proposal only",
+          status: "ready", taskKind: "non_software", allowedPathPrefixes: ["review-output.txt"],
+          definitionOfDone: ["Return a finding proposal without changing candidate or acceptance."], outputPaths: [],
+          validationCommands: [{ id: "observation", command: 'node -e "process.exit(0)"', required: true }] });
+        assert.equal(created.accepted, true, created.message);
+        await saveTaskContextManifest(dir, { version: 1, taskId: "REVIEW", items: ["request.txt", "candidate.json"].map(path => ({
+          id: path, type: "file", reason: "Exact configured comparison basis", priority: "required", scope: "full", source: "file", path,
+        })), createdAt: "", updatedAt: "" });
+        let calls = 0;
+        const compared = await runConductorStep(dir, await loadState(dir), { execute: true, tools: [] }, async child => {
+          calls++;
+          assert.equal(child.taskId, "REVIEW");
+          assert.deepEqual(child.tools, []);
+          assert.ok(child.prompt.includes(state.originalRequest!));
+          assert.ok(child.prompt.includes(candidate(mode === "material" ? "remote" : "local")));
+          return { taskId: child.taskId, exitCode: 0, stderr: "", timedOut: false, aborted: false,
+            stdoutEvents: [{ type: "scaler_task_report", taskId: child.taskId, ...child.attempt, status: "completed",
+              summary: finding, evidenceRefs: ["request.txt", "candidate.json"], recommendedNextAction: "Author must assess this proposal against original intent." }] };
+        });
+        assert.equal(compared.validationHandoff?.status, "validation_required");
+        const proposal = (await loadTaskAgentReports(dir)).find(report => report.id === compared.validationHandoff?.reportId);
+        assert.ok(proposal?.attemptId);
+        assert.equal(proposal.summary, finding);
+        proposalRef = proposal.id;
+        assessedFinding = proposal.summary;
+        await writeFile(join(dir, "review.txt"), JSON.stringify({ proposalRef, attemptId: proposal.attemptId, finding: proposal.summary }));
+        const current = await loadState(dir);
+        assert.equal(calls, 1);
+        assert.equal(getBudgetState(current).usage.spawnedAgents, 1);
+        assert.equal(current.tasks.find(task => task.id === "DECISION")?.status, "validating");
+        assert.equal(current.validatedTaskIds.includes("DECISION"), false);
+        assert.deepEqual(await loadPrdRequirements(dir), requirements);
+      } else await writeFile(join(dir, "review.txt"), finding);
       await writeFile(join(dir, "check.cjs"), [
         "const a=require('node:assert/strict'),f=require('node:fs');",
         "const c=JSON.parse(f.readFileSync('candidate.json','utf8'));",
@@ -50,9 +91,9 @@ for (const mode of ["unsupported_extra", "material", "inconclusive"] as const) {
         ], createdAt: "", updatedAt: "" });
       const assessed = await recordValidationChecklist(dir, await loadState(dir), {
         taskId: "DECISION", gate: "adversarial_review",
-        items: [{ id: "finding", statement: "Author assessment of external finding", required: true,
+        items: [{ id: "finding", statement: `Author assessment of ${proposalRef ?? "external finding"}: ${assessedFinding}`, required: true,
           status: mode === "unsupported_extra" ? "not_applicable" : mode === "material" ? "failed" : "blocked",
-          evidenceRefs: ["request.txt", "review.txt"],
+          evidenceRefs: ["request.txt", "review.txt", ...(proposalRef ? [proposalRef] : [])],
           notes: mode === "unsupported_extra" ? "Reject extra scope: original wording explicitly excludes a plugin framework."
             : mode === "material" ? "Accept finding: remote provider contradicts original constraint; repair candidate only."
             : "Unresolved required assessment; stop without substituting a reviewer vote." }],
