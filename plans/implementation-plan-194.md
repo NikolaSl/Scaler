@@ -9,8 +9,9 @@ a reviewer role/subsystem if ordinary tasks already satisfy this narrow profile.
 Fixture: explicit local-only request and authorized no-plugin decision. A selected
 review is configured as two sequential non-software tasks: EXPECT derives a compact
 expectation from those exact sources, COMPARE receives that accepted expectation
-plus the candidate and misleading rationale. Tools are empty and model identity
-is synthetic. Scripted children supply expectation/inconclusive observations, not
+plus the candidate and misleading rationale. EXPECT has `write` to publish its
+named output (no read tool); COMPARE is tool-less. Model identity is synthetic.
+Scripted children supply expectation/inconclusive observations, not
 real model assessments. Assert actual outgoing prompt order/content, attempt-bound
 report ingestion and objective expectation-artifact acceptance before comparison.
 An inconclusive COMPARE report must leave that task blocked/unaccepted.
@@ -33,3 +34,10 @@ Own focused/build then applicable full exact-candidate gate and source/AC-first
 independent exact-head review precede PR acceptance. No RED merge, weakened check,
 new automation, paid external inference or deployment. Current authorization,
 checked ownership and expected-head merge policy remain unchanged.
+
+Own review corrected the initial fixture's tool-less EXPECT writer: a real child
+needs an output capability, even though the injected runner writes the file.
+Its task title now names the output and the actual grant is asserted. The prior
+candidate's green full gate is historical, not approval of the corrected head.
+This checks supplied prompt/grant sequencing, not actual host tool containment
+or proof that a model derived the scripted expectation.

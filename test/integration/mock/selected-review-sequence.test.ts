@@ -33,7 +33,7 @@ test("configured selected review separates source expectation and preserves aggr
     const createReviewStep = async (id: "EXPECT" | "COMPARE") => {
       const inputs = ["request.txt", "decision.txt", ...(id === "COMPARE" ? ["expectation.txt", "candidate.txt"] : [])];
       const created = await createTask(dir, await loadState(dir), {
-        id, title: id === "EXPECT" ? "Derive expectation from original sources" : "Compare candidate to accepted expectation",
+        id, title: id === "EXPECT" ? "Record expectation.txt from original sources" : "Compare candidate to accepted expectation",
         status: "ready", taskKind: "non_software", atomicityRationale: "One selected bounded assessment step.",
         allowedPathPrefixes: [...inputs, ...(id === "EXPECT" ? ["expectation.txt"] : [])],
         dependsOn: id === "COMPARE" ? ["EXPECT"] : [],
@@ -50,10 +50,10 @@ test("configured selected review separates source expectation and preserves aggr
     };
     await createReviewStep("EXPECT");
     let calls = 0;
-    const first = await runConductorStep(dir, await loadState(dir), { execute: true, tools: [] }, async child => {
+    const first = await runConductorStep(dir, await loadState(dir), { execute: true, tools: ["write"] }, async child => {
       calls++;
       assert.equal(child.taskId, "EXPECT");
-      assert.deepEqual(child.tools, []);
+      assert.deepEqual(child.tools, ["write"]); // Real children need an output capability; no read tool exposes the candidate.
       assert.ok(child.prompt.includes(request) && child.prompt.includes(decision));
       assert.equal(child.prompt.includes(candidate), false);
       await writeFile(join(dir, "expectation.txt"), expectation); // Scripted observation, not model-quality evidence.
@@ -69,6 +69,7 @@ test("configured selected review separates source expectation and preserves aggr
     const compared = await runConductorStep(dir, await loadState(dir), { execute: true, tools: [] }, async child => {
       calls++;
       assert.equal(child.taskId, "COMPARE");
+      assert.deepEqual(child.tools, []);
       assert.ok(child.prompt.includes(await readFile(join(dir, "expectation.txt"), "utf8")));
       assert.ok(child.prompt.includes(candidate) && child.prompt.includes(request) && child.prompt.includes(decision));
       return { taskId: child.taskId, exitCode: 0, stderr: "", timedOut: false, aborted: false,
