@@ -60,10 +60,14 @@ test("cached default manifest resolves current amended requirement before actual
   });
 });
 
-for (const failure of ["missing_catalog", "missing_linked_requirement"] as const) test(`current required requirement slice blocks dispatch on ${failure}`, async () => {
+for (const failure of ["missing_catalog", "missing_linked_requirement", "missing_context_task"] as const) test(`current required requirement slice blocks dispatch on ${failure}`, async () => {
   await fixture(async dir => {
     if (failure === "missing_catalog") await unlink(join(dir, ".scaler", "prd", "requirements.json"));
-    else assert.equal((await updateTask(dir, await loadState(dir), {
+    else if (failure === "missing_context_task") {
+      const manifest = await ensureTaskContextManifest(dir, await loadState(dir), "EXPORT");
+      await saveTaskContextManifest(dir, { ...manifest, items: manifest.items.map(item => item.id === "runtime-prd-coverage"
+        ? { ...item, taskId: "MISSING-TASK" } : item) });
+    } else assert.equal((await updateTask(dir, await loadState(dir), {
       id: "EXPORT", prdRefs: ["CSV", "MISSING"], acceptanceAuthority: "model",
     })).accepted, true);
     const before = await loadState(dir);
