@@ -21,3 +21,10 @@ validation post-command boundary too: a prerequisite may change while checks run
 No imported-state/semantic necessity/automatic risk/local model/full P5 claim.
 No RED merge. Any eventual fix needs applicable full exact-head gate, own review
 and independent fresh-context review before expected-head method-merge.
+
+Baseline reproduction: blocked/missing/stale cases each executed one command;
+changing the prerequisite during the first of two checks still ran the second.
+Four RED / two positive PASS; `/tmp/scaler-plan192-red.log`. The fix reuses
+`verifyTaskDependenciesAccepted` before snapshot, before each command and before
+acceptance. A final-command mutation control separately checks the last boundary.
+This guards declared dependencies, not inferred risk or arbitrary external effects.
