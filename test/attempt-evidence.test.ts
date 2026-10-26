@@ -9,6 +9,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { checkAttemptEvidence } from "../src/attempt-evidence.js";
+import { verifyAcceptedTaskEvidence } from "../src/accepted-evidence.js";
+import { createTask } from "../src/tasks.js";
 import { runConductorStep as runConductorStepImpl } from "../src/conductor.js";
 import { testProviderAdmissionModel } from "./provider-model-fixture.js";
 
@@ -49,6 +51,24 @@ async function completed(dir: string, command = "node -e \"require('fs').writeFi
   }));
   return loadState(dir);
 }
+
+test("accepted dependents reject invalidated prerequisite attempt reports", async () => {
+  await fixture(async dir => {
+    let state = await completed(dir);
+    assert.equal((await runTaskValidation(dir, state, "T-FRESH")).acceptance?.accepted, true);
+    const dependent = await createTask(dir, await loadState(dir), { id: "DEPENDENT", status: "validating", dependsOn: ["T-FRESH"],
+      taskKind: "non_software", outputPaths: [], validationCommands: [{ id: "check", command: 'node -e "process.exit(0)"', required: true }] });
+    assert.equal(dependent.accepted, true, dependent.message);
+    assert.equal((await runTaskValidation(dir, dependent.state, "DEPENDENT")).acceptance?.accepted, true);
+    state = await loadState(dir);
+    assert.deepEqual(await verifyAcceptedTaskEvidence(dir, state, "DEPENDENT"), []);
+    const path = getTaskAgentReportsPath(dir), reports = JSON.parse(await readFile(path, "utf8"));
+    reports.reports[0].summary = "Changed after acceptance";
+    await writeFile(path, JSON.stringify(reports));
+    assert.notDeepEqual(await verifyAcceptedTaskEvidence(dir, state, "T-FRESH"), []);
+    assert.notDeepEqual(await verifyAcceptedTaskEvidence(dir, state, "DEPENDENT"), []);
+  });
+});
 
 test("unchanged attempt evidence passes validation without timestamp/status false positives", async () => {
   await fixture(async (dir) => {

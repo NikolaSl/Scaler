@@ -8,6 +8,9 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { execFileSync } from "node:child_process";
+import { ensureGitRepository, loadCommitReports, loadCommitSkips } from "../../../src/git.js";
+import { commitWithExecutionLock } from "../../../src/operations.js";
 import { verifyAcceptedTaskEvidence } from "../../../src/accepted-evidence.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { fingerprintJson } from "../../../src/fingerprints.js";
@@ -20,19 +23,27 @@ import { requestReplan } from "../../../src/replanning.js";
 import { getValidationManifestForTask, loadValidationRuns, runTaskValidation } from "../../../src/validation.js";
 import { runConductorStep } from "./provider-bound-helpers.js";
 
-for (const mode of ["evidence", "dispatch", "revalidated", "same_basis", "transitive", "legacy", "cycle", "malformed", "unchanged", "unrelated"] as const) {
+for (const mode of ["evidence", "dispatch", "revalidated", "same_basis", "git_same_basis", "transitive", "legacy", "cycle", "malformed", "unchanged", "unrelated"] as const) {
   test(`accepted dependent evidence: ${mode}`, async () => {
     const dir = await mkdtemp(join(tmpdir(), "scaler-dependent-evidence-"));
     try {
       let state = createDefaultState();
       state.stage = "execution";
       state.originalRequest = "Use only a copy of the current accepted local decision.";
+      if (mode === "git_same_basis") {
+        await ensureGitRepository(dir);
+        execFileSync("git", ["config", "user.name", "Test Fixture"], { cwd: dir });
+        execFileSync("git", ["config", "user.email", "fixture@example.com"], { cwd: dir });
+        await writeFile(join(dir, "README.md"), "fixture");
+        execFileSync("git", ["add", "README.md"], { cwd: dir });
+        execFileSync("git", ["commit", "-qm", "fixture"], { cwd: dir });
+      }
       const commands = [{ id: "check", command: 'node -e "process.exit(0)"', required: true }];
-      const revalidation = mode === "revalidated" || mode === "same_basis";
+      const revalidation = mode === "revalidated" || mode === "same_basis" || mode === "git_same_basis";
       if (revalidation) for (const id of ["DECISION", "COPY"]) await upsertPrdRequirement(dir, { id, statement: id === "COPY" ? "Copy the current decision." : "Provide the current local decision." });
       await writeFile(join(dir, "decision.txt"), "local decision v1");
-      await writeFile(join(dir, "copy.txt"), "local decision v1");
       for (const id of ["DECISION", "COPY"] as const) {
+        if (id === "COPY") await writeFile(join(dir, "copy.txt"), "local decision v1");
         const result = await createTask(dir, state, {
           id, status: "validating", title: id === "COPY" ? "Copy the accepted decision" : "One local decision",
           taskKind: "non_software", allowedPathPrefixes: [id === "COPY" ? "copy.txt" : "decision.txt"],
@@ -47,9 +58,14 @@ for (const mode of ["evidence", "dispatch", "revalidated", "same_basis", "transi
         });
         assert.equal(result.accepted, true, result.message);
         const validated = await runTaskValidation(dir, result.state, id);
-        assert.equal(validated.acceptance?.accepted, true, validated.acceptance?.message);
+        if (mode === "git_same_basis") {
+          assert.equal(validated.acceptance?.git?.status, "commit_required");
+          const committed = await commitWithExecutionLock(dir, await loadState(dir), id, result.state.tasks.find(t => t.id === id)!.allowedPathPrefixes!);
+          assert.equal(committed.accepted, true, committed.message);
+        } else assert.equal(validated.acceptance?.accepted, true, validated.acceptance?.message);
         state = await loadState(dir);
       }
+      if (mode === "git_same_basis") assert.ok((await loadCommitReports(dir)).some(c => c.taskId === "DECISION" && c.commitHash));
       if (revalidation) {
         const currentPlan = await saveExecutionPlan(dir, { version: 1, planVersion: 1, status: "active",
           tasks: state.tasks.map(t => ({ ...t, title: t.title! })), createdAt: state.createdAt, updatedAt: state.updatedAt });
@@ -73,6 +89,7 @@ for (const mode of ["evidence", "dispatch", "revalidated", "same_basis", "transi
         assert.equal(rechecked.acceptance?.accepted, true, rechecked.acceptance?.message);
         state = await loadState(dir);
         assert.deepEqual(await verifyAcceptedTaskEvidence(dir, state, "DECISION"), []);
+        if (mode === "git_same_basis") assert.ok((await loadCommitSkips(dir)).some(s => s.taskId === "DECISION" && s.status === "skipped"));
       }
       const use = await createTask(dir, state, {
         id: "USE", status: mode === "transitive" ? "validating" : "ready", dependsOn: ["COPY"], title: "Use the current copy",
