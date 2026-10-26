@@ -11,7 +11,8 @@ the proposer to compare requested outcomes/constraints with planned acceptance,
 justify tasks against authorized requirements, and state the failing criterion
 and simpler-sufficient-approach comparison for disputed prerequisites in existing
 descriptions/summary. Keep optional suggestions outside executable work and accept
-minimal plans/necessary technical steps without extra confirmation or agent calls.
+minimal plans/necessary technical steps without extra confirmation for necessary
+steps or agent calls by default; preserve independently applicable required checks.
 Do not impose planning duties on unrelated stage activities.
 
 First add focused assertions to the public prompt-builder tests and observe RED;
