@@ -151,7 +151,8 @@ test("buildReplanAgentPrompt includes replan requests, PRD coverage, current pla
     assert.match(prompt, /criterion that would fail without.*simpler sufficient approach/i);
     assert.match(prompt, /existing task description or plan summary/i);
     assert.match(prompt, /minimal one-task plan.*necessary technical steps.*without additional user confirmation/i);
-    assert.match(prompt, /optional\/unresolved work and optional review suggestions outside executable work.*blocking gates/i);
+    assert.match(prompt, /optional work and optional review suggestions outside executable work.*blocking gates/i);
+    assert.match(prompt, /necessity-unresolved work.*investigate.*clarify.*affected plan blocked/i);
     state.originalRequest = "EXACT-CONSTRAINT ".repeat(10_000);
     assert.throws(() => prepareReplanAgentInvocation(dir, input), /final SCALER prompt refused/i);
     delete state.originalRequest;

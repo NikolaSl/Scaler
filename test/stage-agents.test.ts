@@ -157,7 +157,8 @@ test("planning stage prompts require two-way assessment without extra planner ca
     assert.match(prompt, /criterion that would fail without.*simpler sufficient approach/i);
     assert.match(prompt, /existing task description or plan summary/i);
     assert.match(prompt, /minimal one-task plan.*necessary technical steps.*without additional user confirmation/i);
-    assert.match(prompt, /optional\/unresolved work and optional review suggestions outside executable work.*blocking gates/i);
+    assert.match(prompt, /optional work and optional review suggestions outside executable work.*blocking gates/i);
+    assert.match(prompt, /necessity-unresolved work.*investigate.*clarify.*affected plan blocked/i);
   }
   assert.doesNotMatch(buildStageAgentPrompt({ stage: "knowledge", state }), /Check both directions at initial planning/i);
 });
