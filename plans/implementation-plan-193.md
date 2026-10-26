@@ -42,3 +42,16 @@ prove the new basis and therefore require revalidation. No new ledger or executo
 Add a supported affected-only replan/revalidation scenario rather than resetting
 validated state. Preserve the original two RED probes and unrelated controls;
 add same-basis revalidation, transitive, legacy and cycle controls as applicable.
+
+Expanded baseline: three RED / three PASS, including an actual accepted
+affected-only replan and successful DECISION v2 revalidation while COPY remains
+historically validated. The same route without a basis change is a positive
+control. No raw task reset is used; supervisor source invalidation is supplied
+through the coverage ledger. With the fix, all ten focused cases pass, including
+transitivity, structurally valid old dependent receipts, no-dependency
+compatibility, and explicitly injected cyclic/malformed state refusal.
+Initial setup corrections: give plan task titles their known fixture string type,
+and preserve the validation-run index `{version,runs}` shape in the legacy probe.
+Neither correction changes acceptance assertions or production behavior.
+Full exact-head gate and independent fix review are still required and recorded
+in the PR; preparation review alone was not fix approval. No full phase claim.
