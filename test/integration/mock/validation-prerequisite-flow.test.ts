@@ -12,7 +12,7 @@ import { createDefaultState, loadState } from "../../../src/state.js";
 import { createTask } from "../../../src/tasks.js";
 import { runTaskValidation } from "../../../src/validation.js";
 
-for (const mode of ["blocked", "missing", "stale", "fresh", "none"] as const) {
+for (const mode of ["blocked", "missing", "stale", "during", "fresh", "none"] as const) {
   test(`direct validation prerequisite admission: ${mode}`, async () => {
     const dir = await mkdtemp(join(tmpdir(), "scaler-validation-prerequisite-"));
     try {
@@ -39,7 +39,10 @@ for (const mode of ["blocked", "missing", "stale", "fresh", "none"] as const) {
         id: "USE", status: "validating", acceptanceAuthority: "user_command",
         dependsOn: mode === "none" ? [] : ["DECISION"],
         protectedDependsOn: mode === "none" ? [] : ["DECISION"],
-        outputPaths: [], validationCommands: commands,
+        outputPaths: [], validationCommands: mode === "during" ? [
+          { id: "change", command: 'node -e "require(\'fs\').writeFileSync(\'decision.txt\',\'changed during validation\')"', required: true },
+          ...commands,
+        ] : commands,
       });
       assert.equal(use.accepted, true, use.message);
       const result = await runTaskValidation(dir, await loadState(dir), "USE");
@@ -48,7 +51,7 @@ for (const mode of ["blocked", "missing", "stale", "fresh", "none"] as const) {
         assert.equal(result.acceptance?.accepted, true, result.acceptance?.message);
         assert.equal(result.commandRuns.length, 1);
       } else {
-        assert.equal(result.commandRuns.length, 0, "Invalid prerequisite must refuse before validation command dispatch.");
+        assert.equal(result.commandRuns.length, mode === "during" ? 1 : 0, "Invalid prerequisite must refuse before further validation command dispatch.");
         assert.notEqual(result.acceptance?.accepted, true, "Invalid prerequisite must not grant acceptance.");
         assert.notEqual((await loadState(dir)).tasks.find(t => t.id === "USE")?.status, "validated");
       }
