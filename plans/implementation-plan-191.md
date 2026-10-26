@@ -44,3 +44,23 @@ found that the first two positive controls would allow overbroad freezing of all
 user-authored dependencies. Added the ordinary user-authored control and removed
 the mandatory wording from both simplification controls. Do not implement the
 rejected actor-plus-dependency inference shortcut.
+
+Implementation contract: optional `protectedDependsOn` is an explicit subset of
+`dependsOn`, configured/revised only by the parent `user_command` route. It is
+persisted on the task and included in its contract fingerprint when nonempty;
+legacy task fingerprints remain unchanged. Every update, including system plan
+application, must retain those dependencies unless an explicit user update also
+revises the protected list. Models cannot designate or clear it. Ordinary
+dependencies remain editable. This records a trusted designation, not inferred
+necessity or automatic risk discovery; decision acceptance/current-basis checks
+continue through the existing dependency admission path.
+
+The baseline RED fixture has no such input. The implementation will explicitly
+configure the new designation only for its mandatory cases; the original request,
+DoD, blocked decision, model-removal probe and zero-dispatch expectation stay the
+same. This is a justified public-contract extension, not a mock-only interface or
+a claim of implicit protection for legacy tasks. Append an optional comma-list
+argument to parent task create/update commands; an explicitly empty final field
+clears protection, omission preserves it. Child commands cannot grant this authority.
+Check persistence, unauthorized designation/clearing, system-plan weakening,
+ordinary simplification, explicit user revision and fingerprint compatibility.
