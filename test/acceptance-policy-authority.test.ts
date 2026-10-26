@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import childProcess from "node:child_process";
-import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import fsPromises from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
@@ -17,18 +17,6 @@ import { loadPrdRequirements } from "../src/prd.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { registerScalerTools } from "../src/tools.js";
 import { getValidationManifestForTask, runTaskValidation, saveValidationManifest, upsertValidationManifestCommand, withValidationPolicyLock } from "../src/validation.js";
-
-async function waitForPath(path: string): Promise<void> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    try {
-      await access(path);
-      return;
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-  }
-  throw new Error(`Timed out waiting for ${path}`);
-}
 
 function observeValidationCommand(dir: string, command: string) {
   const original = childProcess.spawn;
@@ -495,20 +483,33 @@ test("the first in-flight validation blocks model task-contract mutation", async
           }
         : command),
     });
-    const validation = runTaskValidation(dir, await loadState(dir), "T-POLICY");
-    await waitForPath(join(dir, "validation-started"));
-    const update = tools.get("scaler_task_update")!.execute("update", {
-      taskId: "T-POLICY",
-      definitionOfDone: ["Any result is acceptable"],
-    }, undefined, undefined, { cwd: dir });
-    assert.equal(await Promise.race([
-      update.then(() => "completed"),
-      new Promise((resolve) => setTimeout(() => resolve("waiting"), 50)),
-    ]), "waiting");
-    await writeFile(join(dir, "validation-release"), "release");
-    assert.equal((await validation).status, "failed");
-    await assert.rejects(update, /stale state snapshot/i);
-    assert.deepEqual((await loadState(dir)).tasks[0]?.definitionOfDone, ["result.txt contains fixed"]);
+    const command = (await getValidationManifestForTask(dir, "T-POLICY")).commands.find(c => c.id === "unit")!.command;
+    const state = await loadState(dir);
+    const observer = observeValidationCommand(dir, command);
+    const validation = runTaskValidation(dir, state, "T-POLICY");
+    void validation.catch(() => {});
+    let update: Promise<any> | undefined;
+    try {
+      await Promise.race([observer.started, validation.then(() => { throw new Error("Validation settled before unit readiness"); })]);
+      update = tools.get("scaler_task_update")!.execute("update", {
+        taskId: "T-POLICY",
+        definitionOfDone: ["Any result is acceptable"],
+      }, undefined, undefined, { cwd: dir });
+      void update.catch(() => {});
+      assert.equal(await Promise.race([
+        update.then(() => "completed"),
+        new Promise((resolve) => setTimeout(() => resolve("waiting"), 50)),
+      ]), "waiting");
+      await writeFile(join(dir, "validation-release"), "release");
+      assert.equal((await validation).status, "failed");
+      await assert.rejects(update, /stale state snapshot/i);
+      assert.deepEqual((await loadState(dir)).tasks[0]?.definitionOfDone, ["result.txt contains fixed"]);
+    } finally {
+      try {
+        await writeFile(join(dir, "validation-release"), "release");
+        await Promise.allSettled([validation, ...(update ? [update] : [])]);
+      } finally { observer.restore(); }
+    }
   }, false);
 });
 
