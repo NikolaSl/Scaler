@@ -12,7 +12,7 @@ import { promisify } from "node:util";
 import { captureValidationContext, checkAttemptEvidence } from "./attempt-evidence.js";
 import { fingerprintTaskContract, fingerprintValidationPolicy } from "./attempt-identity.js";
 import { fingerprintJson } from "./fingerprints.js";
-import { verifyCommittedOutputs } from "./committed-outputs.js";
+import { loadAcceptedEvidenceContext, verifyAcceptedTaskEvidence } from "./accepted-evidence.js";
 import { fingerprintDeclaredOutputs, fingerprintValidationInputs } from "./output-artifacts.js";
 import { loadPrdCoverage, loadPrdRequirements } from "./prd.js";
 import { loadCommitReports, loadCommitSkips, type CommitValidationSummary } from "./git.js";
@@ -44,7 +44,8 @@ export interface ValidationReceipt {
   resultFingerprint: string;
 }
 
-export async function captureValidationSnapshot(cwd: string, state: ScalerState, taskId: string): Promise<ValidationSnapshot> {
+export async function captureValidationSnapshot(cwd: string, state: ScalerState, taskId: string,
+  dependencyChecks = new Map<string, Promise<string[]>>()): Promise<ValidationSnapshot> {
   const task = state.tasks.find((task) => task.id === taskId);
   if (!task) throw new Error(`Cannot snapshot missing validation task ${taskId}.`);
   const attempt = task.attemptId ? (await loadTaskAttempts(cwd)).find((attempt) => attempt.id === task.attemptId) : undefined;
@@ -57,7 +58,7 @@ export async function captureValidationSnapshot(cwd: string, state: ScalerState,
     policyFingerprint: fingerprintValidationPolicy(manifest),
     contextFingerprint: await captureValidationContext(cwd, state, taskId),
     requirementFingerprint: await fingerprintTaskRequirements(cwd, taskId, task.prdRefs ?? []),
-    integrationFingerprint: await fingerprintTaskIntegrationInputs(cwd, state, taskId, task.prdRefs ?? []),
+    integrationFingerprint: await fingerprintTaskIntegrationInputs(cwd, state, taskId, task.prdRefs ?? [], dependencyChecks),
     gitCandidateFingerprint: await fingerprintGitCandidate(cwd),
     declaredOutputFingerprint: await fingerprintDeclaredOutputs(cwd, manifest.outputPaths),
     validationInputFingerprint,
@@ -116,6 +117,7 @@ async function fingerprintTaskIntegrationInputs(
   state: ScalerState,
   ownerTaskId: string,
   taskRequirementIds: string[],
+  dependencyChecks: Map<string, Promise<string[]>>,
 ): Promise<string> {
   const dependencyIds = taskDependencyIds(state, ownerTaskId);
   const coverage = await loadPrdCoverage(cwd);
@@ -134,6 +136,7 @@ async function fingerprintTaskIntegrationInputs(
   const [attempts, runs, commits, skips] = await Promise.all([
     loadTaskAttempts(cwd), loadValidationRuns(cwd), loadCommitReports(cwd), loadCommitSkips(cwd),
   ]);
+  const evidence = dependencyIds.length ? await loadAcceptedEvidenceContext(cwd) : undefined;
   const participantIds = [...new Set([...dependencyIds, ...criteria.flatMap((criterion) => criterion.participantTaskIds)]
     .filter((taskId) => taskId !== ownerTaskId))].sort();
   const participants = [];
@@ -151,13 +154,11 @@ async function fingerprintTaskIntegrationInputs(
     const skipped = run && skips.find((candidate) => candidate.taskId === participantTaskId
       && candidate.status === "skipped" && candidate.reason.trim() && matchesValidation(candidate.validation, run));
     const dependency = dependencyIds.includes(participantTaskId);
-    if (dependency && (task.status !== "validated" || !state.validatedTaskIds.includes(participantTaskId)
-      || verifyValidationRecordEvidence(run, manifest).length || (!commit && !skipped)
-      || (!commit && manifest.outputPaths === undefined))) {
-      throw new Error(`Dependency ${participantTaskId} has no current accepted evidence.`);
-    }
-    if (dependency && commit) {
-      const errors = await verifyCommittedOutputs(cwd, commit);
+    if (dependency) {
+      // Per-snapshot memo only: share complete checks across a DAG, never across freshness boundaries.
+      if (!dependencyChecks.has(participantTaskId)) dependencyChecks.set(participantTaskId,
+        verifyAcceptedTaskEvidence(cwd, state, participantTaskId, evidence, "Dependency evidence", dependencyChecks));
+      const errors = await dependencyChecks.get(participantTaskId)!;
       if (errors.length) throw new Error(errors.join(" "));
     }
     participants.push({
@@ -173,7 +174,7 @@ async function fingerprintTaskIntegrationInputs(
         validationInputFingerprint: await verifyValidationInputBaseline(cwd, manifest),
         acceptedBasis: withoutGitCandidate(run!.receipt!.snapshot),
       } : {}),
-      acceptance: commit
+      acceptance: dependency ? { kind: "accepted" } : commit
         ? { kind: "commit", commitHash: commit.commitHash, includedPaths: [...commit.includedPaths].sort() }
         : skipped ? { kind: "skip" } : { kind: "missing" },
     });
