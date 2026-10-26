@@ -1,0 +1,52 @@
+# PLAN-194 — Configured selected-review sequencing and aggregate stop
+
+SC-10/15 require source-first expectation and finite review limits when review is
+selected. Existing PLAN-189 exercises supplied external findings/manual author
+assessment, not child sequencing or a replacement reviewer's aggregate budget.
+First test the existing conductor, context manifests and run budget; do not add
+a reviewer role/subsystem if ordinary tasks already satisfy this narrow profile.
+
+Fixture: explicit local-only request and authorized no-plugin decision. A selected
+review is configured as two sequential non-software tasks: EXPECT derives a compact
+expectation from those exact sources, COMPARE receives that accepted expectation
+plus the candidate and misleading rationale. EXPECT has `write` to publish its
+named output (no read tool); COMPARE is tool-less. Model identity is synthetic.
+Scripted children supply expectation/inconclusive observations, not
+real model assessments. Assert actual outgoing prompt order/content, attempt-bound
+report ingestion and objective expectation-artifact acceptance before comparison.
+An inconclusive COMPARE report must leave that task blocked/unaccepted.
+
+Set spawnedAgents hard=3 before work: inclusive admission permits two calls and
+refuses the third. Reload durable state, create a replacement reviewer with a new
+task ID and a fresh runner, and prove zero additional calls, unchanged aggregate
+usage and a persisted hard-limit pause. This is a conservative all-child cap,
+not a new review-specific counter or a wall-clock/clarification guarantee.
+
+Together with PLAN-189's external author-disposition controls and PLAN-193's
+dependency freshness, this can establish additional configured process evidence,
+not automatic risk selection, semantic expectation/necessity, general reviewer
+independence/quality, actual local inference or full SC-10/15/P4/P5. No automatic
+two-call overhead for routine objective tasks. Keep unsupported extras and raw
+manual negative validation behavior unchanged. If the scenario is already green,
+production remains unchanged; report exact limitations and remaining work.
+These separate scenarios do not establish an end-to-end completed-finding to
+author-assessment handoff.
+
+Own focused/build then applicable full exact-candidate gate and source/AC-first
+independent exact-head review precede PR acceptance. No RED merge, weakened check,
+new automation, paid external inference or deployment. Current authorization,
+checked ownership and expected-head merge policy remain unchanged.
+
+Own review corrected the initial fixture's tool-less EXPECT writer: a real child
+needs an output capability, even though the injected runner writes the file.
+Its task title now names the output and the actual grant is asserted. The prior
+candidate's green full gate is historical, not approval of the corrected head.
+This checks supplied prompt/grant sequencing, not actual host tool containment
+or proof that a model derived the scripted expectation.
+
+Independent review then identified a valid material fixture grant issue: EXPECT's
+write scope included its original request/decision inputs. Keep those exact
+injected context items, but narrow write scope to `expectation.txt`; COMPARE has
+only nominal `assessment.txt` scope and no tools. Assert each outgoing allowed-path
+header. Source mutation detection is not a justification for granting source
+rewrite authority. This is a profile correction, not a new containment guarantee.
