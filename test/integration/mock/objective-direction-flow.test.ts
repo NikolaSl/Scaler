@@ -9,10 +9,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { verifyAcceptedTaskEvidence } from "../../../src/accepted-evidence.js";
+import { getBudgetState } from "../../../src/budgets.js";
 import { loadCommitSkips } from "../../../src/git.js";
 import { upsertPrdRequirement } from "../../../src/prd.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
-import { runTaskValidation, saveValidationManifest } from "../../../src/validation.js";
+import { getValidationManifestForTask, runTaskValidation, saveValidationManifest } from "../../../src/validation.js";
 import { runConductorStep } from "./provider-bound-helpers.js";
 
 for (const mode of ["remote", "local", "unavailable"] as const) {
@@ -122,5 +123,80 @@ for (const mode of ["remote", "local", "unavailable"] as const) {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+}
+
+for (const [primary, alternative, authorized, provider] of [
+  [true, false, false, "local"], [true, false, false, "remote"], [false, false, false, "local"],
+  [false, true, true, "local"], [false, true, true, "remote"], [false, true, false, "local"],
+] as const) {
+  test(`content-selected direction profile: primary=${primary} alternative=${alternative} authorized=${authorized} provider=${provider}`, async () => {
+    const dir = await mkdtemp(join(tmpdir(), "scaler-content-direction-"));
+    try {
+      const state = createDefaultState();
+      state.stage = "execution";
+      state.originalRequest = "Answer 2+2 or prepare a local-only provider commitment. No cloud provider. Commitment has a simulated projected cost of 100 units; no real provisioning.";
+      state.tasks = [
+        { id: "DECISION", status: "validating", taskKind: "non_software", allowedPathPrefixes: ["candidate.json"],
+          definitionOfDone: ["Correct lookup or checked local-only commitment."], updatedAt: state.updatedAt },
+        { id: "USE", status: "ready", taskKind: "non_software", dependsOn: ["DECISION"], allowedPathPrefixes: ["effect.txt"],
+          definitionOfDone: ["Use only an accepted current decision."], updatedAt: state.updatedAt },
+      ];
+      await saveState(dir, state);
+      await writeFile(join(dir, "config.json"), JSON.stringify({ allowedProvider: "local", alternativeAuthorized: authorized }));
+      await writeFile(join(dir, "capabilities.json"), JSON.stringify({ primary, alternative }));
+      await writeFile(join(dir, "primary.cjs"), "module.exports=(c,p)=>require('node:assert/strict').equal(c.provider,p.allowedProvider,'local-only constraint violated');");
+      await writeFile(join(dir, "alternative.cjs"), "module.exports=(c,p)=>require('node:assert/strict').ok([p.allowedProvider].includes(c.provider),'local-only constraint violated');");
+      await writeFile(join(dir, "profile.cjs"), [
+        "const a=require('node:assert/strict'),f=require('node:fs');",
+        "const c=JSON.parse(f.readFileSync('candidate.json')),p=JSON.parse(f.readFileSync('config.json')),cap=JSON.parse(f.readFileSync('capabilities.json'));",
+        "const commitment=Object.hasOwn(c,'provider');",
+        "if(process.argv[2]==='shape'){a.equal(c.confidence,1);if(commitment){a.equal(typeof c.provider,'string');a.equal(c.projectedCost,100);a.equal(Object.hasOwn(c,'answer'),false);}else{a.deepEqual(c,{answer:4,confidence:1});}process.exit(0);}",
+        "if(!commitment){a.deepEqual(c,{answer:4,confidence:1});console.log('routine:objective-answer');process.exit(0);}",
+        "console.log('trigger:provider-commitment');",
+        "const selected=cap.primary?'primary':p.alternativeAuthorized&&cap.alternative?'alternative':null;",
+        "if(!selected){console.log('unavailable:no-authorized-alternative');process.exit(2);}",
+        "console.log('executed:'+selected);require('./'+selected+'.cjs')(c,p);",
+      ].join("\n"));
+      await saveValidationManifest(dir, { taskId: "DECISION", outputPaths: ["candidate.json"],
+        validationInputPaths: ["config.json", "capabilities.json", "profile.cjs", "primary.cjs", "alternative.cjs"],
+        commands: [{ id: "shape", command: "node profile.cjs shape", required: true, gate: "consistency" },
+          { id: "profile", command: "node profile.cjs", required: true, gate: "compliance" }], createdAt: "", updatedAt: "" });
+      await saveValidationManifest(dir, { taskId: "USE", outputPaths: [], commands: [{ id: "check", command: "node -e \"process.exit(0)\"", required: true }], createdAt: "", updatedAt: "" });
+      const policy = await getValidationManifestForTask(dir, "DECISION");
+      await writeFile(join(dir, "candidate.json"), JSON.stringify({ answer: 4, confidence: 1 }));
+      const routine = await runTaskValidation(dir, await loadState(dir), "DECISION");
+      assert.equal(routine.status, "passed");
+      assert.equal(routine.commandRuns[1]?.stdoutSummary, "routine:objective-answer");
+      assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents ?? 0, 0);
+      const skips = (await loadCommitSkips(dir)).length;
+      // Only candidate bytes change; command/config/capability policy stays identical.
+      await writeFile(join(dir, "candidate.json"), JSON.stringify({ provider, projectedCost: 100, confidence: 1 }));
+      const commitment = await runTaskValidation(dir, await loadState(dir), "DECISION");
+      assert.equal(commitment.commandRuns[0]?.status, "passed");
+      assert.match(commitment.commandRuns[1]?.stdoutSummary ?? "", /trigger:provider-commitment/);
+      const selected = primary ? "primary" : alternative && authorized ? "alternative" : null;
+      assert.match(commitment.commandRuns[1]?.stdoutSummary ?? "", selected ? new RegExp(`executed:${selected}`) : /unavailable:no-authorized-alternative/);
+      const valid = selected !== null && provider === "local";
+      assert.equal(commitment.status, valid ? "passed" : "failed");
+      const current = await loadState(dir);
+      // This rerun starts from historical validated state; the latest failed
+      // run invalidates current evidence even when the FSM retains that label.
+      assert.equal(current.tasks[0]?.status, "validated");
+      assert.equal(commitment.commandRuns[1]?.exitCode, valid ? 0 : selected ? 1 : 2);
+      assert.equal((await loadCommitSkips(dir)).length, skips + Number(valid));
+      if (selected && !valid) assert.match(commitment.commandRuns[1]?.stderrSummary ?? "", /local-only constraint violated/);
+      assert.equal(getBudgetState(current).usage.spawnedAgents ?? 0, 0);
+      assert.deepEqual(await getValidationManifestForTask(dir, "DECISION"), policy);
+      const evidence = await verifyAcceptedTaskEvidence(dir, current, "DECISION");
+      if (valid) assert.deepEqual(evidence, []); else assert.notDeepEqual(evidence, []);
+      let dispatches = 0;
+      await runConductorStep(dir, current, { execute: true }, async request => {
+        dispatches++;
+        assert.equal(request.taskId, "USE");
+        return { taskId: request.taskId, exitCode: 1, stdoutEvents: [], stderr: "admission-only stop", timedOut: false, aborted: false };
+      });
+      assert.equal(dispatches, Number(valid));
+    } finally { await rm(dir, { recursive: true, force: true }); }
   });
 }

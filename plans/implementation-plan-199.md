@@ -44,3 +44,9 @@ fresh source/rubric-first review before a phase PR is accepted. This preparation
 does not authorize merge or claim tests were run. Preserve failed evidence and
 current authority: no paid inference/deployment, no new automation; final handoff,
 ownership release and mutation stop before 2026-10-26T23:08:20Z.
+
+The concrete fixture uses a routine answer (2+2=4), then a provider proposal with
+confidence 1 and simulated projected cost 100 units; no provisioning occurs.
+An executed failing rerun of an already validated task can retain its historical
+validated FSM label. Assert latest failed run, rejected current evidence, no new
+commit/skip and zero dependent admission, not a nonexistent debugging transition.
