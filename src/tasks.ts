@@ -24,6 +24,7 @@ export interface CreateTaskInput {
   atomicityRationale?: string;
   allowedPathPrefixes?: string[];
   dependsOn?: string[];
+  protectedDependsOn?: string[];
   prdRefs?: string[];
   definitionOfDone?: string[];
   validationRefs?: string[];
@@ -51,6 +52,7 @@ export interface UpdateTaskInput {
   atomicityRationale?: string;
   allowedPathPrefixes?: string[];
   dependsOn?: string[];
+  protectedDependsOn?: string[];
   prdRefs?: string[];
   definitionOfDone?: string[];
   validationRefs?: string[];
@@ -82,9 +84,10 @@ export function formatTaskList(state: ScalerState): string {
     const title = task.title ? ` - ${task.title}` : "";
     const paths = task.allowedPathPrefixes && task.allowedPathPrefixes.length > 0 ? ` [paths: ${task.allowedPathPrefixes.join(", ")}]` : "";
     const deps = task.dependsOn && task.dependsOn.length > 0 ? ` [depends: ${task.dependsOn.join(", ")}]` : "";
+    const protectedDeps = task.protectedDependsOn?.length ? ` [protected: ${task.protectedDependsOn.join(", ")}]` : "";
     const prdRefs = task.prdRefs && task.prdRefs.length > 0 ? ` [prd: ${task.prdRefs.join(", ")}]` : "";
     const dod = task.definitionOfDone && task.definitionOfDone.length > 0 ? ` [dod: ${task.definitionOfDone.length}]` : " [dod: missing]";
-    lines.push(`- ${task.id}: ${task.status}${current}${title}${paths}${deps}${prdRefs}${dod}`);
+    lines.push(`- ${task.id}: ${task.status}${current}${title}${paths}${deps}${protectedDeps}${prdRefs}${dod}`);
   }
   return lines.join("\n");
 }
@@ -176,6 +179,7 @@ async function updateTaskLocked(cwd: string, state: ScalerState, input: UpdateTa
             atomicityRationale: input.atomicityRationale !== undefined ? normalizeOptionalString(input.atomicityRationale) : task.atomicityRationale,
             allowedPathPrefixes: input.allowedPathPrefixes ? normalizeAllowedPaths(input.allowedPathPrefixes) : task.allowedPathPrefixes,
             dependsOn: input.dependsOn ? normalizeIdList(input.dependsOn) : task.dependsOn,
+            protectedDependsOn: input.protectedDependsOn !== undefined ? normalizeIdList(input.protectedDependsOn) : task.protectedDependsOn,
             prdRefs: input.prdRefs ? normalizeIdList(input.prdRefs) : task.prdRefs,
             definitionOfDone: input.definitionOfDone ? normalizeDefinitionOfDone(input.definitionOfDone) : task.definitionOfDone,
             validationRefs: input.validationRefs ? normalizeIdList(input.validationRefs) : task.validationRefs,
@@ -217,6 +221,17 @@ export async function reviewTaskAcceptancePolicyMutation(
   input: UpdateTaskInput,
 ): Promise<string | undefined> {
   const authority = input.acceptanceAuthority ?? "system";
+  if (input.protectedDependsOn !== undefined && authority !== "user_command") {
+    return `Protected prerequisites for ${input.id} require an explicit local user command.`;
+  }
+  const protectedDeps = input.protectedDependsOn !== undefined ? input.protectedDependsOn : existing.protectedDependsOn ?? [];
+  if (!Array.isArray(protectedDeps) || Array.from(protectedDeps).some(id => typeof id !== "string" || !id.trim() || id.trim() === input.id)) {
+    return `Invalid protected prerequisites for ${input.id}.`;
+  }
+  const dependencies = input.dependsOn ?? existing.dependsOn ?? [];
+  if (protectedDeps.length && (!Array.isArray(dependencies) || protectedDeps.some(id => !dependencies.some(dep => typeof dep === "string" && dep.trim() === id.trim())))) {
+    return `Task update rejected for ${input.id}: retain protected prerequisites or explicitly revise their user-owned designation.`;
+  }
   if (authority !== "model") return undefined;
   const exercised = await hasValidationRunForTask(cwd, input.id);
   const proposedTask = {
@@ -255,6 +270,8 @@ export async function reviewTaskAcceptancePolicyMutation(
 
 export async function createTask(cwd: string, state: ScalerState, input: CreateTaskInput): Promise<CreateTaskResult> {
   if (input.necessity !== undefined && input.necessity !== "required") return { state, accepted: false, message: `Task necessity is not established for ${input.id}: ${String(input.necessity)}; keep optional/unresolved work outside executable tasks.` };
+  const prerequisiteRejection = await reviewTaskAcceptancePolicyMutation(cwd, { id: input.id, status: "pending", updatedAt: state.updatedAt }, { id: input.id, dependsOn: input.dependsOn, protectedDependsOn: input.protectedDependsOn, acceptanceAuthority: input.acceptanceAuthority });
+  if (prerequisiteRejection) return { state, accepted: false, message: prerequisiteRejection };
   const outputPaths = normalizeOutputPaths(input.outputPaths);
   const validationInputPaths = normalizeValidationInputPaths(input.validationInputPaths);
   const status = input.status ?? "pending";
@@ -289,6 +306,7 @@ export async function createTask(cwd: string, state: ScalerState, input: CreateT
     atomicityRationale: normalizeOptionalString(input.atomicityRationale),
     allowedPathPrefixes: normalizeAllowedPaths(input.allowedPathPrefixes),
     dependsOn: normalizeIdList(input.dependsOn),
+    protectedDependsOn: normalizeIdList(input.protectedDependsOn),
     prdRefs: normalizeIdList(input.prdRefs),
     definitionOfDone: normalizeDefinitionOfDone(input.definitionOfDone),
     validationRefs: normalizeIdList(input.validationRefs),

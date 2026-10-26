@@ -29,6 +29,7 @@ for (const check of ["mutation", "dispatch", "model_draft", "user_ordinary", "us
       const use = await createTask(dir, decision.state, {
         id: "USE", title: mandatory ? "Use only an accepted decision" : "Complete one provider action", status: "ready", dependsOn: ["DECISION"],
         acceptanceAuthority: owner, taskKind: "non_software", atomicityRationale: mandatory ? "One decision-dependent action." : "One bounded provider action.",
+        protectedDependsOn: mandatory ? ["DECISION"] : undefined,
         allowedPathPrefixes: ["effect.txt"], outputPaths: [],
         definitionOfDone: [mandatory ? "Use only the accepted current decision." : "Complete one provider action."],
         validationCommands: [{ id: "check", command: "node -e \"process.exit(0)\"", required: true }],
@@ -46,6 +47,7 @@ for (const check of ["mutation", "dispatch", "model_draft", "user_ordinary", "us
       assert.equal(dispatches, 0);
       const updated = await updateTask(dir, await loadState(dir), {
         id: "USE", dependsOn: [], acceptanceAuthority: check === "user_update" ? "user_command" : "model",
+        protectedDependsOn: check === "user_update" ? [] : undefined,
       });
       if (check === "mutation") {
         assert.equal(updated.accepted, false, "Model must not silently drop an explicit user decision prerequisite.");

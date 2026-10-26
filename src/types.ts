@@ -43,6 +43,7 @@ export interface ScalerTaskState {
   atomicityRationale?: string;
   allowedPathPrefixes?: string[];
   dependsOn?: string[];
+  protectedDependsOn?: string[];
   prdRefs?: string[];
   definitionOfDone?: string[];
   validationRefs?: string[];
