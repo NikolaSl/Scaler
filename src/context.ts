@@ -54,7 +54,7 @@ export interface ResolvedContext {
   estimatedTokens: number;
 }
 
-export type ContextManifestSource = "inline" | "file" | "memory" | "state" | "task" | "prd_refs" | "prd_coverage" | "validation_manifest";
+export type ContextManifestSource = "inline" | "file" | "memory" | "state" | "task" | "prd_refs" | "prd_requirements" | "validation_manifest";
 
 export interface MarkdownHeadingSelector {
   kind: "markdown-heading";
@@ -145,7 +145,7 @@ const contextItemTypes = new Set<ContextItemType>(["prd", "knowledge", "memory",
 const contextPriorities = new Set<ContextPriority>(["required", "useful", "optional"]);
 const contextScopes = new Set<ContextScope>(["full", "section", "snippet", "summary", "reference-only"]);
 const contextExactnessValues = new Set<ContextExactness>(["exact", "summary-ok", "reference-only"]);
-const contextManifestSources = new Set<ContextManifestSource>(["inline", "file", "memory", "state", "task", "prd_refs", "prd_coverage", "validation_manifest"]);
+const contextManifestSources = new Set<ContextManifestSource>(["inline", "file", "memory", "state", "task", "prd_refs", "prd_requirements", "validation_manifest"]);
 
 export function createDefaultTaskContextManifest(state: ScalerState, taskId: string, now = new Date()): TaskContextManifest {
   const timestamp = now.toISOString();
@@ -557,7 +557,7 @@ async function resolveManifestItemContent(
   if (entry.source === "state") return formatStateContext(state);
   if (entry.source === "task") return formatTaskContext(state, entry.taskId ?? manifest.taskId);
   if (entry.source === "prd_refs") return formatPrdRefsContext(state, entry.taskId ?? manifest.taskId);
-  if (entry.source === "prd_coverage") return formatPrdCoverageContext(cwd, state, entry.taskId ?? manifest.taskId);
+  if (entry.source === "prd_requirements") return formatPrdRequirementsContext(cwd, state, entry.taskId ?? manifest.taskId);
   if (entry.source === "validation_manifest") {
     const validationManifest = await getValidationManifestForTask(cwd, entry.taskId ?? manifest.taskId);
     return JSON.stringify(validationManifest, null, 2);
@@ -1724,7 +1724,7 @@ async function discoverTaskContextItems(
   for (const item of await discoverChangedFileItems(cwd, task)) add(item);
   const planItem = await discoverExecutionPlanItem(cwd, taskId);
   if (planItem) add(planItem);
-  const prdItem = await discoverPrdCoverageItem(cwd, task);
+  const prdItem = await discoverPrdRequirementsItem(cwd, task);
   if (prdItem) add(prdItem);
   const validationItem = await discoverValidationHistoryItem(cwd, taskId);
   if (validationItem) add(validationItem);
@@ -1788,7 +1788,7 @@ async function discoverExecutionPlanItem(cwd: string, taskId: string): Promise<T
   };
 }
 
-async function discoverPrdCoverageItem(
+async function discoverPrdRequirementsItem(
   cwd: string,
   task: ScalerTaskState | undefined,
 ): Promise<TaskContextManifestItem | undefined> {
@@ -1798,29 +1798,26 @@ async function discoverPrdCoverageItem(
   return {
     id: "runtime-prd-coverage",
     type: "prd",
-    reason: "Current runtime PRD requirements and coverage define this task's authorized constraints.",
+    reason: "Current runtime PRD requirement records define this task's authorized constraints.",
     priority: "required",
     scope: "summary",
     exactness: "exact",
-    source: "prd_coverage",
+    source: "prd_requirements",
     taskId: task.id,
   };
 }
 
-async function formatPrdCoverageContext(cwd: string, state: ScalerState, taskId: string): Promise<string> {
+async function formatPrdRequirementsContext(cwd: string, state: ScalerState, taskId: string): Promise<string> {
   const task = state.tasks.find(candidate => candidate.id === taskId);
   if (!task) throw new Error(`Requirement context task not found: ${taskId}`);
   const prdRefs = task.prdRefs ?? [];
   const requirements = await loadPrdRequirements(cwd);
   const missing = prdRefs.filter(id => !requirements.requirements.some(requirement => requirement.id === id));
   if (missing.length > 0) throw new Error(`Current requirement context missing linked requirements: ${missing.join(", ")}`);
-  const coverage = await loadPrdCoverage(cwd);
-  const summary = computePrdCoverageSummary(requirements, coverage, state);
   const content = {
     taskId,
     requirementRefs: prdRefs,
     requirements: requirements.requirements.filter((requirement) => prdRefs.includes(requirement.id)),
-    coverage: summary.entries.filter((entry) => prdRefs.includes(entry.requirementId)),
   };
   return JSON.stringify(content, null, 2);
 }

@@ -42,7 +42,7 @@ Manifest sources currently supported:
 - `state`
 - `task`
 - `prd_refs`
-- `prd_coverage` — current requirement records and coverage for the selected task's current PRD refs
+- `prd_requirements` — current requirement records for the selected task's current PRD refs
 - `validation_manifest`
 
 When `/scaler-step` runs without explicit context items, SCALER loads or creates the task context manifest and resolves it into the task-agent prompt.
@@ -59,7 +59,7 @@ When SCALER creates a missing manifest, it also discovers and ranks relevant con
 
 Existing manifests are preserved; discovery only runs when a manifest is created.
 
-Newly discovered ledger-backed requirement slices use required `prd_coverage`
+Newly discovered ledger-backed requirement slices use required `prd_requirements`
 items and resolve current linked records on each use, including after amendment.
 Missing linked records are unavailable; required context and envelope admission
 guards refuse rather than dispatch with missing or oversized required facts.
@@ -69,12 +69,17 @@ historical; it does not replace the record's current statement/revision.
 
 Legacy or caller-authored `inline` items remain static snapshots, even if their
 id is `runtime-prd-coverage`. To request current data, explicitly replace such an
-item with `source: "prd_coverage"` (and its task id) using the manifest API; ordinary
+item with `source: "prd_requirements"` (and its task id) using the manifest API; ordinary
 context-init does not migrate it. Likewise select the source explicitly if a
 cached manifest predates new task PRD refs. Legacy refs-only tasks without a
 runtime requirement ledger retain compact-contract behavior; this is not proof
 that current requirement facts have been retrieved. This source does not infer
 necessity or protect against every concurrent amendment after resolution.
+
+The current-source content excludes computed coverage/lifecycle status: accepting
+a task must not invalidate its own source fingerprint. Requirement records retain
+their statements, revisions, authority and version history; a real requirement
+amendment still changes the input basis and invalidates prior accepted evidence.
 
 Operators can also run deterministic semantic-style candidate search without injecting the results. Candidate search scores task metadata, query terms, memory summaries/tags, allowed files, changed files, PRD refs, and existing manifest items, then returns a small candidate list with reasons. Candidates become active only after explicit approval into the task manifest.
 

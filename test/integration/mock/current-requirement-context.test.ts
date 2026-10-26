@@ -4,15 +4,17 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm, unlink } from "node:fs/promises";
+import { mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { verifyAcceptedTaskEvidence } from "../../../src/accepted-evidence.js";
 import { ensureTaskContextManifest, resolveTaskContextManifest, saveTaskContextManifest } from "../../../src/context.js";
 import { applyPlanningReport } from "../../../src/plans.js";
 import { amendPrdRequirement, upsertPrdRequirement } from "../../../src/prd.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
-import { updateTask } from "../../../src/tasks.js";
+import { createTask, updateTask } from "../../../src/tasks.js";
+import { runTaskValidation } from "../../../src/validation.js";
 import { runConductorStep } from "./provider-bound-helpers.js";
 
 async function fixture(fn: (dir: string) => Promise<void>) {
@@ -92,5 +94,39 @@ test("an intentional inline historical snapshot is not reinterpreted by its item
     const item = (await resolveTaskContextManifest(dir, await loadState(dir), saved)).find(item => item.id === "runtime-prd-coverage")!;
     assert.equal(item.content, historical);
     assert.equal(item.available, true); // Static history is allowed; this is not current-context acceptance.
+  });
+});
+
+test("successful acceptance preserves current source evidence and later amendment invalidates it", async () => {
+  await fixture(async dir => {
+    await writeFile(join(dir, "out.csv"), "name,email\nAlice,alice@example.test\n");
+    const completed = await runConductorStep(dir, await loadState(dir), { execute: true }, async request => ({
+      taskId: request.taskId, exitCode: 0, timedOut: false, aborted: false, stderr: "",
+      stdoutEvents: [{ type: "scaler_task_report", taskId: request.taskId, ...request.attempt,
+        status: "completed", summary: "Export artifact ready for supervisor validation." }],
+    }));
+    assert.equal(completed.validationHandoff?.status, "validation_required");
+    assert.equal((await runTaskValidation(dir, await loadState(dir), "EXPORT")).status, "passed");
+    assert.deepEqual(await verifyAcceptedTaskEvidence(dir, await loadState(dir), "EXPORT"), []);
+    const addDependent = async (id: string) => {
+      const created = await createTask(dir, await loadState(dir), {
+        id, title: "Use current export", dependsOn: ["EXPORT"], prdRefs: ["CSV"], taskKind: "non_software",
+        atomicityRationale: "One bounded follow-up to an accepted export.", allowedPathPrefixes: ["use.txt"], outputPaths: [],
+        definitionOfDone: ["Use only the current accepted export."], acceptanceAuthority: "model", qualityMode: "enforce",
+        validationCommands: [{ id: "check", gate: "consistency", required: true, command: "node -e \"process.exit(0)\"" }],
+      });
+      assert.equal(created.accepted, true, created.message);
+    };
+    await addDependent("USE");
+    let calls = 0;
+    const dispatch = async () => runConductorStep(dir, await loadState(dir), { execute: true }, async request => {
+      calls++; return { taskId: request.taskId, exitCode: 1, stdoutEvents: [], stderr: "admission witness only", timedOut: false, aborted: false };
+    });
+    await dispatch(); assert.equal(calls, 1);
+    await amendPrdRequirement(dir, { id: "CSV", expectedRevision: 1, reason: "User adds phone after acceptance.",
+      changes: { statement: "Export name,email,phone." } });
+    assert.notDeepEqual(await verifyAcceptedTaskEvidence(dir, await loadState(dir), "EXPORT"), []);
+    await addDependent("USE-AFTER-AMENDMENT");
+    await dispatch(); assert.equal(calls, 1); // Source mutation is not excused as lifecycle churn.
   });
 });
