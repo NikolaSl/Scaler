@@ -28,3 +28,17 @@ Preserve independent tasks and no-dependency compatibility. No generic graph
 framework, automatic semantic inference, all-route authority or full phase claim.
 No RED merge/full-green gate claim; exact-head independent preparation review
 does not replace the eventual fix gate/review.
+
+Implementation decision: extend the existing integration-input fingerprint with
+the declared dependency closure and versioned dependency-basis material. Reuse
+participant task/policy/context/output/commit-or-skip fields; include each
+dependency's current requirement/input validity and historical receipt snapshot.
+Do not include validation event IDs/timestamps, so an identical-basis rerun need
+not invalidate unrelated evidence. Check dependency receipt integrity, accepted
+state and committed outputs; reject malformed/missing/cyclic chains. Existing
+no-dependency fingerprint shapes stay unchanged; old dependent receipts cannot
+prove the new basis and therefore require revalidation. No new ledger or executor.
+
+Add a supported affected-only replan/revalidation scenario rather than resetting
+validated state. Preserve the original two RED probes and unrelated controls;
+add same-basis revalidation, transitive, legacy and cycle controls as applicable.
