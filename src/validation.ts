@@ -7,6 +7,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { checkAttemptEvidence } from "./attempt-evidence.js";
+import { verifyTaskDependenciesAccepted } from "./accepted-evidence.js";
 import { fingerprintValidationPolicy } from "./attempt-identity.js";
 import { captureValidationSnapshot, fingerprintValidationResult, verifyValidationRunReceipt, type ValidationReceipt, type ValidationSnapshot } from "./validation-acceptance.js";
 import { fingerprintJson } from "./fingerprints.js";
@@ -1074,6 +1075,9 @@ export async function runTaskValidation(cwd: string, state: ScalerState, taskId:
 }
 
 async function runTaskValidationLocked(cwd: string, state: ScalerState, taskId: string): Promise<ValidationRunRecord> {
+  const task = state.tasks.find(task => task.id === taskId);
+  const dependencies = task ? await verifyTaskDependenciesAccepted(cwd, state, task) : [];
+  if (dependencies.length) return rejectStaleValidation(cwd, state, taskId, dependencies, []);
   const freshness = await checkAttemptEvidence(cwd, state, taskId);
   if (freshness.length > 0) return rejectStaleValidation(cwd, state, taskId, freshness, []);
   let snapshot: ValidationSnapshot;
@@ -1089,6 +1093,8 @@ async function runTaskValidationLocked(cwd: string, state: ScalerState, taskId: 
     commandRuns.push(...createValidationPolicyFailureRuns(policy.diagnostics));
   } else {
     for (const command of manifest.commands) {
+      const dependencies = task ? await verifyTaskDependenciesAccepted(cwd, state, task) : [];
+      if (dependencies.length) return rejectStaleValidation(cwd, state, taskId, dependencies, commandRuns);
       commandRuns.push((await runValidationCommandOrDisposition(cwd, command, { taskId })));
     }
   }
@@ -1102,6 +1108,8 @@ async function runTaskValidationLocked(cwd: string, state: ScalerState, taskId: 
     createdAt: new Date().toISOString(),
   };
   record.receipt = { snapshot, resultFingerprint: fingerprintValidationResult(record) };
+  const currentDependencies = task ? await verifyTaskDependenciesAccepted(cwd, state, task) : [];
+  if (currentDependencies.length) return rejectStaleValidation(cwd, state, taskId, currentDependencies, commandRuns);
   // For passing evidence, the shared verifier captures the current snapshot and
   // compares it to the receipt; failed/blocked outcomes check freshness below.
   const finalFreshness = record.status === "passed"
