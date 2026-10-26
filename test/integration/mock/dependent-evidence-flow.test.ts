@@ -9,15 +9,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { verifyAcceptedTaskEvidence } from "../../../src/accepted-evidence.js";
-import { createDefaultState, loadState } from "../../../src/state.js";
+import { createDefaultState, loadState, saveState } from "../../../src/state.js";
+import { fingerprintJson } from "../../../src/fingerprints.js";
+import { getValidationRunsPath } from "../../../src/paths.js";
+import { captureValidationSnapshot, verifyValidationRecordEvidence } from "../../../src/validation-acceptance.js";
 import { createTask, updateTask } from "../../../src/tasks.js";
 import { acceptReplanProposal, saveExecutionPlan } from "../../../src/plans.js";
 import { loadPrdRequirements, savePrdCoverage, upsertPrdRequirement } from "../../../src/prd.js";
 import { requestReplan } from "../../../src/replanning.js";
-import { runTaskValidation } from "../../../src/validation.js";
+import { getValidationManifestForTask, loadValidationRuns, runTaskValidation } from "../../../src/validation.js";
 import { runConductorStep } from "./provider-bound-helpers.js";
 
-for (const mode of ["evidence", "dispatch", "revalidated", "same_basis", "unchanged", "unrelated"] as const) {
+for (const mode of ["evidence", "dispatch", "revalidated", "same_basis", "transitive", "legacy", "cycle", "malformed", "unchanged", "unrelated"] as const) {
   test(`accepted dependent evidence: ${mode}`, async () => {
     const dir = await mkdtemp(join(tmpdir(), "scaler-dependent-evidence-"));
     try {
@@ -49,7 +52,7 @@ for (const mode of ["evidence", "dispatch", "revalidated", "same_basis", "unchan
       }
       if (revalidation) {
         const currentPlan = await saveExecutionPlan(dir, { version: 1, planVersion: 1, status: "active",
-          tasks: state.tasks, createdAt: state.createdAt, updatedAt: state.updatedAt });
+          tasks: state.tasks.map(t => ({ ...t, title: t.title! })), createdAt: state.createdAt, updatedAt: state.updatedAt });
         // Supervisor source invalidation uses the coverage ledger, not a task-state reset.
         await savePrdCoverage(dir, { version: 1, entries: [{ requirementId: "DECISION", taskIds: ["DECISION"],
           status: "needs_replan", evidenceRefs: ["decision.txt"], notes: "Explicit source revalidation requested.", updatedAt: state.updatedAt }] });
@@ -72,13 +75,40 @@ for (const mode of ["evidence", "dispatch", "revalidated", "same_basis", "unchan
         assert.deepEqual(await verifyAcceptedTaskEvidence(dir, state, "DECISION"), []);
       }
       const use = await createTask(dir, state, {
-        id: "USE", status: "ready", dependsOn: ["COPY"], title: "Use the current copy",
+        id: "USE", status: mode === "transitive" ? "validating" : "ready", dependsOn: ["COPY"], title: "Use the current copy",
         taskKind: "non_software", allowedPathPrefixes: ["effect.txt"],
         atomicityRationale: "One bounded use of a current accepted copy.", definitionOfDone: ["Use only a current accepted copy."],
         outputPaths: [], validationCommands: commands,
       });
       assert.equal(use.accepted, true, use.message);
       state = await loadState(dir);
+      if (mode === "cycle" || mode === "malformed") {
+        // Explicit imported-state corruption probe, not an authorized replan.
+        state.tasks.find(t => t.id === "DECISION")!.dependsOn = mode === "cycle" ? ["COPY"] : [null as never];
+        await saveState(dir, state);
+        await assert.rejects(() => captureValidationSnapshot(dir, state, "COPY"), mode === "cycle" ? /Cyclic/ : /Malformed/);
+        assert.notDeepEqual(await verifyAcceptedTaskEvidence(dir, state, "COPY"), []);
+        return;
+      }
+      if (mode === "legacy") {
+        const runs = await loadValidationRuns(dir);
+        const copy = runs.find(r => r.taskId === "COPY")!;
+        copy.receipt!.snapshot.integrationFingerprint = fingerprintJson([]); // Exact pre-change dependency-free snapshot shape.
+        assert.deepEqual(verifyValidationRecordEvidence(copy, await getValidationManifestForTask(dir, "COPY")), []);
+        await writeFile(getValidationRunsPath(dir), JSON.stringify({ version: 1, runs }));
+        assert.notDeepEqual(await verifyAcceptedTaskEvidence(dir, state, "COPY"), []);
+        assert.deepEqual(await verifyAcceptedTaskEvidence(dir, state, "DECISION"), []); // No-dependency compatibility.
+        return;
+      }
+      if (mode === "transitive") {
+        const accepted = await runTaskValidation(dir, state, "USE");
+        assert.equal(accepted.acceptance?.accepted, true, accepted.acceptance?.message);
+        state = await loadState(dir);
+        assert.deepEqual(await verifyAcceptedTaskEvidence(dir, state, "USE"), []);
+        await writeFile(join(dir, "decision.txt"), "local decision v2");
+        assert.notDeepEqual(await verifyAcceptedTaskEvidence(dir, state, "USE"), []);
+        return;
+      }
       if (mode !== "revalidated") assert.deepEqual(await verifyAcceptedTaskEvidence(dir, state, "COPY"), []);
       const stale = mode === "evidence" || mode === "dispatch";
       if (stale) {
