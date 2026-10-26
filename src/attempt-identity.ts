@@ -17,6 +17,7 @@ export function fingerprintTaskContract(task: ScalerTaskState): string {
     atomicityRationale: task.atomicityRationale ?? null,
     allowedPathPrefixes: task.allowedPathPrefixes ?? [],
     dependsOn: task.dependsOn ?? [],
+    ...(task.protectedDependsOn?.length ? { protectedDependsOn: task.protectedDependsOn } : {}),
     prdRefs: task.prdRefs ?? [],
     definitionOfDone: task.definitionOfDone ?? [],
     validationRefs: task.validationRefs ?? [],

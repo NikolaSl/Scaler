@@ -1225,6 +1225,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         title: parsed.title,
         allowedPathPrefixes: parsed.allowedPathPrefixes,
         dependsOn: parsed.dependsOn,
+        protectedDependsOn: parsed.protectedDependsOn,
         prdRefs: parsed.prdRefs,
         definitionOfDone: parsed.definitionOfDone,
         taskKind: parsed.taskKind,
@@ -1232,6 +1233,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         validationRefs: parsed.validationRefs,
         qualityWaivers: parseTaskQualityWaivers(parsed.qualityWaivers),
         qualityMode: "enforce",
+        acceptanceAuthority: isChildAgent ? "model" : "user_command",
       });
       if (ctx.hasUI) ctx.ui.notify(result.message, result.accepted ? "info" : "warning");
       else console.log(result.message);
@@ -1262,6 +1264,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         status: parsed.status,
         allowedPathPrefixes: parsed.allowedPathPrefixes,
         dependsOn: parsed.dependsOn,
+        protectedDependsOn: parsed.protectedDependsOn,
         prdRefs: parsed.prdRefs,
         definitionOfDone: parsed.definitionOfDone,
         taskKind: parsed.taskKind,

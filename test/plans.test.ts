@@ -37,6 +37,7 @@ import {
 } from "../src/plans.js";
 import { amendPrdRequirement, computePrdCoverageSummary, fingerprintRuntimePrdCoverageEntries, fingerprintRuntimePrdRequirements, loadPrdChanges, loadPrdCoverage, loadPrdRequirements, savePrdCoverage, savePrdRequirements, upsertPrdRequirement } from "../src/prd.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
+import { createTask } from "../src/tasks.js";
 import { saveValidationManifest } from "../src/validation.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -63,6 +64,28 @@ function validPlanTask(id: string, title: string, overrides: Record<string, unkn
     ...overrides,
   };
 }
+
+test("planning reports and system application cannot remove explicitly protected prerequisites", async () => {
+  await withTempDir(async dir => {
+    let state = (await createTask(dir, createDefaultState(), { id: "D" })).state;
+    state = (await createTask(dir, state, { id: "USE", dependsOn: ["D"], protectedDependsOn: ["D"], acceptanceAuthority: "user_command" })).state;
+    const before = await loadState(dir);
+    const tasks = [validPlanTask("D", "Resolve decision", { prdRefs: ["REQ"] }), validPlanTask("ORDINARY", "Ordinary step", { prdRefs: ["REQ"] }), validPlanTask("USE", "Use decision", { dependsOn: ["ORDINARY"], prdRefs: ["REQ"] })];
+    await assert.rejects(() => applyPlanningReport(dir, before, {
+      id: "REMOVE-PREREQUISITE", requirements: [{ id: "REQ", statement: "Use only an accepted decision." }],
+      plan: { planVersion: 1, status: "active", tasks },
+    }), /rejected before publication.*protected prerequisites/i);
+    assert.deepEqual((await loadPrdRequirements(dir)).requirements, []);
+    assert.deepEqual((await loadExecutionPlan(dir)).tasks, []);
+    assert.deepEqual(await loadPlanningReports(dir), []);
+    assert.deepEqual(await loadState(dir), before);
+    const applied = await applyExecutionPlanTasks(dir, before, {
+      version: 1, planVersion: 1, status: "active", createdAt: "", updatedAt: "", tasks: [{ ...tasks[2]!, dependsOn: [] }],
+    }, { updateExisting: true });
+    assert.deepEqual(applied.rejectedTaskIds, ["USE"]);
+    assert.deepEqual(await loadState(dir), before);
+  });
+});
 
 test("loadExecutionPlan returns empty default when missing", async () => {
   await withTempDir(async (dir) => {

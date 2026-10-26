@@ -10,6 +10,7 @@ export interface ParsedTaskCreateArgs {
   title?: string;
   allowedPathPrefixes?: string[];
   dependsOn?: string[];
+  protectedDependsOn?: string[];
   prdRefs?: string[];
   definitionOfDone?: string[];
   taskKind?: string;
@@ -24,6 +25,7 @@ export interface ParsedTaskUpdateArgs {
   status?: string;
   allowedPathPrefixes?: string[];
   dependsOn?: string[];
+  protectedDependsOn?: string[];
   prdRefs?: string[];
   definitionOfDone?: string[];
   taskKind?: string;
@@ -387,6 +389,7 @@ export function parseTaskCreateArgs(args: string | undefined): ParsedTaskCreateA
     atomicityRationale: parts[7]?.trim() || undefined,
     validationRefs: parseCommaList(parts[8]),
     qualityWaivers: parts[9]?.trim() || undefined,
+    ...(parts[10] !== undefined ? { protectedDependsOn: parseCommaList(parts[10]) ?? [] } : {}),
   };
 }
 
@@ -406,6 +409,7 @@ export function parseTaskUpdateArgs(args: string | undefined): ParsedTaskUpdateA
     atomicityRationale: parts[8]?.trim() || undefined,
     validationRefs: parseCommaList(parts[9]),
     qualityWaivers: parts[10]?.trim() || undefined,
+    ...(parts[11] !== undefined ? { protectedDependsOn: parseCommaList(parts[11]) ?? [] } : {}),
   };
 }
 

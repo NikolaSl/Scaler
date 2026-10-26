@@ -70,6 +70,56 @@ test("createTask adds pending task by default", async () => {
   });
 });
 
+test("protected prerequisites persist and reject unauthorized or inconsistent changes before publication", async () => {
+  await withTempDir(async dir => {
+    const created = await createTask(dir, createDefaultState(), { id: "USE", dependsOn: ["D", "ORDINARY"], protectedDependsOn: ["D"], acceptanceAuthority: "user_command" });
+    assert.equal(created.accepted, true, created.message);
+    const before = await loadState(dir);
+    assert.deepEqual(before.tasks[0]?.protectedDependsOn, ["D"]);
+    const manifests = await loadValidationManifests(dir);
+    const reviews = await loadTaskDefinitionReviews(dir);
+    for (const input of [
+      { dependsOn: [], acceptanceAuthority: "model" },
+      { dependsOn: [], acceptanceAuthority: "system" },
+      { dependsOn: [], acceptanceAuthority: "user_command" },
+      { protectedDependsOn: [], acceptanceAuthority: "model" },
+      { protectedDependsOn: ["ORDINARY"], acceptanceAuthority: "system" },
+      { protectedDependsOn: ["MISSING"], acceptanceAuthority: "user_command" },
+      { protectedDependsOn: ["USE"], acceptanceAuthority: "user_command" },
+      { protectedDependsOn: null, acceptanceAuthority: "user_command" },
+    ]) {
+      const result = await updateTask(dir, before, { id: "USE", ...input } as never);
+      assert.equal(result.accepted, false, JSON.stringify(input));
+      assert.deepEqual(await loadState(dir), before);
+      assert.deepEqual(await loadValidationManifests(dir), manifests);
+      assert.deepEqual(await loadTaskDefinitionReviews(dir), reviews);
+    }
+    const simplified = await updateTask(dir, before, { id: "USE", title: "Simpler action", dependsOn: ["D"], acceptanceAuthority: "model" });
+    assert.equal(simplified.accepted, true, simplified.message);
+    assert.deepEqual(simplified.state.tasks[0]?.protectedDependsOn, ["D"]);
+    const revised = await updateTask(dir, simplified.state, { id: "USE", dependsOn: [], protectedDependsOn: [], acceptanceAuthority: "user_command" });
+    assert.equal(revised.accepted, true, revised.message);
+    assert.equal((await loadState(dir)).tasks[0]?.protectedDependsOn, undefined);
+  });
+});
+
+test("protected prerequisite creation requires explicit user authority and a dependency subset", async () => {
+  await withTempDir(async dir => {
+    const base = await createTask(dir, createDefaultState(), { id: "D" });
+    const before = await loadState(dir);
+    for (const input of [
+      { acceptanceAuthority: "model", protectedDependsOn: ["D"] },
+      { acceptanceAuthority: "system", protectedDependsOn: ["D"] },
+      { acceptanceAuthority: "user_command", protectedDependsOn: ["UNKNOWN"] },
+      { acceptanceAuthority: "user_command", protectedDependsOn: [null] },
+    ]) {
+      const result = await createTask(dir, base.state, { id: "USE", dependsOn: ["D"], ...input } as never);
+      assert.equal(result.accepted, false);
+      assert.deepEqual(await loadState(dir), before);
+    }
+  });
+});
+
 test("createTask supports explicit ready status", async () => {
   await withTempDir(async (dir) => {
     const result = await createTask(dir, createDefaultState(), { id: "T-001", status: "ready" });

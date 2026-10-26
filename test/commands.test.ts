@@ -105,6 +105,13 @@ test("parseTaskUpdateArgs parses task update fields", () => {
   });
 });
 
+test("task commands distinguish omitted, designated and explicitly cleared protected dependencies", () => {
+  assert.deepEqual(parseTaskCreateArgs("T | title | src | D | | done | non_software | one | check | | D")?.protectedDependsOn, ["D"]);
+  assert.deepEqual(parseTaskUpdateArgs("T | | | | D | | | | | | | D")?.protectedDependsOn, ["D"]);
+  assert.deepEqual(parseTaskUpdateArgs("T | | | | | | | | | | | ")?.protectedDependsOn, []);
+  assert.equal(parseTaskUpdateArgs("T | title")?.protectedDependsOn, undefined);
+});
+
 test("parseTaskRetryArgs parses optional task and reason", () => {
   assert.deepEqual(parseTaskRetryArgs("T-001 | rerun after fix"), { taskId: "T-001", reason: "rerun after fix" });
   assert.deepEqual(parseTaskRetryArgs(""), { taskId: undefined, reason: undefined });

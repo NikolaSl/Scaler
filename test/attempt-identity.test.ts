@@ -16,8 +16,11 @@ import {
 test("attempt fingerprints bind semantic task input route policy and output material", () => {
   const task = { id: "T-001", status: "ready" as const, title: "Implement", updatedAt: "2026-01-01T00:00:00.000Z" };
   const taskFingerprint = fingerprintTaskContract(task);
+  assert.equal(taskFingerprint, "sha256:d614d1a3b0c1dd1706016d3c832c773640491755037d283fd557a319abe7794f", "Legacy contract identity is preserved.");
   assert.equal(taskFingerprint, fingerprintTaskContract({ ...task, status: "running", updatedAt: "2026-02-01T00:00:00.000Z", attemptId: "runtime-only" }));
   assert.notEqual(taskFingerprint, fingerprintTaskContract({ ...task, title: "Changed contract" }));
+  assert.equal(taskFingerprint, fingerprintTaskContract({ ...task, protectedDependsOn: [] }));
+  assert.notEqual(taskFingerprint, fingerprintTaskContract({ ...task, protectedDependsOn: ["D"] }));
 
   const context = {
     included: [{ id: "spec", type: "file" as const, reason: "requirement", content: "one", priority: "required" as const, scope: "full" as const, estimatedTokens: 1 }],

@@ -175,6 +175,39 @@ test("extension registers scaler commands", () => {
   ]);
 });
 
+test("parent task commands forward explicit prerequisite protection; child cannot designate or clear it", async () => {
+  await withTempDir(async dir => {
+    const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
+    const fakePi = { on() {}, registerTool() {}, registerCommand(name: string, command: any) { commands.set(name, command); } };
+    const notices: string[] = [];
+    const ctx = { cwd: dir, hasUI: true, ui: { notify: (message: string) => notices.push(message) } };
+    const previous = process.env.SCALER_CHILD_AGENT;
+    try {
+      delete process.env.SCALER_CHILD_AGENT;
+      scalerExtension(fakePi as never);
+      await commands.get("scaler-task-create")!.handler("USE | Use decision | effect | D | | Accepted decision used | non_software | One bounded decision-dependent action. | check | | D", ctx);
+      const before = await loadState(dir);
+      assert.equal(before.tasks[0]?.id, "USE", notices.join("\n"));
+      assert.deepEqual(before.tasks[0]?.protectedDependsOn, ["D"]);
+      await commands.get("scaler-task-update")!.handler("USE | Revised title", ctx);
+      assert.deepEqual((await loadState(dir)).tasks[0]?.protectedDependsOn, ["D"]);
+      const parentState = await loadState(dir);
+      process.env.SCALER_CHILD_AGENT = "1";
+      scalerExtension(fakePi as never);
+      await commands.get("scaler-task-create")!.handler("CHILD | Use decision | effect | D | | Accepted decision used | non_software | One bounded decision-dependent action. | check | | D", ctx);
+      await commands.get("scaler-task-update")!.handler("USE | | | | | | | | | | | ", ctx);
+      assert.deepEqual(await loadState(dir), parentState);
+      delete process.env.SCALER_CHILD_AGENT;
+      scalerExtension(fakePi as never);
+      await commands.get("scaler-task-update")!.handler("USE | | | | | | | | | | | ", ctx);
+      assert.equal((await loadState(dir)).tasks[0]?.protectedDependsOn, undefined, notices.join("\n"));
+    } finally {
+      if (previous === undefined) delete process.env.SCALER_CHILD_AGENT;
+      else process.env.SCALER_CHILD_AGENT = previous;
+    }
+  });
+});
+
 test("extension executes one prepared tool request through the admitted current agent", async () => {
   await withTempDir(async (dir) => {
     const handlers = new Map<string, (event: any, ctx: any) => Promise<unknown>>();
