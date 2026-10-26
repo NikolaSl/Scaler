@@ -29,6 +29,8 @@ independence/quality, actual local inference or full SC-10/15/P4/P5. No automati
 two-call overhead for routine objective tasks. Keep unsupported extras and raw
 manual negative validation behavior unchanged. If the scenario is already green,
 production remains unchanged; report exact limitations and remaining work.
+These separate scenarios do not establish an end-to-end completed-finding to
+author-assessment handoff.
 
 Own focused/build then applicable full exact-candidate gate and source/AC-first
 independent exact-head review precede PR acceptance. No RED merge, weakened check,
@@ -41,3 +43,10 @@ Its task title now names the output and the actual grant is asserted. The prior
 candidate's green full gate is historical, not approval of the corrected head.
 This checks supplied prompt/grant sequencing, not actual host tool containment
 or proof that a model derived the scripted expectation.
+
+Independent review then identified a valid material fixture grant issue: EXPECT's
+write scope included its original request/decision inputs. Keep those exact
+injected context items, but narrow write scope to `expectation.txt`; COMPARE has
+only nominal `assessment.txt` scope and no tools. Assert each outgoing allowed-path
+header. Source mutation detection is not a justification for granting source
+rewrite authority. This is a profile correction, not a new containment guarantee.

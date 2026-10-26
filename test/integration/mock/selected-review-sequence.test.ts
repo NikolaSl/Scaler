@@ -35,7 +35,7 @@ test("configured selected review separates source expectation and preserves aggr
       const created = await createTask(dir, await loadState(dir), {
         id, title: id === "EXPECT" ? "Record expectation.txt from original sources" : "Compare candidate to accepted expectation",
         status: "ready", taskKind: "non_software", atomicityRationale: "One selected bounded assessment step.",
-        allowedPathPrefixes: [...inputs, ...(id === "EXPECT" ? ["expectation.txt"] : [])],
+        allowedPathPrefixes: [id === "EXPECT" ? "expectation.txt" : "assessment.txt"],
         dependsOn: id === "COMPARE" ? ["EXPECT"] : [],
         definitionOfDone: [id === "EXPECT" ? "Record original constraint and authorized decision before candidate rationale." : "Return cited assessment or block inconclusive work."],
         outputPaths: id === "EXPECT" ? ["expectation.txt"] : [], validationInputPaths: inputs,
@@ -54,6 +54,7 @@ test("configured selected review separates source expectation and preserves aggr
       calls++;
       assert.equal(child.taskId, "EXPECT");
       assert.deepEqual(child.tools, ["write"]); // Real children need an output capability; no read tool exposes the candidate.
+      assert.ok(child.prompt.includes("Allowed paths: expectation.txt\n"));
       assert.ok(child.prompt.includes(request) && child.prompt.includes(decision));
       assert.equal(child.prompt.includes(candidate), false);
       await writeFile(join(dir, "expectation.txt"), expectation); // Scripted observation, not model-quality evidence.
@@ -70,6 +71,7 @@ test("configured selected review separates source expectation and preserves aggr
       calls++;
       assert.equal(child.taskId, "COMPARE");
       assert.deepEqual(child.tools, []);
+      assert.ok(child.prompt.includes("Allowed paths: assessment.txt\n"));
       assert.ok(child.prompt.includes(await readFile(join(dir, "expectation.txt"), "utf8")));
       assert.ok(child.prompt.includes(candidate) && child.prompt.includes(request) && child.prompt.includes(decision));
       return { taskId: child.taskId, exitCode: 0, stderr: "", timedOut: false, aborted: false,
