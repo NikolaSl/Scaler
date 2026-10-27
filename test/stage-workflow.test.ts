@@ -22,6 +22,7 @@ import {
 } from "../src/stage-workflow.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../src/subagents.js";
 import type { ScalerState } from "../src/types.js";
+import { saveValidationManifest } from "../src/validation.js";
 import { testProviderAdmissionModel } from "./provider-model-fixture.js";
 
 const runAutonomousStageWorkflow: typeof runAutonomousStageWorkflowImpl = (cwd, state, options = {}, runners) =>
@@ -548,7 +549,7 @@ test("runAutonomousStageWorkflow refreshes planning after execution coverage dis
     state.validatedTaskIds = ["T-KEEP"];
     state.completedTaskIds = ["T-KEEP"];
     await saveState(dir, state);
-    await saveExecutionPlan(dir, {
+    const currentPlan = await saveExecutionPlan(dir, {
       version: 1,
       planVersion: 1,
       status: "active",
@@ -557,6 +558,10 @@ test("runAutonomousStageWorkflow refreshes planning after execution coverage dis
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
+    // Preserve a matching executable policy, not just the synthetic label.
+    const keep = currentPlan.tasks[0]!;
+    await saveValidationManifest(dir, { taskId: keep.id, definitionOfDone: keep.definitionOfDone,
+      commands: keep.validationCommands!.map(command => ({ ...command, required: command.required ?? true })), createdAt: "", updatedAt: "" });
 
     const result = await runAutonomousStageWorkflow(dir, state, { execute: true, maxSteps: 6 }, { replan: replanRunner });
 
