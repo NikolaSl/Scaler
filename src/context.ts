@@ -521,7 +521,7 @@ async function resolveManifestItem(
       ? await resolveFileContextSource(cwd, entry)
       : undefined;
     const memory = entry.source === "memory" ? await retrieveMemory(cwd, entry.memoryId!, { scope: entry.scope,
-      task: state.tasks.find(task => task.id === (entry.taskId ?? manifest.taskId)) }) : undefined;
+      task: state.tasks.find(task => task.id === manifest.taskId) ?? null }) : undefined;
     if (memory && memory.entry.sourceBinding !== undefined && (memory.entry.validity !== "active" || memory.entry.sourceDiagnostic)) {
       throw new Error(`Memory source is not current: ${memory.entry.sourceDiagnostic ?? memory.entry.validity}`);
     }

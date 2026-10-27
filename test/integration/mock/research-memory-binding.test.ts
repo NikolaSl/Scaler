@@ -5,14 +5,14 @@ import { mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { loadMemoryIndex, retrieveMemory, searchMemory, writeMemory } from "../../../src/memory.js";
+import { loadMemoryIndex, retrieveMemory, searchMemory, writeMemory, saveMemoryIndex, type MemoryEntry } from "../../../src/memory.js";
 import { recordResearchReport, loadResearchReports } from "../../../src/research.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { createTask, updateTask } from "../../../src/tasks.js";
 import { loadTaskContextManifest, resolveTaskContextManifest, saveTaskContextManifest } from "../../../src/context.js";
 import { runConductorStep } from "./provider-bound-helpers.js";
 
-async function fixture(fn: (dir: string, id: string) => Promise<void>) {
+async function fixture(fn: (dir: string, id: string) => Promise<void>, sourcePath = "service.txt") {
   const dir = await mkdtemp(join(tmpdir(), "scaler-memory-binding-"));
   try {
     const state = createDefaultState(); state.stage = "execution"; await saveState(dir, state);
@@ -21,7 +21,7 @@ async function fixture(fn: (dir: string, id: string) => Promise<void>) {
       atomicityRationale: "One bounded answer.", validationCommands: [{ id: "answer", required: true, command: 'node -e "process.exit(1)"' }] })).accepted, true);
     await writeFile(join(dir, "service.txt"), "provider=local\n");
     const report = await recordResearchReport(dir, { id: "R1", taskId: "NEXT", status: "complete", question: "What provider?",
-      sources: [{ id: "config", title: "Config", quality: "project", path: "service.txt" }],
+      sources: [{ id: "config", title: "Config", quality: "project", path: sourcePath }],
       conclusions: [{ summary: "Provider is local.", confidence: "high", sourceRefs: ["config"] }],
       rawEvidence: [{ title: "Config excerpt", sourceId: "config", content: await readFile(join(dir, "service.txt"), "utf8"), summary: "Provider is local." }] });
     await saveTaskContextManifest(dir, { version: 1, taskId: "NEXT", items: [{ id: "memory", type: "memory", source: "memory",
@@ -105,5 +105,39 @@ test("opaque direct and unattributed memory do not acquire a fabricated file bin
     const value = await retrieveMemory(dir, entry.id, { scope: "summary" });
     assert.equal("sourceBinding" in value.entry, false);
     assert.match(value.content, /unverified/i);
+  });
+});
+
+test("binding uses the producer's checked canonical local path", async () => {
+  await fixture(async (dir, id) => {
+    assert.equal((await retrieveMemory(dir, id)).entry.sourceBinding?.path, "service.txt");
+  }, "./service.txt");
+});
+
+test("memory item task override and missing consumer cannot borrow producer scope", async () => {
+  await fixture(async (dir) => {
+    assert.equal((await createTask(dir, await loadState(dir), { id: "OTHER", allowedPathPrefixes: ["service.txt"] })).accepted, true);
+    assert.equal((await updateTask(dir, await loadState(dir), { id: "NEXT", allowedPathPrefixes: ["answer.txt"], acceptanceAuthority: "model" })).accepted, true);
+    const manifest = (await loadTaskContextManifest(dir, "NEXT"))!;
+    const override = { ...manifest, items: manifest.items.map(item => ({ ...item, taskId: "OTHER" })) };
+    await saveTaskContextManifest(dir, override);
+    assert.equal((await resolveTaskContextManifest(dir, await loadState(dir), override))[0]?.available, false);
+    const missing = { ...override, taskId: "MISSING" };
+    assert.equal((await resolveTaskContextManifest(dir, await loadState(dir), missing))[0]?.available, false);
+    let calls = 0;
+    await runConductorStep(dir, await loadState(dir), { execute: true }, async () => { calls++; assert.fail("Cannot borrow a different task's scope."); });
+    assert.equal(calls, 0);
+  });
+});
+
+test("malformed persisted binding is unknown and historical, never current context", async () => {
+  await fixture(async (dir, id) => {
+    const entry = (await retrieveMemory(dir, id)).entry;
+    await saveMemoryIndex(dir, { version: 1, entries: [{ ...entry, sourceBinding: null as unknown as MemoryEntry["sourceBinding"] }] });
+    const historical = await retrieveMemory(dir, id);
+    assert.equal(historical.entry.validity, "unknown");
+    assert.match(historical.content, /Historical memory bytes \(not current evidence\)/);
+    const manifest = (await loadTaskContextManifest(dir, "NEXT"))!;
+    assert.equal((await resolveTaskContextManifest(dir, await loadState(dir), manifest))[0]?.available, false);
   });
 });

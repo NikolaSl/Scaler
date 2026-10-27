@@ -295,7 +295,7 @@ export async function recordResearchReport(cwd: string, input: ResearchReportInp
       taskId,
       summary: evidence.summary,
       ...(source?.path && source.contentFingerprint ? { sourceBinding: {
-        reportId: report.id, sourceId: source.id, path: source.path, contentFingerprint: source.contentFingerprint,
+        reportId: report.id, sourceId: source.id, path: normalizeTaskScopedContextPath(cwd, source.path, sourceTask)!, contentFingerprint: source.contentFingerprint,
       } } : {}),
       now,
     });

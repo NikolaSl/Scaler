@@ -67,7 +67,7 @@ export interface MemorySearchResult {
 
 export interface MemoryRetrieveOptions {
   scope?: string;
-  task?: ScalerTaskState;
+  task?: ScalerTaskState | null;
 }
 
 export async function loadMemoryIndex(cwd: string): Promise<MemoryIndex> {
@@ -139,12 +139,12 @@ export async function retrieveMemory(cwd: string, idOrPath: string, options: Mem
   return { entry, content: entry.sourceBinding !== undefined && entry.sourceDiagnostic ? `${formatMemoryReference(entry)}\nHistorical memory bytes (not current evidence):\n${content}` : content };
 }
 
-async function assessMemorySource(cwd: string, entry: MemoryEntry, task?: ScalerTaskState): Promise<MemoryEntry> {
+async function assessMemorySource(cwd: string, entry: MemoryEntry, task?: ScalerTaskState | null): Promise<MemoryEntry> {
   const binding = entry.sourceBinding;
   if (binding === undefined) return { ...entry, sourceDiagnostic: "unverified: no structured mutable-source binding" };
   try {
     if (!binding.reportId?.trim() || !binding.sourceId?.trim() || !/^sha256:[0-9a-f]{64}$/.test(binding.contentFingerprint)) throw new Error("Invalid memory source binding.");
-    const owner = task ?? (await loadState(cwd)).tasks.find(candidate => candidate.id === entry.taskId);
+    const owner = task === undefined ? (await loadState(cwd)).tasks.find(candidate => candidate.id === entry.taskId) : task ?? undefined;
     if (typeof binding.path !== "string" || normalizeTaskScopedContextPath(cwd, binding.path, owner) !== binding.path) throw new Error("Memory source is outside current task scope.");
     const source = await readStableContextFile(cwd, binding.path);
     if (!source.outputExemptible) throw new Error("Memory source identity changed while checking.");
