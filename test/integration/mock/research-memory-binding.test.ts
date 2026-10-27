@@ -1,9 +1,11 @@
 /* Copyright (c) 2026 by Nikola Slavchev LZ1NKL
  * SPDX-License-Identifier: Apache-2.0 */
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import fs from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { loadMemoryIndex, retrieveMemory, searchMemory, writeMemory, saveMemoryIndex, type MemoryEntry } from "../../../src/memory.js";
 import { recordResearchReport, loadResearchReports } from "../../../src/research.js";
@@ -11,19 +13,23 @@ import { createDefaultState, loadState, saveState } from "../../../src/state.js"
 import { createTask, updateTask } from "../../../src/tasks.js";
 import { loadTaskContextManifest, resolveTaskContextManifest, saveTaskContextManifest } from "../../../src/context.js";
 import { runConductorStep } from "./provider-bound-helpers.js";
+import { buildTaskAgentPrompt } from "../../../src/conductor.js";
+import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult } from "../../../src/attempt-execution.js";
+import { acquireExecutionLock, releaseExecutionLock } from "../../../src/locks.js";
 
 async function fixture(fn: (dir: string, id: string) => Promise<void>, sourcePath = "service.txt") {
   const dir = await mkdtemp(join(tmpdir(), "scaler-memory-binding-"));
   try {
     const state = createDefaultState(); state.stage = "execution"; await saveState(dir, state);
     assert.equal((await createTask(dir, state, { id: "NEXT", title: "Inspect current config", taskKind: "non_software", acceptanceAuthority: "model",
-      allowedPathPrefixes: ["service.txt", "answer.txt"], outputPaths: ["answer.txt"], definitionOfDone: ["Use current config."],
+      allowedPathPrefixes: [sourcePath.replace(/^\.\//, ""), "answer.txt"], outputPaths: ["answer.txt"], definitionOfDone: ["Use current config."],
       atomicityRationale: "One bounded answer.", validationCommands: [{ id: "answer", required: true, command: 'node -e "process.exit(1)"' }] })).accepted, true);
-    await writeFile(join(dir, "service.txt"), "provider=local\n");
+    await mkdir(dirname(join(dir, sourcePath)), { recursive: true });
+    await writeFile(join(dir, sourcePath), "provider=local\n");
     const report = await recordResearchReport(dir, { id: "R1", taskId: "NEXT", status: "complete", question: "What provider?",
       sources: [{ id: "config", title: "Config", quality: "project", path: sourcePath }],
       conclusions: [{ summary: "Provider is local.", confidence: "high", sourceRefs: ["config"] }],
-      rawEvidence: [{ title: "Config excerpt", sourceId: "config", content: await readFile(join(dir, "service.txt"), "utf8"), summary: "Provider is local." }] });
+      rawEvidence: [{ title: "Config excerpt", sourceId: "config", content: await readFile(join(dir, sourcePath), "utf8"), summary: "Provider is local." }] });
     await saveTaskContextManifest(dir, { version: 1, taskId: "NEXT", items: [{ id: "memory", type: "memory", source: "memory",
       memoryId: report.memoryRefs![0], reason: "Current config claim", priority: "required", scope: "summary", exactness: "summary-ok" }], createdAt: "", updatedAt: "" });
     await fn(dir, report.memoryRefs![0]!);
@@ -140,4 +146,40 @@ test("malformed persisted binding is unknown and historical, never current conte
     const manifest = (await loadTaskContextManifest(dir, "NEXT"))!;
     assert.equal((await resolveTaskContextManifest(dir, await loadState(dir), manifest))[0]?.available, false);
   });
+});
+
+test("strict memory result check rejects ancestor identity drift after reading unchanged source bytes", async (t) => {
+  await fixture(async dir => {
+    assert.equal((await updateTask(dir, await loadState(dir), { id: "NEXT", status: "ready" })).accepted, true);
+    const state = await loadState(dir), task = state.tasks[0]!;
+    const items = await resolveTaskContextManifest(dir, state, (await loadTaskContextManifest(dir, task.id))!);
+    const context = buildTaskAgentPrompt({ state, task, contextItems: items }).resolvedContext;
+    const lock = await acquireExecutionLock(dir, { operation: "memory-identity-regression", taskId: task.id });
+    try {
+      const admitted = await admitTaskExecution(dir, lock.lock.id, state, task, context, "test", []);
+      assert.equal(admitted.contextSources?.[0]?.outputExemptible, false);
+      const started = await startTaskExecution(dir, lock.lock.id, state, admitted);
+      const before = await loadState(dir);
+      assert.deepEqual((await checkTaskExecutionResult(dir, started.attempt, task.id)).diagnostics, []);
+      const original = fs.lstat;
+      let ancestorChecks = 0;
+      // Actual reader's third direct-path check is after opened-fd bytes/fstat.
+      // The leaf inode/bytes remain unchanged; only the current ancestor becomes a symlink.
+      t.mock.method(fs, "lstat", (async (path: string) => {
+        if (path === join(dir, "config") && ++ancestorChecks === 3) {
+          await rename(join(dir, "config"), join(dir, "original-config"));
+          await symlink("original-config", join(dir, "config"));
+        }
+        return original(path);
+      }) as typeof fs.lstat);
+      syncBuiltinESMExports();
+      try {
+        const checked = await checkTaskExecutionResult(dir, started.attempt, task.id);
+        assert.equal(ancestorChecks, 3, "Observe the real post-read path check, not an earlier refusal.");
+        assert.equal(await readFile(join(dir, "config/service.txt"), "utf8"), "provider=local\n");
+        assert.match(checked.diagnostics.join(" "), /context.*(changed|stale|missing|unreadable).*config\/service\.txt/i);
+        assert.deepEqual(await loadState(dir), before);
+      } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
+    } finally { await releaseExecutionLock(dir, lock.lock.id); }
+  }, "config/service.txt");
 });
