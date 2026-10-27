@@ -192,6 +192,7 @@ test("accepted summary becomes historical after source change without rewriting 
       validationCommands: [{ id: "answer", required: true, timeoutMs: 5000,
         command: "node -e \"const f=require('node:fs'),a=require('node:assert/strict');a.equal(f.readFileSync('answer.txt','utf8'),f.readFileSync('service.txt','utf8').trim().split('=')[1])\"" }] })).accepted, true);
     const original = await retrieveMemory(dir, id);
+    const originalRaw = await readFile(join(dir, original.entry.path), "utf8");
     let calls = 0;
     const result = await runConductorStep(dir, await loadState(dir), { execute: true, tools: [] }, async request => {
       calls++; assert.match(request.prompt, /Provider is local/);
@@ -209,7 +210,7 @@ test("accepted summary becomes historical after source change without rewriting 
     assert.equal((await retrieveMemory(dir, id, { scope: "summary" })).entry.validity, "stale");
     assert.match((await verifyAcceptedTaskEvidence(dir, await loadState(dir), "NEXT")).join(" "), /context.*changed/i);
     assert.deepEqual(await loadValidationRuns(dir), historical);
-    assert.equal(await readFile(join(dir, original.entry.path), "utf8"), original.content);
+    assert.equal(await readFile(join(dir, original.entry.path), "utf8"), originalRaw);
     assert.match((await retrieveMemory(dir, id)).content, /Historical memory bytes.*\n[\s\S]*provider=local/);
     await writeFile(join(dir, "service.txt"), "provider=local\n");
     assert.deepEqual(await verifyAcceptedTaskEvidence(dir, await loadState(dir), "NEXT"), []);
