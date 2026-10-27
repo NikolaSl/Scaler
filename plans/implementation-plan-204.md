@@ -71,3 +71,11 @@ does not justify a PR/merge, phase upgrade, semantic truth/local inference/scale
 claim or a new authorization window. SC03/04/10 remain Partial, P4/P5 incomplete;
 P6/P7 separate. No paid inference/deployment/new automation. Handoff/release and
 stop before current cutoff2026-10-27T22:50:08Z.
+
+The first executable prerequisite is shared writer fencing, not the supersession
+field. Hold the existing production validation-policy lock, invoke actual task
+creation and direct current/proposed plan writers, assert pending/no publication,
+then release/drain and assert real publication. Preserve reentrant planning paths
+and stale-state rejection. Initial regressions must demonstrate which writers
+actually escape; do not infer serialization from a lock's name. This prerequisite
+alone does not implement supersession or establish a multi-ledger transaction.
