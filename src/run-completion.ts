@@ -5,7 +5,7 @@
 
 import { loadAcceptedEvidenceContext, verifyAcceptedTaskEvidence } from "./accepted-evidence.js";
 import { acquireExecutionLock, releaseExecutionLock } from "./locks.js";
-import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements } from "./prd.js";
+import { activePrdRequirements, computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements } from "./prd.js";
 import { loadState, saveState } from "./state.js";
 import { transitionStage } from "./supervisor.js";
 import type { ScalerState } from "./types.js";
@@ -63,7 +63,7 @@ async function verifyRequirementIntegrationCriteria(
   const diagnostics: string[] = [];
   const currentTaskIds = new Set(state.tasks.map((task) => task.id));
   const coverage = computePrdCoverageSummary(requirements, await loadPrdCoverage(cwd), state);
-  for (const requirement of requirements.requirements) {
+  for (const requirement of activePrdRequirements(requirements)) {
     const linkedTaskIds = new Set(coverage.entries.find((entry) => entry.requirementId === requirement.id)?.linkedTaskIds ?? []);
     for (const criterion of requirement.acceptanceCriteria ?? []) {
       const subject = `${requirement.id}/${criterion.id}`;

@@ -34,7 +34,7 @@ Implemented requirement statuses:
 `/scaler-prd-amend` is the explicit local-user boundary for changing an existing
 requirement. It requires the exact current revision, a non-empty reason, and a
 JSON object containing only the fields to change (`statement`, `title`, `source`,
-or `acceptanceCriteria`). It cannot create a requirement. A stale revision or an
+`acceptanceCriteria`, or the catalog-only `supersededBy` decision below). It cannot create a requirement. A stale revision or an
 empty/no-op amendment fails without changing the catalog. Literal `|` characters
 are permitted inside the JSON payload.
 
@@ -51,6 +51,22 @@ validated tasks. Its coverage transition is revision-checked and affected-only
 under the PRD lock, so a concurrent unrelated invalidation is preserved and a
 new amendment to the same requirement blocks stale acceptance. Replacement or
 obsolescence of task ids is not inferred.
+
+Before any runtime task or current/proposed plan task exists, the parent user may
+explicitly supersede one requirement with an existing active distinct requirement:
+
+```text
+/scaler-prd-amend OLD | 1 | User replaced the initial note | {"supersededBy":"NEW"}
+```
+
+This terminal decision keeps OLD's exact content, criteria and version history,
+and appends the target, revision, user-command authority and reason. Historical
+retrieval still returns OLD; active coverage/planning/completion no longer require
+OLD. New executable refs to OLD are refused. NEW's current criteria still apply.
+The decision cannot be combined with content edits, cleared, retargeted or used to
+build replacement chains. Existing runtime or plan tasks cause unchanged refusal:
+their retirement/reconciliation is not supported by this catalog-preparation
+profile. Prose saying "superseded" and model/source labels do not authorize it.
 
 ## Task linkage
 

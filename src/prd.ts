@@ -8,6 +8,9 @@ import { appendFile, mkdir, open, readFile, readdir, rename, rm, rmdir, writeFil
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { ScalerState, ScalerTaskState } from "./types.js";
+import { loadState } from "./state.js";
+import { loadExecutionPlan, loadProposedExecutionPlan } from "./plans.js";
+import { withValidationPolicyLock } from "./validation.js";
 import {
   getCurrentPrdPath,
   getPrdChangesPath,
@@ -35,6 +38,7 @@ export interface RuntimePrdRequirement {
   statement: string;
   title?: string;
   source?: string;
+  supersededBy?: string;
   acceptanceCriteria?: RuntimePrdAcceptanceCriterion[];
   revision?: number;
   versionHistory?: RuntimePrdRequirementVersion[];
@@ -47,6 +51,7 @@ export interface RuntimePrdRequirementVersion {
   statement: string;
   title?: string;
   source?: string;
+  supersededBy?: string;
   acceptanceCriteria?: RuntimePrdAcceptanceCriterion[];
   recordedAt: string;
   authority: {
@@ -129,6 +134,7 @@ export interface AmendPrdRequirementInput {
     title?: string | null;
     source?: string | null;
     acceptanceCriteria?: RuntimePrdAcceptanceCriterion[];
+    supersededBy?: string;
   };
   now?: Date;
 }
@@ -137,13 +143,24 @@ export function isRuntimePrdRequirementStatus(value: string): value is RuntimePr
   return runtimePrdRequirementStatuses.includes(value as RuntimePrdRequirementStatus);
 }
 
+export function activePrdRequirements(catalog: RuntimePrdRequirementsFile): RuntimePrdRequirement[] {
+  return catalog.requirements.filter(requirement => requirement.supersededBy === undefined);
+}
+
+export async function retiredPrdRefRejection(cwd: string, refs: readonly string[] = []): Promise<string | undefined> {
+  const catalog = await loadPrdRequirements(cwd);
+  const normalizedRefs = refs.map(ref => ref.trim());
+  const retired = catalog.requirements.filter(r => r.supersededBy !== undefined && normalizedRefs.includes(r.id));
+  return retired.length ? `Superseded runtime PRD requirement refs are not executable: ${retired.map(r => r.id).join(", ")}.` : undefined;
+}
+
 export function computePrdCoverageSummary(
   requirements: RuntimePrdRequirementsFile,
   coverage: RuntimePrdCoverageFile,
   state: ScalerState,
 ): RuntimePrdCoverageSummary {
   validatePrdCoverage(coverage);
-  const entries = requirements.requirements.map((requirement) => {
+  const entries = activePrdRequirements(requirements).map((requirement) => {
     const explicit = coverage.entries.find((entry) => entry.requirementId === requirement.id);
     const taskLinkedIds = state.tasks.filter((task) => task.prdRefs?.includes(requirement.id)).map((task) => task.id);
     const linkedTaskIds = unique([...(explicit?.taskIds ?? []), ...taskLinkedIds]);
@@ -377,12 +394,14 @@ async function applyPrdRequirementUpsertsLocked(
   const updated: RuntimePrdRequirement[] = [];
   const changes: RuntimePrdChangeRecord[] = [];
   for (const input of inputs) {
+    if (Object.hasOwn(input, "supersededBy")) throw new Error("Runtime PRD supersession requires explicit user amendment authority.");
     if (input.status && !isRuntimePrdRequirementStatus(input.status)) {
       throw new Error(`Invalid runtime PRD requirement status: ${input.status}`);
     }
 
     const timestamp = (input.now ?? new Date()).toISOString();
     const existing = byId.get(input.id);
+    if (existing?.supersededBy !== undefined) throw new Error(`Runtime PRD supersession is terminal for ${input.id}.`);
     const acceptanceCriteria = input.acceptanceCriteria === undefined
       ? existing?.acceptanceCriteria
       : normalizePrdAcceptanceCriteria(input.acceptanceCriteria);
@@ -455,8 +474,18 @@ export async function amendPrdRequirement(cwd: string, input: AmendPrdRequiremen
   if (input.changes.acceptanceCriteria !== undefined && !Array.isArray(input.changes.acceptanceCriteria)) {
     throw new Error("Runtime PRD amendment acceptanceCriteria must be an array.");
   }
-
-  return withPrdRequirementsLock(cwd, async () => amendPrdRequirementLocked(cwd, input, reason));
+  if (Object.hasOwn(input.changes, "supersededBy")) {
+    requiredRequirementString(input.changes.supersededBy, "supersededBy");
+    if (Object.keys(input.changes).length !== 1) throw new Error("Supersession cannot also rewrite the historical requirement content.");
+    return withValidationPolicyLock(cwd, async () => {
+      if ((await loadState(cwd)).tasks.length || (await loadExecutionPlan(cwd)).tasks.length
+        || (await loadProposedExecutionPlan(cwd))?.tasks.length) {
+        throw new Error("Catalog-only supersession refuses existing work: runtime/current/proposed tasks require unsupported reconciliation.");
+      }
+      return withPrdRequirementsLock(cwd, () => amendPrdRequirementLocked(cwd, input, reason));
+    });
+  }
+  return withPrdRequirementsLock(cwd, () => amendPrdRequirementLocked(cwd, input, reason));
 }
 
 async function amendPrdRequirementLocked(
@@ -471,8 +500,17 @@ async function amendPrdRequirementLocked(
   if (revision !== input.expectedRevision) {
     throw new Error(`Stale runtime PRD amendment for ${input.id}: expected revision ${input.expectedRevision}, current revision ${revision}.`);
   }
+  if (existing.supersededBy !== undefined) throw new Error(`Runtime PRD supersession is terminal for ${input.id}.`);
+  if (input.changes.supersededBy !== undefined) {
+    const target = requirements.requirements.find(r => r.id === input.changes.supersededBy);
+    if (!target || target.id === existing.id || target.supersededBy !== undefined
+      || requirements.requirements.some(r => r.supersededBy === existing.id)) {
+      throw new Error("Supersession requires an existing active distinct target; replacement chains require unsupported reconciliation.");
+    }
+  }
   const timestamp = (input.now ?? new Date()).toISOString();
   const proposedContent = {
+    supersededBy: input.changes.supersededBy,
     statement: input.changes.statement === undefined
       ? existing.statement
       : requiredRequirementString(input.changes.statement, "statement"),
@@ -622,6 +660,11 @@ async function releasePrdRequirementsLock(path: string): Promise<void> {
 }
 
 function assertCatalogDoesNotRollBack(current: RuntimePrdRequirementsFile, next: RuntimePrdRequirementsFile): void {
+  for (const proposed of next.requirements) {
+    if (proposed.supersededBy !== current.requirements.find(r => r.id === proposed.id)?.supersededBy) {
+      throw new Error(`Runtime PRD supersession requires explicit user amendment authority: ${proposed.id}.`);
+    }
+  }
   for (const existing of current.requirements) {
     const proposed = next.requirements.find((requirement) => requirement.id === existing.id);
     if (!proposed) throw new Error(`Runtime PRD catalog replacement cannot remove requirement ${existing.id}.`);
@@ -678,6 +721,12 @@ function normalizePrdRequirementsFile(requirements: RuntimePrdRequirementsFile):
       throw new Error(`Invalid runtime PRD requirements: duplicate id ${requirement.id}.`);
     }
     seenIds.add(requirement.id);
+    if (requirement.supersededBy !== undefined) {
+      const target = normalized.find(r => r.id === requirement.supersededBy);
+      if (!target || target.id === requirement.id || target.supersededBy !== undefined) {
+        throw new Error(`Invalid runtime PRD supersession target for ${requirement.id}.`);
+      }
+    }
   }
   return {
     version: 1,
@@ -711,6 +760,12 @@ function normalizeRuntimePrdRequirement(requirement: RuntimePrdRequirement): Run
     throw new Error(`Invalid runtime PRD requirement ${requirement.id}: history does not end at revision ${revision}.`);
   }
   const latest = history.at(-1)!;
+  const decisions = history.filter(version => version.supersededBy !== undefined);
+  if (decisions.length && (decisions.length !== 1 || latest !== decisions[0]
+    || latest.authority.kind !== "user_command" || !latest.authority.reason?.trim()
+    || typeof latest.supersededBy !== "string" || !latest.supersededBy.trim())) {
+    throw new Error(`Invalid terminal runtime PRD supersession history for ${requirement.id}.`);
+  }
   if (!sameRequirementContent({ ...requirement, acceptanceCriteria }, latest)) {
     throw new Error(`Invalid runtime PRD requirement ${requirement.id}: current content does not match revision ${revision}.`);
   }
@@ -737,19 +792,21 @@ function assertModelRouteRequirementChangeAllowed(
 }
 
 function sameRequirementContent(
-  existing: Pick<RuntimePrdRequirement, "statement" | "title" | "source" | "acceptanceCriteria">,
-  proposed: Pick<RuntimePrdRequirement, "statement" | "title" | "source" | "acceptanceCriteria">,
+  existing: Pick<RuntimePrdRequirement, "statement" | "title" | "source" | "acceptanceCriteria" | "supersededBy">,
+  proposed: Pick<RuntimePrdRequirement, "statement" | "title" | "source" | "acceptanceCriteria" | "supersededBy">,
 ): boolean {
   return JSON.stringify({
     statement: existing.statement,
     title: existing.title ?? null,
     source: existing.source ?? null,
     acceptanceCriteria: existing.acceptanceCriteria ?? [],
+    supersededBy: existing.supersededBy ?? null,
   }) === JSON.stringify({
     statement: proposed.statement,
     title: proposed.title ?? null,
     source: proposed.source ?? null,
     acceptanceCriteria: proposed.acceptanceCriteria ?? [],
+    supersededBy: proposed.supersededBy ?? null,
   });
 }
 

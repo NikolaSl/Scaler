@@ -79,3 +79,17 @@ then release/drain and assert real publication. Preserve reentrant planning path
 and stale-state rejection. Initial regressions must demonstrate which writers
 actually escape; do not infer serialization from a lock's name. This prerequisite
 alone does not implement supersession or establish a multi-ledger transaction.
+
+The admitted operation extends only the actual parent amendment contract. Hold
+validation-policy then PRD lock through empty-work checks and atomic catalog
+publication; exercise competing real public writers at the catalog temp-file open
+after those checks. Terminal decisions cannot combine content edits or form
+replacement chains in this first profile. Existing tasks/plans refuse unchanged.
+Active obligations and replanner input exclude retired records; history stays
+retrievable. Check retired refs using the same trimmed IDs that publication uses.
+Fresh review found raw padded refs bypassing the initial draft check and the
+replanner's old instruction to cover all known IDs; retain regressions for both.
+The positive actual report/file-validation/completion path must enforce NEW's
+named criterion, and a later amendment requires the existing affected-only replan
+and fresh attempt/context, not reuse of an old handoff. No generic retirement,
+semantic inference, raw-writer or crash-atomic multi-ledger guarantee follows.

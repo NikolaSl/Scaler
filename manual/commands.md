@@ -399,7 +399,7 @@ Shows runtime PRD requirement coverage from `.scaler/prd/requirements.json`, `.s
 Applies an explicit local-user amendment to an existing runtime requirement.
 The revision must exactly match the current requirement revision, the reason is
 required, and the JSON object may supply `statement`, `title`, `source`, or
-`acceptanceCriteria`. The command cannot create a requirement and refuses stale
+`acceptanceCriteria`, or a standalone `supersededBy` decision. The command cannot create a requirement and refuses stale
 or no-op changes. Accepted changes increment the revision and append an exact
 version-history record. Model-facing PRD/planning tools cannot invoke this
 authority path and cannot change existing requirement content or criteria.
@@ -409,6 +409,15 @@ no row is created when explicit coverage is absent. A title-only change leaves
 coverage unchanged, although its new requirement revision can still make linked
 validation receipts stale. Task reopening/replacement remains a separate
 preservation-gated replanning decision.
+
+`{"supersededBy":"NEW"}` is admitted only before ANY runtime/current-plan/
+proposed-plan task exists, under the shared writer fence. NEW must already be
+active and distinct. This terminal catalog-only decision preserves OLD's exact
+content/criteria/history and records the reason/authority/revision; OLD remains
+retrievable but is not an active obligation or executable task ref. Clearing,
+retargeting, combined content edits, replacement chains and existing-work
+reconciliation are unsupported. It does not retire existing tasks or waive NEW's
+current acceptance criteria. Child/model routes cannot designate it.
 
 Example:
 
