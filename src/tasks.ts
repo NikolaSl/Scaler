@@ -269,6 +269,11 @@ export async function reviewTaskAcceptancePolicyMutation(
 }
 
 export async function createTask(cwd: string, state: ScalerState, input: CreateTaskInput): Promise<CreateTaskResult> {
+  return withValidationPolicyLock(cwd, () => createTaskLocked(cwd, state, input));
+}
+
+async function createTaskLocked(cwd: string, state: ScalerState, input: CreateTaskInput): Promise<CreateTaskResult> {
+  await assertStateSnapshotCurrent(cwd, state);
   if (input.necessity !== undefined && input.necessity !== "required") return { state, accepted: false, message: `Task necessity is not established for ${input.id}: ${String(input.necessity)}; keep optional/unresolved work outside executable tasks.` };
   const prerequisiteRejection = await reviewTaskAcceptancePolicyMutation(cwd, { id: input.id, status: "pending", updatedAt: state.updatedAt }, { id: input.id, dependsOn: input.dependsOn, protectedDependsOn: input.protectedDependsOn, acceptanceAuthority: input.acceptanceAuthority });
   if (prerequisiteRejection) return { state, accepted: false, message: prerequisiteRejection };

@@ -302,19 +302,23 @@ export async function loadProposedExecutionPlan(cwd: string): Promise<ExecutionP
 }
 
 export async function saveProposedExecutionPlan(cwd: string, plan: ExecutionPlanArtifact, now = new Date()): Promise<ExecutionPlanArtifact> {
-  const normalized = normalizeExecutionPlan(plan, now);
-  validateExecutionPlan(normalized);
-  await mkdir(getExecutionPlansDir(cwd), { recursive: true });
-  await writeFile(getProposedExecutionPlanPath(cwd), `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
-  return normalized;
+  return withValidationPolicyLock(cwd, async () => {
+    const normalized = normalizeExecutionPlan(plan, now);
+    validateExecutionPlan(normalized);
+    await mkdir(getExecutionPlansDir(cwd), { recursive: true });
+    await writeFile(getProposedExecutionPlanPath(cwd), `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
+    return normalized;
+  });
 }
 
 export async function saveExecutionPlan(cwd: string, plan: ExecutionPlanArtifact, now = new Date()): Promise<ExecutionPlanArtifact> {
-  const normalized = normalizeExecutionPlan(plan, now);
-  validateExecutionPlan(normalized);
-  await mkdir(getExecutionPlansDir(cwd), { recursive: true });
-  await writeFile(getCurrentExecutionPlanPath(cwd), `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
-  return normalized;
+  return withValidationPolicyLock(cwd, async () => {
+    const normalized = normalizeExecutionPlan(plan, now);
+    validateExecutionPlan(normalized);
+    await mkdir(getExecutionPlansDir(cwd), { recursive: true });
+    await writeFile(getCurrentExecutionPlanPath(cwd), `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
+    return normalized;
+  });
 }
 
 export async function acceptReplanProposal(
