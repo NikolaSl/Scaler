@@ -94,13 +94,14 @@ async function completeNext(dir: string, id = "EXPORT") {
     return { taskId: id, exitCode: 0, stderr: "", timedOut: false, aborted: false,
       stdoutEvents: [{ type: "scaler_task_report", taskId: id, ...request.attempt, status: "completed", summary: "Artifact proposed for actual validation." }] };
   });
-  assert.equal(handoff.validationHandoff?.status, "validation_required");
+  assert.equal(handoff.validationHandoff?.status, "validation_required", handoff.message);
   return runTaskValidation(dir, await loadState(dir), id);
 }
 
 test("guarded model update then matching replan enforces actual columns before current completion", async () => {
   await fixture(async dir => {
-    const draft = await propose(dir, { validationCommands: [shape, columns] });
+    await propose(dir, { validationCommands: [shape, columns] });
+    const draft = (await loadProposedExecutionPlan(dir))!;
     await refuse(dir);
     const updated = await updateTask(dir, await loadState(dir), { id: "EXPORT", validationCommands: [shape, columns], acceptanceAuthority: "model", qualityMode: "enforce" });
     assert.equal(updated.accepted, true, updated.message); // No extra user confirmation for an allowed unexercised policy edit.
@@ -109,7 +110,7 @@ test("guarded model update then matching replan enforces actual columns before c
     assert.deepEqual((await loadExecutionPlan(dir)).tasks, draft.tasks);
     assert.deepEqual((await getValidationManifestForTask(dir, "EXPORT")).commands.map(command => command.id), ["shape", "columns"]);
     await writeFile(join(dir, "out.csv"), "name\nAda\n");
-    const failed = await completeNext(dir);
+    const failed = await runTaskValidation(dir, await loadState(dir), "EXPORT");
     assert.equal(failed.status, "failed");
     assert.deepEqual(failed.commandRuns.map(command => command.status), ["passed", "failed"]);
     assert.equal((await loadState(dir)).validatedTaskIds.includes("EXPORT"), false);

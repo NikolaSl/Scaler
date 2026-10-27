@@ -649,7 +649,7 @@ export async function saveValidationManifest(
   });
 }
 
-async function normalizeValidationManifest(
+export async function normalizeValidationManifest(
   cwd: string,
   manifest: TaskValidationManifest,
   timestamp = new Date().toISOString(),

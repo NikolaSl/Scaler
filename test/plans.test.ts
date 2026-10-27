@@ -907,6 +907,12 @@ test("acceptReplanProposal reopens only validated tasks linked to needs_replan c
       createdAt: state.createdAt,
       updatedAt: state.createdAt,
     }, now);
+    // These preservation-only fixtures use synthetic accepted labels; seed the
+    // actual policy that the unchanged plan claims to preserve, not fresh evidence.
+    for (const task of currentPlan.tasks) await saveValidationManifest(dir, {
+      taskId: task.id, definitionOfDone: task.definitionOfDone,
+      commands: task.validationCommands!.map(command => ({ ...command, required: command.required ?? true })), createdAt: "", updatedAt: "",
+    });
     const proposedPlan: ExecutionPlanArtifact = {
       version: 1,
       planVersion: 2,
@@ -993,6 +999,10 @@ test("acceptReplanProposal resumes an applying decision without losing audit or 
       updatedAt: state.createdAt,
     };
     await saveExecutionPlan(dir, currentPlan, now);
+    for (const task of currentPlan.tasks) await saveValidationManifest(dir, {
+      taskId: task.id, definitionOfDone: task.definitionOfDone,
+      commands: task.validationCommands!.map(command => ({ ...command, required: command.required ?? true })), createdAt: "", updatedAt: "",
+    });
     const proposedPlan: ExecutionPlanArtifact = { ...currentPlan, status: "draft" };
     const { updatedAt: _proposalUpdatedAt, ...proposalIdentity } = proposedPlan;
     const proposalFingerprint = createHash("sha256").update(JSON.stringify(proposalIdentity)).digest("hex");
@@ -1144,6 +1154,10 @@ test("acceptReplanProposal rejects stale applying coverage before durable plan o
         createdAt: state.createdAt,
         updatedAt: state.createdAt,
       }, now);
+      for (const task of currentPlan.tasks) await saveValidationManifest(dir, {
+        taskId: task.id, definitionOfDone: task.definitionOfDone,
+        commands: task.validationCommands!.map(command => ({ ...command, required: command.required ?? true })), createdAt: "", updatedAt: "",
+      });
       const proposedPlan: ExecutionPlanArtifact = { ...currentPlan, planVersion: 2, status: "draft" };
       const { updatedAt: _proposalUpdatedAt, ...proposalIdentity } = proposedPlan;
       const proposalFingerprint = createHash("sha256").update(JSON.stringify(proposalIdentity)).digest("hex");
