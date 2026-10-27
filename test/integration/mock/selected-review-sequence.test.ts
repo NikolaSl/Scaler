@@ -13,7 +13,7 @@ import { saveTaskContextManifest } from "../../../src/context.js";
 import { verifyAcceptedTaskEvidence } from "../../../src/accepted-evidence.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { createTask } from "../../../src/tasks.js";
-import { recordValidationChecklist, runTaskValidation, runValidationCommand, saveValidationManifest } from "../../../src/validation.js";
+import { loadValidationRuns, recordValidationChecklist, runTaskValidation, runValidationCommandSet, saveValidationManifest } from "../../../src/validation.js";
 import { loadTaskAgentReports } from "../../../src/task-reports.js";
 import { loadPrdRequirements, upsertPrdRequirement } from "../../../src/prd.js";
 import { runConductorStep } from "./provider-bound-helpers.js";
@@ -187,8 +187,10 @@ for (const material of [true, false]) test(`source-first completed review to cur
       assert.equal((await loadState(dir)).validatedTaskIds.includes("DECISION"), false);
       assert.equal(first.commandRuns[1]?.status, "failed");
       await writeFile(join(dir, "candidate.json"), candidate("local"));
-      const resolution = await runValidationCommand(dir, constraint);
+      const resolution = await runValidationCommandSet(dir, "DECISION", [constraint], "author-resolution");
       assert.equal(resolution.status, "passed");
+      assert.equal((await loadValidationRuns(dir)).find(run => run.id === resolution.id)?.commandRuns[0]?.status, "passed");
+      assert.equal((await loadState(dir)).validatedTaskIds.includes("DECISION"), false);
       await assess(true, [first.id, resolution.id]); // Fresh author disposition, not a fresh reviewer vote.
       assert.equal((await loadState(dir)).validatedTaskIds.includes("DECISION"), false);
       assert.equal((await runTaskValidation(dir, await loadState(dir), "DECISION")).status, "passed");

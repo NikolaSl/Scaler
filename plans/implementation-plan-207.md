@@ -11,6 +11,8 @@ not candidate acceptance. Author assesses both a material mismatch and an
 unsupported plugin demand. The unchanged objective check rejects remote output.
 Repair candidate only, run an actual resolving check, then record fresh author
 dispositions citing the same proposal plus current evidence before acceptance.
+Persist the resolving command set through the existing run ledger before citing
+its ID; a standalone command result alone does not make a durable reference.
 Also allow a correct-minimal/no-objection comparison, not a finding quota.
 Preserve the same finite run child cap through replacement; do not add a counter.
 
