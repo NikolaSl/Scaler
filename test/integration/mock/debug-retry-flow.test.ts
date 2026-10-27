@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { loadDebugAttempts, loadDebugReports, loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
 import { verifyAcceptedTaskEvidence } from "../../../src/accepted-evidence.js";
+import { getBudgetState } from "../../../src/budgets.js";
 import { saveDebugRetryPolicy } from "../../../src/debug-retry.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { runValidationWithExecutionLock } from "../../../src/operations.js";
@@ -86,7 +87,7 @@ const poll = setInterval(() => {
       }] };
     });
     assert.equal(diagnosed.ingestion?.ingested, true);
-    assert.ok((await loadDebugReports(dir))[0]?.evidenceRefs.includes(diagnostic!.id));
+    assert.ok((await loadDebugReports(dir))[0]?.evidenceRefs?.includes(diagnostic!.id));
     const cosmetic = await runDebugNextApproachRetry(dir, await loadState(dir), { taskId: "WAIT", execute: true, timeoutMs: 5000 }, async request => {
       await writeFile(join(dir, "result.txt"), "required payload");
       return { ...passingRun(request), stdoutEvents: [{ ...taskReport(request.taskId), ...request.attempt, changedFiles: ["result.txt"] }] };
@@ -113,7 +114,7 @@ const poll = setInterval(() => {
     assert.equal(full.result?.status, "passed", full.message);
     assert.deepEqual(await verifyAcceptedTaskEvidence(dir, await loadState(dir), "WAIT"), []);
     assert.equal(await readFile(join(dir, "trace.txt"), "utf8"), "ready");
-    assert.equal((await loadState(dir)).budgets.usage?.spawnedAgents, 3);
+    assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents, 3);
     assert.deepEqual((await loadDebugAttempts(dir)).map(a => a.result).sort(), ["fixed", "same_failure"]);
   });
 });

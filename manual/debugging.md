@@ -86,6 +86,14 @@ Statuses:
 
 `/scaler-debug-retry [taskId] [execute]` turns the latest accepted `next_approach` report for a debugging task into a supervised retry. Prepare mode builds the retry task-agent prompt with the next approach and exact failing validation command(s). Execute mode runs the task agent, requires a completed structured `scaler_task_report`, reruns only the exact command(s) that failed previously, records `.scaler/debug/retries.json`, and records a structured debug attempt. Missing/invalid/non-completed task reports block exact validation. If exact validation passes, the default policy leaves the task `validating` for full validation. If exact validation fails, the task returns to `debugging` with a `same_failure` attempt.
 
+Executed command records retain their configured `timeoutMs`; exact retry reuses
+that cap rather than silently becoming unbounded. A historical timed-out record
+without a positive finite cap (or any selected record with a malformed supplied
+cap) refuses the whole exact set before dispatch: revalidate under the current
+policy first. Historical non-timeout records without a cap keep prior behavior;
+they are not evidence of bounded execution. This does not strengthen general
+process-tree cancellation or reconstruct timeouts from log text.
+
 `/scaler-debug-retry-policy` stores retry automation policy in `.scaler/debug/retry-policy.json`:
 
 ```text

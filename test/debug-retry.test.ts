@@ -16,6 +16,7 @@ import type { TaskAgentRequest, TaskAgentRunResult, RunTaskAgentOptions } from "
 import type { ScalerState } from "../src/types.js";
 import { getValidationManifestForTask, loadValidationRuns, saveValidationManifest, runTaskValidation, upsertValidationManifestCommand } from "../src/validation.js";
 import { getBudgetState, setBudgetLimits } from "../src/budgets.js";
+import { getValidationRunsPath } from "../src/paths.js";
 import { loadTaskAttempts } from "../src/task-attempts.js";
 import { loadTaskAgentReports } from "../src/task-reports.js";
 import { loadExecutionLock } from "../src/locks.js";
@@ -37,6 +38,22 @@ test("exact retry retains recorded timeout and refuses unrecoverable caps withou
     assert.throws(() => selectExactFailedValidationCommands(record(cap)), /timeout.*revalidat/i);
   }
   assert.equal(selectExactFailedValidationCommands(record(undefined, "failed")).length, 2, "Historical non-timeout absent caps retain prior behavior, not boundedness proof.");
+});
+
+test("historical timed-out record without its cap refuses public retry before charge or runner", async () => {
+  await withTempDir(async dir => {
+    await seedDebuggingTask(dir);
+    const runs = await loadValidationRuns(dir);
+    runs[0]!.commandRuns[0]!.status = "timed_out";
+    delete runs[0]!.commandRuns[0]!.timeoutMs;
+    // Explicit legacy-record injection; not a newly produced supported record.
+    await writeFile(getValidationRunsPath(dir), JSON.stringify({ version: 1, runs }));
+    const before = await loadState(dir); let calls = 0;
+    await assert.rejects(runDebugNextApproachRetry(dir, before, { taskId: "T-RETRY", execute: true }, async request => {
+      calls++; return passingRun(request);
+    }), /timeout.*revalidat/i);
+    assert.equal(calls, 0); assert.deepEqual(await loadState(dir), before);
+  });
 });
 
 const runDebugNextApproachRetry: typeof runDebugNextApproachRetryImpl = (cwd, state, options = {}, runner) =>
