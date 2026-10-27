@@ -8,7 +8,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { loadDebugAttempts, loadDebugReports, loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
+import { loadDebugAttempts, loadDebugReports, loadDebugRetries, recordDebugAttempt, recordDebugReport } from "../../../src/debug.js";
 import { verifyAcceptedTaskEvidence } from "../../../src/accepted-evidence.js";
 import { getBudgetState } from "../../../src/budgets.js";
 import { saveDebugRetryPolicy } from "../../../src/debug-retry.js";
@@ -35,6 +35,50 @@ function taskReport(taskId: string): Record<string, unknown> {
 function passingRun(request: TaskAgentRequest): TaskAgentRunResult {
   return { taskId: request.taskId, exitCode: 0, stdoutEvents: [{ ...taskReport(request.taskId), ...request.attempt }], stderr: "", timedOut: false, aborted: false };
 }
+
+test("mock integration: normalized failed approaches reach the fresh implementation retry", async () => {
+  await withTempDir(async dir => {
+    const state = createDefaultState(); state.stage = "execution"; state.currentTaskId = "HISTORY";
+    state.budgets = { limits: { spawnedAgents: { hard: 4 }, tacticChanges: { hard: 1 }, wallClockMs: { hard: 60_000 } } };
+    state.tasks = [{ id: "HISTORY", status: "validating", taskKind: "non_software", title: "Write the required payload",
+      allowedPathPrefixes: ["fixed.txt"], definitionOfDone: ["fixed.txt contains the required payload."], updatedAt: state.createdAt }];
+    await saveState(dir, state);
+    await writeFile(join(dir, "fixed.txt"), ""); // An actual ineffective approach, not an invented history label.
+    await saveValidationManifest(dir, { taskId: "HISTORY", outputPaths: ["fixed.txt"], commands: [{ id: "payload",
+      command: "node -e \"require('node:assert/strict').equal(require('node:fs').readFileSync('fixed.txt','utf8'),'required payload')\"",
+      required: true, gate: "consistency", timeoutMs: 5000 }], createdAt: state.createdAt, updatedAt: state.createdAt });
+    const failed = await runTaskValidation(dir, await loadState(dir), "HISTORY");
+    assert.equal(failed.status, "failed");
+    const prior = await recordDebugAttempt(dir, await loadState(dir), { taskId: "HISTORY", failureId: "EMPTY",
+      hypothesis: "Creating an empty marker is sufficient.", actionSummary: "EMPTY-MARKER did not satisfy the payload criterion.",
+      result: "same_failure", failureFingerprint: "missing-payload", evidence: [failed.id], validationRun: failed.id });
+    assert.equal(prior.accepted, true);
+    const storedPrior = (await loadDebugAttempts(dir)).find(a => a.id === prior.attempt!.id);
+    const history = `${prior.attempt!.id}: ${prior.attempt!.actionSummary} Evidence: ${failed.id}`;
+    const diagnosed = await runDebugAgentStep(dir, await loadState(dir), { taskId: "HISTORY", execute: true, tools: [], timeoutMs: 5000 }, async request => {
+      assert.match(request.prompt, /EMPTY-MARKER/);
+      return { taskId: request.taskId, exitCode: 0, stderr: "", timedOut: false, aborted: false, stdoutEvents: [{
+        type: "scaler_debug_report", id: "HISTORY-NEXT", taskId: "HISTORY", status: "next_approach",
+        summary: "Repair the payload", attemptedApproaches: [history], rootCause: "The payload is empty.",
+        nextApproach: "Write required payload to fixed.txt.", evidenceRefs: [failed.id],
+      }] };
+    });
+    assert.equal(diagnosed.ingestion?.ingested, true);
+    assert.deepEqual((await loadDebugReports(dir))[0]?.attemptedApproaches, [history]);
+    let calls = 0;
+    const retried = await runDebugNextApproachRetry(dir, await loadState(dir), { taskId: "HISTORY", execute: true, tools: [], timeoutMs: 5000 }, async request => {
+      calls++; assert.deepEqual(request.tools, []);
+      assert.ok(request.prompt.includes(history), "Fresh implementation worker must receive the normalized failed-approach summary.");
+      await writeFile(join(dir, "fixed.txt"), "required payload");
+      return passingRun(request);
+    });
+    assert.equal(calls, 1); assert.equal(retried.status, "exact_validation_passed", retried.message);
+    assert.equal((await runValidationWithExecutionLock(dir, await loadState(dir), "HISTORY")).result?.status, "passed");
+    assert.deepEqual(await verifyAcceptedTaskEvidence(dir, await loadState(dir), "HISTORY"), []);
+    assert.deepEqual((await loadDebugAttempts(dir)).find(a => a.id === prior.attempt!.id), storedPrior);
+    assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents, 2);
+  });
+});
 
 test("mock integration: actual timeout trace discriminates causes and cosmetic output cannot replace cause repair", async () => {
   await withTempDir(async dir => {

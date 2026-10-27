@@ -733,6 +733,7 @@ export function buildNextApproachContextItem(selection: DebugRetrySelection): Co
     selection.report.failureId ? `Failure id: ${selection.report.failureId}` : undefined,
     selection.report.failureFingerprint ? `Failure fingerprint: ${selection.report.failureFingerprint}` : undefined,
     selection.report.rootCause ? `Root cause: ${selection.report.rootCause}` : undefined,
+    selection.report.attemptedApproaches?.length ? `Reported prior approaches: ${JSON.stringify(selection.report.attemptedApproaches)}` : undefined,
     `Next approach: ${selection.report.nextApproach}`,
     selection.report.investigationSummary ? `Investigation: ${selection.report.investigationSummary}` : undefined,
     selection.report.evidenceRefs?.length ? `Evidence refs: ${selection.report.evidenceRefs.join(", ")}` : undefined,
