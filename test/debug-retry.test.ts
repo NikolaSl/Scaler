@@ -22,6 +22,22 @@ import { loadExecutionLock } from "../src/locks.js";
 import { saveTaskContextManifest } from "../src/context.js";
 import { loadContextSplitRecords } from "../src/context-splits.js";
 import { withTestProviderAdmissionModel } from "./provider-model-fixture.js";
+import { selectExactFailedValidationCommands } from "../src/debug-retry.js";
+import type { ValidationRunRecord } from "../src/validation.js";
+
+test("exact retry retains recorded timeout and refuses unrecoverable caps without selecting a partial set", () => {
+  const record = (timeoutMs: unknown, status = "timed_out") => ({
+    id: "run", taskId: "WAIT", status: "failed", createdAt: "2026-01-01T00:00:00Z", commandRuns: [
+      { commandId: "first", command: "exec node first.cjs", required: true, status: "failed" },
+      { commandId: "worker", command: "exec node worker.cjs", required: true, status, timeoutMs },
+    ],
+  } as ValidationRunRecord);
+  assert.equal(selectExactFailedValidationCommands(record(1000))[1]?.timeoutMs, 1000);
+  for (const cap of [undefined, 0, -1, Infinity, NaN, "1000"]) {
+    assert.throws(() => selectExactFailedValidationCommands(record(cap)), /timeout.*revalidat/i);
+  }
+  assert.equal(selectExactFailedValidationCommands(record(undefined, "failed")).length, 2, "Historical non-timeout absent caps retain prior behavior, not boundedness proof.");
+});
 
 const runDebugNextApproachRetry: typeof runDebugNextApproachRetryImpl = (cwd, state, options = {}, runner) =>
   runDebugNextApproachRetryImpl(cwd, state, withTestProviderAdmissionModel(options), runner);

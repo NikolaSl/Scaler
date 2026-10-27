@@ -4,18 +4,19 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { loadDebugAttempts, loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
+import { loadDebugAttempts, loadDebugReports, loadDebugRetries, recordDebugReport } from "../../../src/debug.js";
+import { verifyAcceptedTaskEvidence } from "../../../src/accepted-evidence.js";
 import { saveDebugRetryPolicy } from "../../../src/debug-retry.js";
 import { readLogEvents } from "../../../src/logging.js";
 import { runValidationWithExecutionLock } from "../../../src/operations.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
-import { getValidationManifestForTask, saveValidationManifest, loadValidationRuns, runTaskValidation, upsertValidationManifestCommand } from "../../../src/validation.js";
-import { runDebugConductorLoop, runDebugNextApproachRetry } from "./provider-bound-helpers.js";
+import { getValidationManifestForTask, saveValidationManifest, loadValidationRuns, runTaskValidation, runValidationCommand, upsertValidationManifestCommand } from "../../../src/validation.js";
+import { runDebugAgentStep, runDebugConductorLoop, runDebugNextApproachRetry } from "./provider-bound-helpers.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "scaler-debug-retry-integration-test-"));
@@ -33,6 +34,89 @@ function taskReport(taskId: string): Record<string, unknown> {
 function passingRun(request: TaskAgentRequest): TaskAgentRunResult {
   return { taskId: request.taskId, exitCode: 0, stdoutEvents: [{ ...taskReport(request.taskId), ...request.attempt }], stderr: "", timedOut: false, aborted: false };
 }
+
+test("mock integration: actual timeout trace discriminates causes and cosmetic output cannot replace cause repair", async () => {
+  await withTempDir(async dir => {
+    const state = createDefaultState(); state.stage = "execution"; state.currentTaskId = "WAIT";
+    state.budgets = { limits: { spawnedAgents: { hard: 5 }, tacticChanges: { hard: 2 }, wallClockMs: { hard: 60_000 } } };
+    state.tasks = [{ id: "WAIT", status: "validating", taskKind: "non_software",
+      title: "Resolve a worker timeout without suppressing the required result",
+      allowedPathPrefixes: ["input.txt", "work.lock", "result.txt"],
+      definitionOfDone: ["Worker completes without a lock and result.txt equals the required input."], updatedAt: state.createdAt }];
+    await saveState(dir, state);
+    await writeFile(join(dir, "worker.cjs"), `
+const fs = require('node:fs'), assert = require('node:assert/strict');
+const backstop = setTimeout(() => process.exit(9), 5000);
+const poll = setInterval(() => {
+  const stage = !fs.existsSync('input.txt') ? 'waiting-for-input' : fs.existsSync('work.lock') ? 'waiting-for-lock' : 'ready';
+  fs.writeFileSync('trace.txt', stage);
+  if (stage !== 'ready') return;
+  clearInterval(poll); clearTimeout(backstop);
+  assert.equal(fs.readFileSync('input.txt', 'utf8'), 'required payload');
+  assert.equal(fs.readFileSync('result.txt', 'utf8'), fs.readFileSync('input.txt', 'utf8'));
+}, 10);
+`);
+    await writeFile(join(dir, "probe.cjs"), "process.stdout.write(require('node:fs').readFileSync('trace.txt','utf8'));");
+    const worker = { id: "worker", command: "exec node worker.cjs", required: true, gate: "consistency" as const, timeoutMs: 1000 };
+    const probe = { id: "probe", command: "exec node probe.cjs", required: true, timeoutMs: 1000 };
+    const predictions = { input: "waiting-for-input", lock: "waiting-for-lock" }; // Declared before either diagnostic.
+    // Same actual command, alternate cause: present input but held lock.
+    await writeFile(join(dir, "input.txt"), "required payload"); await writeFile(join(dir, "work.lock"), "held");
+    assert.equal((await runValidationCommand(dir, worker)).status, "timed_out");
+    const alternate = await runValidationCommand(dir, probe);
+    assert.equal(alternate.status, "passed"); assert.equal(alternate.stdoutSummary, predictions.lock);
+    await rm(join(dir, "input.txt")); await rm(join(dir, "work.lock"));
+    await upsertValidationManifestCommand(dir, { taskId: "WAIT", ...worker });
+    await saveValidationManifest(dir, { ...await getValidationManifestForTask(dir, "WAIT"),
+      outputPaths: ["input.txt", "work.lock", "result.txt"], validationInputPaths: ["worker.cjs", "probe.cjs"] });
+    const initial = await runTaskValidation(dir, await loadState(dir), "WAIT");
+    assert.equal(initial.status, "failed"); assert.equal(initial.commandRuns[0]?.status, "timed_out");
+    assert.equal(initial.commandRuns[0]?.timeoutMs, worker.timeoutMs);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "debugging");
+    let diagnostic: Awaited<ReturnType<typeof runValidationCommand>> | undefined;
+    const diagnosed = await runDebugAgentStep(dir, await loadState(dir), { taskId: "WAIT", execute: true, tools: ["read"], timeoutMs: 5000 }, async request => {
+      diagnostic = await runValidationCommand(dir, probe); // Real trace, not the fixture case label.
+      assert.equal(diagnostic.status, "passed"); assert.equal(diagnostic.stdoutSummary, predictions.input);
+      assert.notEqual(diagnostic.stdoutSummary, alternate.stdoutSummary);
+      return { taskId: request.taskId, exitCode: 0, timedOut: false, aborted: false, stderr: "", stdoutEvents: [{
+        type: "scaler_debug_report", id: "COSMETIC", taskId: "WAIT", status: "next_approach",
+        summary: "Adversarial cosmetic proposal after actual diagnosis", failureFingerprint: "worker-timeout",
+        rootCause: "Input unavailable", investigationSummary: `Predicted ${predictions.input} or ${predictions.lock}; observed ${diagnostic.stdoutSummary}`,
+        nextApproach: "Write result.txt only without supplying the missing input.", evidenceRefs: [initial.id, diagnostic.id],
+      }] };
+    });
+    assert.equal(diagnosed.ingestion?.ingested, true);
+    assert.ok((await loadDebugReports(dir))[0]?.evidenceRefs.includes(diagnostic!.id));
+    const cosmetic = await runDebugNextApproachRetry(dir, await loadState(dir), { taskId: "WAIT", execute: true, timeoutMs: 5000 }, async request => {
+      await writeFile(join(dir, "result.txt"), "required payload");
+      return { ...passingRun(request), stdoutEvents: [{ ...taskReport(request.taskId), ...request.attempt, changedFiles: ["result.txt"] }] };
+    });
+    assert.equal(cosmetic.status, "exact_validation_failed");
+    assert.equal(cosmetic.exactValidationRun?.commandRuns[0]?.status, "timed_out");
+    assert.equal(cosmetic.exactValidationRun?.commandRuns[0]?.command, worker.command);
+    assert.equal((await loadState(dir)).validatedTaskIds.includes("WAIT"), false);
+    assert.notDeepEqual(await verifyAcceptedTaskEvidence(dir, await loadState(dir), "WAIT"), []);
+    const corrected = await recordDebugReport(dir, await loadState(dir), { id: "CAUSE-FIX", taskId: "WAIT", status: "next_approach",
+      summary: "Correct the observed input cause, not the output symptom", rootCause: "Input unavailable", failureFingerprint: "worker-timeout",
+      nextApproach: "Supply required input.txt and rerun the unchanged worker command.",
+      evidenceRefs: [diagnostic!.id, cosmetic.exactValidationRun!.id] });
+    assert.equal(corrected.accepted, true);
+    const fixed = await runDebugNextApproachRetry(dir, await loadState(dir), { taskId: "WAIT", execute: true, timeoutMs: 5000 }, async request => {
+      assert.match(request.prompt, /Supply required input/);
+      await writeFile(join(dir, "input.txt"), "required payload");
+      return { ...passingRun(request), stdoutEvents: [{ ...taskReport(request.taskId), ...request.attempt, changedFiles: ["input.txt"] }] };
+    });
+    assert.equal(fixed.status, "exact_validation_passed", fixed.message);
+    assert.equal(fixed.exactValidationRun?.commandRuns[0]?.command, worker.command);
+    assert.equal((await loadState(dir)).tasks[0]?.status, "validating");
+    const full = await runValidationWithExecutionLock(dir, await loadState(dir), "WAIT");
+    assert.equal(full.result?.status, "passed", full.message);
+    assert.deepEqual(await verifyAcceptedTaskEvidence(dir, await loadState(dir), "WAIT"), []);
+    assert.equal(await readFile(join(dir, "trace.txt"), "utf8"), "ready");
+    assert.equal((await loadState(dir)).budgets.usage?.spawnedAgents, 3);
+    assert.deepEqual((await loadDebugAttempts(dir)).map(a => a.result).sort(), ["fixed", "same_failure"]);
+  });
+});
 
 test("mock integration: debug retry policy auto-starts next approach and runs full validation", async () => {
   await withTempDir(async (dir) => {
