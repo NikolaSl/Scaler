@@ -4,6 +4,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { fingerprintValidationPolicy } from "./attempt-identity.js";
 import { activePrdRequirements, retiredPrdRefRejection } from "./prd.js";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -22,7 +23,7 @@ import { assertStateSnapshotCurrent, saveState } from "./state.js";
 import { assessTaskDefinitionQuality, normalizeTaskKind } from "./task-quality.js";
 import { createTask, reviewTaskAcceptancePolicyMutation, updateTask, type UpdateTaskInput } from "./tasks.js";
 import type { ScalerState, ScalerTaskKind, ScalerTaskQualityWaiver } from "./types.js";
-import { assertValidationPolicyMutationAuthorized, getValidationManifestForTask, loadValidationManifests, withValidationPolicyLock, type EmbeddedValidationManifestCommandInput, type ValidationPolicyAuthority } from "./validation.js";
+import { assertValidationPolicyMutationAuthorized, getValidationManifestForTask, loadValidationManifests, normalizeValidationManifest, withValidationPolicyLock, type EmbeddedValidationManifestCommandInput, type ValidationPolicyAuthority } from "./validation.js";
 
 export const executionPlanStatuses = ["draft", "active", "superseded", "completed"] as const;
 export type ExecutionPlanStatus = (typeof executionPlanStatuses)[number];
@@ -378,6 +379,7 @@ async function acceptReplanProposalLocked(
     decision.status === "accepted" && decision.proposalFingerprint === proposalFingerprint,
   );
   if (acceptedDecision) {
+    await assertReplanValidationBasis(cwd, state, proposedPlan);
     const durablePlan = await loadExecutionPlan(cwd);
     const targetPlan: ExecutionPlanArtifact = {
       ...proposedPlan,
@@ -499,6 +501,7 @@ async function acceptReplanProposalLocked(
     return { accepted: false, message: decision.summary, state, decision, currentPlan, proposedPlan };
   }
 
+  await assertReplanValidationBasis(cwd, state, proposedPlan);
   await preflightExecutionPlanValidationInputs(cwd, proposedPlan);
   const targetPlanVersion = applyingDecision?.proposedPlanVersion
     ?? Math.max(currentPlan.planVersion + 1, proposedPlan.planVersion);
@@ -622,6 +625,29 @@ async function acceptReplanProposalLocked(
     snapshotPath,
     applyResult: published.applyResult,
   };
+}
+
+async function assertReplanValidationBasis(cwd: string, state: ScalerState, plan: ExecutionPlanArtifact): Promise<void> {
+  for (const task of normalizeExecutionPlan(plan, new Date()).tasks) {
+    const existing = state.tasks.find(candidate => candidate.id === task.id);
+    if (!existing) continue;
+    const manifest = await getValidationManifestForTask(cwd, task.id);
+    const current = await normalizeValidationManifest(cwd, {
+      ...manifest, definitionOfDone: existing.definitionOfDone ?? manifest.definitionOfDone,
+    });
+    const proposed = await normalizeValidationManifest(cwd, {
+      ...current,
+      outputPaths: task.outputPaths ?? current.outputPaths,
+      validationInputPaths: task.validationInputPaths ?? current.validationInputPaths,
+      definitionOfDone: task.definitionOfDone ?? current.definitionOfDone,
+      commands: task.validationCommands?.length
+        ? task.validationCommands.map(command => ({ ...command, required: command.required ?? true })) : current.commands,
+    });
+    // Compare declarations, not a second reading of mutable source bytes.
+    if (fingerprintValidationPolicy(current) !== fingerprintValidationPolicy({ ...proposed, validationInputFingerprint: current.validationInputFingerprint })) {
+      throw new Error(`Replan validation basis mismatch for ${task.id}: revise its current policy through the guarded task-update/replacement path before accepting the plan.`);
+    }
+  }
 }
 
 export async function applyExecutionPlanTasks(

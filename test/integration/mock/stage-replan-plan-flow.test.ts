@@ -218,7 +218,7 @@ test("integration: runtime PRD replan request becomes preserved plan, accepted d
     state.validatedTaskIds = ["T-KEEP"];
     state.completedTaskIds = ["T-KEEP"];
     await saveState(dir, state);
-    await saveExecutionPlan(dir, {
+    const currentPlan = await saveExecutionPlan(dir, {
       version: 1,
       planVersion: 1,
       status: "active",
@@ -227,6 +227,9 @@ test("integration: runtime PRD replan request becomes preserved plan, accepted d
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
+    const keep = currentPlan.tasks[0]!;
+    await saveValidationManifest(dir, { taskId: keep.id, definitionOfDone: keep.definitionOfDone,
+      commands: keep.validationCommands!.map(command => ({ ...command, required: command.required ?? true })), createdAt: "", updatedAt: "" });
     await appendReplanRequest(dir, {
       id: "REPLAN-INTEGRATION",
       trigger: "coverage_gap",
