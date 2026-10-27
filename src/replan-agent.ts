@@ -22,7 +22,7 @@ import {
   type ExecutionPlanPreservationCheck,
   type ReplanRequest,
 } from "./plans.js";
-import { computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdCoverageSummary, type RuntimePrdRequirementsFile } from "./prd.js";
+import { activePrdRequirements, computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, type RuntimePrdCoverageSummary, type RuntimePrdRequirementsFile } from "./prd.js";
 import { requireTaskPromptAdmission, TaskPromptAdmissionError, type TaskPromptAdmissionDecision } from "./prompt-admission.js";
 import { createStrictProviderAdmissionPolicy, type ProviderAdmissionModel } from "./provider-admission.js";
 import { recordProviderUsageBudget, type ProviderUsage } from "./provider-usage.js";
@@ -131,7 +131,7 @@ export function buildReplanAgentPrompt(input: ReplanAgentPromptInput): string {
   const lines = [
     "You are a focused SCALER replanner agent.",
     "Consume only the supplied supervisor state, open replan requests, runtime PRD coverage, and current execution plan.",
-    "Produce a replacement execution plan only when it preserves validated progress and links all known runtime requirements.",
+    "Produce a replacement execution plan only when it preserves validated progress and links all active runtime requirements. Explicitly superseded records remain historical, not executable obligations.",
     "Do not accept the plan yourself; SCALER will run preservation checks and `/scaler-replan-accept` separately.",
     "",
     `Supervisor: ${formatStateStatus(input.state)}`,
@@ -144,8 +144,8 @@ export function buildReplanAgentPrompt(input: ReplanAgentPromptInput): string {
     "Open replan requests:",
     JSON.stringify(openRequests, null, 2),
     "",
-    "Runtime PRD requirements:",
-    JSON.stringify(input.requirements.requirements, null, 2),
+    "Active runtime PRD requirements (exact historical records remain available through the requirement catalog):",
+    JSON.stringify(activePrdRequirements(input.requirements), null, 2),
     "",
     "Runtime PRD coverage:",
     JSON.stringify(requirementCoverage, null, 2),
@@ -158,7 +158,7 @@ export function buildReplanAgentPrompt(input: ReplanAgentPromptInput): string {
     "",
     "Required preservation rules:",
     "- Preserve every validated task id already in the current plan.",
-    "- Preserve validated requirement coverage; do not unlink known runtime requirements.",
+    "- Preserve validated active requirement coverage; do not unlink active runtime requirements.",
     "- Link every proposed task to runtime PRD refs when possible.",
     "- Check both directions at initial planning, every decomposition and every replan against original user wording and current authorized requirements: every requested outcome and constraint needs a sufficient planned path to acceptance; every executable task must serve a requirement directly or as a necessary prerequisite.",
     "- For each disputed task or prerequisite, state the criterion that would fail without it and whether a simpler sufficient approach removes it. Record the compact rationale and evidence in the existing task description or plan summary; remove unjustified work before proposing executable tasks.",

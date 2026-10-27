@@ -12,8 +12,9 @@ import { setTimeout as delay } from "node:timers/promises";
 import scalerExtension from "../src/index.js";
 import { getPrdRequirementsPath } from "../src/paths.js";
 import { acceptReplanProposal, applyExecutionPlanTasks, applyPlanningReport, createEmptyExecutionPlan, loadExecutionPlan, saveExecutionPlan, saveProposedExecutionPlan } from "../src/plans.js";
-import { amendPrdRequirement, computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, savePrdRequirements, upsertPrdRequirement } from "../src/prd.js";
+import { amendPrdRequirement, computePrdCoverageSummary, loadPrdCoverage, loadPrdRequirements, savePrdCoverage, savePrdRequirements, upsertPrdRequirement } from "../src/prd.js";
 import { completeRunWithEvidence } from "../src/run-completion.js";
+import { buildReplanAgentPrompt } from "../src/replan-agent.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { createTask, updateTask } from "../src/tasks.js";
 import { runTaskValidation } from "../src/validation.js";
@@ -66,7 +67,7 @@ test("explicit supersession retains exact history while NEW-only actual validati
     const summary = computePrdCoverageSummary(await loadPrdRequirements(dir), await loadPrdCoverage(dir), await loadState(dir));
     assert.deepEqual(summary.unlinkedRequirementIds, ["NEW"]);
     assert.equal((await completeRunWithEvidence(dir, await loadState(dir))).accepted, false);
-    const applied = await applyPlanningReport(dir, await loadState(dir), { requirements: [], plan: plan() });
+    const applied = await applyPlanningReport(dir, await loadState(dir), { requirements: [{ id: "NEW", statement: "replacement note" }], plan: plan() });
     assert.equal(applied.accepted, true, applied.message);
     assert.deepEqual(applied.report.diagnostics.unlinkedRequirementIds, []);
     await fs.writeFile(join(dir, "note.txt"), "replacement note");
@@ -84,6 +85,15 @@ test("explicit supersession retains exact history while NEW-only actual validati
       acceptanceCriteria: [{ id: "EXACT", statement: "Exact replacement note", validationTaskId: "NOTE", commandId: "note", participantTaskIds: ["NOTE"] }],
     } });
     assert.equal((await completeRunWithEvidence(dir, await loadState(dir))).accepted, false, "Changed basis needs revalidation.");
+    await saveProposedExecutionPlan(dir, { ...await loadExecutionPlan(dir), planVersion: 2, status: "draft" });
+    const replanned = await acceptReplanProposal(dir, await loadState(dir), await loadPrdRequirements(dir));
+    assert.equal(replanned.accepted, true, replanned.message);
+    const refreshed = await runConductorStep(dir, await loadState(dir), { execute: true }, async request => ({
+      taskId: request.taskId, exitCode: 0, timedOut: false, aborted: false, stderr: "", stdoutEvents: [{
+        type: "scaler_task_report", taskId: request.taskId, ...request.attempt, status: "completed", summary: "Rechecked against amended criterion.",
+      }],
+    }));
+    assert.equal(refreshed.validationHandoff?.status, "validation_required", JSON.stringify(refreshed));
     assert.equal((await runTaskValidation(dir, await loadState(dir), "NOTE")).status, "passed");
     const complete = await completeRunWithEvidence(dir, await loadState(dir));
     assert.equal(complete.accepted, true, complete.message);
@@ -109,6 +119,31 @@ test("stale, retired targets and terminal clear/retarget/edit attempts preserve 
     const catalog = await loadPrdRequirements(dir);
     const cleared = structuredClone(catalog); delete (cleared.requirements.find(r => r.id === "OLD") as any).supersededBy;
     await assert.rejects(savePrdRequirements(dir, cleared)); assert.deepEqual(await snapshot(dir), before);
+    const rolledBack = structuredClone(catalog);
+    const old = rolledBack.requirements.find(r => r.id === "OLD")!;
+    old.versionHistory = old.versionHistory!.slice(0, 1); old.revision = 1; delete old.supersededBy;
+    await assert.rejects(savePrdRequirements(dir, rolledBack), /authority|roll back/i); assert.deepEqual(await snapshot(dir), before);
+    await assert.rejects(upsertPrdRequirement(dir, { id: "OLD", statement: "initial note" }), /terminal/i);
+    assert.deepEqual(await snapshot(dir), before);
+  });
+});
+
+test("retired criteria and historical validated coverage stay retrievable, not NEW acceptance evidence", async () => {
+  await fixture(async dir => {
+    await amendPrdRequirement(dir, { id: "OLD", expectedRevision: 1, reason: "Original criterion", changes: {
+      acceptanceCriteria: [{ id: "OLD-CHECK", statement: "Original note", validationTaskId: "OLD-TASK", commandId: "old", participantTaskIds: ["OLD-TASK"] }],
+    } });
+    await savePrdCoverage(dir, { version: 1, entries: [{ requirementId: "OLD", status: "validated", taskIds: ["OLD-TASK"], evidenceRefs: ["historical-claim"], updatedAt: "2026-01-01T00:00:00Z" }] });
+    const original = (await loadPrdRequirements(dir)).requirements.find(r => r.id === "OLD")!;
+    const coverage = await loadPrdCoverage(dir);
+    const retired = await supersede(dir, "NEW", 2);
+    assert.deepEqual(retired.acceptanceCriteria, original.acceptanceCriteria);
+    assert.deepEqual(retired.versionHistory!.slice(0, 2), original.versionHistory);
+    assert.deepEqual(await loadPrdCoverage(dir), coverage);
+    assert.deepEqual(computePrdCoverageSummary(await loadPrdRequirements(dir), coverage, await loadState(dir)).entries.map(e => [e.requirementId, e.status]), [["NEW", "pending"]]);
+    const applied = await applyPlanningReport(dir, await loadState(dir), { requirements: [], plan: plan() });
+    assert.equal(applied.accepted, true, applied.message);
+    assert.equal((await completeRunWithEvidence(dir, await loadState(dir))).accepted, false);
   });
 });
 
@@ -129,21 +164,22 @@ for (const kind of ["pending", "ready", "validated", "shared", "current", "propo
   });
 });
 
-for (const route of ["create", "update", "planning", "direct", "current", "proposed", "replan"] as const) test(`${route} refuses new retired executable refs before publication`, async () => {
+for (const padded of [false, true]) for (const route of ["create", "update", "planning", "direct", "current", "proposed", "replan"] as const) test(`${route} refuses ${padded ? "padded" : "exact"} retired executable refs before publication`, async () => {
   await fixture(async dir => {
     const staleRequirements = await loadPrdRequirements(dir);
     await supersede(dir);
     if (route === "update") assert.equal((await createTask(dir, await loadState(dir), { id: "NOTE", prdRefs: ["NEW"] })).accepted, true);
     const before = await snapshot(dir), state = await loadState(dir);
+    const retiredRef = padded ? " OLD " : "OLD";
     if (route === "create" || route === "update") {
       const operation = route === "create" ? createTask : updateTask;
-      const result = await operation(dir, state, { id: "NOTE", prdRefs: ["OLD"] });
+      const result = await operation(dir, state, { id: "NOTE", prdRefs: [retiredRef] });
       assert.equal(result.accepted, false); assert.match(result.message, /supersed|retired/i);
-    } else await assert.rejects(route === "planning" ? applyPlanningReport(dir, state, { requirements: [], plan: plan("OLD") })
-      : route === "direct" ? applyExecutionPlanTasks(dir, state, plan("OLD"))
-      : route === "current" ? saveExecutionPlan(dir, plan("OLD"))
-      : route === "proposed" ? saveProposedExecutionPlan(dir, plan("OLD"))
-      : acceptReplanProposal(dir, state, staleRequirements, { proposedPlan: { ...plan("OLD"), planVersion: 2, status: "draft" } }), /supersed|retired|stale/i);
+    } else await assert.rejects(route === "planning" ? applyPlanningReport(dir, state, { requirements: [], plan: plan(retiredRef) })
+      : route === "direct" ? applyExecutionPlanTasks(dir, state, plan(retiredRef))
+      : route === "current" ? saveExecutionPlan(dir, plan(retiredRef))
+      : route === "proposed" ? saveProposedExecutionPlan(dir, plan(retiredRef))
+      : acceptReplanProposal(dir, state, staleRequirements, { proposedPlan: { ...plan(retiredRef), planVersion: 2, status: "draft" } }), /supersed|retired|stale/i);
     assert.deepEqual(await snapshot(dir), before);
   });
 });
@@ -158,6 +194,19 @@ test("model/upsert/catalog replacement cannot forge retirement and ordinary text
     await assert.rejects(savePrdRequirements(dir, catalog)); assert.deepEqual(await snapshot(dir), before);
     await amendPrdRequirement(dir, { id: "OLD", expectedRevision: 1, reason: "Ordinary user wording", changes: { statement: "superseded by NEW" } });
     assert.deepEqual(computePrdCoverageSummary(await loadPrdRequirements(dir), await loadPrdCoverage(dir), await loadState(dir)).unlinkedRequirementIds.sort(), ["NEW", "OLD"]);
+  });
+});
+
+test("replanner receives active obligations, not a demand to relink historical retired IDs", async () => {
+  await fixture(async dir => {
+    await supersede(dir);
+    const requirements = await loadPrdRequirements(dir), state = await loadState(dir);
+    const prompt = buildReplanAgentPrompt({ state, requirements, currentPlan: await loadExecutionPlan(dir), replanRequests: [],
+      coverageSummary: computePrdCoverageSummary(requirements, await loadPrdCoverage(dir), state) });
+    assert.match(prompt, /all active runtime requirements/);
+    assert.doesNotMatch(prompt, /all known runtime requirements|"id": "OLD"|initial note/);
+    assert.match(prompt, /replacement note/);
+    assert.equal(requirements.requirements.find(r => r.id === "OLD")?.statement, "initial note", "History remains separately retrievable.");
   });
 });
 

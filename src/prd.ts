@@ -149,7 +149,8 @@ export function activePrdRequirements(catalog: RuntimePrdRequirementsFile): Runt
 
 export async function retiredPrdRefRejection(cwd: string, refs: readonly string[] = []): Promise<string | undefined> {
   const catalog = await loadPrdRequirements(cwd);
-  const retired = catalog.requirements.filter(r => r.supersededBy !== undefined && refs.includes(r.id));
+  const normalizedRefs = refs.map(ref => ref.trim());
+  const retired = catalog.requirements.filter(r => r.supersededBy !== undefined && normalizedRefs.includes(r.id));
   return retired.length ? `Superseded runtime PRD requirement refs are not executable: ${retired.map(r => r.id).join(", ")}.` : undefined;
 }
 
