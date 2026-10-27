@@ -112,6 +112,28 @@ test("prepareDebugAgentInvocation builds isolated Pi invocation", () => {
   });
 });
 
+test("diagnostic responsibility survives actual request preparation", () => {
+  const context = "Timeout: either the endpoint is unreachable or its response handler never resolves; repairs differ.";
+  const state = debugState();
+  const input = { state, task: state.tasks[0]!, failures: [{
+    id: "TIMEOUT", taskId: "T-001", fingerprint: "timeout", summary: context,
+    expectedResult: "Required reply completes", actualResult: "Timeout", attemptCount: 1,
+    firstSeenAt: state.createdAt, lastSeenAt: state.updatedAt,
+  }], attempts: [], reports: [], researchSummary: "No additional evidence.", replanRequests: [] };
+  const prompt = buildDebugAgentPrompt(input);
+  const prepared = prepareDebugAgentInvocation("/repo", input, { tools: ["read"], command: "pi-test" });
+  assert.equal(prepared.request.prompt, prompt);
+  assert.ok(prompt.includes(context));
+  assert.match(prompt, /competing plausible causes.*different repairs.*smallest discriminating check before another speculative repair/i);
+  assert.match(prompt, /predicted outcomes.*nextApproach.*observed result.*investigationSummary.*evidenceRefs/i);
+  assert.match(prompt, /already evidenced cause.*direct repair.*without inventing alternatives.*hypothesis count/i);
+  assert.match(prompt, /Reject cosmetic symptom suppression.*underlying acceptance criterion/i);
+  assert.match(prompt, /one causal factor.*coupled changes/i);
+  assert.match(prompt, /viable approaches.*exhausted.*recoverable stop.*exhaustedReason/i);
+  assert.match(prompt, /next_approach.*realistic, untried, evidence-backed approach/);
+  assert.deepEqual(prepared.request.tools, ["read"]); // No extra capability or model dispatch.
+});
+
 test("extractDebugReport validates latest structured debug report candidate", () => {
   const result = extractDebugReport([
     { type: "scaler_debug_report", error: "old" },
