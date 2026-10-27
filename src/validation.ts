@@ -194,6 +194,7 @@ export interface ValidationCommandRunRecord {
   id: string;
   commandId: string;
   command: string;
+  timeoutMs?: number;
   status: ValidationCommandStatus;
   exitCode: number | null;
   stdoutSummary: string;
@@ -1324,6 +1325,7 @@ export async function runValidationCommand(
     commandId: command.id,
     command: command.command,
     status,
+    timeoutMs: command.timeoutMs,
     exitCode: result.exitCode,
     stdoutSummary: summarizeOutput(result.stdout),
     stderrSummary: summarizeOutput(result.stderr),

@@ -16,12 +16,45 @@ import type { TaskAgentRequest, TaskAgentRunResult, RunTaskAgentOptions } from "
 import type { ScalerState } from "../src/types.js";
 import { getValidationManifestForTask, loadValidationRuns, saveValidationManifest, runTaskValidation, upsertValidationManifestCommand } from "../src/validation.js";
 import { getBudgetState, setBudgetLimits } from "../src/budgets.js";
+import { getValidationRunsPath } from "../src/paths.js";
 import { loadTaskAttempts } from "../src/task-attempts.js";
 import { loadTaskAgentReports } from "../src/task-reports.js";
 import { loadExecutionLock } from "../src/locks.js";
 import { saveTaskContextManifest } from "../src/context.js";
 import { loadContextSplitRecords } from "../src/context-splits.js";
 import { withTestProviderAdmissionModel } from "./provider-model-fixture.js";
+import { selectExactFailedValidationCommands } from "../src/debug-retry.js";
+import type { ValidationRunRecord } from "../src/validation.js";
+
+test("exact retry retains recorded timeout and refuses unrecoverable caps without selecting a partial set", () => {
+  const record = (timeoutMs: unknown, status = "timed_out") => ({
+    id: "run", taskId: "WAIT", status: "failed", createdAt: "2026-01-01T00:00:00Z", commandRuns: [
+      { commandId: "first", command: "exec node first.cjs", required: true, status: "failed" },
+      { commandId: "worker", command: "exec node worker.cjs", required: true, status, timeoutMs },
+    ],
+  } as ValidationRunRecord);
+  assert.equal(selectExactFailedValidationCommands(record(1000))[1]?.timeoutMs, 1000);
+  for (const cap of [undefined, 0, -1, Infinity, NaN, "1000"]) {
+    assert.throws(() => selectExactFailedValidationCommands(record(cap)), /timeout.*revalidat/i);
+  }
+  assert.equal(selectExactFailedValidationCommands(record(undefined, "failed")).length, 2, "Historical non-timeout absent caps retain prior behavior, not boundedness proof.");
+});
+
+test("historical timed-out record without its cap refuses public retry before charge or runner", async () => {
+  await withTempDir(async dir => {
+    await seedDebuggingTask(dir);
+    const runs = await loadValidationRuns(dir);
+    runs[0]!.commandRuns[0]!.status = "timed_out";
+    delete runs[0]!.commandRuns[0]!.timeoutMs;
+    // Explicit legacy-record injection; not a newly produced supported record.
+    await writeFile(getValidationRunsPath(dir), JSON.stringify({ version: 1, runs }));
+    const before = await loadState(dir); let calls = 0;
+    await assert.rejects(runDebugNextApproachRetry(dir, before, { taskId: "T-RETRY", execute: true }, async request => {
+      calls++; return passingRun(request);
+    }), /timeout.*revalidat/i);
+    assert.equal(calls, 0); assert.deepEqual(await loadState(dir), before);
+  });
+});
 
 const runDebugNextApproachRetry: typeof runDebugNextApproachRetryImpl = (cwd, state, options = {}, runner) =>
   runDebugNextApproachRetryImpl(cwd, state, withTestProviderAdmissionModel(options), runner);

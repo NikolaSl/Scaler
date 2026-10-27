@@ -708,11 +708,17 @@ export async function selectLatestFailedValidationRun(cwd: string, taskId: strin
 export function selectExactFailedValidationCommands(run: ValidationRunRecord): ValidationCommandManifest[] {
   const failedRequired = run.commandRuns.filter((command) => command.required && command.status !== "passed");
   const failed = failedRequired.length > 0 ? failedRequired : run.commandRuns.filter((command) => command.status !== "passed");
+  for (const command of failed) {
+    if ((command.status === "timed_out" || command.timeoutMs !== undefined)
+      && (typeof command.timeoutMs !== "number" || !Number.isFinite(command.timeoutMs) || command.timeoutMs <= 0)) {
+      throw new Error(`Exact retry timeout unavailable or invalid for ${command.commandId}; revalidate under the current policy before retrying.`);
+    }
+  }
   return failed.map((command) => ({
     id: command.commandId,
     command: command.command,
     description: command.description,
-    timeoutMs: undefined,
+    timeoutMs: command.timeoutMs,
     required: command.required,
     gate: command.gate,
     expectedResult: command.expectedResult,
