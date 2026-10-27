@@ -6,7 +6,8 @@
 import { createHash } from "node:crypto";
 import { constants, type Stats } from "node:fs";
 import { lstat, open, readlink } from "node:fs/promises";
-import { join, posix, win32 } from "node:path";
+import { join, posix, win32, resolve, relative, sep, isAbsolute } from "node:path";
+import type { ScalerTaskState } from "./types.js";
 import { fingerprintJson } from "./fingerprints.js";
 
 // Exact paths, not permission prefixes or worker-proposed artifacts. Omitted
@@ -76,6 +77,67 @@ export async function fingerprintValidationInputs(cwd: string, declared: string[
     inputs.push({ path, kind: "file", ...await fingerprintStableFile(absolute, stat, "Validation input") });
   }
   return fingerprintJson(inputs);
+}
+
+export async function readStableContextFile(
+  cwd: string,
+  path: string,
+): Promise<{ bytes: Buffer; outputExemptible: boolean }> {
+  const absolute = resolve(cwd, path);
+  const directBefore = await directProjectFileStat(cwd, path);
+  if (!directBefore) throw new Error(`Context source is not a direct regular file: ${path}`);
+  const file = await open(absolute, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
+  try {
+    const before = await file.stat();
+    if (!before.isFile()) throw new Error(`Context source is not a regular file: ${path}`);
+    const directOpened = await directProjectFileStat(cwd, path);
+    if (!directOpened || !sameFile(directOpened, before)) {
+      throw new Error(`Context source path changed before reading: ${path}`);
+    }
+    const bytes = await file.readFile();
+    const after = await file.stat();
+    if (!sameFile(before, after)) throw new Error(`Context source changed while reading: ${path}`);
+    const directAfter = await directProjectFileStat(cwd, path);
+    return {
+      bytes,
+      outputExemptible: sameFile(directBefore, before) && directAfter !== undefined && sameFile(directAfter, after),
+    };
+  } finally {
+    await file.close();
+  }
+}
+
+export async function directProjectFileStat(cwd: string, path: string): Promise<Stats | undefined> {
+  if (isAbsolute(path) || path === ".." || path.startsWith("../")) return undefined;
+  const parts = path.split("/");
+  try {
+    for (let depth = 1; depth < parts.length; depth++) {
+      const ancestor = await lstat(join(cwd, ...parts.slice(0, depth)));
+      if (!ancestor.isDirectory() || ancestor.isSymbolicLink()) return undefined;
+    }
+    const leaf = await lstat(join(cwd, ...parts));
+    return leaf.isFile() && !leaf.isSymbolicLink() ? leaf : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function normalizeTaskScopedContextPath(
+  cwd: string,
+  source: string,
+  task: ScalerTaskState | undefined,
+): string | undefined {
+  const path = relative(resolve(cwd), resolve(cwd, source)).split(sep).join("/");
+  const parts = path.split("/");
+  if (!task || isAbsolute(source) || source.includes("\\") || source.includes("\0")
+    || path === "." || parts.some((part) => !part || part === ".." || part === "."
+      || [".git", ".scaler", ".ssh", ".aws", ".env"].includes(part)
+      || /\.(?:pem|key|p12)$/i.test(part))
+    || (task.allowedPathPrefixes?.length && !task.allowedPathPrefixes.some((prefix) => {
+      const normalized = prefix.replace(/^\.\//, "").replace(/\/$/, "");
+      return path === normalized || path.startsWith(`${normalized}/`);
+    }))) return undefined;
+  return path;
 }
 
 async function fingerprintStableFile(

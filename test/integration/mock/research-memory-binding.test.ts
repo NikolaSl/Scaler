@@ -9,7 +9,7 @@ import { loadMemoryIndex, retrieveMemory, searchMemory, writeMemory } from "../.
 import { recordResearchReport, loadResearchReports } from "../../../src/research.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { createTask, updateTask } from "../../../src/tasks.js";
-import { resolveTaskContextManifest, saveTaskContextManifest } from "../../../src/context.js";
+import { loadTaskContextManifest, resolveTaskContextManifest, saveTaskContextManifest } from "../../../src/context.js";
 import { runConductorStep } from "./provider-bound-helpers.js";
 
 async function fixture(fn: (dir: string, id: string) => Promise<void>) {
@@ -63,8 +63,14 @@ for (const change of ["bytes", "missing", "symlink", "scope"] as const) test(`re
   });
 });
 
-test("unchanged bound memory supplies strict attempt binding and rejects source mutation in the worker", async () => {
+for (const mixed of [false, true]) test(`bound memory rejects source mutation in the worker with mixed output context=${mixed}`, async () => {
   await fixture(async (dir) => {
+    if (mixed) {
+      assert.equal((await updateTask(dir, await loadState(dir), { id: "NEXT", outputPaths: ["answer.txt", "service.txt"], acceptanceAuthority: "model" })).accepted, true);
+      const manifest = (await loadTaskContextManifest(dir, "NEXT"))!;
+      await saveTaskContextManifest(dir, { ...manifest, items: [...manifest.items, { id: "mutable-output", type: "file", source: "file", path: "service.txt",
+        priority: "required", scope: "full", reason: "Ordinary context that is also a declared output." }] });
+    }
     let calls = 0;
     const result = await runConductorStep(dir, await loadState(dir), { execute: true, tools: [] }, async request => {
       calls++; assert.match(request.prompt, /Provider is local/);
@@ -75,6 +81,20 @@ test("unchanged bound memory supplies strict attempt binding and rejects source 
     assert.equal(calls, 1);
     assert.match(JSON.stringify(result), /context source.*changed|context source.*stale/i);
     assert.equal((await loadState(dir)).validatedTaskIds.includes("NEXT"), false);
+  });
+});
+
+test("report refresh and unrelated memory writes cannot rebaseline old derived evidence", async () => {
+  await fixture(async (dir, id) => {
+    const original = (await retrieveMemory(dir, id)).entry;
+    await writeFile(join(dir, "service.txt"), "provider=remote\n");
+    assert.equal((await loadMemoryIndex(dir)).entries[0]?.validity, "stale");
+    await writeMemory(dir, { title: "Unrelated", content: "Independent observation." });
+    await recordResearchReport(dir, { id: "R1", question: "What provider?", taskId: "NEXT", sources: [{ id: "config", title: "Updated config", quality: "project", path: "service.txt" }] });
+    assert.equal((await retrieveMemory(dir, id)).entry.validity, "stale");
+    assert.deepEqual((await retrieveMemory(dir, id)).entry.sourceBinding, original.sourceBinding);
+    await writeFile(join(dir, "service.txt"), "provider=local\n");
+    assert.equal((await retrieveMemory(dir, id)).entry.validity, "active");
   });
 });
 

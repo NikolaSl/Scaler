@@ -287,12 +287,16 @@ export async function recordResearchReport(cwd: string, input: ResearchReportInp
     }
   }
   for (const evidence of rawEvidence) {
+    const source = report.sources.find(candidate => candidate.id === evidence.sourceId);
     const memory = await writeMemory(cwd, {
       title: evidence.title,
       content: evidence.content,
       source: evidence.sourceId ? `research:${evidence.sourceId}` : "research",
-      taskId: input.taskId,
+      taskId,
       summary: evidence.summary,
+      ...(source?.path && source.contentFingerprint ? { sourceBinding: {
+        reportId: report.id, sourceId: source.id, path: source.path, contentFingerprint: source.contentFingerprint,
+      } } : {}),
       now,
     });
     memoryRefs.push(memory.id);
