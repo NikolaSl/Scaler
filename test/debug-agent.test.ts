@@ -124,10 +124,10 @@ test("diagnostic responsibility survives actual request preparation", () => {
   const prepared = prepareDebugAgentInvocation("/repo", input, { tools: ["read"], command: "pi-test" });
   assert.equal(prepared.request.prompt, prompt);
   assert.ok(prompt.includes(context));
-  assert.match(prompt, /competing plausible causes.*different repairs.*smallest discriminating check/i);
+  assert.match(prompt, /competing plausible causes.*different repairs.*smallest discriminating check before another speculative repair/i);
   assert.match(prompt, /predicted outcomes.*nextApproach.*observed result.*investigationSummary.*evidenceRefs/i);
   assert.match(prompt, /already evidenced cause.*direct repair.*without inventing alternatives.*hypothesis count/i);
-  assert.match(prompt, /cosmetic symptom suppression.*underlying acceptance criterion/i);
+  assert.match(prompt, /Reject cosmetic symptom suppression.*underlying acceptance criterion/i);
   assert.match(prompt, /one causal factor.*coupled changes/i);
   assert.match(prompt, /viable approaches.*exhausted.*recoverable stop.*exhaustedReason/i);
   assert.match(prompt, /next_approach.*realistic, untried, evidence-backed approach/);
