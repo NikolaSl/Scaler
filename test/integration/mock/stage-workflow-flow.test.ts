@@ -15,6 +15,7 @@ import { createDefaultState, loadState, saveState } from "../../../src/state.js"
 import { loadStageWorkflowRunRecords } from "../../../src/stage-workflow.js";
 import type { TaskAgentRequest, TaskAgentRunResult } from "../../../src/subagents.js";
 import type { ScalerState } from "../../../src/types.js";
+import { saveValidationManifest } from "../../../src/validation.js";
 import { runAutonomousStageWorkflow } from "./provider-bound-helpers.js";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -104,7 +105,7 @@ test("mock integration: autonomous stage workflow refreshes Stage III from execu
     state.validatedTaskIds = ["T-DONE"];
     state.completedTaskIds = ["T-DONE"];
     await saveState(dir, state);
-    await saveExecutionPlan(dir, {
+    const currentPlan = await saveExecutionPlan(dir, {
       version: 1,
       planVersion: 1,
       status: "active",
@@ -113,6 +114,9 @@ test("mock integration: autonomous stage workflow refreshes Stage III from execu
       createdAt: "2026-02-01T00:00:00.000Z",
       updatedAt: "2026-02-01T00:00:00.000Z",
     });
+    const done = currentPlan.tasks[0]!;
+    await saveValidationManifest(dir, { taskId: done.id, definitionOfDone: done.definitionOfDone,
+      commands: done.validationCommands!.map(command => ({ ...command, required: command.required ?? true })), createdAt: "", updatedAt: "" });
 
     const result = await runAutonomousStageWorkflow(dir, state, { execute: true, maxSteps: 6 }, { replan: replanRunner });
 
