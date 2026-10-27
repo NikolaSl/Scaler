@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import { getValidationManifestsPath } from "../src/paths.js";
 import { createEmptyExecutionPlan, loadExecutionPlan, loadProposedExecutionPlan, saveExecutionPlan, saveProposedExecutionPlan } from "../src/plans.js";
 import { createDefaultState, loadState, saveState } from "../src/state.js";
 import { createTask } from "../src/tasks.js";
@@ -43,4 +44,40 @@ for (const kind of ["task", "current", "proposed"] as const) test(`catalog fence
     await Promise.allSettled([holder, writer]);
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("task creation rechecks stale state after waiting, before publishing its validation policy", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "scaler-catalog-stale-"));
+  let release!: () => void, acquired!: () => void;
+  const gate = new Promise<void>(yes => { release = yes; });
+  const ready = new Promise<void>(yes => { acquired = yes; });
+  let holder: Promise<void> | undefined, writer: Promise<unknown> | undefined;
+  try {
+    const stale = createDefaultState(); await saveState(dir, stale);
+    holder = withValidationPolicyLock(dir, async () => { acquired(); await gate; });
+    await ready;
+    writer = createTask(dir, stale, { id: "NOTE", validationCommands: [{ id: "unit", command: "node -e \"process.exit(0)\"", required: true }] });
+    const rejected = assert.rejects(writer, /stale|revision|changed/i);
+    const current = await loadState(dir); current.orchestrationReason = "Changed while writer waited";
+    await saveState(dir, current);
+    const before = await readFile(join(dir, ".scaler/state.json"), "utf8");
+    release(); await holder; await rejected;
+    assert.equal(await readFile(join(dir, ".scaler/state.json"), "utf8"), before);
+    await assert.rejects(readFile(getValidationManifestsPath(dir)), { code: "ENOENT" });
+  } finally { release?.(); await Promise.allSettled([holder, writer]); await rm(dir, { recursive: true, force: true }); }
+});
+
+test("public task and plan writers remain reentrant under the existing fence", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "scaler-catalog-reentrant-"));
+  try {
+    const state = createDefaultState(); await saveState(dir, state);
+    await withValidationPolicyLock(dir, async () => {
+      assert.equal((await createTask(dir, state, { id: "NOTE", title: "Note" })).accepted, true);
+      const plan = { ...createEmptyExecutionPlan(), tasks: [{ id: "NOTE", title: "Note" }] };
+      await saveExecutionPlan(dir, plan); await saveProposedExecutionPlan(dir, plan);
+    });
+    assert.equal((await loadState(dir)).tasks[0]?.id, "NOTE");
+    assert.equal((await loadExecutionPlan(dir)).tasks[0]?.id, "NOTE");
+    assert.equal((await loadProposedExecutionPlan(dir))?.tasks[0]?.id, "NOTE");
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });
