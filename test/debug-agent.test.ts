@@ -112,11 +112,8 @@ test("prepareDebugAgentInvocation builds isolated Pi invocation", () => {
   });
 });
 
-for (const context of [
-  "Timeout: either the endpoint is unreachable or its response handler never resolves; repairs differ.",
-  "Trace log-7 proves the handler never resolves; repair that evidenced cause directly.",
-  "All viable approaches exhausted; no new evidence or distinguishing experiment remains.",
-]) test(`diagnostic responsibility survives actual request preparation: ${context}`, () => {
+test("diagnostic responsibility survives actual request preparation", () => {
+  const context = "Timeout: either the endpoint is unreachable or its response handler never resolves; repairs differ.";
   const state = debugState();
   const input = { state, task: state.tasks[0]!, failures: [{
     id: "TIMEOUT", taskId: "T-001", fingerprint: "timeout", summary: context,

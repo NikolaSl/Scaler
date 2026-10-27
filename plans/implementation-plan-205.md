@@ -13,8 +13,10 @@ add schema fields, a semantic classifier, mandatory hypothesis count, extra mode
 call, retry route or budget. One causal factor at a time where practical; justify
 coupled changes and retain the underlying failing acceptance criterion.
 
-Regress the public builder and actual prepared request for timeout ambiguity,
-evidenced-cause and exhausted-approach contexts. This proves supplied model
+Regress the public builder and actual prepared request with a compact timeout
+ambiguity context; assert the conditional evidenced-cause and exhaustion clauses,
+not simulated semantic decisions. Existing exhaustion routing is already present;
+do not describe its clarification as a new stopping mechanism. This proves supplied model
 responsibility and transport only, not correct diagnosis, a real timeout repair,
 semantic enforcement, cross-task failure inheritance or full AC-11/P5. Existing
 aggregate tactic/agent budgets and negative validation remain separate/intact.
