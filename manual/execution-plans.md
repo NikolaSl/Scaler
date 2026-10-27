@@ -92,6 +92,13 @@ Execution plan replacement preservation checks are available in code. They repor
 
 ## Current limitations
 
+Planning reports and accepted replans also reject missing task IDs explicitly
+named by current requirement acceptance criteria (validation owner or participants)
+before executable publication. A proposed task or an existing standalone runtime
+contract can supply that path; latest-plan membership is not mandatory for an
+existing contract. This is reference coverage only, not proof of semantic task
+necessity, criterion adequacy or current passing command evidence.
+
 Autonomous planner-loop coordination exists through `/scaler-stage-workflow`, and structured planner output can be ingested through `scaler_planning_report` to write the initial/current plan, synchronize PRD requirements, align task metadata/quality fields, and record coverage diagnostics before execution. The current-plan artifact can also be written directly and applied through `/scaler-plan-apply`.
 
 Replanner proposal generation exists through `/scaler-replan-run execute`, but proposal acceptance remains an explicit preservation-gated step via `/scaler-replan-accept`.

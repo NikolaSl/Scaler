@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -52,7 +52,12 @@ async function apply(dir: string, tasks = [contract("EXPORT")], version = 1) {
 }
 
 async function snapshot(dir: string) {
-  return { state: await loadState(dir), plan: await loadExecutionPlan(dir),
+  return { state: await loadState(dir),
+    // The absent-plan loader synthesizes timestamps; compare actual persisted bytes/absence.
+    plan: await readFile(join(dir, ".scaler/plans/current-plan.json"), "utf8").catch(error => {
+      if (error.code === "ENOENT") return undefined;
+      throw error;
+    }),
     requirements: await loadPrdRequirements(dir), coverage: await loadPrdCoverage(dir),
     reports: await loadPlanningReports(dir), draft: await loadProposedExecutionPlan(dir),
     decisions: await loadReplanDecisions(dir) };

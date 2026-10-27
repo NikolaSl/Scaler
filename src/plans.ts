@@ -470,6 +470,7 @@ async function acceptReplanProposalLocked(
     proposedPlan,
     new Set(requirements.requirements.map((requirement) => requirement.id)),
   );
+  assertCriterionTaskCoverage(state, proposedPlan, requirements);
   const reopenedState = reopenAffectedValidatedTasks(state, reopenedTaskIds, timestamp);
   await preflightExecutionPlanTaskQuality(cwd, reopenedState, proposedPlan, { updateExisting: false });
   const policyRejections = await preflightExecutionPlanPolicyChanges(cwd, reopenedState, proposedPlan, "model");
@@ -780,6 +781,7 @@ async function applyPlanningReportLocked(
     ...input.requirements.map((requirement) => requirement.id),
   ]);
   assertExecutionPlanCoverage(plan, prospectiveRequirementIds);
+  assertCriterionTaskCoverage(state, plan, currentRequirements);
   await preflightExecutionPlanTaskQuality(cwd, state, plan, { updateExisting: true });
   await preflightExecutionPlanValidationInputs(cwd, plan);
   const policyRejections = await preflightExecutionPlanPolicyChanges(cwd, state, plan, "model");
@@ -904,6 +906,18 @@ function sameAcceptedReplanPlan(current: ExecutionPlanArtifact, target: Executio
 function replanPlanIdentity(plan: ExecutionPlanArtifact): Omit<ExecutionPlanArtifact, "updatedAt"> {
   const { updatedAt: _updatedAt, ...identity } = plan;
   return identity;
+}
+
+function assertCriterionTaskCoverage(state: ScalerState, plan: ExecutionPlanArtifact, requirements: RuntimePrdRequirementsFile): void {
+  // Existing standalone contracts remain executable; latest-plan membership is
+  // not itself required. Only explicit criterion references are checked here.
+  const taskIds = new Set([...state.tasks, ...plan.tasks].map(task => task.id));
+  for (const requirement of requirements.requirements) {
+    for (const criterion of requirement.acceptanceCriteria ?? []) {
+      const missing = [...new Set([criterion.validationTaskId, ...criterion.participantTaskIds])].filter(id => !taskIds.has(id));
+      if (missing.length > 0) throw new Error(`Criterion task coverage rejected before publication: ${requirement.id}/${criterion.id} missing ${missing.join(", ")}.`);
+    }
+  }
 }
 
 function assertExecutionPlanCoverage(
