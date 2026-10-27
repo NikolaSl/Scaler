@@ -112,6 +112,31 @@ test("prepareDebugAgentInvocation builds isolated Pi invocation", () => {
   });
 });
 
+for (const context of [
+  "Timeout: either the endpoint is unreachable or its response handler never resolves; repairs differ.",
+  "Trace log-7 proves the handler never resolves; repair that evidenced cause directly.",
+  "All viable approaches exhausted; no new evidence or distinguishing experiment remains.",
+]) test(`diagnostic responsibility survives actual request preparation: ${context}`, () => {
+  const state = debugState();
+  const input = { state, task: state.tasks[0]!, failures: [{
+    id: "TIMEOUT", taskId: "T-001", fingerprint: "timeout", summary: context,
+    expectedResult: "Required reply completes", actualResult: "Timeout", attemptCount: 1,
+    firstSeenAt: state.createdAt, lastSeenAt: state.updatedAt,
+  }], attempts: [], reports: [], researchSummary: "No additional evidence.", replanRequests: [] };
+  const prompt = buildDebugAgentPrompt(input);
+  const prepared = prepareDebugAgentInvocation("/repo", input, { tools: ["read"], command: "pi-test" });
+  assert.equal(prepared.request.prompt, prompt);
+  assert.ok(prompt.includes(context));
+  assert.match(prompt, /competing plausible causes.*different repairs.*smallest discriminating check/i);
+  assert.match(prompt, /predicted outcomes.*nextApproach.*observed result.*investigationSummary.*evidenceRefs/i);
+  assert.match(prompt, /already evidenced cause.*direct repair.*without inventing alternatives.*hypothesis count/i);
+  assert.match(prompt, /cosmetic symptom suppression.*underlying acceptance criterion/i);
+  assert.match(prompt, /one causal factor.*coupled changes/i);
+  assert.match(prompt, /viable approaches.*exhausted.*recoverable stop.*exhaustedReason/i);
+  assert.match(prompt, /next_approach.*realistic, untried, evidence-backed approach/);
+  assert.deepEqual(prepared.request.tools, ["read"]); // No extra capability or model dispatch.
+});
+
 test("extractDebugReport validates latest structured debug report candidate", () => {
   const result = extractDebugReport([
     { type: "scaler_debug_report", error: "old" },
