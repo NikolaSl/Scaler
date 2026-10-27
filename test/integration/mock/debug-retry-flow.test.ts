@@ -53,6 +53,7 @@ test("mock integration: normalized failed approaches reach the fresh implementat
       hypothesis: "Creating an empty marker is sufficient.", actionSummary: "EMPTY-MARKER did not satisfy the payload criterion.",
       result: "same_failure", failureFingerprint: "missing-payload", evidence: [failed.id], validationRun: failed.id });
     assert.equal(prior.accepted, true);
+    const storedPrior = (await loadDebugAttempts(dir)).find(a => a.id === prior.attempt!.id);
     const history = `${prior.attempt!.id}: ${prior.attempt!.actionSummary} Evidence: ${failed.id}`;
     const diagnosed = await runDebugAgentStep(dir, await loadState(dir), { taskId: "HISTORY", execute: true, tools: [], timeoutMs: 5000 }, async request => {
       assert.match(request.prompt, /EMPTY-MARKER/);
@@ -74,7 +75,7 @@ test("mock integration: normalized failed approaches reach the fresh implementat
     assert.equal(calls, 1); assert.equal(retried.status, "exact_validation_passed", retried.message);
     assert.equal((await runValidationWithExecutionLock(dir, await loadState(dir), "HISTORY")).result?.status, "passed");
     assert.deepEqual(await verifyAcceptedTaskEvidence(dir, await loadState(dir), "HISTORY"), []);
-    assert.deepEqual((await loadDebugAttempts(dir)).find(a => a.id === prior.attempt!.id), prior.attempt);
+    assert.deepEqual((await loadDebugAttempts(dir)).find(a => a.id === prior.attempt!.id), storedPrior);
     assert.equal(getBudgetState(await loadState(dir)).usage.spawnedAgents, 2);
   });
 });
