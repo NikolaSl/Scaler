@@ -5,7 +5,10 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
+import { normalizeTaskScopedContextPath, readStableContextFile } from "./output-artifacts.js";
+import { loadState } from "./state.js";
+import type { ScalerTaskState } from "./types.js";
 import { getMemoryDir, getMemoryIndexPath } from "./paths.js";
 
 export type MemoryValidity = "active" | "stale" | "obsolete" | "unknown";
@@ -21,6 +24,8 @@ export interface MemoryEntry {
   path: string;
   createdAt: string;
   updatedAt: string;
+  sourceBinding?: { reportId: string; sourceId: string; path: string; contentFingerprint: string };
+  sourceDiagnostic?: string;
 }
 
 export interface MemoryIndex {
@@ -37,6 +42,7 @@ export interface WriteMemoryInput {
   summary?: string;
   validity?: MemoryValidity;
   now?: Date;
+  sourceBinding?: MemoryEntry["sourceBinding"];
 }
 
 export interface RetrievedMemory {
@@ -61,9 +67,15 @@ export interface MemorySearchResult {
 
 export interface MemoryRetrieveOptions {
   scope?: string;
+  task?: ScalerTaskState | null;
 }
 
 export async function loadMemoryIndex(cwd: string): Promise<MemoryIndex> {
+  const index = await readMemoryIndex(cwd);
+  return { ...index, entries: await Promise.all(index.entries.map(entry => assessMemorySource(cwd, entry))) };
+}
+
+async function readMemoryIndex(cwd: string): Promise<MemoryIndex> {
   try {
     const raw = await readFile(getMemoryIndexPath(cwd), "utf8");
     return normalizeMemoryIndex(JSON.parse(raw) as MemoryIndex);
@@ -97,19 +109,25 @@ export async function writeMemory(cwd: string, input: WriteMemoryInput): Promise
     path: relativePath,
     createdAt: timestamp,
     updatedAt: timestamp,
+    ...(input.sourceBinding ? { sourceBinding: { ...input.sourceBinding } } : {}),
   };
+
+  if (entry.sourceBinding !== undefined && (await assessMemorySource(cwd, entry)).sourceDiagnostic) {
+    throw new Error("Memory source binding is unavailable or stale before publication.");
+  }
 
   await mkdir(getMemoryDir(cwd), { recursive: true });
   await writeFile(absolutePath, formatMemoryFile(entry, input.content), "utf8");
 
-  const index = await loadMemoryIndex(cwd);
+  const index = await readMemoryIndex(cwd);
   await saveMemoryIndex(cwd, { ...index, entries: [...index.entries, entry] });
   return entry;
 }
 
 export async function retrieveMemory(cwd: string, idOrPath: string, options: MemoryRetrieveOptions = {}): Promise<RetrievedMemory> {
-  const index = await loadMemoryIndex(cwd);
-  const entry = findMemoryEntry(index, idOrPath);
+  const index = await readMemoryIndex(cwd);
+  const found = findMemoryEntry(index, idOrPath);
+  const entry = found && await assessMemorySource(cwd, found, options.task);
 
   if (!entry) {
     throw new Error(`Memory not found: ${idOrPath}`);
@@ -117,7 +135,26 @@ export async function retrieveMemory(cwd: string, idOrPath: string, options: Mem
 
   const path = isAbsolute(entry.path) ? entry.path : join(cwd, entry.path);
   const fullContent = await readFile(path, "utf8");
-  return { entry, content: selectMemoryContent(entry, fullContent, options.scope) };
+  const content = selectMemoryContent(entry, fullContent, options.scope);
+  return { entry, content: entry.sourceBinding !== undefined && entry.sourceDiagnostic ? `${formatMemoryReference(entry)}\nHistorical memory bytes (not current evidence):\n${content}` : content };
+}
+
+async function assessMemorySource(cwd: string, entry: MemoryEntry, task?: ScalerTaskState | null): Promise<MemoryEntry> {
+  const binding = entry.sourceBinding;
+  if (binding === undefined) return { ...entry, sourceDiagnostic: "unverified: no structured mutable-source binding" };
+  try {
+    if (!binding.reportId?.trim() || !binding.sourceId?.trim() || !/^sha256:[0-9a-f]{64}$/.test(binding.contentFingerprint)) throw new Error("Invalid memory source binding.");
+    const owner = task === undefined ? (await loadState(cwd)).tasks.find(candidate => candidate.id === entry.taskId) : task ?? undefined;
+    if (typeof binding.path !== "string" || normalizeTaskScopedContextPath(cwd, binding.path, owner) !== binding.path) throw new Error("Memory source is outside current task scope.");
+    const source = await readStableContextFile(cwd, binding.path);
+    if (!source.outputExemptible) throw new Error("Memory source identity changed while checking.");
+    const fingerprint = `sha256:${createHash("sha256").update(source.bytes).digest("hex")}`;
+    if (fingerprint !== binding.contentFingerprint) return { ...entry, validity: entry.validity === "obsolete" ? "obsolete" : "stale", sourceDiagnostic: "stale: original source fingerprint changed" };
+    const { sourceDiagnostic: _diagnostic, ...current } = entry;
+    return current;
+  } catch (error) {
+    return { ...entry, validity: entry.validity === "obsolete" ? "obsolete" : "unknown", sourceDiagnostic: `unknown: ${String(error)}` };
+  }
 }
 
 export async function searchMemory(cwd: string, input: MemorySearchInput = {}): Promise<MemorySearchResult[]> {
@@ -167,7 +204,7 @@ export function formatMemoryReference(entry: MemoryEntry, details: { score?: num
   const task = normalized.taskId ? ` task=${normalized.taskId}` : "";
   const score = details.score !== undefined ? ` score=${details.score}` : "";
   const matched = details.matched && details.matched.length > 0 ? ` matched=${details.matched.join(",")}` : "";
-  return `- ${normalized.id}: ${normalized.title}${task}${tags} validity=${normalized.validity}${score}${matched}\n  path=${normalized.path}\n  summary=${normalized.summary}`;
+  return `- ${normalized.id}: ${normalized.title}${task}${tags} validity=${normalized.validity}${score}${matched}\n  path=${normalized.path}\n  summary=${normalized.summary}${entry.sourceDiagnostic ? `\n  sourceFreshness=${entry.sourceDiagnostic}` : ""}`;
 }
 
 export function selectMemoryContent(entry: MemoryEntry, fullContent: string, scope?: string): string {

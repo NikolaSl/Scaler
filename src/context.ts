@@ -4,7 +4,8 @@
  */
 
 import { createHash } from "node:crypto";
-import { constants, type Stats } from "node:fs";
+import { directProjectFileStat, readStableContextFile, normalizeTaskScopedContextPath } from "./output-artifacts.js";
+export { normalizeTaskScopedContextPath } from "./output-artifacts.js";
 import { lstat, mkdir, open, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Parser } from "commonmark";
@@ -519,6 +520,11 @@ async function resolveManifestItem(
     const fileContext = entry.source === "file"
       ? await resolveFileContextSource(cwd, entry)
       : undefined;
+    const memory = entry.source === "memory" ? await retrieveMemory(cwd, entry.memoryId!, { scope: entry.scope,
+      task: state.tasks.find(task => task.id === manifest.taskId) ?? null }) : undefined;
+    if (memory && memory.entry.sourceBinding !== undefined && (memory.entry.validity !== "active" || memory.entry.sourceDiagnostic)) {
+      throw new Error(`Memory source is not current: ${memory.entry.sourceDiagnostic ?? memory.entry.validity}`);
+    }
     return {
       id: entry.id,
       type: entry.type,
@@ -527,8 +533,9 @@ async function resolveManifestItem(
       scope: entry.scope,
       exactness: normalizeExactness(entry.exactness, entry.scope),
       available: true,
-      content: fileContext?.content ?? await resolveManifestItemContent(cwd, state, manifest, entry),
-      fileSource: fileContext?.binding,
+      content: fileContext?.content ?? memory?.content ?? await resolveManifestItemContent(cwd, state, manifest, entry),
+      fileSource: fileContext?.binding ?? (memory?.entry.sourceBinding ? { itemId: entry.id, path: memory.entry.sourceBinding.path,
+        scope: "reference-only", contentFingerprint: memory.entry.sourceBinding.contentFingerprint, outputExemptible: false } : undefined),
     };
   } catch (error) {
     return {
@@ -647,23 +654,6 @@ export async function snapshotFileContextSource(cwd: string, path: string): Prom
   return resolved.binding.contentFingerprint;
 }
 
-export function normalizeTaskScopedContextPath(
-  cwd: string,
-  source: string,
-  task: ScalerTaskState | undefined,
-): string | undefined {
-  const path = relative(resolve(cwd), resolve(cwd, source)).split(sep).join("/");
-  const parts = path.split("/");
-  if (!task || isAbsolute(source) || source.includes("\\") || source.includes("\0")
-    || path === "." || parts.some((part) => !part || part === ".." || part === "."
-      || [".git", ".scaler", ".ssh", ".aws", ".env"].includes(part)
-      || /\.(?:pem|key|p12)$/i.test(part))
-    || (task.allowedPathPrefixes?.length && !task.allowedPathPrefixes.some((prefix) => {
-      const normalized = prefix.replace(/^\.\//, "").replace(/\/$/, "");
-      return path === normalized || path.startsWith(`${normalized}/`);
-    }))) return undefined;
-  return path;
-}
 
 function renderFileContextContent(
   content: string,
@@ -695,7 +685,7 @@ export async function verifyFileContextSources(
     try {
       const current = await readStableContextFile(cwd, source.path);
       const fingerprint = fingerprintFileBytes(current.bytes);
-      if ((!contentMutablePaths.has(source.path) && fingerprint !== source.contentFingerprint)
+      if (((!source.outputExemptible || !contentMutablePaths.has(source.path)) && fingerprint !== source.contentFingerprint)
         || (source.outputExemptible && !current.outputExemptible)) {
         diagnostics.push(`Task ${taskId} context source ${source.itemId} changed or became stale: ${source.path}.`);
       }
@@ -716,53 +706,6 @@ function normalizeContextSourcePath(cwd: string, path: string): string {
   return relative(resolve(cwd), resolve(cwd, path)).split(sep).join("/") || ".";
 }
 
-async function readStableContextFile(
-  cwd: string,
-  path: string,
-): Promise<{ bytes: Buffer; outputExemptible: boolean }> {
-  const absolute = resolveContextPath(cwd, path);
-  const directBefore = await directProjectFileStat(cwd, path);
-  if (!directBefore) throw new Error(`Context source is not a direct regular file: ${path}`);
-  const file = await open(absolute, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
-  try {
-    const before = await file.stat();
-    if (!before.isFile()) throw new Error(`Context source is not a regular file: ${path}`);
-    const directOpened = await directProjectFileStat(cwd, path);
-    if (!directOpened || !sameFile(directOpened, before)) {
-      throw new Error(`Context source path changed before reading: ${path}`);
-    }
-    const bytes = await file.readFile();
-    const after = await file.stat();
-    if (!sameFile(before, after)) throw new Error(`Context source changed while reading: ${path}`);
-    const directAfter = await directProjectFileStat(cwd, path);
-    return {
-      bytes,
-      outputExemptible: sameFile(directBefore, before) && directAfter !== undefined && sameFile(directAfter, after),
-    };
-  } finally {
-    await file.close();
-  }
-}
-
-async function directProjectFileStat(cwd: string, path: string): Promise<Stats | undefined> {
-  if (isAbsolute(path) || path === ".." || path.startsWith("../")) return undefined;
-  const parts = path.split("/");
-  try {
-    for (let depth = 1; depth < parts.length; depth++) {
-      const ancestor = await lstat(join(cwd, ...parts.slice(0, depth)));
-      if (!ancestor.isDirectory() || ancestor.isSymbolicLink()) return undefined;
-    }
-    const leaf = await lstat(join(cwd, ...parts));
-    return leaf.isFile() && !leaf.isSymbolicLink() ? leaf : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function sameFile(first: Stats, second: Stats): boolean {
-  return first.dev === second.dev && first.ino === second.ino && first.mode === second.mode
-    && first.size === second.size && first.mtimeMs === second.mtimeMs && first.ctimeMs === second.ctimeMs;
-}
 
 export function trimMarkdownHeadingWhitespace(text: string): string {
   return text.replace(/^[ \t]+|[ \t]+$/g, "");
