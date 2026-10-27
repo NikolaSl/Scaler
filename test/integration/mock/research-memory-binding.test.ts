@@ -16,7 +16,7 @@ async function fixture(fn: (dir: string, id: string) => Promise<void>) {
   const dir = await mkdtemp(join(tmpdir(), "scaler-memory-binding-"));
   try {
     const state = createDefaultState(); state.stage = "execution"; await saveState(dir, state);
-    assert.equal((await createTask(dir, state, { id: "NEXT", title: "Inspect current config", taskKind: "non_software",
+    assert.equal((await createTask(dir, state, { id: "NEXT", title: "Inspect current config", taskKind: "non_software", acceptanceAuthority: "model",
       allowedPathPrefixes: ["service.txt", "answer.txt"], outputPaths: ["answer.txt"], definitionOfDone: ["Use current config."],
       atomicityRationale: "One bounded answer.", validationCommands: [{ id: "answer", required: true, command: 'node -e "process.exit(1)"' }] })).accepted, true);
     await writeFile(join(dir, "service.txt"), "provider=local\n");
@@ -90,7 +90,8 @@ test("report refresh and unrelated memory writes cannot rebaseline old derived e
     await writeFile(join(dir, "service.txt"), "provider=remote\n");
     assert.equal((await loadMemoryIndex(dir)).entries[0]?.validity, "stale");
     await writeMemory(dir, { title: "Unrelated", content: "Independent observation." });
-    await recordResearchReport(dir, { id: "R1", question: "What provider?", taskId: "NEXT", sources: [{ id: "config", title: "Updated config", quality: "project", path: "service.txt" }] });
+    await recordResearchReport(dir, { id: "R1", question: "What provider?", taskId: "NEXT", sources: [{ id: "config", title: "Updated config", quality: "project", path: "service.txt" }],
+      conclusions: [{ summary: "Provider is remote.", confidence: "high", sourceRefs: ["config"] }] });
     assert.equal((await retrieveMemory(dir, id)).entry.validity, "stale");
     assert.deepEqual((await retrieveMemory(dir, id)).entry.sourceBinding, original.sourceBinding);
     await writeFile(join(dir, "service.txt"), "provider=local\n");

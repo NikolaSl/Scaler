@@ -136,7 +136,7 @@ export async function retrieveMemory(cwd: string, idOrPath: string, options: Mem
   const path = isAbsolute(entry.path) ? entry.path : join(cwd, entry.path);
   const fullContent = await readFile(path, "utf8");
   const content = selectMemoryContent(entry, fullContent, options.scope);
-  return { entry, content: entry.sourceBinding && entry.sourceDiagnostic ? `${formatMemoryReference(entry)}\nHistorical memory bytes (not current evidence):\n${content}` : content };
+  return { entry, content: entry.sourceBinding !== undefined && entry.sourceDiagnostic ? `${formatMemoryReference(entry)}\nHistorical memory bytes (not current evidence):\n${content}` : content };
 }
 
 async function assessMemorySource(cwd: string, entry: MemoryEntry, task?: ScalerTaskState): Promise<MemoryEntry> {
