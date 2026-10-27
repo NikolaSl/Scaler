@@ -2025,7 +2025,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       const parsed = parsePrdAmendArgs(args);
       if (!parsed) {
-        const message = "Usage: /scaler-prd-amend <REQ-ID> | <expected revision> | <reason> | <JSON fields: statement,title,source,acceptanceCriteria>";
+        const message = "Usage: /scaler-prd-amend <REQ-ID> | <expected revision> | <reason> | <JSON fields: statement,title,source,acceptanceCriteria,supersededBy>";
         if (ctx.hasUI) ctx.ui.notify(message, "warning");
         else console.log(message);
         return;
@@ -2037,7 +2037,7 @@ export default function scalerExtension(pi: ExtensionAPI): void {
         return;
       }
       try {
-        const allowedKeys = new Set(["statement", "title", "source", "acceptanceCriteria"]);
+        const allowedKeys = new Set(["statement", "title", "source", "acceptanceCriteria", "supersededBy"]);
         const unknownKeys = Object.keys(parsed.changes).filter((key) => !allowedKeys.has(key));
         if (unknownKeys.length > 0) throw new Error(`Unknown runtime PRD amendment fields: ${unknownKeys.join(", ")}.`);
         const lock = await acquireExecutionLock(ctx.cwd, {

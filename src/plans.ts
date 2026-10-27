@@ -4,6 +4,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { activePrdRequirements, retiredPrdRefRejection } from "./prd.js";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fingerprintValidationInputs, normalizeOutputPaths, normalizeValidationInputPaths } from "./output-artifacts.js";
@@ -305,6 +306,8 @@ export async function saveProposedExecutionPlan(cwd: string, plan: ExecutionPlan
   return withValidationPolicyLock(cwd, async () => {
     const normalized = normalizeExecutionPlan(plan, now);
     validateExecutionPlan(normalized);
+    const retiredRefs = await retiredPrdRefRejection(cwd, normalized.tasks.flatMap(task => task.prdRefs ?? []));
+    if (retiredRefs) throw new Error(retiredRefs);
     await mkdir(getExecutionPlansDir(cwd), { recursive: true });
     await writeFile(getProposedExecutionPlanPath(cwd), `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
     return normalized;
@@ -315,6 +318,8 @@ export async function saveExecutionPlan(cwd: string, plan: ExecutionPlanArtifact
   return withValidationPolicyLock(cwd, async () => {
     const normalized = normalizeExecutionPlan(plan, now);
     validateExecutionPlan(normalized);
+    const retiredRefs = await retiredPrdRefRejection(cwd, normalized.tasks.flatMap(task => task.prdRefs ?? []));
+    if (retiredRefs) throw new Error(retiredRefs);
     await mkdir(getExecutionPlansDir(cwd), { recursive: true });
     await writeFile(getCurrentExecutionPlanPath(cwd), `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
     return normalized;
@@ -358,6 +363,8 @@ async function acceptReplanProposalLocked(
 
   // Replan application preserves existing contracts; do not publish edges that
   // execution would not enforce. Use the guarded task-update/replacement path first.
+  const retiredRefs = await retiredPrdRefRejection(cwd, proposedPlan.tasks.flatMap(task => task.prdRefs ?? []));
+  if (retiredRefs) throw new Error(retiredRefs);
   for (const task of proposedPlan.tasks) {
     const existing = state.tasks.find((candidate) => candidate.id === task.id);
     if (existing && JSON.stringify((normalizeList(existing.dependsOn) ?? []).sort())
@@ -472,7 +479,7 @@ async function acceptReplanProposalLocked(
 
   assertExecutionPlanCoverage(
     proposedPlan,
-    new Set(requirements.requirements.map((requirement) => requirement.id)),
+    new Set(activePrdRequirements(requirements).map((requirement) => requirement.id)),
   );
   await assertCriterionTaskCoverage(cwd, state, proposedPlan, requirements);
   const reopenedState = reopenAffectedValidatedTasks(state, reopenedTaskIds, timestamp);
@@ -781,8 +788,10 @@ async function applyPlanningReportLocked(
   const plan: ExecutionPlanArtifact = normalizePlanningReportPlan(input.plan, timestamp);
   validateExecutionPlan(plan);
   const currentRequirements = await loadPrdRequirements(cwd);
+  const retiredRefs = await retiredPrdRefRejection(cwd, [...input.requirements.map(r => r.id), ...plan.tasks.flatMap(task => task.prdRefs ?? [])]);
+  if (retiredRefs) throw new Error(retiredRefs);
   const prospectiveRequirementIds = new Set([
-    ...currentRequirements.requirements.map((requirement) => requirement.id),
+    ...activePrdRequirements(currentRequirements).map((requirement) => requirement.id),
     ...input.requirements.map((requirement) => requirement.id),
   ]);
   assertExecutionPlanCoverage(plan, prospectiveRequirementIds);
@@ -806,7 +815,7 @@ async function applyPlanningReportLocked(
   const coverageSummary = computePrdCoverageSummary(requirements, coverage, applyResult.state);
   const diagnostics = buildPlanningCoverageDiagnostics(
     savedPlan,
-    new Set(requirements.requirements.map((requirement) => requirement.id)),
+    new Set(activePrdRequirements(requirements).map((requirement) => requirement.id)),
     coverageSummary.unlinkedRequirementIds,
   );
 
@@ -914,10 +923,12 @@ function replanPlanIdentity(plan: ExecutionPlanArtifact): Omit<ExecutionPlanArti
 }
 
 async function assertCriterionTaskCoverage(cwd: string, state: ScalerState, plan: ExecutionPlanArtifact, requirements: RuntimePrdRequirementsFile): Promise<void> {
+  const retiredRefs = await retiredPrdRefRejection(cwd, plan.tasks.flatMap(task => task.prdRefs ?? []));
+  if (retiredRefs) throw new Error(retiredRefs);
   // Existing standalone contracts and declared coarse future work are valid paths,
   // not proof of fulfillment. Only concrete runtime contracts can execute.
   const taskIds = new Set([...state.tasks, ...plan.tasks].map(task => task.id));
-  const missing = requirements.requirements.flatMap(requirement => (requirement.acceptanceCriteria ?? []).flatMap(criterion =>
+  const missing = activePrdRequirements(requirements).flatMap(requirement => (requirement.acceptanceCriteria ?? []).flatMap(criterion =>
     [...new Set([criterion.validationTaskId, ...criterion.participantTaskIds])].filter(id => !taskIds.has(id))
       .map(id => ({ requirementId: requirement.id, criterionId: criterion.id, id }))));
   if (missing.length === 0) return; // An irrelevant draft cannot block a self-contained path.
@@ -991,7 +1002,7 @@ export function summarizeExecutionPlan(
   const stateTaskIds = new Set(state.tasks.map((task) => task.id));
   const validatedTaskIds = new Set(state.tasks.filter((task) => task.status === "validated").map((task) => task.id));
   const planRequirementIds = new Set(plan.tasks.flatMap((task) => task.prdRefs ?? []));
-  const requirementIds = requirements.requirements.map((requirement) => requirement.id);
+  const requirementIds = activePrdRequirements(requirements).map((requirement) => requirement.id);
 
   return {
     planVersion: plan.planVersion,
@@ -1029,7 +1040,7 @@ export function checkExecutionPlanPreservation(
   const currentPlanTaskIds = new Set(currentPlan.tasks.map((task) => task.id));
   const nextPlanTaskIds = new Set(nextPlan.tasks.map((task) => task.id));
   const nextPlanRequirementIds = new Set(nextPlan.tasks.flatMap((task) => task.prdRefs ?? []));
-  const knownRequirementIds = requirements.requirements.map((requirement) => requirement.id);
+  const knownRequirementIds = activePrdRequirements(requirements).map((requirement) => requirement.id);
   const validatedPlanTasks = state.tasks.filter((task) => task.status === "validated" && currentPlanTaskIds.has(task.id));
   const validatedRequirementIds = [
     ...new Set(

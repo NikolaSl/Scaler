@@ -8,6 +8,7 @@ import { fingerprintTaskContract } from "./attempt-identity.js";
 import { isScalerTaskStatus } from "./reports.js";
 import { assertStateSnapshotCurrent, saveState } from "./state.js";
 import { normalizeOutputPaths, normalizeValidationInputPaths } from "./output-artifacts.js";
+import { retiredPrdRefRejection } from "./prd.js";
 import { reviewTaskDefinition, normalizeTaskKind, normalizeTaskQualityWaivers, type TaskDefinitionReviewRecord, type TaskQualityEnforcementMode, type TaskQualityWaiverInput } from "./task-quality.js";
 import { addTask, transitionTask } from "./supervisor.js";
 import type { ScalerState, ScalerTaskKind, ScalerTaskStatus } from "./types.js";
@@ -131,6 +132,9 @@ async function updateTaskLocked(cwd: string, state: ScalerState, input: UpdateTa
     await appendLogEvent(cwd, createLogEvent(state, { eventType: "state", summary: message, taskId: input.id, details: input }));
     return { state, accepted: false, message };
   }
+
+  const retiredRefs = await retiredPrdRefRejection(cwd, input.prdRefs ?? existing.prdRefs);
+  if (retiredRefs) return { state, accepted: false, message: retiredRefs };
 
   const acceptanceAuthority = input.acceptanceAuthority ?? "system";
   const policyRejection = await reviewTaskAcceptancePolicyMutation(cwd, existing, input);
@@ -274,6 +278,8 @@ export async function createTask(cwd: string, state: ScalerState, input: CreateT
 
 async function createTaskLocked(cwd: string, state: ScalerState, input: CreateTaskInput): Promise<CreateTaskResult> {
   await assertStateSnapshotCurrent(cwd, state);
+  const retiredRefs = await retiredPrdRefRejection(cwd, input.prdRefs);
+  if (retiredRefs) return { state, accepted: false, message: retiredRefs };
   if (input.necessity !== undefined && input.necessity !== "required") return { state, accepted: false, message: `Task necessity is not established for ${input.id}: ${String(input.necessity)}; keep optional/unresolved work outside executable tasks.` };
   const prerequisiteRejection = await reviewTaskAcceptancePolicyMutation(cwd, { id: input.id, status: "pending", updatedAt: state.updatedAt }, { id: input.id, dependsOn: input.dependsOn, protectedDependsOn: input.protectedDependsOn, acceptanceAuthority: input.acceptanceAuthority });
   if (prerequisiteRejection) return { state, accepted: false, message: prerequisiteRejection };
