@@ -294,6 +294,12 @@ export async function recordResearchReport(cwd: string, input: ResearchReportInp
       source: evidence.sourceId ? `research:${evidence.sourceId}` : "research",
       taskId,
       summary: evidence.summary,
+      ...(source ? { researchQualification: JSON.stringify({
+        reportId: report.id, sourceId: source.id, reportedAt: report.updatedAt, question: report.question, status: report.status,
+        conclusions: report.conclusions.filter(conclusion => conclusion.sourceRefs.includes(source.id)),
+        contradictions: (report.contradictions ?? []).filter(contradiction => contradiction.sourceRefs.includes(source.id)),
+        reportUnresolvedUnknowns: report.unresolvedUnknowns ?? [],
+      }) } : {}),
       ...(source?.path && source.contentFingerprint ? { sourceBinding: {
         reportId: report.id, sourceId: source.id, path: normalizeTaskScopedContextPath(cwd, source.path, sourceTask)!, contentFingerprint: source.contentFingerprint,
       } } : {}),

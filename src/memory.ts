@@ -26,6 +26,8 @@ export interface MemoryEntry {
   updatedAt: string;
   sourceBinding?: { reportId: string; sourceId: string; path: string; contentFingerprint: string };
   sourceDiagnostic?: string;
+  // Publication-time reported qualification, not source freshness or acceptance authority.
+  researchQualification?: string;
 }
 
 export interface MemoryIndex {
@@ -43,6 +45,7 @@ export interface WriteMemoryInput {
   validity?: MemoryValidity;
   now?: Date;
   sourceBinding?: MemoryEntry["sourceBinding"];
+  researchQualification?: string;
 }
 
 export interface RetrievedMemory {
@@ -110,6 +113,7 @@ export async function writeMemory(cwd: string, input: WriteMemoryInput): Promise
     createdAt: timestamp,
     updatedAt: timestamp,
     ...(input.sourceBinding ? { sourceBinding: { ...input.sourceBinding } } : {}),
+    ...(input.researchQualification ? { researchQualification: input.researchQualification } : {}),
   };
 
   if (entry.sourceBinding !== undefined && (await assessMemorySource(cwd, entry)).sourceDiagnostic) {
@@ -204,17 +208,17 @@ export function formatMemoryReference(entry: MemoryEntry, details: { score?: num
   const task = normalized.taskId ? ` task=${normalized.taskId}` : "";
   const score = details.score !== undefined ? ` score=${details.score}` : "";
   const matched = details.matched && details.matched.length > 0 ? ` matched=${details.matched.join(",")}` : "";
-  return `- ${normalized.id}: ${normalized.title}${task}${tags} validity=${normalized.validity}${score}${matched}\n  path=${normalized.path}\n  summary=${normalized.summary}${entry.sourceDiagnostic ? `\n  sourceFreshness=${entry.sourceDiagnostic}` : ""}`;
+  return `- ${normalized.id}: ${normalized.title}${task}${tags} validity=${normalized.validity}${score}${matched}\n  path=${normalized.path}\n  summary=${normalized.summary}${entry.sourceDiagnostic ? `\n  sourceFreshness=${entry.sourceDiagnostic}` : ""}${entry.researchQualification ? `\n  Originating research qualification (reported investigation snapshot, not raw-byte confidence or current resolution): ${entry.researchQualification}` : ""}`;
 }
 
 export function selectMemoryContent(entry: MemoryEntry, fullContent: string, scope?: string): string {
   const normalizedScope = scope?.trim();
-  if (!normalizedScope || /^full(?:-file)?$/i.test(normalizedScope)) return fullContent;
+  if (!normalizedScope || /^full(?:-file)?$/i.test(normalizedScope)) return entry.researchQualification ? `${formatMemoryReference(entry)}\n\n${fullContent}` : fullContent;
   if (/^(summary|reference|reference-only)$/i.test(normalizedScope)) return formatMemoryReference(entry);
 
   const sectionName = normalizedScope.replace(/^section:/i, "").trim();
   const section = extractMarkdownSection(fullContent, sectionName);
-  if (section) return section;
+  if (section) return entry.researchQualification ? `${formatMemoryReference(entry)}\n\n${section}` : section;
   return `${formatMemoryReference(entry)}\n  requestedScope=${normalizedScope} (section not found; full memory not injected)`;
 }
 

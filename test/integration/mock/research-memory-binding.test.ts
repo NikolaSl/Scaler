@@ -7,7 +7,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { loadMemoryIndex, retrieveMemory, searchMemory, writeMemory, saveMemoryIndex, type MemoryEntry } from "../../../src/memory.js";
+import { loadMemoryIndex, retrieveMemory, searchMemory, formatMemorySearchResults, writeMemory, saveMemoryIndex, type MemoryEntry } from "../../../src/memory.js";
 import { recordResearchReport, loadResearchReports } from "../../../src/research.js";
 import { createDefaultState, loadState, saveState } from "../../../src/state.js";
 import { createTask, updateTask } from "../../../src/tasks.js";
@@ -192,6 +192,7 @@ test("accepted summary becomes historical after source change without rewriting 
       validationCommands: [{ id: "answer", required: true, timeoutMs: 5000,
         command: "node -e \"const f=require('node:fs'),a=require('node:assert/strict');a.equal(f.readFileSync('answer.txt','utf8'),f.readFileSync('service.txt','utf8').trim().split('=')[1])\"" }] })).accepted, true);
     const original = await retrieveMemory(dir, id);
+    const originalRaw = await readFile(join(dir, original.entry.path), "utf8");
     let calls = 0;
     const result = await runConductorStep(dir, await loadState(dir), { execute: true, tools: [] }, async request => {
       calls++; assert.match(request.prompt, /Provider is local/);
@@ -209,10 +210,79 @@ test("accepted summary becomes historical after source change without rewriting 
     assert.equal((await retrieveMemory(dir, id, { scope: "summary" })).entry.validity, "stale");
     assert.match((await verifyAcceptedTaskEvidence(dir, await loadState(dir), "NEXT")).join(" "), /context.*changed/i);
     assert.deepEqual(await loadValidationRuns(dir), historical);
-    assert.equal(await readFile(join(dir, original.entry.path), "utf8"), original.content);
+    assert.equal(await readFile(join(dir, original.entry.path), "utf8"), originalRaw);
     assert.match((await retrieveMemory(dir, id)).content, /Historical memory bytes.*\n[\s\S]*provider=local/);
     await writeFile(join(dir, "service.txt"), "provider=local\n");
     assert.deepEqual(await verifyAcceptedTaskEvidence(dir, await loadState(dir), "NEXT"), []);
     assert.deepEqual(await loadValidationRuns(dir), historical); // Fresh original-hash recheck, not rewritten acceptance.
+  });
+});
+
+async function qualifiedResearch(dir: string, unknown = "Which source takes precedence?") {
+  assert.equal((await updateTask(dir, await loadState(dir), { id: "NEXT", acceptanceAuthority: "model",
+    allowedPathPrefixes: ["service.txt", "environment.txt", "other.txt", "answer.txt"] })).accepted, true);
+  await writeFile(join(dir, "environment.txt"), "provider=remote\n");
+  await writeFile(join(dir, "other.txt"), "Independent observation.\n");
+  return recordResearchReport(dir, { id: "QUALIFIED", taskId: "NEXT", status: "partial", question: "Effective provider?",
+    sources: [{ id: "config", title: "Config", quality: "project", path: "service.txt" },
+      { id: "env", title: "Environment", quality: "project", path: "environment.txt" },
+      { id: "other", title: "Other", quality: "project", path: "other.txt" }],
+    conclusions: [{ summary: "Effective provider is not established.", confidence: "low", sourceRefs: ["config", "env"] },
+      { summary: "Independent observation recorded.", confidence: "high", sourceRefs: ["other"] }],
+    contradictions: [{ summary: "Config and environment disagree.", status: "unresolved", sourceRefs: ["config", "env"] }],
+    unresolvedUnknowns: [unknown], rawEvidence: [
+      { title: "Config", sourceId: "config", content: `## Config\n${await readFile(join(dir, "service.txt"), "utf8")}`, summary: "Config reports provider=local." },
+      { title: "Other", sourceId: "other", content: await readFile(join(dir, "other.txt"), "utf8") },
+      { title: "Unattributed", content: "Unattributed observation." }],
+  });
+}
+
+test("originating research qualification reaches every retrieval scope and actual worker without changing raw history", async () => {
+  await fixture(async dir => {
+    const report = await qualifiedResearch(dir), id = report.memoryRefs![0]!;
+    const entry = (await retrieveMemory(dir, id)).entry;
+    const raw = await readFile(join(dir, entry.path), "utf8");
+    for (const scope of ["summary", "reference-only", "full", "section:Config"]) {
+      const retrieved = await retrieveMemory(dir, id, { scope });
+      assert.equal(retrieved.entry.validity, "active"); // Fresh raw bytes, not resolution of the investigation.
+      assert.match(retrieved.content, /Originating research qualification/);
+      assert.match(retrieved.content, /"reportId":"QUALIFIED"/);
+      assert.match(retrieved.content, /"status":"partial"/);
+      assert.match(retrieved.content, /"conclusions":\[.*"confidence":"low"/);
+      assert.match(retrieved.content, /Config and environment disagree/);
+      assert.match(retrieved.content, /Which source takes precedence/);
+    }
+    const summary = (await retrieveMemory(dir, id, { scope: "summary" })).content;
+    assert.match(formatMemorySearchResults(await searchMemory(dir, { query: id })), /Config and environment disagree/);
+    const manifest = (await loadTaskContextManifest(dir, "NEXT"))!;
+    await saveTaskContextManifest(dir, { ...manifest, items: manifest.items.map(item => ({ ...item, memoryId: id })) });
+    let calls = 0;
+    await runConductorStep(dir, await loadState(dir), { execute: true, tools: [] }, async request => {
+      calls++; assert.match(request.prompt, /Config reports provider=local/);
+      assert.match(request.prompt, /Config and environment disagree/);
+      assert.match(request.prompt, /Which source takes precedence/);
+      return { taskId: request.taskId, exitCode: 1, stdoutEvents: [], stderr: "Qualified observation admission only", timedOut: false, aborted: false };
+    });
+    assert.equal(calls, 1);
+    assert.match((await retrieveMemory(dir, report.memoryRefs![1]!, { scope: "summary" })).content, /"confidence":"high"/);
+    assert.doesNotMatch((await retrieveMemory(dir, report.memoryRefs![1]!, { scope: "summary" })).content, /Config and environment disagree|"confidence":"low"/);
+    assert.doesNotMatch((await retrieveMemory(dir, report.memoryRefs![2]!, { scope: "summary" })).content, /Originating research qualification/);
+    await recordResearchReport(dir, { id: report.id, taskId: "NEXT", question: report.question, status: "complete",
+      conclusions: [{ summary: "New reported conclusion.", confidence: "high", sourceRefs: ["config"] }],
+      contradictions: [], unresolvedUnknowns: [] });
+    assert.equal((await retrieveMemory(dir, id, { scope: "summary" })).content, summary);
+    assert.equal(await readFile(join(dir, entry.path), "utf8"), raw);
+  });
+});
+
+test("oversized required originating qualification refuses dispatch rather than dropping its limitation", async () => {
+  await fixture(async dir => {
+    const report = await qualifiedResearch(dir, "Unresolved precedence ".repeat(3000));
+    const manifest = (await loadTaskContextManifest(dir, "NEXT"))!;
+    await saveTaskContextManifest(dir, { ...manifest, tokenBudget: 1000, items: manifest.items.map(item => ({ ...item, memoryId: report.memoryRefs![0]! })) });
+    const before = await loadState(dir); let calls = 0;
+    const result = await runConductorStep(dir, before, { execute: true, tools: [] }, async () => { calls++; assert.fail("Required qualification cannot be silently dropped."); });
+    assert.equal(result.accepted, false); assert.equal(calls, 0);
+    assert.deepEqual(await loadState(dir), before);
   });
 });
