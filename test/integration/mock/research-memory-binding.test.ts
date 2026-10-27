@@ -16,6 +16,8 @@ import { runConductorStep } from "./provider-bound-helpers.js";
 import { buildTaskAgentPrompt } from "../../../src/conductor.js";
 import { admitTaskExecution, startTaskExecution, checkTaskExecutionResult } from "../../../src/attempt-execution.js";
 import { acquireExecutionLock, releaseExecutionLock } from "../../../src/locks.js";
+import { verifyAcceptedTaskEvidence } from "../../../src/accepted-evidence.js";
+import { loadValidationRuns, runTaskValidation } from "../../../src/validation.js";
 
 async function fixture(fn: (dir: string, id: string) => Promise<void>, sourcePath = "service.txt") {
   const dir = await mkdtemp(join(tmpdir(), "scaler-memory-binding-"));
@@ -182,4 +184,35 @@ test("strict memory result check rejects ancestor identity drift after reading u
       } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
     } finally { await releaseExecutionLock(dir, lock.lock.id); }
   }, "config/service.txt");
+});
+
+test("accepted summary becomes historical after source change without rewriting its receipt or raw evidence", async () => {
+  await fixture(async (dir, id) => {
+    assert.equal((await updateTask(dir, await loadState(dir), { id: "NEXT", acceptanceAuthority: "model",
+      validationCommands: [{ id: "answer", required: true, timeoutMs: 5000,
+        command: "node -e \"const f=require('node:fs'),a=require('node:assert/strict');a.equal(f.readFileSync('answer.txt','utf8'),f.readFileSync('service.txt','utf8').trim().split('=')[1])\"" }] })).accepted, true);
+    const original = await retrieveMemory(dir, id);
+    let calls = 0;
+    const result = await runConductorStep(dir, await loadState(dir), { execute: true, tools: [] }, async request => {
+      calls++; assert.match(request.prompt, /Provider is local/);
+      await writeFile(join(dir, "answer.txt"), "local");
+      return { taskId: request.taskId, exitCode: 0, stderr: "", timedOut: false, aborted: false,
+        stdoutEvents: [{ type: "scaler_task_report", taskId: request.taskId, ...request.attempt,
+          status: "completed", summary: "Exact current provider summary prepared." }] };
+    });
+    assert.equal(calls, 1); assert.equal(result.validationHandoff?.status, "validation_required");
+    assert.equal((await runTaskValidation(dir, await loadState(dir), "NEXT")).status, "passed");
+    assert.deepEqual(await verifyAcceptedTaskEvidence(dir, await loadState(dir), "NEXT"), []);
+    const historical = await loadValidationRuns(dir);
+    assert.ok(historical[0]?.receipt);
+    await writeFile(join(dir, "service.txt"), "provider=remote\n");
+    assert.equal((await retrieveMemory(dir, id, { scope: "summary" })).entry.validity, "stale");
+    assert.match((await verifyAcceptedTaskEvidence(dir, await loadState(dir), "NEXT")).join(" "), /context.*changed/i);
+    assert.deepEqual(await loadValidationRuns(dir), historical);
+    assert.equal(await readFile(join(dir, original.entry.path), "utf8"), original.content);
+    assert.match((await retrieveMemory(dir, id)).content, /Historical memory bytes.*\n[\s\S]*provider=local/);
+    await writeFile(join(dir, "service.txt"), "provider=local\n");
+    assert.deepEqual(await verifyAcceptedTaskEvidence(dir, await loadState(dir), "NEXT"), []);
+    assert.deepEqual(await loadValidationRuns(dir), historical); // Fresh original-hash recheck, not rewritten acceptance.
+  });
 });
