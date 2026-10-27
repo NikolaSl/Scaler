@@ -470,6 +470,7 @@ async function acceptReplanProposalLocked(
     proposedPlan,
     new Set(requirements.requirements.map((requirement) => requirement.id)),
   );
+  await assertCriterionTaskCoverage(cwd, state, proposedPlan, requirements);
   const reopenedState = reopenAffectedValidatedTasks(state, reopenedTaskIds, timestamp);
   await preflightExecutionPlanTaskQuality(cwd, reopenedState, proposedPlan, { updateExisting: false });
   const policyRejections = await preflightExecutionPlanPolicyChanges(cwd, reopenedState, proposedPlan, "model");
@@ -619,6 +620,7 @@ export async function applyExecutionPlanTasks(
   options: ExecutionPlanApplyOptions = {},
 ): Promise<ExecutionPlanApplyResult> {
   validateExecutionPlan(plan);
+  await assertCriterionTaskCoverage(cwd, state, plan, await loadPrdRequirements(cwd));
   await preflightExecutionPlanValidationInputs(cwd, plan);
   let nextState = state;
   const createdTaskIds: string[] = [];
@@ -780,6 +782,7 @@ async function applyPlanningReportLocked(
     ...input.requirements.map((requirement) => requirement.id),
   ]);
   assertExecutionPlanCoverage(plan, prospectiveRequirementIds);
+  await assertCriterionTaskCoverage(cwd, state, plan, currentRequirements);
   await preflightExecutionPlanTaskQuality(cwd, state, plan, { updateExisting: true });
   await preflightExecutionPlanValidationInputs(cwd, plan);
   const policyRejections = await preflightExecutionPlanPolicyChanges(cwd, state, plan, "model");
@@ -904,6 +907,20 @@ function sameAcceptedReplanPlan(current: ExecutionPlanArtifact, target: Executio
 function replanPlanIdentity(plan: ExecutionPlanArtifact): Omit<ExecutionPlanArtifact, "updatedAt"> {
   const { updatedAt: _updatedAt, ...identity } = plan;
   return identity;
+}
+
+async function assertCriterionTaskCoverage(cwd: string, state: ScalerState, plan: ExecutionPlanArtifact, requirements: RuntimePrdRequirementsFile): Promise<void> {
+  // Existing standalone contracts and declared coarse future work are valid paths,
+  // not proof of fulfillment. Only concrete runtime contracts can execute.
+  const taskIds = new Set([...state.tasks, ...plan.tasks].map(task => task.id));
+  const missing = requirements.requirements.flatMap(requirement => (requirement.acceptanceCriteria ?? []).flatMap(criterion =>
+    [...new Set([criterion.validationTaskId, ...criterion.participantTaskIds])].filter(id => !taskIds.has(id))
+      .map(id => ({ requirementId: requirement.id, criterionId: criterion.id, id }))));
+  if (missing.length === 0) return; // An irrelevant draft cannot block a self-contained path.
+  const future = await loadProposedExecutionPlan(cwd);
+  const unresolved = missing.filter(ref => !(future?.status === "draft" && future.planVersion > plan.planVersion
+    && future.tasks.some(task => task.id === ref.id && task.prdRefs?.includes(ref.requirementId))));
+  if (unresolved.length > 0) throw new Error(`Criterion task coverage rejected before publication: ${unresolved.map(ref => `${ref.requirementId}/${ref.criterionId} missing ${ref.id}`).join(", ")}.`);
 }
 
 function assertExecutionPlanCoverage(
